@@ -1,0 +1,7 @@
+src/aux.build.sh
+src/aux.import.scm
+src/aux.import.so
+src/aux.install.sh
+src/aux.link
+src/aux.so
+src/aux.static.o
