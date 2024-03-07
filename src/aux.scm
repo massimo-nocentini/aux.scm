@@ -14,13 +14,13 @@
                               (let ((hop (lambda args (apply continuation-return cont args))))
                                 body ...))))))
 
-  (define-syntax trycc
-    (syntax-rules (else)
-      ((trycc next (v exp ...) ... (else e ...))
+  (define-syntax letcc*
+    (syntax-rules ()
+      ((letcc* next ((v exp ...) ...) body ...)
        (letcc success
          (let* ((v (letcc next (success (begin exp ...)))) ...
                 (next success))
-           e ...)))))
+           body ...)))))
 
   (define-syntax letcar&cdr
     (syntax-rules ()
