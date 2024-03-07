@@ -16,15 +16,22 @@
 
   (define-syntax trycc
     (syntax-rules (else)
-      ((trycc (next exp ...) ... (else e ...))
-        (letcc success (letcc next (success (begin exp ...))) ... (begin e ...)))))
+      ((trycc next (v exp ...) ... (else e ...))
+       (letcc success
+         (let* ((v (letcc next (success (begin exp ...)))) ...
+                (next success))
+           e ...)))))
 
   (define-syntax letcar&cdr
     (syntax-rules ()
       ((letcar&cdr () body ...) (begin body ...))        
       ((letcar&cdr (((a d) expr) ((aa dd) eexpr) ...) body ...)
-       (let* ((x expr)
-              (a (car x))
-              (d (cdr x)))
-        (letcar&cdr (((aa dd) eexpr) ...) body ...)))))
+       (let* ((x expr) (a (car x)) (d (cdr x)))
+         (letcar&cdr (((aa dd) eexpr) ...) body ...)))))
+
+  (define-syntax define-let
+    (syntax-rules ()
+     ((define-let ((v e) ...) (name formal ...) body ...)
+      (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
+     
 )
