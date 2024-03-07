@@ -25,6 +25,12 @@
         (⊦= 6 (letcc* ⤶ ((v (+ 2 (⤶ 2))))
                 (+ 1 (⤶ (+ 4 v))))))
 
+    ((test/trycc _)
+        (⊦= 5 (trycc ✗ 
+                (+ 1 (✗))
+                (+ 2 3)
+                (cons 3 '()))))
+
     #;(end))
 
 (unittest/✓-sut auxtest)

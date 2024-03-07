@@ -22,6 +22,10 @@
                 (next success))
            body ...)))))
 
+  (define-syntax trycc
+    (syntax-rules ()
+      ((trycc next exp ... else) (letcc* next ((v exp) ...) else))))
+
   (define-syntax letcar&cdr
     (syntax-rules ()
       ((letcar&cdr () body ...) (begin body ...))        
