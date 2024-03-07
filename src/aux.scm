@@ -21,9 +21,10 @@
 
   (define-syntax letcar&cdr
     (syntax-rules ()
-      ((letcar&cdr (((a d) expr) ...) body ...)
-        (let* ((x expr) ...
-               (a (car x)) ...
-               (d (cdr x)) ...)
-            body ...))))
+      ((letcar&cdr () body ...) (begin body ...))        
+      ((letcar&cdr (((a d) expr) ((aa dd) eexpr) ...) body ...)
+       (let* ((x expr)
+              (a (car x))
+              (d (cdr x)))
+        (letcar&cdr (((aa dd) eexpr) ...) body ...)))))
 )

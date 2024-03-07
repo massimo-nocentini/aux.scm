@@ -1,7 +1,7 @@
 
 
 test:
-	csi test/test.scm
+	csi -s test/test.scm
 
 install:
 	chicken-install
