@@ -11,13 +11,17 @@
                      ((aa dd) (cons 2 3)))
             (⊦= a 1) (⊦= d '()) (⊦= aa 2) (⊦= dd 3)))
 
-    ((test/trycc _) 
+    ((test/trycc _)
+        (⊦= 3 (trycc ⤶
+                (v (+ 1 (⤶ 1)))
+                (w (+ 2 v))
+                (else w)))
         (⊦= 1 (trycc ⤶
                 (v (+ 1 (⤶ 1)))
                 (w (+ 2 (⤶ v)))
                 (else w)))
         (⊦= 3 (trycc ⤶
-                (v (+ 1 (⤶ 2)))
+                (v (+ 2 (⤶ 2)))
                 (else (⤶ (+ 1 v))))))
 
     #;(end))
