@@ -1,7 +1,7 @@
 
 (import unittest aux)
 
-(define-sut auxtest
+(define-suite auxtest
 
     ((test/let1 _)
         (let1 (a 1) (⊦= a 1)))
@@ -26,11 +26,11 @@
                 (+ 1 (⤶ (+ 4 v))))))
 
     ((test/trycc _)
-        (⊦= 5 (trycc ✗ 
+        (⊦= 5 (trycc ✗
                 (+ 1 (✗))
                 (+ 2 3)
                 (cons 3 '()))))
 
-    #;(end))
+)
 
-(unittest/✓-sut auxtest)
+(unittest/✓ auxtest)

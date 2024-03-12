@@ -5,3 +5,4 @@ src/aux.install.sh
 src/aux.link
 src/aux.so
 src/aux.static.o
+src/test/test
