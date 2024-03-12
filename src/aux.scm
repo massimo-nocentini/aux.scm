@@ -37,5 +37,7 @@
     (syntax-rules ()
      ((define-let ((v e) ...) (name formal ...) body ...)
       (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
+
+  (define-syntax λ (syntax-rules () ((λ arg body ...) (lambda arg body ...))))
      
 )
