@@ -13,6 +13,9 @@
        (continuation-capture (lambda (cont)
                               (let ((hop (lambda args (apply continuation-return cont args))))
                                 body ...))))))
+                          
+  (define (callcc f)
+    (letcc k (f k)))
 
   (define-syntax letcc*
     (syntax-rules ()
