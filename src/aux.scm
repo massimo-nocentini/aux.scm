@@ -11,11 +11,10 @@
     (syntax-rules ()
       ((letcc hop body ...) 
        (continuation-capture (lambda (cont)
-                              (let ((hop (lambda args (apply continuation-return cont args))))
+                              (let ((hop (lambda (arg) (continuation-return cont arg))))
                                 body ...))))))
                           
-  (define (callcc f)
-    (letcc k (f k)))
+  (define (callcc f) (letcc k (f k)))
 
   (define-syntax letcc*
     (syntax-rules ()
@@ -27,7 +26,9 @@
 
   (define-syntax trycc
     (syntax-rules ()
-      ((trycc next exp ... else) (letcc* next ((v exp) ...) else))))
+      ((trycc (next exp ...) body ...)
+       (letcc* hop ((v (let1 (next (λ0 (hop (void)))) exp)) ...)
+         body ...))))
 
   (define-syntax letcar&cdr
     (syntax-rules ()
@@ -42,5 +43,13 @@
       (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
 
   (define-syntax λ (syntax-rules () ((λ arg body ...) (lambda arg body ...))))
-     
+  (define-syntax λ0 (syntax-rules () ((λ0 body ...) (lambda () body ...))))
+  (define-syntax λ1 (syntax-rules () ((λ0 arg body ...) (lambda (arg) body ...))))
+
+  (define-syntax letmap
+    (syntax-rules ()
+        ((letmap () body ...) (begin body ...))
+        ((letmap ((x expr) (xx exprr) ...) body ...) 
+         (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr))))
+  
 )
