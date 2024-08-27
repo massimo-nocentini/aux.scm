@@ -9,6 +9,7 @@
 
   (define-syntax letcc 
     (syntax-rules ()
+      ((letcc (var ...) hop body ...) (letcc hop (begin (set! var hop) ...) body ...))
       ((letcc hop body ...) 
        (continuation-capture (lambda (cont)
                               (let ((hop (lambda (arg) (continuation-return cont arg))))
@@ -25,8 +26,8 @@
            body ...)))))
 
   (define-syntax trycc
-    (syntax-rules ()
-      ((trycc (next exp ...) body ...)
+    (syntax-rules (else)
+      ((trycc (next exp ...) (else body ...))
        (letcc* hop ((v (let1 (next (λ0 (hop (void)))) exp)) ...)
          body ...))))
 
@@ -43,13 +44,17 @@
       (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
 
   (define-syntax λ (syntax-rules () ((λ arg body ...) (lambda arg body ...))))
+  (define-syntax thunk (syntax-rules () ((λ0 body ...) (lambda () body ...))))
   (define-syntax λ0 (syntax-rules () ((λ0 body ...) (lambda () body ...))))
-  (define-syntax λ1 (syntax-rules () ((λ0 arg body ...) (lambda (arg) body ...))))
+  (define-syntax λ1 (syntax-rules () ((λ1 arg body ...) (lambda (arg) body ...))))
 
   (define-syntax letmap
     (syntax-rules ()
         ((letmap () body ...) (begin body ...))
         ((letmap ((x expr) (xx exprr) ...) body ...) 
          (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr))))
+
+  (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) var))))
+  (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
   
 )
