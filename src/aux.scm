@@ -66,19 +66,28 @@
 
   (define-syntax letnondeterministic 
     (syntax-rules ()
-     ((_ (choose fail mark cut) body ...)
+     ((_ (chooseD chooseB fail markD markB cut) body ...)
       (letcc cc
         (letrec ((pool '())
                  (values '())
                  (fail (thunk
                          (if (null? pool) (cc (reverse values)) (let1 (t (pop! pool)) (t)))))
-                 (choose (lambda (choices)
+                 (chooseD (lambda (choices)
                            (if (null? choices)
                              (fail)
                              (letcc kk
-                               (push! (thunk (kk (choose (cdr choices)))) pool)
+                               (push! (thunk (kk (chooseD (cdr choices)))) pool)
                                (car choices)))))
-                 (mark (thunk (push! fail pool)))
+                 (markD (thunk (push! fail pool)))
+                 (chooseB (lambda (choices mark?)
+                           (if (null? choices)
+                             (fail)
+                             (letcc kk 
+                               (append! (list (thunk (kk (car choices)))) pool)
+                               (when mark? (markB))
+                               (append! (map (lambda (c) (thunk (kk c))) (cdr choices)) pool)
+                               (fail)))))
+                 (markB (thunk (append! (list fail) pool)))
                  (cut (thunk
                         (cond
                          ((null? pool) (void))

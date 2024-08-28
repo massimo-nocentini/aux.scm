@@ -215,15 +215,15 @@
     )
 
     ((test/letnondeterministic/choose-null? _)
-      (⊦= '() (letnondeterministic (? fail • !) (? '()))))
+      (⊦= '() (letnondeterministic (? ¿ fail • ‡ !) (? '()))))
 
 
     ((test/letnondeterministic/choose _)
-       (⊦= '(1 2 3) (letnondeterministic (? fail • !) (? '(1 2 3)))))
+       (⊦= '(1 2 3) (letnondeterministic (? ¿ fail • ‡ !) (? '(1 2 3)))))
 
     ((test/letnondeterministic/odd _)
        (⊦= '(1 3) 
-           (letnondeterministic (? fail • !) 
+           (letnondeterministic (? ¿ fail • ‡ !) 
              (let1 (v (? '(1 2 3))) 
                (if (odd? v) v (fail))))))
 
@@ -243,7 +243,7 @@
            (3 3 1)
            (4 1 2)
            (4 2 1)
-           (5 1 1)) (letnondeterministic (? fail • !)
+           (5 1 1)) (letnondeterministic (? ¿ fail • ‡ !)
         
                 (define (two-numbers)
                   (list (? '(1 2 3 4 5)) (? '(1 2 3 4 5)) (? '(1 2 3 4 5))))
@@ -272,13 +272,12 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic (? fail • !)
+             (letnondeterministic (? ¿ fail • ‡ !)
 
                 (define (coin? x)
                   (member x '((la 1 2) (ny 1 1) (bos 2 2))))
 
                   (let* ((*paths* '())
-                         (triples '())
                          (attempts '())
                          (city (? '(la ny bos)))
                          (store (? '(1 2)))
@@ -298,18 +297,43 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic (? fail • !)
+             (letnondeterministic (? ¿ fail • ‡ !)
 
                 (define (coin? x)
                   (member x '((la 1 2) (ny 1 1) (bos 2 2))))
 
                   (let* ((*paths* '())
-                         (triples '())
                          (attempts '())
                          (city (? '(la ny bos)))
                          (_ (•))
                          (store (? '(1 2)))
                          (box (? '(1 2)))
+                         (triple (list city store box)))
+                  (push! triple attempts)
+                  (if (coin? triple) (begin (!) (reverse attempts)) (fail))))))
+
+        ((test/letnondeterministic/coin+cut/bfs _)
+
+           (⊦= '(((la 1 1) (la 1 2))
+           ((la 1 1) (la 1 2) (ny 1 1))
+           ((la 1 1)
+            (la 1 2)
+            (ny 1 1)
+            (bos 1 1)
+            (bos 1 2)
+            (bos 2 1)
+            (bos 2 2)))
+             (letnondeterministic (? ¿ fail • ‡ !)
+
+                (define (coin? x)
+                  (member x '((la 1 2) (ny 1 1) (bos 2 2))))
+
+                  (let* ((*paths* '())
+                         (attempts '())
+                         (city (¿ '(la ny bos) #t))
+                         #;(_ (‡))
+                         (store (¿ '(1 2) #f))
+                         (box (¿ '(1 2) #f))
                          (triple (list city store box)))
                   (push! triple attempts)
                   (if (coin? triple) (begin (!) (reverse attempts)) (fail))))))
