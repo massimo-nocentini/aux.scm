@@ -66,6 +66,24 @@
                    (z (list (odd? x) (symbol? y))))
             (list (add1 x) y z))))
 
+    ((test/letmapflat _)
+        (⊦= '((2 a #t)
+           (2 a #t)
+           (2 1 #t)
+           (2 1 #f)
+           (3 a #f)
+           (3 a #t)
+           (3 2 #f)
+           (3 2 #f)
+           (4 a #t)
+           (4 a #t)
+           (4 3 #t)
+           (4 3 #f))
+          (letmapflat ((x (list 1 2 3))
+                       (y `(a ,x))
+                       (z (list (odd? x) (symbol? y))))
+            (list (add1 x) y z))))
+
     #;((test/letcc/save _)
         (let* ((frozen (void)))
            (display (append '(the letcc returned) (list (letcc k (set! frozen k) 'a))))
@@ -83,6 +101,7 @@
            (push! i l)
            (froz1 '()))
            l))
+
 
     ((test/letcc/dfs _)
     
