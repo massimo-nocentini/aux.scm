@@ -64,11 +64,9 @@
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
   (define-syntax append! (syntax-rules () ((append! lst ... var) (set! var (append var lst ...)))))
 
-  (define failwitness (gensym))
-
   (define-syntax letnondeterministic 
     (syntax-rules ()
-     ((_ (choose fail) body ...)
+     ((_ (choose fail mark cut) body ...)
       (letcc cc
         (letrec ((pool '())
                  (values '())
@@ -79,7 +77,13 @@
                              (fail)
                              (letcc kk
                                (push! (thunk (kk (choose (cdr choices)))) pool)
-                               (car choices))))))
+                               (car choices)))))
+                 (mark (thunk (push! fail pool)))
+                 (cut (thunk
+                        (cond
+                         ((null? pool) (void))
+                         ((eq? (car pool) fail) (pop! pool) (void))
+                         (else (pop! pool) (cut))))))
           (push! (let () body ...) values)
           (fail))))))
 
