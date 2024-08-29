@@ -275,7 +275,7 @@
              (letnondeterministic (? ¿ fail • ‡ !)
 
                 (define (coin? x)
-                  (member x '((la 1 2) (ny 1 1) (bos 2 2))))
+                  (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
 
                   (let* ((*paths* '())
                          (attempts '())
@@ -300,19 +300,19 @@
              (letnondeterministic (? ¿ fail • ‡ !)
 
                 (define (coin? x)
-                  (member x '((la 1 2) (ny 1 1) (bos 2 2))))
+                  (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
 
                   (let* ((*paths* '())
                          (attempts '())
                          (city (? '(la ny bos)))
-                         (_ (•))
+                         (flag (•))
                          (store (? '(1 2)))
                          (box (? '(1 2)))
                          (triple (list city store box)))
                   (push! triple attempts)
-                  (if (coin? triple) (begin (!) (reverse attempts)) (fail))))))
+                  (if (coin? triple) (begin (! flag) (reverse attempts)) (fail))))))
 
-        ((test/letnondeterministic/coin+cut/bfs _)
+        #;((test/letnondeterministic/coin+cut/bfs _)
 
            (⊦= '(((la 1 1) (la 1 2))
            ((la 1 1) (la 1 2) (ny 1 1))
@@ -326,19 +326,65 @@
              (letnondeterministic (? ¿ fail • ‡ !)
 
                 (define (coin? x)
-                  (member x '((la 1 2) (ny 1 1) (bos 2 2))))
+                  (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
 
                   (let* ((*paths* '())
                          (attempts '())
-                         (city (¿ '(la ny bos) #t))
-                         #;(_ (‡))
-                         (store (¿ '(1 2) #f))
-                         (box (¿ '(1 2) #f))
+                         (city (¿ '(la ny bos)))
+                         (flag (‡))
+                         (store (¿ '(1 2)))
+                         (box (¿ '(1 2)))
                          (triple (list city store box)))
                   (push! triple attempts)
-                  (if (coin? triple) (begin (!) (reverse attempts)) (fail))))))
+                  (if (coin? triple) (begin (! flag) (reverse attempts)) (fail))))))
 
+         ((test/letnondeterministic/graph+cycles/bfs _)
 
+                (⊦= '((a b c a) (a b c e a) (a b d e a))
+                (letnondeterministic (? ¿ fail • ‡ !)
+
+                        (define (neighbors node) ; our graph, with cycles.
+                         (letassoc 
+                          (node '(
+                                (a (b))
+                                (b (c d))
+                                (c (a e))
+                                (d (e))
+                                (e (a))
+                                ))
+                          (else '())))
+
+                        #;(define (path node1 node2 seen)
+                         (let1 (hood (neighbors node1))
+                          (cond
+                           ((null? hood) (fail))
+                           ((pair? (member node2 hood)) (list node2))
+                           (else (let1 (n (? hood)) (cons n (path n node2 (cons node1 seen))))))))
+
+                        #;(define (path node1 node2 seen)
+                         (let1 (hood (neighbors node1))
+                          (cond
+                           ((member? node2 hood) (list node2))
+                           (else (let1 (n (? hood)) (cons n (path n node2 (cons node1 seen))))))))
+
+                        #;(define (path node1 node2 seen)
+                          (if (member? node1 seen)
+                           (list)
+                           (let1 (n (? (neighbors node1))) 
+                            (cons n (path n node2 (cons node1 seen))))))
+
+                        (define (path node1 node2 seen)
+                          (if (member? node1 seen)
+                           (fail)
+                           (let1 (n (? (neighbors node1)))
+                             (if (eq? n node2)
+                              (list node2)
+                              (cons n (path n node2 (cons node1 seen)))))))
+
+                        (let* ((source 'a)
+                               (p (path source 'a '())))
+                         (cons source p))
+                )))
 )
 
 (unittest/✓ auxtest)

@@ -47,6 +47,7 @@
   (define-syntax thunk (syntax-rules () ((thunk body ...) (lambda () body ...))))
   (define-syntax λ0 (syntax-rules () ((λ0 body ...) (lambda () body ...))))
   (define-syntax λ1 (syntax-rules () ((λ1 arg body ...) (lambda (arg) body ...))))
+  (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
   (define-syntax letmap
     (syntax-rules ()
@@ -60,9 +61,17 @@
         ((letmapflat ((x expr) (xx exprr) ...) body ...) 
          (apply append (map (lambda (x) (letmapflat ((xx exprr) ...) body ...)) expr)))))
 
-  (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) var))))
+  (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
-  (define-syntax append! (syntax-rules () ((append! lst ... var) (set! var (append var lst ...)))))
+  (define-syntax append! (syntax-rules () ((append! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
+
+  (define (member? v lst) (pair? (member v lst)))
+
+  (define-syntax letassoc 
+   (syntax-rules (else) 
+    ((letassoc (searchexpr lstexpr) (else body ...))
+     (let1 (p (assoc searchexpr lstexpr))
+      (if (pair? p) (cadr p) (begin body ...))))))
 
   (define-syntax letnondeterministic 
     (syntax-rules ()
@@ -71,28 +80,27 @@
         (letrec ((pool '())
                  (values '())
                  (fail (thunk
-                         (if (null? pool) (cc (reverse values)) (let1 (t (pop! pool)) (t)))))
+                         (if (null? pool) 
+                           (cc (reverse values)) 
+                           (let1 (t (pop! pool))
+                             (if (symbol? t) (fail) (t))))))
                  (chooseD (lambda (choices)
                            (if (null? choices)
                              (fail)
                              (letcc kk
                                (push! (thunk (kk (chooseD (cdr choices)))) pool)
                                (car choices)))))
-                 (markD (thunk (push! fail pool)))
-                 (chooseB (lambda (choices mark?)
-                           (if (null? choices)
-                             (fail)
-                             (letcc kk 
-                               (append! (list (thunk (kk (car choices)))) pool)
-                               (when mark? (markB))
-                               (append! (map (lambda (c) (thunk (kk c))) (cdr choices)) pool)
-                               (fail)))))
-                 (markB (thunk (append! (list fail) pool)))
-                 (cut (thunk
-                        (cond
-                         ((null? pool) (void))
-                         ((eq? (car pool) fail) (pop! pool) (void))
-                         (else (pop! pool) (cut))))))
+                 (markD (thunk (letgensym (flag) (push! flag pool) flag)))
+                 (chooseB (lambda (choices)
+                           (letcc kk
+                            (append! (map (lambda (c) (thunk (kk c))) choices) pool)
+                            (fail))))
+                 (markB (thunk (letgensym (flag) (append! (list flag) pool) flag)))
+                 (cut (lambda (flag)
+                        (if (null? pool)
+                          (void)
+                          (let1 (a (pop! pool))
+                            (if (eq? a flag) (void) (cut flag)))))))
           (push! (let () body ...) values)
           (fail))))))
 
