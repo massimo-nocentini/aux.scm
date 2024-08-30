@@ -49,17 +49,20 @@
   (define-syntax λ1 (syntax-rules () ((λ1 arg body ...) (lambda (arg) body ...))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
+  (define-syntax lettensor
+    (syntax-rules ()
+        ((lettensor f () body ...) (begin body ...))
+        ((lettensor f ((x expr) (xx exprr) ...) body ...) 
+         (f (lambda (x) (lettensor f ((xx exprr) ...) body ...)) expr))))
+
+  (define-syntax letmaptensor
+    (syntax-rules () ((letmaptensor ((x expr) ...) body ...) (lettensor map ((x expr) ...) body ...))))
+
   (define-syntax letmap
     (syntax-rules ()
-        ((letmap () body ...) (begin body ...))
+        ((letmap () body ...) (list (begin body ...)))
         ((letmap ((x expr) (xx exprr) ...) body ...) 
-         (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr))))
-
-  (define-syntax letmapflat
-    (syntax-rules ()
-        ((letmapflat () body ...) (list (begin body ...)))
-        ((letmapflat ((x expr) (xx exprr) ...) body ...) 
-         (apply append (map (lambda (x) (letmapflat ((xx exprr) ...) body ...)) expr)))))
+         (apply append (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr)))))
 
   (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
@@ -75,32 +78,56 @@
 
   (define-syntax letnondeterministic 
     (syntax-rules ()
-     ((_ (chooseD chooseB fail markD markB cut) body ...)
+     ((_ ((chooseD chooseB)) body ...) (letnondeterministic (chooseD chooseB fail markD cutD) body ...))
+     ((_ (choose) body ...) (letnondeterministic (choose chooseB fail markD cutD) body ...))
+     ((_ ((chooseD chooseB) fail) body ...) (letnondeterministic (chooseD chooseB fail markD cutD) body ...))
+     ((_ ((chooseD chooseB) fail markD cutD) body ...) (letnondeterministic (chooseD chooseB fail markD cutD) body ...))
+     ((_ (choose fail) body ...) (letnondeterministic (choose chooseB fail markD cutD) body ...))
+     ((_ (choose fail markD cutD) body ...) (letnondeterministic (choose chooseB fail markD cutD) body ...))
+     ((_ (chooseD chooseB fail markD cutD) body ...)
       (letcc cc
         (letrec ((pool '())
                  (values '())
                  (fail (thunk
-                         (if (null? pool) 
+                         (if (null? pool)
                            (cc (reverse values)) 
                            (let1 (t (pop! pool))
-                             (if (symbol? t) (fail) (t))))))
+                             (cond 
+                              ((symbol? t) (fail))
+                              ((procedure? t) (t))
+                              (else
+                               (push! (gensym) pool)
+                               (set-cdr! pool '())
+                               (fail)))))))
                  (chooseD (lambda (choices)
                            (if (null? choices)
                              (fail)
                              (letcc kk
                                (push! (thunk (kk (chooseD (cdr choices)))) pool)
                                (car choices)))))
-                 (markD (thunk (letgensym (flag) (push! flag pool) flag)))
                  (chooseB (lambda (choices)
                            (letcc kk
                             (append! (map (lambda (c) (thunk (kk c))) choices) pool)
                             (fail))))
-                 (markB (thunk (letgensym (flag) (append! (list flag) pool) flag)))
-                 (cut (lambda (flag)
+                 (markD (thunk (letgensym (flag) (push! flag pool) flag)))
+                 (markB (thunk (letgensym (flag) 
+                                (let1 (witness (list flag)) 
+                                 (append! (list witness) pool)
+                                 witness))))
+                 (cutD (lambda (flag)
                         (if (null? pool)
                           (void)
                           (let1 (a (pop! pool))
-                            (if (eq? a flag) (void) (cut flag)))))))
+                            (if (eq? a flag) (void) (cutD flag))))))
+                 (cutB (lambda (flag)
+                        (unless (null? pool) (set-cdr! pool '()))
+                        (void)
+                        #;(letrec ((A (lambda (lst)
+                                     (cond
+                                      ((or (null? lst) (null? (cdr lst))) (void))
+                                      ((eq? (cadr lst) flag) (display 'found) (set-cdr! lst '()) (void))
+                                      (else (A (cdr lst)))))))
+                          (A pool)))))
           (push! (let () body ...) values)
           (fail))))))
 

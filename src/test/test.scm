@@ -57,16 +57,16 @@
         (⊦= 5 ((λ (x) ((λ (y) (+ x y)) 2)) 3))
         (⊦= 5 ((λ (x y) (+ x y)) 2 3)))
 
-    ((test/letmap _)
+    ((test/letmaptensor _)
         (⊦= '((((2 a #t) (2 a #t)) ((2 1 #t) (2 1 #f)))
               (((3 a #f) (3 a #t)) ((3 2 #f) (3 2 #f)))
               (((4 a #t) (4 a #t)) ((4 3 #t) (4 3 #f))))
-          (letmap ((x (list 1 2 3))
+          (letmaptensor ((x (list 1 2 3))
                    (y `(a ,x))
                    (z (list (odd? x) (symbol? y))))
             (list (add1 x) y z))))
 
-    ((test/letmapflat _)
+    ((test/letmap _)
         (⊦= '((2 a #t)
            (2 a #t)
            (2 1 #t)
@@ -79,7 +79,7 @@
            (4 a #t)
            (4 3 #t)
            (4 3 #f))
-          (letmapflat ((x (list 1 2 3))
+          (letmap ((x (list 1 2 3))
                        (y `(a ,x))
                        (z (list (odd? x) (symbol? y))))
             (list (add1 x) y z))))
@@ -215,15 +215,23 @@
     )
 
     ((test/letnondeterministic/choose-null? _)
-      (⊦= '() (letnondeterministic (? ¿ fail • ‡ !) (? '()))))
-
+      (⊦= '() (letnondeterministic (?) (? '()))))
 
     ((test/letnondeterministic/choose _)
-       (⊦= '(1 2 3) (letnondeterministic (? ¿ fail • ‡ !) (? '(1 2 3)))))
+       (⊦= '(1 2 3) (letnondeterministic (?) (? '(1 2 3)))))
+
+    ((test/letnondeterministic/choose+nested _)
+       (⊦= '(1 4 3 1 5 3) (letnondeterministic (?) (? `(1 ,(? '(4 5)) 3)))))
+
+    ((test/letnondeterministic/choose+nested+¿ _)
+       (⊦= '(1 4 3 1 5 3) (letnondeterministic ((? ¿)) (? `(1 ,(¿ '(4 5)) 3)))))
+
+    ((test/letnondeterministic/choose+double _)
+       (⊦= '(5 6 6 7 7 8) (letnondeterministic (?) (+ (? '(1 2 3)) (? '(4 5))))))
 
     ((test/letnondeterministic/odd _)
        (⊦= '(1 3) 
-           (letnondeterministic (? ¿ fail • ‡ !) 
+           (letnondeterministic (? fail) 
              (let1 (v (? '(1 2 3))) 
                (if (odd? v) v (fail))))))
 
@@ -243,7 +251,7 @@
            (3 3 1)
            (4 1 2)
            (4 2 1)
-           (5 1 1)) (letnondeterministic (? ¿ fail • ‡ !)
+           (5 1 1)) (letnondeterministic (? fail)
         
                 (define (two-numbers)
                   (list (? '(1 2 3 4 5)) (? '(1 2 3 4 5)) (? '(1 2 3 4 5))))
@@ -272,7 +280,7 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic (? ¿ fail • ‡ !)
+             (letnondeterministic (? fail)
 
                 (define (coin? x)
                   (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
@@ -297,7 +305,7 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic (? ¿ fail • ‡ !)
+             (letnondeterministic (? fail • !)
 
                 (define (coin? x)
                   (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
@@ -307,6 +315,7 @@
                          (city (? '(la ny bos)))
                          (flag (•))
                          (store (? '(1 2)))
+                         (_ (•))
                          (box (? '(1 2)))
                          (triple (list city store box)))
                   (push! triple attempts)
@@ -323,7 +332,7 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic (? ¿ fail • ‡ !)
+             (letnondeterministic pool (? ¿ fail • ‡ ! ¡)
 
                 (define (coin? x)
                   (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
@@ -331,17 +340,17 @@
                   (let* ((*paths* '())
                          (attempts '())
                          (city (¿ '(la ny bos)))
-                         (flag (‡))
+                         ;(flag (‡))
                          (store (¿ '(1 2)))
                          (box (¿ '(1 2)))
                          (triple (list city store box)))
                   (push! triple attempts)
-                  (if (coin? triple) (begin (! flag) (reverse attempts)) (fail))))))
+                  (if (coin? triple) (begin #;(¡ flag) (‡) (reverse attempts)) (fail))))))
 
          ((test/letnondeterministic/graph+cycles/bfs _)
 
                 (⊦= '((a b c a) (a b c e a) (a b d e a))
-                (letnondeterministic (? ¿ fail • ‡ !)
+                (letnondeterministic ((? ¿) fail)
 
                         (define (neighbors node) ; our graph, with cycles.
                          (letassoc 
