@@ -1,6 +1,6 @@
 
 
-(import unittest aux)
+(import unittest aux (chicken sort))
 
 (define-suite auxtest
 
@@ -259,6 +259,22 @@
                 (define (parlor sum)
                   (let ((nums (two-numbers)))
                     (if (eq? (apply + nums) sum) nums (fail))))
+                
+                (parlor 7)
+                 
+        )))
+
+        ((test/letnondeterministic/parlor+sorted _)
+    
+       (⊦= '((1 1 5) (1 2 4) (1 3 3) (2 2 3)) 
+         (letnondeterministic (? fail)
+        
+                (define (two-numbers)
+                  (list (? '(1 2 3 4 5)) (? '(1 2 3 4 5)) (? '(1 2 3 4 5))))
+
+                (define (parlor sum)
+                  (let ((nums (two-numbers)))
+                    (if (and (eq? (apply + nums) sum) (sorted? nums <)) nums (fail))))
                 
                 (parlor 7)
                  

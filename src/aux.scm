@@ -67,6 +67,7 @@
   (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
   (define-syntax append! (syntax-rules () ((append! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
+  (define-syntax sub1! (syntax-rules () ((sub1! var) (begin (set! var (sub1 var)) (void)))))
 
   (define (member? v lst) (pair? (member v lst)))
 
@@ -86,10 +87,11 @@
      ((_ (choose fail markD cutD) body ...) (letnondeterministic (choose chooseB fail markD cutD) body ...))
      ((_ (chooseD chooseB fail markD cutD) body ...)
       (letcc cc
-        (letrec ((pool '())
+        (letrec ((nremaining -1)
+                 (pool '())
                  (values '())
                  (fail (thunk
-                         (if (null? pool)
+                         (if (or (zero? nremaining) (null? pool))
                            (cc (reverse values)) 
                            (let1 (t (pop! pool))
                              (cond 
@@ -128,7 +130,9 @@
                                       ((eq? (cadr lst) flag) (display 'found) (set-cdr! lst '()) (void))
                                       (else (A (cdr lst)))))))
                           (A pool)))))
+          
           (push! (let () body ...) values)
+          (sub1! nremaining)
           (fail))))))
 
   
