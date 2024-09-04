@@ -115,11 +115,8 @@
 
   (define (fibs§ m n) (rec F (cons§ m (cons§ n (zip§ + F (cdr§ F))))))
 
-  (define-syntax letnondeterministic
-    (syntax-rules ()
-     ((_ ((chooseD chooseB fail markD cutD) body ...) ((arg next) lbody ...))
-      (letcc cc
-        (define (R arg next) lbody ...)
+  (define (nondeterministic system R)
+     (letcc cc
         (letrec ((nremaining -1)
                  (pool '())
                  (values '())
@@ -169,13 +166,17 @@
                                       ((or (null? lst) (null? (cdr lst))) (void))
                                       ((eq? (cadr lst) flag) (display 'found) (set-cdr! lst '()) (void))
                                       (else (A (cdr lst)))))))
-                          (A pool))))
-                 (behaviour (thunk body ...)))
+                          (A pool)))))
 
-          (let1 (v (behaviour)) 
+          (let1 (v (system chooseD chooseB fail markD cutD)) 
            (push! v values) 
            (sub1! nremaining)
            (R values fail)))))
+
+  (define-syntax letnondeterministic
+    (syntax-rules ()
+     ((_ ((chooseD chooseB fail markD cutD) body ...) ((arg next) lbody ...))
+      (nondeterministic (lambda (chooseD chooseB fail markD cutD) body ...) (lambda (arg next) lbody ...)))
       ((_ (chooseD chooseB fail markD cutD) body ...) (letnondeterministic ((chooseD chooseB fail markD cutD) body ...) ((arg next) (next))))))
 
   
