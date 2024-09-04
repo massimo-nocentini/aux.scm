@@ -77,16 +77,49 @@
      (let1 (p (assoc searchexpr lstexpr))
       (if (pair? p) (cadr p) (begin body ...))))))
 
-  (define-syntax letnondeterministic 
+  (define-syntax cons§
+   (syntax-rules ()
+    ((_ a d) (delay (cons a d)))))
+
+  (define (§->list s)
+    (cond
+     ((promise? s) (§->list (force s)))
+     ((pair? s) (cons (car s) (§->list (cdr s))))
+     (else s)))
+
+  (define (take§ n s)
+    (cond
+     ((zero? n) '())
+     ((promise? s) (delay (take§ n (force s))))
+     ((pair? s) (cons§ (car s) (take§ (sub1 n) (cdr s))))
+     (else s)))
+
+  (define (map§ f s)
+    (cond 
+     ((promise? s) (delay (map§ f (force s))))
+     ((pair? s) (cons§ (f (car s)) (map§ f (cdr s))))
+     (else s)))
+
+  (define (zip§ f r s)
+    (cond
+     ((and (promise? r) (promise? s)) (delay (zip§ f (force r) (force s))))
+     ((promise? r) (delay (zip§ f (force r) s)))
+     ((promise? s) (delay (zip§ f r (force s))))
+     ((and (pair? r) (pair? s)) (cons§ (f (car r) (car s)) (zip§ f (cdr r) (cdr s))))
+     (else '())))
+
+  (define (cdr§ s)
+    (cond
+     ((promise? s) (cdr§ (force s)))
+     (else (cdr s))))
+
+  (define (fibs§ m n) (rec F (cons§ m (cons§ n (zip§ + F (cdr§ F))))))
+
+  (define-syntax letnondeterministic
     (syntax-rules ()
-     ((_ ((chooseD chooseB)) body ...) (letnondeterministic (chooseD chooseB fail markD cutD) body ...))
-     ((_ (choose) body ...) (letnondeterministic (choose chooseB fail markD cutD) body ...))
-     ((_ ((chooseD chooseB) fail) body ...) (letnondeterministic (chooseD chooseB fail markD cutD) body ...))
-     ((_ ((chooseD chooseB) fail markD cutD) body ...) (letnondeterministic (chooseD chooseB fail markD cutD) body ...))
-     ((_ (choose fail) body ...) (letnondeterministic (choose chooseB fail markD cutD) body ...))
-     ((_ (choose fail markD cutD) body ...) (letnondeterministic (choose chooseB fail markD cutD) body ...))
-     ((_ (chooseD chooseB fail markD cutD) body ...)
+     ((_ ((chooseD chooseB fail markD cutD) body ...) ((arg next) lbody ...))
       (letcc cc
+        (define (R arg next) lbody ...)
         (letrec ((nremaining -1)
                  (pool '())
                  (values '())
@@ -102,11 +135,13 @@
                                (set-cdr! pool '())
                                (fail)))))))
                  (chooseD (lambda (choices)
-                           (if (null? choices)
-                             (fail)
-                             (letcc kk
-                               (push! (thunk (kk (chooseD (cdr choices)))) pool)
-                               (car choices)))))
+                           (cond
+                            ((promise? choices) (chooseD (force choices)))
+                            ((pair? choices) (letcc kk
+                                              (push! (thunk (kk (chooseD (cdr choices)))) pool)
+                                              (push! (thunk (kk (car choices))) pool)
+                                              (chooseD '())))
+                            (else (fail)))))
                  (chooseB (lambda (choices)
                            (letcc kk
                             (append! (map (lambda (c) (thunk (kk c))) choices) pool)
@@ -129,11 +164,17 @@
                                       ((or (null? lst) (null? (cdr lst))) (void))
                                       ((eq? (cadr lst) flag) (display 'found) (set-cdr! lst '()) (void))
                                       (else (A (cdr lst)))))))
-                          (A pool)))))
-          
-          (push! (let () body ...) values)
-          (sub1! nremaining)
-          (fail))))))
+                          (A pool))))
+                 (behaviour (thunk body ...)))
+
+          (let1 (v (behaviour)) (push! v values) (R values fail))
+          #;(fail)
+          #;(set! values (lambda (v) (values (cons§ (fail) v))))
+          ; body ...
+          #;(push! (let () body ...) values)
+          #;(sub1! nremaining)
+          #;(fail))))
+      ((_ (chooseD chooseB fail markD cutD) body ...) (letnondeterministic ((chooseD chooseB fail markD cutD) body ...) ((arg next) (next))))))
 
   
 )
