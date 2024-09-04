@@ -130,7 +130,7 @@
                              (cond 
                               ((symbol? t) (fail))
                               ((procedure? t) (t))
-                              (else
+                              (else ; for breadth cut
                                (push! (gensym) pool)
                                (set-cdr! pool '())
                                (fail)))))))
@@ -143,9 +143,14 @@
                                               (chooseD '())))
                             (else (fail)))))
                  (chooseB (lambda (choices)
-                           (letcc kk
-                            (append! (map (lambda (c) (thunk (kk c))) choices) pool)
-                            (fail))))
+                           (cond
+                            ((promise? choices) (letcc kk
+                                                  (append! (list (thunk (kk (chooseB (force choices))))) pool)
+                                                  (chooseB '())))
+                            ((pair? choices) (letcc kk
+                                              (append! (list (thunk (kk (car choices))) (thunk (kk (chooseB (cdr choices))))) pool)
+                                              (chooseB '())))
+                            (else (fail)))))
                  (markD (thunk (letgensym (flag) (push! flag pool) flag)))
                  (markB (thunk (letgensym (flag) 
                                 (let1 (witness (list flag)) 
@@ -167,13 +172,10 @@
                           (A pool))))
                  (behaviour (thunk body ...)))
 
-          (let1 (v (behaviour)) (push! v values) (R values fail))
-          #;(fail)
-          #;(set! values (lambda (v) (values (cons§ (fail) v))))
-          ; body ...
-          #;(push! (let () body ...) values)
-          #;(sub1! nremaining)
-          #;(fail))))
+          (let1 (v (behaviour)) 
+           (push! v values) 
+           (sub1! nremaining)
+           (R values fail)))))
       ((_ (chooseD chooseB fail markD cutD) body ...) (letnondeterministic ((chooseD chooseB fail markD cutD) body ...) ((arg next) (next))))))
 
   
