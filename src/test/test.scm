@@ -224,9 +224,10 @@
        (⊦= '(1 2 3) (letnondeterministic (? ¿ † • !) (? (cons§ 1 (cons§ 2 (cons§ 3 '())))))))
 
     ((test/letnondeterministic/choose-rec _)
-       (⊦= '(0 1 1 2 3 5 8 13 21 34) (§->list (take§ 10 (letnondeterministic
-                                         ((? ¿ † • !) (? (fibs§ 0 1)))
-                                         ((v next) (if (< (car v) 200) (next) (reverse v))))))))
+       (⊦= '(0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584 4181) 
+           (letnondeterministic
+            ((? ¿ † • !) (? (fibs§ 0 1)))
+            ((v next) (if (< (car v) 3000) (next) (reverse v))))))
 
     ((test/letnondeterministic/choose+nested _)
        (⊦= '(1 4 3 1 5 3) (letnondeterministic (? ¿ † • !) (? `(1 ,(? '(4 5)) 3)))))
