@@ -229,6 +229,19 @@
             ((? ¿ † • !) (? (fibs§ 0 1)))
             ((v next) (if (< (car v) 3000) (next) (reverse v))))))
 
+    #|
+
+   (import unittest aux (chicken sort))
+
+      (define-nondeterministic (q q0 (? ¿ † • !))
+       (? (fibs§ 0 1)))
+
+       q0
+
+      (q)
+
+    |#
+
     ((test/letnondeterministic/choose+nested _)
        (⊦= '(1 4 3 1 5 3) (letnondeterministic (? ¿ † • !) (? `(1 ,(? '(4 5)) 3)))))
 

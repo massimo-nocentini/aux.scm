@@ -115,9 +115,9 @@
 
   (define (fibs§ m n) (rec F (cons§ m (cons§ n (zip§ + F (cdr§ F))))))
 
-  (define (nondeterministic system R)
+  (define (nondeterministic system R nr)
      (letcc cc
-        (letrec ((nremaining -1)
+        (letrec ((nremaining nr)
                  (pool '())
                  (values '())
                  (fail (thunk
@@ -168,7 +168,7 @@
                                       (else (A (cdr lst)))))))
                           (A pool)))))
 
-          (let1 (v (system chooseD chooseB fail markD cutD)) 
+          (let1 (v (system chooseD chooseB fail markD cutD))
            (push! v values) 
            (sub1! nremaining)
            (R values fail)))))
@@ -176,8 +176,17 @@
   (define-syntax letnondeterministic
     (syntax-rules ()
      ((_ ((chooseD chooseB fail markD cutD) body ...) ((arg next) lbody ...))
-      (nondeterministic (lambda (chooseD chooseB fail markD cutD) body ...) (lambda (arg next) lbody ...)))
+      (nondeterministic (lambda (chooseD chooseB fail markD cutD) body ...) (lambda (arg next) lbody ...) -1))
       ((_ (chooseD chooseB fail markD cutD) body ...) (letnondeterministic ((chooseD chooseB fail markD cutD) body ...) ((arg next) (next))))))
 
-  
+  (define-syntax define-nondeterministic
+   (syntax-rules ()
+    ((_ (q q0 (chooseD chooseB fail markD cutD)) body ...)
+     (begin 
+      (define q (void))
+      (define q0 (letnondeterministic
+                  ((chooseD chooseB fail markD cutD) body ...)
+                  ((v next) (set! q next) (car v))))
+      q0))))
+
 )
