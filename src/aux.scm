@@ -131,14 +131,16 @@
                                (push! (gensym) pool)
                                (set-cdr! pool '())
                                (fail)))))))
-                 (chooseD (lambda (choices)
-                           (cond
-                            ((promise? choices) (chooseD (force choices)))
-                            ((pair? choices) (letcc kk
-                                              (push! (thunk (kk (chooseD (cdr choices)))) pool)
-                                              (push! (thunk (kk (car choices))) pool)
-                                              (chooseD '())))
-                            (else (fail)))))
+                 (chooseD (lambda list-of-choices
+                           (¶ (pair? list-of-choices))
+                           (letcar&cdr (((choices rest-of-choices) list-of-choices))
+                            (cond
+                             ((null? choices) (apply chooseD rest-of-choices))
+                             ((promise? choices) (apply chooseD `(,@rest-of-choices ,(force choices))))
+                             ((pair? choices) (letcc kk
+                                               (push! (thunk (kk (apply chooseD `(,@rest-of-choices ,(cdr choices))))) pool)
+                                               (car choices)))
+                             (else (fail))))))
                  (chooseB (lambda (choices)
                            (cond
                             ((promise? choices) (letcc kk
@@ -166,27 +168,27 @@
                                       ((or (null? lst) (null? (cdr lst))) (void))
                                       ((eq? (cadr lst) flag) (display 'found) (set-cdr! lst '()) (void))
                                       (else (A (cdr lst)))))))
-                          (A pool)))))
+                          (A pool))))
+                 (¶ (lambda (b) (unless b (fail)))))
 
-          (let1 (v (system chooseD chooseB fail markD cutD))
+          (let1 (v (system chooseD chooseB fail markD cutD ¶))
            (push! v values) 
            (sub1! nremaining)
            (R values fail)))))
 
   (define-syntax letnondeterministic
     (syntax-rules ()
-     ((_ ((chooseD chooseB fail markD cutD) body ...) ((arg next) lbody ...))
-      (nondeterministic (lambda (chooseD chooseB fail markD cutD) body ...) (lambda (arg next) lbody ...) -1))
-      ((_ (chooseD chooseB fail markD cutD) body ...) (letnondeterministic ((chooseD chooseB fail markD cutD) body ...) ((arg next) (next))))))
+     ((_ ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...))
+      (nondeterministic (lambda (chooseD chooseB fail markD cutD asserter) body ...) (lambda (arg next) lbody ...) -1))
+      ((_ (chooseD chooseB fail markD cutD asserter) body ...) (letnondeterministic ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) (next))))))
 
   (define-syntax define-nondeterministic
    (syntax-rules ()
-    ((_ (q q0 (chooseD chooseB fail markD cutD)) body ...)
-     (begin 
+    ((_ (q (chooseD chooseB fail markD cutD asserter)) body ...)
+     (begin
       (define q (void))
-      (define q0 (letnondeterministic
-                  ((chooseD chooseB fail markD cutD) body ...)
-                  ((v next) (set! q next) (car v))))
-      q0))))
+      (letnondeterministic
+                  ((chooseD chooseB fail markD cutD asserter) (set! q fail) body ...)
+                  ((v next) v))))))
 
 )
