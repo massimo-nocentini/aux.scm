@@ -178,9 +178,14 @@
 
   (define-syntax letnondeterministic
     (syntax-rules ()
-     ((_ ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...))
-      (nondeterministic (lambda (chooseD chooseB fail markD cutD asserter) body ...) (lambda (arg next) lbody ...) -1))
-      ((_ (chooseD chooseB fail markD cutD asserter) body ...) (letnondeterministic ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) (next))))))
+      ((_ ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...))
+       (letnondeterministic -1 ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...)))
+      ((_ (chooseD chooseB fail markD cutD asserter) body ...)
+       (letnondeterministic -1 (chooseD chooseB fail markD cutD asserter) body ...))
+      ((_ nr ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...))
+       (nondeterministic (lambda (chooseD chooseB fail markD cutD asserter) body ...) (lambda (arg next) lbody ...) nr))
+      ((_ nr (chooseD chooseB fail markD cutD asserter) body ...) 
+       (letnondeterministic nr ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) (next))))))
 
   (define-syntax define-nondeterministic
    (syntax-rules ()

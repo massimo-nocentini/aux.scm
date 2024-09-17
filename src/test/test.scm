@@ -121,27 +121,25 @@
                                             (push! (thunk (cc (dft-node (cdr tree)))) *saved*)
                                             (dft-node (car tree)))))))
                         (restart (thunk
-                                  (if (null? *saved*) witness (let1 (cont (pop! *saved*)) (cont)))))
-                        (dft-comb (lambda (another recv)
+                                  (if (null? *saved*) 
+                                   witness 
+                                   (let1 (cont (pop! *saved*))
+                                    (cont)))))
+                        (dft-comb (lambda (another)
                                    (lambda (tree)
-                                    (let ((node1 (dft-node tree)))
-                                     (if (eq? node1 witness) witness (recv node1 (dft-node another)))))))
-                        (dft2 (lambda (visitor tree f)
-                                (let ((node (visitor tree)))
-                                 (cond
-                                  ((eq? node witness) (void))
-                                   (else (f node) (restart)))))))
+                                    (let1 (node1 (dft-node tree))
+                                     (if (eq? node1 witness) witness (list node1 (dft-node another)))))))
+                        (dft2 (lambda (v)
+                                (if (eq? v witness) 
+                                 (reverse col)
+                                 (begin
+                                  (push! v col)
+                                  (restart))))))
 
-                 (define (pusher v) (push! v col))
-
-                 (⊦= (void) (dft2 dft-node t1 pusher))
+                 (⊦= '(a b d h c e f i g) (dft2 (dft-node t1)))
                  
-                 (⊦= '(a b d h c e f i g) (reverse col))
-
                  (set! col '()) ; reset the collection to the empty state
 
-                 (⊦= (void) (dft2 (dft-comb t2 list) t1 pusher))
-                 
                  (⊦= '((a 1)
            (a 2)
            (a 3)
@@ -204,13 +202,7 @@
            (g 6)
            (g 7)
            (g 4)
-           (g 5)) (reverse col))
-                 )
-
-        
-                #;(⊦= 'a (dft-node t1))
-                #;(⊦= 'b (restart))
-                
+           (g 5))  (dft2 ((dft-comb t2) t1))))
         )
     )
 
@@ -224,7 +216,7 @@
        (⊦= '(1 2 3) (letnondeterministic (? ¿ † • ! ¶) (? (cons§ 1 (cons§ 2 (cons§ 3 '())))))))
 
     ((test/letnondeterministic/choose-rec _)
-       (⊦= '(0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584 4181) 
+       (⊦= '(0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584 4181)
            (letnondeterministic
             ((? ¿ † • ! ¶) (? (fibs§ 0 1)))
             ((v next) (if (< (car v) 3000) (next) (reverse v))))))
@@ -254,9 +246,39 @@
     ((test/letnondeterministic/choose+double _)
        (⊦= '(5 6 6 7 7 8) (letnondeterministic (? ¿ † • ! ¶) (+ (? '(1 2 3)) (? '(4 5))))))
 
+    ((test/letnondeterministic/choose+fair+fibs _)
+       (⊦= '((a 0)
+           (b 0)
+           (c 0)
+           (a 1)
+           (b 1)
+           (c 1)
+           (a 1)
+           (b 1)
+           (c 1)
+           (a 2)
+           (b 2)
+           (c 2)
+           (a 3)
+           (b 3)
+           (c 3)
+           (a 5)
+           (b 5)
+           (c 5)
+           (a 8)
+           (b 8)
+           (c 8)) 
+        (letnondeterministic 21 (? ¿ † • ! ¶)
+          (? (map§ (lambda (v) (list 'a v)) (fibs§ 0 1)) 
+             (map§ (lambda (v) (list 'b v)) (fibs§ 0 1))
+             (map§ (lambda (v) (list 'c v)) (fibs§ 0 1))))))
+
+    ((test/letnondeterministic/choose+fair _)
+       (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3)) (letnondeterministic (? ¿ † • ! ¶) (? '((a 1) (a 2) (a 3)) '((b 1) (b 2))))))
+
     ((test/letnondeterministic/odd _)
        (⊦= '(1 3)
-           (letnondeterministic (? ¿ † • ! ¶) 
+           (letnondeterministic (? ¿ † • ! ¶)
              (let1 (v (? '(1 2 3))) 
                (¶ (odd? v)) 
                v))))
