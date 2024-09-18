@@ -17,36 +17,53 @@
 
     ((test/letcc/delimcc _)
 
-        (⊦= 21 (letdelimcc (shift reset)
+        (⊦= 21 (letdelimcc (shift reset yield)
                 (+ 1 (* 2 (shift k (k (k 10)))))))
         
-        (⊦= 41 (letdelimcc (shift reset)
+        (⊦= 41 (letdelimcc (shift reset yield)
                 (+ 1 (reset (* 2 (shift k (k (k 10))))))))
 
-        (⊦= 15 (letdelimcc (shift reset)
+        (⊦= 15 (letdelimcc (shift reset yield)
                 (+ 10 (reset (+ 2 3)))))
        
-        (⊦= 13 (letdelimcc (shift reset)
+        (⊦= 13 (letdelimcc (shift reset yield)
                 (+ 10 (reset (+ 2 (shift k 3))))))
 
-        (⊦= 15 (letdelimcc (shift reset)
+        (⊦= 15 (letdelimcc (shift reset yield)
                 (+ 10 (reset (+ 2 (shift k (k 3)))))))
 
-        (⊦= 115 (letdelimcc (shift reset)
+        (⊦= 115 (letdelimcc (shift reset yield)
                 (+ 10 (reset (+ 2 (shift k (+ 100 (k 3))))))))
       
-        (⊦= 117 (letdelimcc (shift reset)
+        (⊦= 117 (letdelimcc (shift reset yield)
                 (+ 10 (reset (+ 2 (shift k (+ 100 (k (k 3))))))))))
+
+     ((test/letcc/delimcc+yield _)
+
+        (⊦= '(1) (letdelimcc (shift reset yield)
+                (reset
+                 (begin 
+                  (yield 1)
+                  '()))))
+
+        (⊦= '(1 2) (letdelimcc (shift reset yield)
+                (reset
+                 (begin 
+                  (yield 1)
+                  (yield 2)
+                  '()))))
+
+                )
 
     ((test/letcc/delimcc+monad _)
 
-        (letdelimcc (shift reset)
+        (letdelimcc (shift reset yield)
 
                     (define (reflect meaning) (shift k (extend k meaning)))
                     (define (reify t) (reset (eta (t))))
                     (define (eta x) (list x))
                     (define (extend f l) (apply append (map f l)))
-                    
+
                     (define-syntax amb (syntax-rules () ((amb v ...) (reflect (append (reify (thunk v)) ...)))))
 
                     (⊦= '(1 2 3) (reify (thunk (amb 1 2 3))))

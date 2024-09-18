@@ -23,21 +23,20 @@
       ((letcc (var ...) hop body ...) (letcc hop (begin (set! var hop) ...) body ...))
       ((letcc hop body ...) 
        (continuation-capture (lambda (cont)
-                              (let ((hop (lambda (arg) (continuation-return cont arg))))
+                              (let1 (hop (lambda (arg) (continuation-return cont arg)))
                                 body ...))))))
                           
   (define (callcc f) (letcc k (f k)))
 
   (define (delimcc S)
-   (letrec ((mk (list (lambda (v) (void))))
-            (abort (lambda (v) ((pop! mk) v)))
+   (letrec ((mk identity)
+            (abort (lambda (v) (mk v)))
             (reset (lambda (t)
-                    (let1 (m (car mk))
+                    (let1 (m mk)
                      (letcc k
-                      (push! (lambda (r)
-                                (push! m mk)
-                                (k r)) 
-                              mk)
+                      (set! mk (lambda (r)
+                                (set! mk m)
+                                (k r)))
                       (abort (t))))))
             (shift (lambda (h)
                     (letcc k
@@ -46,12 +45,13 @@
 
   (define-syntax letdelimcc
    (syntax-rules ()
-    ((letdelimcc (shift reset) body ...)
+    ((letdelimcc (shift reset yield) body ...)
      (delimcc (lambda (S R)
                 (let-syntax ((shift (syntax-rules ()
                                      ((shift k sbody) (S (lambda (k) sbody)))))
                              (reset (syntax-rules ()
                                      ((reset rbody) (R (thunk rbody))))))
+                 (define (yield x) (shift k (cons x (k (void)))))
                  body ...))))))
   
   (define-syntax letcc*
