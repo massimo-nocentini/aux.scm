@@ -27,21 +27,25 @@
                                 body ...))))))
                           
   (define (callcc f) (letcc k (f k)))
+  (define-syntax definecc (syntax-rules () ((definecc k var body ...) (define var (letcc k body ...)))))
 
-  (define *delimcc-cont* (lambda (v) (void)))
+  (define delimcc-cont (lambda (v) (void)))
 
-  (define (delimcc-reset t)
-                    (let1 (m *delimcc-cont*)
-                     (letcc k
-                      (set! *delimcc-cont*  (lambda (r) (set! *delimcc-cont*  m) (k r)))
-                      (*delimcc-cont* (t)))))
+  (define (delimcc-abort v) (delimcc-cont v))
+  (define (delimcc-cont-set! f) (set! delimcc-cont f))
+
+  (definecc k (delimcc-reset t)
+                     (let1 (m delimcc-cont)
+                      (delimcc-cont-set! (lambda (r) 
+                                          (delimcc-cont-set! m) 
+                                          (k r)))
+                      (delimcc-abort (t))))
 
   (define-syntax reset
    (syntax-rules ()
     ((_ body ...) (delimcc-reset (thunk body ...)))))
 
-  (define (delimcc-shift h)
-   (letcc k (*delimcc-cont* (h (lambda (v) (reset (k v)))))))
+  (definecc k (delimcc-shift h) (delimcc-abort (h (lambda (v) (reset (k v))))))
 
   (define-syntax resetnull
    (syntax-rules ()
