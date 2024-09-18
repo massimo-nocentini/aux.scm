@@ -29,20 +29,21 @@
   (define (callcc f) (letcc k (f k)))
 
   (define (delimcc S)
-   (letrec ((mk (lambda (v) (error "Missing Reset")))
-            (abort (lambda (t) (let1 (v (t)) (mk v))))
+   (letrec ((mk (list (lambda (v) (void))))
+            (abort (lambda (v) ((pop! mk) v)))
             (reset (lambda (t)
-                    (let1 (m mk)
+                    (let1 (m (car mk))
                      (letcc k
-                      (set! mk (lambda (r) 
-                                (set! mk m)
-                                (k r)))
-                      (abort t)))))
+                      (push! (lambda (r)
+                                (push! m mk)
+                                (k r)) 
+                              mk)
+                      (abort (t))))))
             (shift (lambda (h)
                     (letcc k
-                     (abort (thunk (h (lambda (v) (reset (thunk (k v)))))))))))
+                     (abort (h (lambda (v) (reset (thunk (k v))))))))))
     (S shift reset)))
-  
+
   (define-syntax letdelimcc
    (syntax-rules ()
     ((letdelimcc (shift reset) body ...)

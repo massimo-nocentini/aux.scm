@@ -16,10 +16,13 @@
         (⊦= 'a (letcc k (k 'a))))
 
     ((test/letcc/delimcc _)
-        (⊦= 41 (letdelimcc (shift reset)
-                (+ 1 (reset (* 2 (shift k (k (k 10)))))))))
 
-    ((test/letcc/delimcc+scheme48 _)
+        (⊦= 21 (letdelimcc (shift reset)
+                (+ 1 (* 2 (shift k (k (k 10)))))))
+        
+        (⊦= 41 (letdelimcc (shift reset)
+                (+ 1 (reset (* 2 (shift k (k (k 10))))))))
+
         (⊦= 15 (letdelimcc (shift reset)
                 (+ 10 (reset (+ 2 3)))))
        
@@ -33,10 +36,23 @@
                 (+ 10 (reset (+ 2 (shift k (+ 100 (k 3))))))))
       
         (⊦= 117 (letdelimcc (shift reset)
-                (+ 10 (reset (+ 2 (shift k (+ 100 (k (k 3)))))))))
-                
-   )
+                (+ 10 (reset (+ 2 (shift k (+ 100 (k (k 3))))))))))
 
+    ((test/letcc/delimcc+monad _)
+
+        (letdelimcc (shift reset)
+
+                    (define (reflect meaning) (shift k (extend k meaning)))
+                    (define (reify t) (reset (eta (t))))
+                    (define (eta x) (list x))
+                    (define (extend f l) (apply append (map f l)))
+                    
+                    (define-syntax amb (syntax-rules () ((amb v ...) (reflect (append (reify (thunk v)) ...)))))
+
+                    (⊦= '(1 2 3) (reify (thunk (amb 1 2 3))))
+                    (⊦= '(8 9 9 10) (reify (thunk (+ (amb 1 2) 3 (amb 4 5)))))
+                    (⊦= '(31 51) (reify (thunk (+ 1 (letcc k (* 10 (amb 3 (k 4))))))))))
+      
     ((test/letcc* _)
         (⊦= 3 (letcc* ⤶ ((v (+ 1 (⤶ 1)))
                          (w (+ 2 v)))
