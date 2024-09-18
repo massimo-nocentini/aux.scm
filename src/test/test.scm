@@ -16,6 +16,7 @@
         (⊦= 'a (letcc k (k 'a))))
 
     ((test/letcc/delimcc _)
+        (⊦= (void) (shift k 10))
         (⊦= 21 (+ 1 (* 2 (shift k (k (k 10))))))
         (⊦= 41 (+ 1 (reset (* 2 (shift k (k (k 10)))))))
         (⊦= 15 (+ 10 (reset (+ 2 3))))
