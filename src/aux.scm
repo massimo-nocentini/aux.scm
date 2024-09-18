@@ -33,10 +33,8 @@
   (define (delimcc-reset t)
                     (let1 (m *delimcc-cont*)
                      (letcc k
-                      (set! *delimcc-cont*  (lambda (r)
-                                (set! *delimcc-cont*  m)
-                                (k r)))
-                      (*delimcc-cont*  (t)))))
+                      (set! *delimcc-cont*  (lambda (r) (set! *delimcc-cont*  m) (k r)))
+                      (*delimcc-cont* (t)))))
                 
    (define (delimcc-shift h)
     (letcc k (*delimcc-cont* (h (lambda (v) (delimcc-reset (thunk (k v))))))))
