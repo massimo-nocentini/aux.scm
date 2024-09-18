@@ -14,6 +14,10 @@
   (define-syntax λ1 (syntax-rules () ((λ1 arg body ...) (lambda (arg) body ...))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
+  (define-syntax cons§
+   (syntax-rules ()
+    ((_ a d) (delay (cons a d)))))
+
   (define-syntax let1 
     (syntax-rules ()
       ((let1 (var val) body ...) (let ((var val)) body ...))))
@@ -50,6 +54,7 @@
 
   (define-syntax resetnull (syntax-rules () ((_ body ...) (reset body ... '()))))
   (define (yield x) (shift k (cons x (k (void)))))
+  (define (yield§ x) (shift k (cons§ x (k (void)))))
 
   (define-syntax letcc*
     (syntax-rules ()
@@ -100,9 +105,7 @@
      (let1 (p (assoc searchexpr lstexpr))
       (if (pair? p) (cadr p) (begin body ...))))))
 
-  (define-syntax cons§
-   (syntax-rules ()
-    ((_ a d) (delay (cons a d)))))
+  
 
   (define (§->list s)
     (cond

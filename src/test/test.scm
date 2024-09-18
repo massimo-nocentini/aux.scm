@@ -36,6 +36,16 @@
                   (yield 1)
                   (yield 2))))
 
+    ((test/letcc/delimcc+yield§ _)
+
+        (⊦= '(1) (§->list (resetnull (yield§ 1))))
+
+        (⊦= '(1 2) 
+                (§->list
+                 (resetnull
+                  (yield§ 1)
+                  (yield§ 2)))))
+
     ((test/letcc/delimcc+monad _)
 
                     (define (reflect meaning) (shift k (extend k meaning)))
