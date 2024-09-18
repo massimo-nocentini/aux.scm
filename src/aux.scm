@@ -3,6 +3,17 @@
 
   (import scheme (chicken base) (chicken continuation) (chicken condition))
 
+  (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
+  (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
+  (define-syntax append! (syntax-rules () ((append! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
+  (define-syntax sub1! (syntax-rules () ((sub1! var) (begin (set! var (sub1 var)) (void)))))
+
+  (define-syntax λ (syntax-rules () ((λ arg body ...) (lambda arg body ...))))
+  (define-syntax thunk (syntax-rules () ((thunk body ...) (lambda () body ...))))
+  (define-syntax λ0 (syntax-rules () ((λ0 body ...) (lambda () body ...))))
+  (define-syntax λ1 (syntax-rules () ((λ1 arg body ...) (lambda (arg) body ...))))
+  (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
+
   (define-syntax let1 
     (syntax-rules ()
       ((let1 (var val) body ...) (let ((var val)) body ...))))
@@ -17,6 +28,31 @@
                           
   (define (callcc f) (letcc k (f k)))
 
+  (define (delimcc S)
+   (letrec ((mk (lambda (v) (error "Missing Reset")))
+            (abort (lambda (t) (let1 (v (t)) (mk v))))
+            (reset (lambda (t)
+                    (let1 (m mk)
+                     (letcc k
+                      (set! mk (lambda (r) 
+                                (set! mk m)
+                                (k r)))
+                      (abort t)))))
+            (shift (lambda (h)
+                    (letcc k
+                     (abort (thunk (h (lambda (v) (reset (thunk (k v)))))))))))
+    (S shift reset)))
+  
+  (define-syntax letdelimcc
+   (syntax-rules ()
+    ((letdelimcc (shift reset) body ...)
+     (delimcc (lambda (S R)
+                (let-syntax ((shift (syntax-rules ()
+                                     ((shift k sbody) (S (lambda (k) sbody)))))
+                             (reset (syntax-rules ()
+                                     ((reset rbody) (R (thunk rbody))))))
+                 body ...))))))
+  
   (define-syntax letcc*
     (syntax-rules ()
       ((letcc* next ((v exp ...) ...) body ...)
@@ -43,12 +79,6 @@
      ((define-let ((v e) ...) (name formal ...) body ...)
       (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
 
-  (define-syntax λ (syntax-rules () ((λ arg body ...) (lambda arg body ...))))
-  (define-syntax thunk (syntax-rules () ((thunk body ...) (lambda () body ...))))
-  (define-syntax λ0 (syntax-rules () ((λ0 body ...) (lambda () body ...))))
-  (define-syntax λ1 (syntax-rules () ((λ1 arg body ...) (lambda (arg) body ...))))
-  (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
-
   (define-syntax lettensor
     (syntax-rules ()
         ((lettensor f () body ...) (begin body ...))
@@ -63,11 +93,6 @@
         ((letmap () body ...) (list (begin body ...)))
         ((letmap ((x expr) (xx exprr) ...) body ...) 
          (apply append (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr)))))
-
-  (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
-  (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
-  (define-syntax append! (syntax-rules () ((append! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
-  (define-syntax sub1! (syntax-rules () ((sub1! var) (begin (set! var (sub1 var)) (void)))))
 
   (define (member? v lst) (pair? (member v lst)))
 
@@ -110,7 +135,7 @@
 
   (define (cdr§ s)
     (cond
-     ((promise? s) (cdr§ (force s)))
+     ((promise? s) (cdr (force s)))
      (else (cdr s))))
 
   (define (fibs§ m n) (rec F (cons§ m (cons§ n (zip§ + F (cdr§ F))))))
@@ -195,5 +220,19 @@
       (letnondeterministic
                   ((chooseD chooseB fail markD cutD asserter) (set! q fail) body ...)
                   ((v next) v))))))
+
+  (define (memoize f)
+   (let ((called #f) (memo (void)))
+    (lambda args
+     (if called 
+      memo 
+      (begin 
+       (set! memo (apply f args))
+       (set! called #t)
+       memo)))))
+
+  (define-syntax lambdamemo
+   (syntax-rules ()
+    ((_ args body ...) (memoize (lambda args body ...)))))
 
 )

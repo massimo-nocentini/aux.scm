@@ -15,6 +15,28 @@
     ((test/letcc/multiarg _)
         (⊦= 'a (letcc k (k 'a))))
 
+    ((test/letcc/delimcc _)
+        (⊦= 41 (letdelimcc (shift reset)
+                (+ 1 (reset (* 2 (shift k (k (k 10)))))))))
+
+    ((test/letcc/delimcc+scheme48 _)
+        (⊦= 15 (letdelimcc (shift reset)
+                (+ 10 (reset (+ 2 3)))))
+       
+        (⊦= 13 (letdelimcc (shift reset)
+                (+ 10 (reset (+ 2 (shift k 3))))))
+
+        (⊦= 15 (letdelimcc (shift reset)
+                (+ 10 (reset (+ 2 (shift k (k 3)))))))
+
+        (⊦= 115 (letdelimcc (shift reset)
+                (+ 10 (reset (+ 2 (shift k (+ 100 (k 3))))))))
+      
+        (⊦= 117 (letdelimcc (shift reset)
+                (+ 10 (reset (+ 2 (shift k (+ 100 (k (k 3)))))))))
+                
+   )
+
     ((test/letcc* _)
         (⊦= 3 (letcc* ⤶ ((v (+ 1 (⤶ 1)))
                          (w (+ 2 v)))
