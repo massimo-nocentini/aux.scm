@@ -16,48 +16,26 @@
         (⊦= 'a (letcc k (k 'a))))
 
     ((test/letcc/delimcc _)
-
-        (⊦= 21 (letdelimcc (shift reset yield)
-                (+ 1 (* 2 (shift k (k (k 10)))))))
-        
-        (⊦= 41 (letdelimcc (shift reset yield)
-                (+ 1 (reset (* 2 (shift k (k (k 10))))))))
-
-        (⊦= 15 (letdelimcc (shift reset yield)
-                (+ 10 (reset (+ 2 3)))))
-       
-        (⊦= 13 (letdelimcc (shift reset yield)
-                (+ 10 (reset (+ 2 (shift k 3))))))
-
-        (⊦= 15 (letdelimcc (shift reset yield)
-                (+ 10 (reset (+ 2 (shift k (k 3)))))))
-
-        (⊦= 115 (letdelimcc (shift reset yield)
-                (+ 10 (reset (+ 2 (shift k (+ 100 (k 3))))))))
-      
-        (⊦= 117 (letdelimcc (shift reset yield)
-                (+ 10 (reset (+ 2 (shift k (+ 100 (k (k 3))))))))))
+        (⊦= 21 (+ 1 (* 2 (shift k (k (k 10))))))
+        (⊦= 41 (+ 1 (reset (* 2 (shift k (k (k 10)))))))
+        (⊦= 15 (+ 10 (reset (+ 2 3))))
+        (⊦= 13 (+ 10 (reset (+ 2 (shift k 3)))))
+        (⊦= 15 (+ 10 (reset (+ 2 (shift k (k 3))))))
+        (⊦= 115 (+ 10 (reset (+ 2 (shift k (+ 100 (k 3)))))))
+        (⊦= 117 (+ 10 (reset (+ 2 (shift k (+ 100 (k (k 3)))))))))
 
      ((test/letcc/delimcc+yield _)
 
-        (⊦= '(1) (letdelimcc (shift reset yield)
-                (reset
-                 (begin 
-                  (yield 1)
-                  '()))))
+        (⊦= '(1) 
+                (resetnull
+                  (yield 1)))
 
-        (⊦= '(1 2) (letdelimcc (shift reset yield)
-                (reset
-                 (begin 
+        (⊦= '(1 2) 
+                (resetnull
                   (yield 1)
-                  (yield 2)
-                  '()))))
-
-                )
+                  (yield 2))))
 
     ((test/letcc/delimcc+monad _)
-
-        (letdelimcc (shift reset yield)
 
                     (define (reflect meaning) (shift k (extend k meaning)))
                     (define (reify t) (reset (eta (t))))
@@ -68,7 +46,7 @@
 
                     (⊦= '(1 2 3) (reify (thunk (amb 1 2 3))))
                     (⊦= '(8 9 9 10) (reify (thunk (+ (amb 1 2) 3 (amb 4 5)))))
-                    (⊦= '(31 51) (reify (thunk (+ 1 (letcc k (* 10 (amb 3 (k 4))))))))))
+                    (⊦= '(31 51) (reify (thunk (+ 1 (letcc k (* 10 (amb 3 (k 4)))))))))
       
     ((test/letcc* _)
         (⊦= 3 (letcc* ⤶ ((v (+ 1 (⤶ 1)))

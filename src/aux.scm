@@ -28,32 +28,33 @@
                           
   (define (callcc f) (letcc k (f k)))
 
-  (define (delimcc S)
-   (letrec ((mk identity)
-            (abort (lambda (v) (mk v)))
-            (reset (lambda (t)
-                    (let1 (m mk)
-                     (letcc k
-                      (set! mk (lambda (r)
-                                (set! mk m)
-                                (k r)))
-                      (abort (t))))))
-            (shift (lambda (h)
-                    (letcc k
-                     (abort (h (lambda (v) (reset (thunk (k v))))))))))
-    (S shift reset)))
+  (define *delimcc-cont* identity)
 
-  (define-syntax letdelimcc
+  (define (delimcc-reset t)
+                    (let1 (m *delimcc-cont*)
+                     (letcc k
+                      (set! *delimcc-cont*  (lambda (r)
+                                (set! *delimcc-cont*  m)
+                                (k r)))
+                      (*delimcc-cont*  (t)))))
+                
+   (define (delimcc-shift h)
+    (letcc k (*delimcc-cont* (h (lambda (v) (delimcc-reset (thunk (k v))))))))
+
+  (define-syntax reset
    (syntax-rules ()
-    ((letdelimcc (shift reset yield) body ...)
-     (delimcc (lambda (S R)
-                (let-syntax ((shift (syntax-rules ()
-                                     ((shift k sbody) (S (lambda (k) sbody)))))
-                             (reset (syntax-rules ()
-                                     ((reset rbody) (R (thunk rbody))))))
-                 (define (yield x) (shift k (cons x (k (void)))))
-                 body ...))))))
-  
+    ((_ body ...) (delimcc-reset (thunk body ...)))))
+
+  (define-syntax resetnull
+   (syntax-rules ()
+    ((_ body ...) (reset body ... '()))))
+
+  (define-syntax shift
+   (syntax-rules ()
+    ((_ k body ...) (delimcc-shift (lambda (k) body ...)))))
+
+  (define (yield x) (shift k (cons x (k (void)))))
+
   (define-syntax letcc*
     (syntax-rules ()
       ((letcc* next ((v exp ...) ...) body ...)
