@@ -105,8 +105,6 @@
      (let1 (p (assoc searchexpr lstexpr))
       (if (pair? p) (cadr p) (begin body ...))))))
 
-  
-
   (define (§->list s)
     (cond
      ((promise? s) (§->list (force s)))
@@ -126,6 +124,12 @@
      ((pair? s) (cons§ (f (car s)) (map§ f (cdr s))))
      (else s)))
 
+  (define (filter§ p s)
+   (cond
+    ((promise? s) (delay (filter§ p (force s))))
+    ((pair? s) (letcar&cdr (((a d) s)) (if (p a) (cons§ a (filter§ p d)) (delay (filter§ p d)))))
+    (else s)))
+
   (define (zip§ f r s)
     (cond
      ((and (promise? r) (promise? s)) (delay (zip§ f (force r) (force s))))
@@ -136,10 +140,24 @@
 
   (define (cdr§ s)
     (cond
-     ((promise? s) (cdr (force s)))
-     (else (cdr s))))
+     ((promise? s) (cdr§ (force s)))
+     ((pair? s) (cdr s))
+     (else (void))))
+  
+  (define (car§ s)
+    (cond
+     ((promise? s) (car§ (force s)))
+     ((pair? s) (car s))
+     (else (void))))
 
-  (define (fibs§ m n) (rec F (cons§ m (cons§ n (zip§ + F (cdr§ F))))))
+  (define (const§ s) (rec N (cons§ s N)))
+  (define (nats§ s) (rec N (cons§ s (map§ add1 N))))
+  (define (gfibs§ f m n) (rec F (cons§ m (cons§ n (zip§ f F (cdr§ F))))))
+  (define (fibs§ m n) (gfibs§ + m n))
+  (define primes§
+   (let P ((s (nats§ 2)))
+    (let1 (p (car§ s)) 
+     (cons§ p (P (filter§ (lambda (n) (not (zero? (modulo n p)))) (cdr§ s)))))))
 
   (define (nondeterministic system R nr)
      (letcc cc
