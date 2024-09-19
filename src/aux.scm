@@ -22,35 +22,31 @@
     (syntax-rules ()
       ((let1 (var val) body ...) (let ((var val)) body ...))))
 
-  (define-syntax letcc 
+  (define-syntax letcc
     (syntax-rules ()
       ((letcc (var ...) hop body ...) (letcc hop (begin (set! var hop) ...) body ...))
       ((letcc hop body ...) 
-       (continuation-capture (lambda (cont)
-                              (let1 (hop (lambda (arg) (continuation-return cont arg)))
-                                body ...))))))
-                          
+       (continuation-capture (lambda (cont) 
+                              (let1 (hop (lambda (arg) (continuation-return cont arg))) 
+                               body ...))))))
+
   (define (callcc f) (letcc k (f k)))
   (define-syntax definecc (syntax-rules () ((definecc k var body ...) (define var (letcc k body ...)))))
 
   (define delimcc-cont (lambda (v) (void)))
-
   (define (delimcc-abort v) (delimcc-cont v))
   (define (delimcc-cont-set! f) (set! delimcc-cont f))
 
-  (define (delimcc-reset t)
-           (letcc k
+  (define ((delimcc-reset t) k)
                      (let1 (m delimcc-cont)
                       (delimcc-cont-set! (lambda (r) 
                                           (delimcc-cont-set! m) 
                                           (k r)))
-                      (delimcc-abort (t)))))
-
-  (define-syntax reset (syntax-rules () ((reset body ...) (delimcc-reset (thunk body ...)))))
+                      (delimcc-abort (t))))
+  (define-syntax reset (syntax-rules () ((reset body ...) (callcc (delimcc-reset (thunk body ...))))))
   
-  (define (delimcc-shift h) (letcc k (delimcc-abort (h (lambda (v) (reset (k v)))))))
-
-  (define-syntax shift (syntax-rules () ((shift k body ...) (delimcc-shift (lambda (k) body ...)))))
+  (define ((delimcc-shift h) k) (delimcc-abort (h (lambda (v) (reset (k v))))))
+  (define-syntax shift (syntax-rules () ((shift k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
 
   (define-syntax resetnull (syntax-rules () ((_ body ...) (reset body ... '()))))
   (define (yield x) (shift k (cons x (k (void)))))
@@ -159,8 +155,7 @@
     (let1 (p (car§ s)) 
      (cons§ p (P (filter§ (lambda (n) (not (zero? (modulo n p)))) (cdr§ s)))))))
 
-  (define (nondeterministic system R nr)
-     (letcc cc
+  (define ((nondeterministic system R nr) cc)
         (letrec ((nremaining nr)
                  (pool '())
                  (values '())
@@ -218,7 +213,7 @@
           (let1 (v (system chooseD chooseB fail markD cutD ¶))
            (push! v values) 
            (sub1! nremaining)
-           (R values fail)))))
+           (R values fail))))
 
   (define-syntax letnondeterministic
     (syntax-rules ()
@@ -227,7 +222,7 @@
       ((_ (chooseD chooseB fail markD cutD asserter) body ...)
        (letnondeterministic -1 (chooseD chooseB fail markD cutD asserter) body ...))
       ((_ nr ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...))
-       (nondeterministic (lambda (chooseD chooseB fail markD cutD asserter) body ...) (lambda (arg next) lbody ...) nr))
+       (callcc (nondeterministic (lambda (chooseD chooseB fail markD cutD asserter) body ...) (lambda (arg next) lbody ...) nr)))
       ((_ nr (chooseD chooseB fail markD cutD asserter) body ...) 
        (letnondeterministic nr ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) (next))))))
 
