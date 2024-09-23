@@ -46,11 +46,11 @@
   (define-syntax reset (syntax-rules () ((reset body ...) (callcc (delimcc-reset (thunk body ...))))))
   
   (define ((delimcc-shift h) k) (delimcc-abort (h (lambda (v) (reset (k v))))))
-  (define-syntax shift (syntax-rules () ((shift k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
+  (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
 
   (define-syntax resetnull (syntax-rules () ((_ body ...) (reset body ... '()))))
-  (define (yield x) (shift k (cons x (k (void)))))
-  (define (yield§ x) (shift k (cons§ x (k (void)))))
+  (define (yield x) (letshiftcc k (cons x (k (void)))))
+  (define (yield§ x) (letshiftcc k (cons§ x (k (void)))))
 
   (define-syntax letcc*
     (syntax-rules ()

@@ -16,14 +16,14 @@
         (⊦= 'a (letcc k (k 'a))))
 
     ((test/letcc/delimcc _)
-        (⊦= (void) (shift k 10))
-        (⊦= 21 (+ 1 (* 2 (shift k (k (k 10))))))
-        (⊦= 41 (+ 1 (reset (* 2 (shift k (k (k 10)))))))
+        (⊦= (void) (letshiftcc k 10))
+        (⊦= 21 (+ 1 (* 2 (letshiftcc k (k (k 10))))))
+        (⊦= 41 (+ 1 (reset (* 2 (letshiftcc k (k (k 10)))))))
         (⊦= 15 (+ 10 (reset (+ 2 3))))
-        (⊦= 13 (+ 10 (reset (+ 2 (shift k 3)))))
-        (⊦= 15 (+ 10 (reset (+ 2 (shift k (k 3))))))
-        (⊦= 115 (+ 10 (reset (+ 2 (shift k (+ 100 (k 3)))))))
-        (⊦= 117 (+ 10 (reset (+ 2 (shift k (+ 100 (k (k 3)))))))))
+        (⊦= 13 (+ 10 (reset (+ 2 (letshiftcc k 3)))))
+        (⊦= 15 (+ 10 (reset (+ 2 (letshiftcc k (k 3))))))
+        (⊦= 115 (+ 10 (reset (+ 2 (letshiftcc k (+ 100 (k 3)))))))
+        (⊦= 117 (+ 10 (reset (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
 
      ((test/letcc/delimcc+yield _)
 
@@ -48,7 +48,7 @@
 
     ((test/letcc/delimcc+monad _)
 
-                    (define (reflect meaning) (shift k (extend k meaning)))
+                    (define (reflect meaning) (letshiftcc k (extend k meaning)))
                     (define (reify* t) (reset (eta (t))))
                     (define (eta x) (list x))
                     (define (extend f l) (apply append (map f l)))
