@@ -25,6 +25,62 @@
         (⊦= 115 (+ 10 (reset (+ 2 (letshiftcc k (+ 100 (k 3)))))))
         (⊦= 117 (+ 10 (reset (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
 
+     ((test/letcc/delimcc+asai+tutorial _)
+        (⊦= 10 (reset (sub1 (+ 3 (letshiftcc k (* 5 2))))))
+        (⊦= 9 (sub1 (reset (+ 3 (letshiftcc k (* 5 2))))))
+        (⊦= 'hello (reset (sub1 (+ 3 (letshiftcc k 'hello)))))
+        
+        (define (prod lst)
+         (cond
+          ((null? lst) 1))
+          ((zero? (car lst)) (letshiftcc _ 'zero))
+          (else (* (car lst) (prod (cdr lst)))))
+        
+        (⊦= 'zero (reset (prod '(2 3 0 5))))
+
+        (define f (reset (sub1 (+ 3 (letshiftcc k k)))))
+        (⊦= 12 (f 10))
+
+        (define g (reset (sub1 (+ 3 (delimcc)))))
+        (⊦= 12 (g 10))
+
+        (define (appender lst)
+         (cond
+          ((null? lst) (delimcc))
+          (else (cons (car lst) (appender (cdr lst))))))
+
+        (define A (reset (appender '(1 2 3))))
+        (⊦= '(1 2 3 4 5 6) (A '(4 5 6)))
+
+        (define (walk tree)
+         (cond
+          ((null? tree) (void))
+          (else 
+           (walk (car tree))
+           (yield§ (cadr tree))
+           (walk (caddr tree)))))
+
+        (⊦= '(1 2 3) (§->list (resetnull (walk '((() 1 ()) 2 (() 3 ()))))))
+
+        (define (walk1 tree)
+         (cond
+          ((null? tree) (void))
+          (else 
+           (walk1 (car tree))
+           (letshiftcc k (cons (cadr tree) k))
+           (walk1 (caddr tree)))))
+
+        (define (loop tree f b)
+         (letgensym (witness)
+          (define (L r)
+           (cond
+            ((equal? r witness) b)
+            (else (f (car r) (L ((cdr r) (void)))))))
+          (L (reset (walk1 tree) witness))))
+
+        (⊦= 600 (loop '((() 1 ()) 2 (() 3 ())) * 100))
+     )
+
      ((test/letcc/delimcc+yield _)
 
         (⊦= '(1) 
