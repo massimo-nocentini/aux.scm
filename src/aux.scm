@@ -47,8 +47,9 @@
   
   (define ((delimcc-shift h) k) (delimcc-abort (h (lambda (v) (reset (k v))))))
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
-  (define (delimcc-extract) (letshiftcc kk kk))
+  (define (delimcc-extract) (letshiftcc k k))
   (define (delimcc-discard v) (letshiftcc _ v))
+  (define (delimcc-cons v) (letshiftcc k (cons v k)))
 
   (define-syntax resetnull (syntax-rules () ((_ body ...) (reset body ... '()))))
   (define (yield x) (letshiftcc k (cons x (k (void)))))
@@ -189,10 +190,10 @@
                             (else (fail)))))
                  (markD (thunk (letgensym (flag) (push! flag pool) flag)))
                  (cutD (lambda (flag)
-                        (if (null? pool)
-                          (void)
-                          (let1 (a (pop! pool))
-                            (if (eq? a flag) (void) (cutD flag))))))
+                        (cond 
+                         ((null? pool) (void))
+                         (else (let1 (a (pop! pool))
+                                (if (eq? a flag) (void) (cutD flag)))))))
                  (¶ (lambda (b) (unless b (fail)))))
 
           (let1 (v (system chooseD chooseB fail markD cutD ¶))

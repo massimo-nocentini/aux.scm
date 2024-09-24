@@ -54,23 +54,15 @@
         (define A (reset (appender '(1 2 3))))
         (⊦= '(1 2 3 4 5 6) (A '(4 5 6)))
 
-        (define (walk tree)
+        (define (walk f tree)
          (cond
           ((null? tree) (void))
           (else 
-           (walk (car tree))
-           (yield§ (cadr tree))
-           (walk (caddr tree)))))
+           (walk f (car tree))
+           (f (cadr tree))
+           (walk f (caddr tree)))))
 
-        (⊦= '(1 2 3) (§->list (resetnull (walk '((() 1 ()) 2 (() 3 ()))))))
-
-        (define (walk1 tree)
-         (cond
-          ((null? tree) (void))
-          (else 
-           (walk1 (car tree))
-           (letshiftcc k (cons (cadr tree) k))
-           (walk1 (caddr tree)))))
+        (⊦= '(1 2 3) (§->list (resetnull (walk yield§ '((() 1 ()) 2 (() 3 ()))))))
 
         (define (loop tree f b)
          (letgensym (witness)
@@ -78,7 +70,7 @@
            (cond
             ((equal? r witness) b)
             (else (f (car r) (L ((cdr r) (void)))))))
-          (L (reset (walk1 tree) witness))))
+          (L (reset (walk delimcc-cons tree) witness))))
 
         (⊦= 600 (loop '((() 1 ()) 2 (() 3 ())) * 100))
      )
