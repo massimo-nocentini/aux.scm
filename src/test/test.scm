@@ -26,6 +26,8 @@
         (⊦= 117 (+ 10 (reset (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
 
      ((test/letcc/delimcc+asai+tutorial _)
+        ; Tests according to the tutorial at http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf by Kenichi Asai.
+
         (⊦= 10 (reset (sub1 (+ 3 (letshiftcc k (* 5 2))))))
         (⊦= 9 (sub1 (reset (+ 3 (letshiftcc k (* 5 2))))))
         (⊦= 'hello (reset (sub1 (+ 3 (letshiftcc k 'hello)))))
@@ -33,7 +35,7 @@
         (define (prod lst)
          (cond
           ((null? lst) 1))
-          ((zero? (car lst)) (letshiftcc _ 'zero))
+          ((zero? (car lst)) (delimcc-discard 'zero))
           (else (* (car lst) (prod (cdr lst)))))
         
         (⊦= 'zero (reset (prod '(2 3 0 5))))
@@ -41,12 +43,12 @@
         (define f (reset (sub1 (+ 3 (letshiftcc k k)))))
         (⊦= 12 (f 10))
 
-        (define g (reset (sub1 (+ 3 (delimcc)))))
+        (define g (reset (sub1 (+ 3 (delimcc-extract)))))
         (⊦= 12 (g 10))
 
         (define (appender lst)
          (cond
-          ((null? lst) (delimcc))
+          ((null? lst) (delimcc-extract))
           (else (cons (car lst) (appender (cdr lst))))))
 
         (define A (reset (appender '(1 2 3))))

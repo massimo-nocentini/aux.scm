@@ -47,7 +47,8 @@
   
   (define ((delimcc-shift h) k) (delimcc-abort (h (lambda (v) (reset (k v))))))
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
-  (define (delimcc) (letshiftcc kk kk))
+  (define (delimcc-extract) (letshiftcc kk kk))
+  (define (delimcc-discard v) (letshiftcc _ v))
 
   (define-syntax resetnull (syntax-rules () ((_ body ...) (reset body ... '()))))
   (define (yield x) (letshiftcc k (cons x (k (void)))))
