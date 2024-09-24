@@ -52,7 +52,7 @@
 
   (define-syntax resetnull (syntax-rules () ((_ body ...) (reset body ... '()))))
   (define (yield x) (letshiftcc k (cons x (k (void)))))
-  (define (yield§ x) (letshiftcc k (cons§ x (delay (k (void))))))
+  (define (yield§ x) (letshiftcc k (cons§ x (k (void)))))
 
   (define-syntax letcc*
     (syntax-rules ()
@@ -162,16 +162,12 @@
                  (pool '())
                  (values '())
                  (fail (thunk
-                         (if (or (zero? nremaining) (null? pool))
-                           (cc (reverse values)) 
-                           (let1 (t (pop! pool))
-                             (cond 
-                              ((symbol? t) (fail))
-                              ((procedure? t) (t))
-                              (else ; for breadth cut
-                               (push! (gensym) pool)
-                               (set-cdr! pool '())
-                               (fail)))))))
+                         (cond 
+                          ((or (zero? nremaining) (null? pool)) (cc (reverse values)))
+                          (else (let1 (t (pop! pool))
+                                 (cond
+                                  ((procedure? t) (t))
+                                  (else (fail))))))))
                  (chooseD (lambda list-of-choices
                            (¶ (pair? list-of-choices))
                            (letcar&cdr (((choices rest-of-choices) list-of-choices))
@@ -192,24 +188,11 @@
                                               (chooseB '())))
                             (else (fail)))))
                  (markD (thunk (letgensym (flag) (push! flag pool) flag)))
-                 (markB (thunk (letgensym (flag) 
-                                (let1 (witness (list flag)) 
-                                 (append! (list witness) pool)
-                                 witness))))
                  (cutD (lambda (flag)
                         (if (null? pool)
                           (void)
                           (let1 (a (pop! pool))
                             (if (eq? a flag) (void) (cutD flag))))))
-                 (cutB (lambda (flag)
-                        (unless (null? pool) (set-cdr! pool '()))
-                        (void)
-                        #;(letrec ((A (lambda (lst)
-                                     (cond
-                                      ((or (null? lst) (null? (cdr lst))) (void))
-                                      ((eq? (cadr lst) flag) (display 'found) (set-cdr! lst '()) (void))
-                                      (else (A (cdr lst)))))))
-                          (A pool))))
                  (¶ (lambda (b) (unless b (fail)))))
 
           (let1 (v (system chooseD chooseB fail markD cutD ¶))
