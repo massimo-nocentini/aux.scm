@@ -62,7 +62,7 @@
            (f (cadr tree))
            (walk f (caddr tree)))))
 
-        (⊦= '(1 2 3) (§->list (resetnull (walk yield§ '((() 1 ()) 2 (() 3 ()))))))
+        (⊦= '(1 2 3) (§->list (resetnull (walk (lambda (v) (yield§ v)) '((() 1 ()) 2 (() 3 ()))))))
 
         (define (loop tree f b)
          (letgensym (witness)
@@ -73,6 +73,23 @@
           (L (reset (walk delimcc-cons tree) witness))))
 
         (⊦= 600 (loop '((() 1 ()) 2 (() 3 ())) * 100))
+
+        (define a (reset (append (delimcc-thunk '(hello)) '(world))))
+        (⊦= '(hello world) (a))
+
+        (define p (reset (append '(hello) (delimcc-lambda (x) (list x)) '(world))))
+        (⊦= '(hello 4 world) (p 4))
+
+        (⊦= '(1 3 3) (reset (delimcc-either `(1 ,(add1 2) 3))))
+
+        (⊦= '((no (#t #f)) (no no)) 
+            (reset
+                      (let ((p (delimcc-either (list #t #f)))
+                            (q (delimcc-either (list #t #f))))
+                       (if (and (or p q) (or p (not q)) (or (not p) (not q)))
+                        (list p q)
+                        'no
+                       ))))
      )
 
      ((test/letcc/delimcc+yield _)

@@ -50,10 +50,14 @@
   (define (delimcc-extract) (letshiftcc k k))
   (define (delimcc-discard v) (letshiftcc _ v))
   (define (delimcc-cons v) (letshiftcc k (cons v k)))
+  (define-syntax delimcc-thunk (syntax-rules () ((delimcc-thunk body ...) (letshiftcc k (thunk (let1 (x (begin body ...)) (k x)))))))
+  (define-syntax delimcc-lambda (syntax-rules () ((delimcc-lambda args body ...) (letshiftcc k (lambda args (let1 (x (begin body ...)) (k x)))))))
+  (define (delimcc-either lst) (letshiftcc k (map k lst)))
 
-  (define-syntax resetnull (syntax-rules () ((_ body ...) (reset body ... '()))))
+
+  (define-syntax resetnull (syntax-rules () ((resetnull body ...) (reset body ... '()))))
   (define (yield x) (letshiftcc k (cons x (k (void)))))
-  (define (yield§ x) (letshiftcc k (cons§ x (k (void)))))
+  (define-syntax yield§ (syntax-rules () ((yield§ body) (letshiftcc k (cons§ body (k (void)))))))
 
   (define-syntax letcc*
     (syntax-rules ()
