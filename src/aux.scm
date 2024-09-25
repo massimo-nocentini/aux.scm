@@ -5,7 +5,7 @@
 
   (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
-  (define-syntax append! (syntax-rules () ((append! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
+  (define-syntax append-right! (syntax-rules () ((append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
   (define-syntax sub1! (syntax-rules () ((sub1! var) (begin (set! var (sub1 var)) (void)))))
 
   (define-syntax λ (syntax-rules () ((λ arg body ...) (lambda arg body ...))))
@@ -43,9 +43,9 @@
                                           (delimcc-cont-set! m) 
                                           (k r)))
                       (delimcc-abort (t))))
-  (define-syntax reset (syntax-rules () ((reset body ...) (callcc (delimcc-reset (thunk body ...))))))
+  (define-syntax resetcc (syntax-rules () ((resetcc body ...) (callcc (delimcc-reset (thunk body ...))))))
   
-  (define ((delimcc-shift h) k) (delimcc-abort (h (lambda (v) (reset (k v))))))
+  (define ((delimcc-shift h) k) (delimcc-abort (h (lambda (v) (resetcc (k v))))))
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
   (define (delimcc-extract) (letshiftcc k k))
   (define (delimcc-discard v) (letshiftcc _ v))
@@ -54,10 +54,21 @@
   (define-syntax delimcc-lambda (syntax-rules () ((delimcc-lambda args body ...) (letshiftcc k (lambda args (let1 (x (begin body ...)) (k x)))))))
   (define (delimcc-either lst) (letshiftcc k (map k lst)))
 
-
-  (define-syntax resetnull (syntax-rules () ((resetnull body ...) (reset body ... '()))))
+  (define-syntax resetnull (syntax-rules () ((resetnull body ...) (resetcc body ... '()))))
   (define (yield x) (letshiftcc k (cons x (k (void)))))
   (define-syntax yield§ (syntax-rules () ((yield§ body) (letshiftcc k (cons§ body (k (void)))))))
+
+  (define-syntax delimcc-fold
+   (syntax-rules ()
+    ((delimcc-fold bexpr ((each acc) fbody ...) body ...)
+         (let* ((witness (gensym))
+                (b bexpr)
+                (f (lambda (each acc) fbody ...)))
+          (define (L r)
+           (cond
+            ((eq? r witness) b)
+            (else (f (car r) (L (let1 (k (cdr r)) (k (void))))))))
+          (L (resetcc body ... witness))))))
 
   (define-syntax letcc*
     (syntax-rules ()
@@ -186,10 +197,10 @@
                  (chooseB (lambda (choices)
                            (cond
                             ((promise? choices) (letcc kk
-                                                  (append! (list (thunk (kk (chooseB (force choices))))) pool)
+                                                  (append-right! (list (thunk (kk (chooseB (force choices))))) pool)
                                                   (chooseB '())))
                             ((pair? choices) (letcc kk
-                                              (append! (list (thunk (kk (car choices))) (thunk (kk (chooseB (cdr choices))))) pool)
+                                              (append-right! (list (thunk (kk (car choices))) (thunk (kk (chooseB (cdr choices))))) pool)
                                               (chooseB '())))
                             (else (fail)))))
                  (markD (thunk (letgensym (flag) (push! flag pool) flag)))

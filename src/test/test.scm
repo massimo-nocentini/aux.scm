@@ -18,19 +18,19 @@
     ((test/letcc/delimcc _)
         (⊦= (void) (letshiftcc k 10))
         (⊦= 21 (+ 1 (* 2 (letshiftcc k (k (k 10))))))
-        (⊦= 41 (+ 1 (reset (* 2 (letshiftcc k (k (k 10)))))))
-        (⊦= 15 (+ 10 (reset (+ 2 3))))
-        (⊦= 13 (+ 10 (reset (+ 2 (letshiftcc k 3)))))
-        (⊦= 15 (+ 10 (reset (+ 2 (letshiftcc k (k 3))))))
-        (⊦= 115 (+ 10 (reset (+ 2 (letshiftcc k (+ 100 (k 3)))))))
-        (⊦= 117 (+ 10 (reset (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
+        (⊦= 41 (+ 1 (resetcc (* 2 (letshiftcc k (k (k 10)))))))
+        (⊦= 15 (+ 10 (resetcc (+ 2 3))))
+        (⊦= 13 (+ 10 (resetcc (+ 2 (letshiftcc k 3)))))
+        (⊦= 15 (+ 10 (resetcc (+ 2 (letshiftcc k (k 3))))))
+        (⊦= 115 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k 3)))))))
+        (⊦= 117 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
 
      ((test/letcc/delimcc+asai+tutorial _)
         ; Tests according to the tutorial at http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf by Kenichi Asai.
 
-        (⊦= 10 (reset (sub1 (+ 3 (letshiftcc k (* 5 2))))))
-        (⊦= 9 (sub1 (reset (+ 3 (letshiftcc k (* 5 2))))))
-        (⊦= 'hello (reset (sub1 (+ 3 (letshiftcc k 'hello)))))
+        (⊦= 10 (resetcc (sub1 (+ 3 (letshiftcc k (* 5 2))))))
+        (⊦= 9 (sub1 (resetcc (+ 3 (letshiftcc k (* 5 2))))))
+        (⊦= 'hello (resetcc (sub1 (+ 3 (letshiftcc k 'hello)))))
         
         (define (prod lst)
          (cond
@@ -38,12 +38,12 @@
           ((zero? (car lst)) (delimcc-discard 'zero))
           (else (* (car lst) (prod (cdr lst)))))
         
-        (⊦= 'zero (reset (prod '(2 3 0 5))))
+        (⊦= 'zero (resetcc (prod '(2 3 0 5))))
 
-        (define f (reset (sub1 (+ 3 (letshiftcc k k)))))
+        (define f (resetcc (sub1 (+ 3 (letshiftcc k k)))))
         (⊦= 12 (f 10))
 
-        (define g (reset (sub1 (+ 3 (delimcc-extract)))))
+        (define g (resetcc (sub1 (+ 3 (delimcc-extract)))))
         (⊦= 12 (g 10))
 
         (define (appender lst)
@@ -51,7 +51,7 @@
           ((null? lst) (delimcc-extract))
           (else (cons (car lst) (appender (cdr lst))))))
 
-        (define A (reset (appender '(1 2 3))))
+        (define A (resetcc (appender '(1 2 3))))
         (⊦= '(1 2 3 4 5 6) (A '(4 5 6)))
 
         (define (walk f tree)
@@ -64,26 +64,19 @@
 
         (⊦= '(1 2 3) (§->list (resetnull (walk (lambda (v) (yield§ v)) '((() 1 ()) 2 (() 3 ()))))))
 
-        (define (loop tree f b)
-         (letgensym (witness)
-          (define (L r)
-           (cond
-            ((equal? r witness) b)
-            (else (f (car r) (L ((cdr r) (void)))))))
-          (L (reset (walk delimcc-cons tree) witness))))
+        (⊦= 600 (delimcc-fold 100 ((each prod) (* each prod))
+                (walk delimcc-cons '((() 1 ()) 2 (() 3 ())))))
 
-        (⊦= 600 (loop '((() 1 ()) 2 (() 3 ())) * 100))
-
-        (define a (reset (append (delimcc-thunk '(hello)) '(world))))
+        (define a (resetcc (append (delimcc-thunk '(hello)) '(world))))
         (⊦= '(hello world) (a))
 
-        (define p (reset (append '(hello) (delimcc-lambda (x) (list x)) '(world))))
+        (define p (resetcc (append '(hello) (delimcc-lambda (x) (list x)) '(world))))
         (⊦= '(hello 4 world) (p 4))
 
-        (⊦= '(1 3 3) (reset (delimcc-either `(1 ,(add1 2) 3))))
+        (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3))))
 
         (⊦= '((no (#t #f)) (no no)) 
-            (reset
+            (resetcc
                       (let ((p (delimcc-either (list #t #f)))
                             (q (delimcc-either (list #t #f))))
                        (if (and (or p q) (or p (not q)) (or (not p) (not q)))
@@ -116,7 +109,7 @@
     ((test/letcc/delimcc+monad _)
 
                     (define (reflect meaning) (letshiftcc k (extend k meaning)))
-                    (define (reify* t) (reset (eta (t))))
+                    (define (reify* t) (resetcc (eta (t))))
                     (define (eta x) (list x))
                     (define (extend f l) (apply append (map f l)))
 
