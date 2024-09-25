@@ -40,10 +40,10 @@
         
         (⊦= 'zero (resetcc (prod '(2 3 0 5))))
 
-        (define f (resetcc (sub1 (+ 3 (letshiftcc k k)))))
+        (define-resetcc f (sub1 (+ 3 (letshiftcc k k))))
         (⊦= 12 (f 10))
 
-        (define g (resetcc (sub1 (+ 3 (delimcc-extract)))))
+        (define-resetcc g (sub1 (+ 3 (delimcc-extract))))
         (⊦= 12 (g 10))
 
         (define (appender lst)
@@ -51,7 +51,7 @@
           ((null? lst) (delimcc-extract))
           (else (cons (car lst) (appender (cdr lst))))))
 
-        (define A (resetcc (appender '(1 2 3))))
+        (define-resetcc A (appender '(1 2 3)))
         (⊦= '(1 2 3 4 5 6) (A '(4 5 6)))
 
         (define (walk f tree)
@@ -64,13 +64,13 @@
 
         (⊦= '(1 2 3) (§->list (resetnull (walk (lambda (v) (yield§ v)) '((() 1 ()) 2 (() 3 ()))))))
 
-        (⊦= 600 (delimcc-fold 100 ((each prod) (* each prod))
+        (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
                 (walk delimcc-cons '((() 1 ()) 2 (() 3 ())))))
 
-        (define a (resetcc (append (delimcc-thunk '(hello)) '(world))))
+        (define-resetcc a (append (delimcc-thunk '(hello)) '(world)))
         (⊦= '(hello world) (a))
 
-        (define p (resetcc (append '(hello) (delimcc-lambda (x) (list x)) '(world))))
+        (define-resetcc p (append '(hello) (delimcc-lambda (x) (list x)) '(world)))
         (⊦= '(hello 4 world) (p 4))
 
         (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3))))

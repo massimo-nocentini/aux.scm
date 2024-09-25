@@ -44,7 +44,7 @@
                                           (k r)))
                       (delimcc-abort (t))))
   (define-syntax resetcc (syntax-rules () ((resetcc body ...) (callcc (delimcc-reset (thunk body ...))))))
-  
+  (define-syntax define-resetcc (syntax-rules () ((define-resetcc def body ...) (define def (resetcc body ...)))))
   (define ((delimcc-shift h) k) (delimcc-abort (h (lambda (v) (resetcc (k v))))))
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
   (define (delimcc-extract) (letshiftcc k k))
@@ -58,7 +58,7 @@
   (define (yield x) (letshiftcc k (cons x (k (void)))))
   (define-syntax yield§ (syntax-rules () ((yield§ body) (letshiftcc k (cons§ body (k (void)))))))
 
-  (define-syntax delimcc-fold
+  (define-syntax delimcc-foldr
    (syntax-rules ()
     ((delimcc-fold bexpr ((each acc) fbody ...) body ...)
          (let* ((witness (gensym))
