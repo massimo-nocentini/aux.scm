@@ -1,7 +1,7 @@
 
 (module aux *
 
-  (import scheme (chicken base) (chicken continuation) (chicken condition))
+  (import scheme (chicken base) (chicken continuation))
 
   (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
@@ -31,9 +31,9 @@
     (define (delimcc-abort v) (let1 (k (car shifts)) (k v)))
     (define (delimcc-cont-push! k) (push! k shifts))
     (define ((R t) k)
-     (let1 (m (pop! shifts))
+     (let1 (s (pop! shifts))
       (delimcc-cont-push! (lambda (r)
-                           (delimcc-cont-push! m)
+                           (delimcc-cont-push! s)
                            (k r)))
       (delimcc-abort (t))))
     (define ((S h) k) (delimcc-abort (h (lambda (v) (resetcc (k v))))))
