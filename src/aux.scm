@@ -55,8 +55,8 @@
   (define (delimcc-either lst) (letshiftcc k (map k lst)))
 
   (define-syntax resetnull (syntax-rules () ((resetnull body ...) (resetcc body ... '()))))
-  (define (yield x) (letshiftcc k (cons x (k (void)))))
-  (define-syntax yield§ (syntax-rules () ((yield§ body) (letshiftcc k (cons§ body (k (void)))))))
+  (define (yield . args) (letshiftcc k (append args (k (void)))))
+  (define-syntax yield§ (syntax-rules () ((yield§ body ...) (begin (letshiftcc k (cons§ body (k (void)))) ...))))
 
   (define-syntax delimcc-foldr
    (syntax-rules ()

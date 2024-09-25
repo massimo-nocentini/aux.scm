@@ -75,14 +75,14 @@
 
         (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3))))
 
-        (⊦= '((no (#t #f)) (no no)) 
+        (⊦= '(((p #t) (q #f))) 
+           (let1 (sols '())
             (resetcc
-                      (let ((p (delimcc-either (list #t #f)))
-                            (q (delimcc-either (list #t #f))))
-                       (if (and (or p q) (or p (not q)) (or (not p) (not q)))
-                        (list p q)
-                        'no
-                       ))))
+                      (let ((p (delimcc-either '(#t #f)))
+                            (q (delimcc-either '(#t #f))))
+                       (when (and (or p q) (or p (not q)) (or (not p) (not q)))
+                        (push! `((p ,p) (q ,q)) sols))))
+            sols))
      )
 
      ((test/letcc/delimcc+yield _)
@@ -94,7 +94,9 @@
         (⊦= '(1 2) 
                 (resetnull
                   (yield 1)
-                  (yield 2))))
+                  (yield 2)))
+                  
+        (⊦= '(1 2) (resetnull (yield 1 2))))
 
     ((test/letcc/delimcc+yield§ _)
 
@@ -104,7 +106,9 @@
                 (§->list
                  (resetnull
                   (yield§ 1)
-                  (yield§ 2)))))
+                  (yield§ 2))))
+                  
+          (⊦= '(1 2) (§->list (resetnull (yield§ 1 2)))))
 
     ((test/letcc/delimcc+monad _)
 
