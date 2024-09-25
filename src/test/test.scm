@@ -62,7 +62,7 @@
            (f (cadr tree))
            (walk f (caddr tree)))))
 
-        (⊦= '(1 2 3) (§->list (resetnull (walk (lambda (v) (yield§ v)) '((() 1 ()) 2 (() 3 ()))))))
+        (⊦= '(1 2 3) (§->list (resetcc+null (walk (lambda (v) (yield§ v)) '((() 1 ()) 2 (() 3 ()))))))
 
         (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
                 (walk delimcc-cons '((() 1 ()) 2 (() 3 ())))))
@@ -86,29 +86,12 @@
      )
 
      ((test/letcc/delimcc+yield _)
-
-        (⊦= '(1) 
-                (resetnull
-                  (yield 1)))
-
-        (⊦= '(1 2) 
-                (resetnull
-                  (yield 1)
-                  (yield 2)))
-                  
-        (⊦= '(1 2) (resetnull (yield 1 2))))
+        (⊦= '(1) (resetcc+null (yield 1)))
+        (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
 
     ((test/letcc/delimcc+yield§ _)
-
-        (⊦= '(1) (§->list (resetnull (yield§ 1))))
-
-        (⊦= '(1 2) 
-                (§->list
-                 (resetnull
-                  (yield§ 1)
-                  (yield§ 2))))
-                  
-          (⊦= '(1 2) (§->list (resetnull (yield§ 1 2)))))
+        (⊦= '(1) (§->list (resetcc+null (yield§ 1))))
+        (⊦= '(1 2) (§->list (resetcc+null (yield§ 1) (yield§ 2)))))
 
     ((test/letcc/delimcc+monad _)
 
