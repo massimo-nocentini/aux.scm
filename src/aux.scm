@@ -8,10 +8,8 @@
   (define-syntax append-right! (syntax-rules () ((append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
   (define-syntax sub1! (syntax-rules () ((sub1! var) (begin (set! var (sub1 var)) (void)))))
 
-  (define-syntax λ (syntax-rules () ((λ arg body ...) (lambda arg body ...))))
+  (define-syntax λ (syntax-rules () ((λ formals body ...) (lambda formals body ...))))
   (define-syntax thunk (syntax-rules () ((thunk body ...) (lambda () body ...))))
-  (define-syntax λ0 (syntax-rules () ((λ0 body ...) (lambda () body ...))))
-  (define-syntax λ1 (syntax-rules () ((λ1 arg body ...) (lambda (arg) body ...))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
   (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
@@ -29,14 +27,14 @@
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
   
   (define-values (delimcc-reset delimcc-shift)
-   (let1 (delimcc-cont (lambda (v) (void)))
-    (define (delimcc-abort v) (delimcc-cont v))
-    (define (delimcc-cont-set! f) (set! delimcc-cont f))
+   (let1 (shifts (list (lambda (v) v)))
+    (define (delimcc-abort v) (let1 (k (car shifts)) (k v)))
+    (define (delimcc-cont-push! k) (push! k shifts))
     (define ((R t) k)
-     (let1 (m delimcc-cont)
-      (delimcc-cont-set! (lambda (r) 
-                          (delimcc-cont-set! m) 
-                          (k r)))
+     (let1 (m (pop! shifts))
+      (delimcc-cont-push! (lambda (r)
+                           (delimcc-cont-push! m)
+                           (k r)))
       (delimcc-abort (t))))
     (define ((S h) k) (delimcc-abort (h (lambda (v) (resetcc (k v))))))
     (values R S)))
@@ -76,7 +74,7 @@
   (define-syntax trycc
     (syntax-rules (else)
       ((trycc (next exp ...) (else body ...))
-       (letcc* hop ((v (let1 (next (λ0 (hop (void)))) exp)) ...)
+       (letcc* hop ((v (let1 (next (thunk (hop (void)))) exp)) ...)
          body ...))))
 
   (define-syntax letcar&cdr
