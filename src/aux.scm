@@ -166,6 +166,12 @@
     (let1 (p (car§ s)) 
      (cons§ p (P (filter§ (lambda (n) (not (zero? (modulo n p)))) (cdr§ s)))))))
 
+  (define (thunk->§ stop? t)
+   (delay (let1 (v (t)) 
+           (cond
+            ((stop? v) '())
+            (else (cons v (thunk->§ stop? t)))))))
+
   (define ((nondeterministic system R nr) cc)
         (letrec ((nremaining nr)
                  (pool '())

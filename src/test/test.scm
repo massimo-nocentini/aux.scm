@@ -337,6 +337,8 @@
           (map§ (lambda (v) (list 'b v)) (fibs§ 0 1))
           (map§ (lambda (v) (list 'c v)) (fibs§ 0 1))))
 
+      (§->list (take§ 20 (thunk->§ (λ (v) #f) q)))
+
       (define-nondeterministic (q (? ¿ † • ! ¶))
        (? '((a 1) (a 2) (a 3)) '((b 1) (b 2))))
 
@@ -585,6 +587,10 @@
         ((test/stream/primes _)
          (let1 (primes (take§ 20 primes§))
                 (⊦= '(2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71) (§->list primes))))
+
+        ((test/stream/ones+thunk _)
+         (let1 (ones (take§ 20 (thunk->§ (λ (v) #f) (thunk 1))))
+                (⊦= '(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1) (§->list ones))))
 )
 
 (unittest/✓ auxtest)
