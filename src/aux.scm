@@ -62,6 +62,16 @@
             ((eq? r witness) b)
             (else (f (car r) (L (let1 (k (cdr r)) (k (void))))))))
           (L (resetcc body ... witness))))))
+  
+  (define-syntax delimcc-foldr§
+   (syntax-rules ()
+    ((delimcc-fold body ...)
+         (let1 (witness (gensym))
+          (define (L r)
+           (cond
+            ((eq? r witness) '())
+            (else (cons§ (car r) (L (let1 (k (cdr r)) (k (void))))))))
+          (L (resetcc body ... witness))))))
 
   (define-syntax letcc*
     (syntax-rules ()
