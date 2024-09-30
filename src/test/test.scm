@@ -16,8 +16,8 @@
         (⊦= 'a (letcc k (k 'a))))
 
     ((test/letcc/delimcc _)
-        (⊦= 10 (letshiftcc k 10))
-        (⊦= 21 (+ 1 (* 2 (letshiftcc k (k (k 10))))))
+        #;(⊦= 10 (letshiftcc k 10))
+        #;(⊦= 21 (+ 1 (* 2 (letshiftcc k (k (k 10))))))
         (⊦= 41 (+ 1 (resetcc (* 2 (letshiftcc k (k (k 10)))))))
         (⊦= 15 (+ 10 (resetcc (+ 2 3))))
         (⊦= 13 (+ 10 (resetcc (+ 2 (letshiftcc k 3)))))
