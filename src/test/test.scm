@@ -23,7 +23,8 @@
         (⊦= 13 (+ 10 (resetcc (+ 2 (letshiftcc k 3)))))
         (⊦= 15 (+ 10 (resetcc (+ 2 (letshiftcc k (k 3))))))
         (⊦= 115 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k 3)))))))
-        (⊦= 117 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
+        (⊦= 117 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3))))))))
+        (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3))))))))))
 
      ((test/letcc/delimcc+asai+tutorial _)
         ; Tests according to the tutorial at http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf by Kenichi Asai.
@@ -589,7 +590,7 @@
                 (⊦= '(2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71) (§->list primes))))
 
         ((test/stream/ones+thunk _)
-         (let1 (ones (take§ 20 (thunk->§ (λ (v) #f) (thunk 1))))
+         (let1 (ones (take§ 20 (thunk§ 1)))
                 (⊦= '(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1) (§->list ones))))
 )
 

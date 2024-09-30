@@ -30,14 +30,14 @@
    (let1 (shifts (list (lambda (v) v)))
     (define (delimcc-abort v) (let1 (k (car shifts)) (k v)))
     (define (delimcc-cont-push! k) (push! k shifts))
-    (define ((R t) k)
+    (define ((resetk t) k)
      (let1 (s (pop! shifts))
       (delimcc-cont-push! (lambda (r)
                            (delimcc-cont-push! s)
                            (k r)))
       (delimcc-abort (t))))
-    (define ((S h) k) (delimcc-abort (h (lambda (v) (resetcc (k v))))))
-    (values R S)))
+    (define ((shiftk h) k) (delimcc-abort (h (lambda (v) (resetcc (k v))))))
+    (values resetk shiftk)))
   
   (define-syntax define-resetcc (syntax-rules () ((define-resetcc def body ...) (define def (resetcc body ...)))))
   (define (delimcc-extract) (letshiftcc k k))
@@ -176,11 +176,8 @@
     (let1 (p (car§ s)) 
      (cons§ p (P (filter§ (lambda (n) (not (zero? (modulo n p)))) (cdr§ s)))))))
 
-  (define (thunk->§ stop? t)
-   (delay (let1 (v (t)) 
-           (cond
-            ((stop? v) '())
-            (else (cons v (thunk->§ stop? t)))))))
+  (define (thunk->§ t) (cons§ (t) (thunk->§ t)))
+  (define-syntax thunk§ (syntax-rules () ((thunk§ body ...) (thunk->§ (thunk body ...)))))
 
   (define ((nondeterministic system R nr) cc)
         (letrec ((nremaining nr)
