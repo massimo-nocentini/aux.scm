@@ -183,8 +183,8 @@
   (define (stop§ pred? §)
     (cond
      ((promise? §) (delay (stop§ pred? (force §))))
-     ((or (null? §) (pred? (car§ §))) '())
-     (else (cons§ (car§ §) (stop§ pred? (cdr§ §))))))
+     ((or (null? §) (pred? (car §))) '())
+     (else (cons§ (car §) (stop§ pred? (cdr§ §))))))
 
   (define ((nondeterministic system) cc)
         (letrec ((pool '())
@@ -201,9 +201,9 @@
                            (letcar&cdr (((choices rest-of-choices) list-of-choices))
                             (cond
                              ((null? choices) (apply chooseD rest-of-choices))
-                             ((promise? choices) (apply chooseD `(,@rest-of-choices ,(force choices))))
+                             ((promise? choices) (apply chooseD (append rest-of-choices (list (force choices)))))
                              ((pair? choices) (letcc kk
-                                               (push! (thunk (kk (apply chooseD `(,@rest-of-choices ,(cdr choices))))) pool)
+                                               (push! (thunk (kk (apply chooseD (append rest-of-choices (list (cdr choices)))))) pool)
                                                (car choices)))
                              (else (fail))))))
                  (chooseB (lambda (choices)
@@ -242,16 +242,16 @@
 
   (define (memoize f)
    (let ((called #f) (memo (void)))
-    (lambda args
-     (if called 
-      memo 
-      (begin 
-       (set! memo (apply f args))
-       (set! called #t)
-       memo)))))
+    (λ args
+     (unless called 
+      (set! memo (apply f args))
+      (set! called #t))
+     memo)))
 
   (define-syntax lambdamemo
    (syntax-rules ()
     ((_ args body ...) (memoize (lambda args body ...)))))
+
+  (define ((boolean->P prob) bool) (if bool prob (- 1 prob)))
 
 )
