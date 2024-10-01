@@ -68,7 +68,7 @@
         (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
                 (walk delimcc-cons '((() 1 ()) 2 (() 3 ())))))
 
-        (define-resetcc a (append (delimcc-thunk '(hello)) '(world)))
+        (define-resetcc a (append (delimcc-τ '(hello)) '(world)))
         (⊦= '(hello world) (a))
 
         (define-resetcc p (append '(hello) (delimcc-lambda (x) (list x)) '(world)))
@@ -101,7 +101,7 @@
                     (define (eta x) (list x))
                     (define (extend f l) (apply append (map f l)))
 
-                    (define-syntax reify (syntax-rules () ((reify body ...) (reify* (thunk body ...)))))
+                    (define-syntax reify (syntax-rules () ((reify body ...) (reify* (τ body ...)))))
                     (define-syntax amb (syntax-rules () ((amb v ...) (reflect (append (reify v) ...)))))
 
                     (⊦= '(1 2 3) (reify (amb 1 2 3)))
@@ -226,9 +226,9 @@
                                      ((null? tree) (restart))
                                      ((not (pair? tree)) tree)
                                      (else (letcc cc
-                                            (push! (thunk (cc (dft-node (cdr tree)))) *saved*)
+                                            (push! (τ (cc (dft-node (cdr tree)))) *saved*)
                                             (dft-node (car tree)))))))
-                        (restart (thunk
+                        (restart (τ
                                   (if (null? *saved*) 
                                    witness 
                                    (let1 (cont (pop! *saved*))
@@ -571,7 +571,7 @@
          (let1 (primes (take§ 20 primes§))
                 (⊦= '(2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71) (§->list primes))))
 
-        ((test/stream/ones+thunk _)
+        ((test/stream/ones+τ _)
          (let1 (ones (take§ 20 (thunk§ 1)))
                 (⊦= '(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1) (§->list ones))))
 )

@@ -9,7 +9,7 @@
   (define-syntax sub1! (syntax-rules () ((sub1! var) (begin (set! var (sub1 var)) (void)))))
 
   (define-syntax λ (syntax-rules () ((λ formals body ...) (lambda formals body ...))))
-  (define-syntax thunk (syntax-rules () ((thunk body ...) (lambda () body ...))))
+  (define-syntax τ (syntax-rules () ((τ body ...) (lambda () body ...))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
   (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
@@ -23,7 +23,7 @@
 
   (define (callcc f) (letcc k (f k)))
   
-  (define-syntax resetcc (syntax-rules () ((resetcc body ...) (callcc (delimcc-reset (thunk body ...))))))
+  (define-syntax resetcc (syntax-rules () ((resetcc body ...) (callcc (delimcc-reset (τ body ...))))))
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
   
   (define-values (delimcc-reset delimcc-shift)
@@ -44,7 +44,7 @@
   (define (delimcc-extract) (letshiftcc k k))
   (define (delimcc-discard v) (letshiftcc _ v))
   (define (delimcc-cons v) (letshiftcc k (cons v k)))
-  (define-syntax delimcc-thunk (syntax-rules () ((delimcc-thunk body ...) (letshiftcc k (thunk (let1 (x (begin body ...)) (k x)))))))
+  (define-syntax delimcc-τ (syntax-rules () ((delimcc-τ body ...) (letshiftcc k (τ (let1 (x (begin body ...)) (k x)))))))
   (define-syntax delimcc-lambda (syntax-rules () ((delimcc-lambda args body ...) (letshiftcc k (lambda args (let1 (x (begin body ...)) (k x)))))))
   (define (delimcc-either lst) (letshiftcc k (map k lst)))
 
@@ -85,7 +85,7 @@
   (define-syntax trycc
     (syntax-rules (else)
       ((trycc (next exp ...) (else body ...))
-       (letcc* hop ((v (let1 (next (thunk (hop (void)))) exp)) ...)
+       (letcc* hop ((v (let1 (next (τ (hop (void)))) exp)) ...)
          body ...))))
 
   (define-syntax letcar&cdr
@@ -177,8 +177,8 @@
     (let1 (p (car§ s)) 
      (cons§ p (P (filter§ (lambda (n) (not (zero? (modulo n p)))) (cdr§ s)))))))
 
-  (define (thunk->§ t) (cons§ (t) (thunk->§ t)))
-  (define-syntax thunk§ (syntax-rules () ((thunk§ body ...) (thunk->§ (thunk body ...)))))
+  (define (τ->§ t) (cons§ (t) (τ->§ t)))
+  (define-syntax thunk§ (syntax-rules () ((thunk§ body ...) (τ->§ (τ body ...)))))
 
   (define (stop§ pred? §)
     (cond
@@ -189,7 +189,7 @@
   (define ((nondeterministic system) cc)
         (letrec ((pool '())
                  (values '())
-                 (fail (thunk
+                 (fail (τ
                          (cond 
                           ((null? pool) (cc (reverse values)))
                           (else (let1 (t (pop! pool))
@@ -203,19 +203,19 @@
                              ((null? choices) (apply chooseD rest-of-choices))
                              ((promise? choices) (apply chooseD (append rest-of-choices (list (force choices)))))
                              ((pair? choices) (letcc kk
-                                               (push! (thunk (kk (apply chooseD (append rest-of-choices (list (cdr choices)))))) pool)
+                                               (push! (τ (kk (apply chooseD (append rest-of-choices (list (cdr choices)))))) pool)
                                                (car choices)))
                              (else (fail))))))
                  (chooseB (lambda (choices)
                            (cond
                             ((promise? choices) (letcc kk
-                                                  (append-right! (list (thunk (kk (chooseB (force choices))))) pool)
+                                                  (append-right! (list (τ (kk (chooseB (force choices))))) pool)
                                                   (chooseB '())))
                             ((pair? choices) (letcc kk
-                                              (append-right! (list (thunk (kk (car choices))) (thunk (kk (chooseB (cdr choices))))) pool)
+                                              (append-right! (list (τ (kk (car choices))) (τ (kk (chooseB (cdr choices))))) pool)
                                               (chooseB '())))
                             (else (fail)))))
-                 (markD (thunk (letgensym (flag) (push! flag pool) flag)))
+                 (markD (τ (letgensym (flag) (push! flag pool) flag)))
                  (cutD (lambda (flag)
                         (cond 
                          ((null? pool) (void))
