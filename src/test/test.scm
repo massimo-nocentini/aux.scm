@@ -315,46 +315,28 @@
     )
 
     ((test/letnondeterministic/choose-null? _)
-      (⊦= '() (letnondeterministic (? ¿ † • ! ¶) (? '()))))
+      (⊦= '() (letnondeterministic (? ¿ ¶ • !) (? '()))))
 
     ((test/letnondeterministic/choose _)
-       (⊦= '(1 2 3) (letnondeterministic (? ¿ † • ! ¶) (? '(1 2 3)))))
+       (⊦= '(1 2 3) (letnondeterministic (? ¿ ¶ • !) (? '(1 2 3)))))
 
     ((test/letnondeterministic/choose§ _)
-       (⊦= '(1 2 3) (letnondeterministic (? ¿ † • ! ¶) (? (cons§ 1 (cons§ 2 (cons§ 3 '())))))))
+       (⊦= '(1 2 3) (letnondeterministic (? ¿ ¶ • !) (? (cons§ 1 (cons§ 2 (cons§ 3 '())))))))
 
     ((test/letnondeterministic/choose-rec _)
-       (⊦= '(0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584 4181)
-           (letnondeterministic
-            ((? ¿ † • ! ¶) (? (fibs§ 0 1)))
-            ((v next) (if (< (car v) 3000) (next) (reverse v))))))
-
-    #|
-
-   (import unittest aux (chicken sort))
-
-      (define-nondeterministic (q (? ¿ † • ! ¶))
-       (? (map§ (lambda (v) (list 'a v)) (fibs§ 0 1)) 
-          (map§ (lambda (v) (list 'b v)) (fibs§ 0 1))
-          (map§ (lambda (v) (list 'c v)) (fibs§ 0 1))))
-
-      (§->list (take§ 20 (thunk->§ (λ (v) #f) q)))
-
-      (define-nondeterministic (q (? ¿ † • ! ¶))
-       (? '((a 1) (a 2) (a 3)) '((b 1) (b 2))))
-
-      (add1 (q))
-
-    |#
+       (⊦= '(0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584)
+           (§->list
+            (stop§ (λ (v) (> v 3000))
+             (letnondeterministic§ (? ¿ ¶ • !) (? (fibs§ 0 1)))))))
 
     ((test/letnondeterministic/choose+nested _)
-       (⊦= '(1 4 3 1 5 3) (letnondeterministic (? ¿ † • ! ¶) (? `(1 ,(? '(4 5)) 3)))))
+       (⊦= '(1 4 3 1 5 3) (letnondeterministic (? ¿ ¶ • !) (? `(1 ,(? '(4 5)) 3)))))
 
     ((test/letnondeterministic/choose+nested+¿ _)
-       (⊦= '(1 4 3 1 5 3) (letnondeterministic (? ¿ † • ! ¶) (? `(1 ,(¿ '(4 5)) 3)))))
+       (⊦= '(1 4 3 1 5 3) (letnondeterministic (? ¿ ¶ • !) (? `(1 ,(¿ '(4 5)) 3)))))
 
     ((test/letnondeterministic/choose+double _)
-       (⊦= '(5 6 6 7 7 8) (letnondeterministic (? ¿ † • ! ¶) (+ (? '(1 2 3)) (? '(4 5))))))
+       (⊦= '(5 6 6 7 7 8) (letnondeterministic (? ¿ ¶ • !) (+ (? '(1 2 3)) (? '(4 5))))))
 
     ((test/letnondeterministic/choose+fair+fibs _)
        (⊦= '((a 0)
@@ -378,17 +360,17 @@
            (a 8)
            (b 8)
            (c 8)) 
-        (letnondeterministic 21 (? ¿ † • ! ¶)
+        (letnondeterministic 21 (? ¿ ¶ • !)
           (? (map§ (lambda (v) (list 'a v)) (fibs§ 0 1)) 
              (map§ (lambda (v) (list 'b v)) (fibs§ 0 1))
              (map§ (lambda (v) (list 'c v)) (fibs§ 0 1))))))
 
     ((test/letnondeterministic/choose+fair _)
-       (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3)) (letnondeterministic (? ¿ † • ! ¶) (? '((a 1) (a 2) (a 3)) '((b 1) (b 2))))))
+       (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3)) (letnondeterministic (? ¿ ¶ • !) (? '((a 1) (a 2) (a 3)) '((b 1) (b 2))))))
 
     ((test/letnondeterministic/odd _)
        (⊦= '(1 3)
-           (letnondeterministic (? ¿ † • ! ¶)
+           (letnondeterministic (? ¿ ¶ • !)
              (let1 (v (? '(1 2 3))) 
                (¶ (odd? v)) 
                v))))
@@ -409,7 +391,7 @@
            (3 3 1)
            (4 1 2)
            (4 2 1)
-           (5 1 1)) (letnondeterministic (? ¿ † • ! ¶)
+           (5 1 1)) (letnondeterministic (? ¿ ¶ • !)
         
                 (define (two-numbers)
                   (list (? '(1 2 3 4 5)) (? '(1 2 3 4 5)) (? '(1 2 3 4 5))))
@@ -426,7 +408,7 @@
         ((test/letnondeterministic/parlor+sorted _)
     
        (⊦= '((1 1 5) (1 2 4) (1 3 3) (2 2 3)) 
-         (letnondeterministic (? ¿ † • ! ¶)
+         (letnondeterministic (? ¿ ¶ • !)
         
                 (define (two-numbers)
                   (list (? '(1 2 3 4 5)) (? '(1 2 3 4 5)) (? '(1 2 3 4 5))))
@@ -456,7 +438,7 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic (? ¿ † • ! ¶)
+             (letnondeterministic (? ¿ ¶ • !)
 
                 (define (coin? x)
                   (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
@@ -482,7 +464,7 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic (? ¿ † • ! ¶)
+             (letnondeterministic (? ¿ ¶ • !)
 
                 (define (coin? x)
                   (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
@@ -511,7 +493,7 @@
             (bos 1 2)
             (bos 2 1)
             (bos 2 2)))
-             (letnondeterministic pool (? ¿ † • ! ¶)
+             (letnondeterministic pool (? ¿ ¶ • !)
 
                 (define (coin? x)
                   (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
@@ -524,12 +506,12 @@
                          (box (¿ '(1 2)))
                          (triple (list city store box)))
                   (push! triple attempts)
-                  (if (coin? triple) (begin #;(¡ flag) (‡) (reverse attempts)) (†))))))
+                  (if (coin? triple) (begin #;(¡ flag) (‡) (reverse attempts)) (¶))))))
 
          ((test/letnondeterministic/graph+cycles/bfs _)
 
                 (⊦= '((a b c a) (a b c e a) (a b d e a))
-                (letnondeterministic (? ¿ † • ! ¶)
+                (letnondeterministic (? ¿ ¶ • !)
 
                         (define (neighbors node) ; our graph, with cycles.
                          (letassoc 
@@ -545,7 +527,7 @@
                         #;(define (path node1 node2 seen)
                          (let1 (hood (neighbors node1))
                           (cond
-                           ((null? hood) (†))
+                           ((null? hood) (¶))
                            ((pair? (member node2 hood)) (list node2))
                            (else (let1 (n (? hood)) (cons n (path n node2 (cons node1 seen))))))))
 

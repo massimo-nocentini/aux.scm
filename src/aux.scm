@@ -27,7 +27,7 @@
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
   
   (define-values (delimcc-reset delimcc-shift)
-   (let1 (cont (lambda (v) (error "Missing enclosing resetcc.")))
+   (let1 (cont (lambda (v) (error "Missing enclosing resetcc" v)))
     (define (delimcc-abort v) (cont v))
     (define (delimcc-cont-push! k) (set! cont k))
     (define (delimcc-cont-pop!) cont)
@@ -180,13 +180,18 @@
   (define (thunk->§ t) (cons§ (t) (thunk->§ t)))
   (define-syntax thunk§ (syntax-rules () ((thunk§ body ...) (thunk->§ (thunk body ...)))))
 
-  (define ((nondeterministic system R nr) cc)
-        (letrec ((nremaining nr)
-                 (pool '())
+  (define (stop§ pred? §)
+    (cond
+     ((promise? §) (delay (stop§ pred? (force §))))
+     ((or (null? §) (pred? (car§ §))) '())
+     (else (cons§ (car§ §) (stop§ pred? (cdr§ §))))))
+
+  (define ((nondeterministic system) cc)
+        (letrec ((pool '())
                  (values '())
                  (fail (thunk
                          (cond 
-                          ((or (zero? nremaining) (null? pool)) (cc (reverse values)))
+                          ((null? pool) (cc (reverse values)))
                           (else (let1 (t (pop! pool))
                                  (cond
                                   ((procedure? t) (t))
@@ -218,30 +223,22 @@
                                 (if (eq? a flag) (void) (cutD flag)))))))
                  (¶ (lambda (b) (unless b (fail)))))
 
-          (let1 (v (system chooseD chooseB fail markD cutD ¶))
-           (push! v values) 
-           (sub1! nremaining)
-           (R values fail))))
+          (let1 (v (system chooseD chooseB ¶ markD cutD))
+           (push! v values)
+           (yield§ v)
+           (fail))))
+
+  (define-syntax letnondeterministic§
+    (syntax-rules ()
+      ((_ (chooseD chooseB asserter markD cutD) body ...)
+       (resetcc+null (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...)))))))
 
   (define-syntax letnondeterministic
     (syntax-rules ()
-      ((_ ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...))
-       (letnondeterministic -1 ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...)))
-      ((_ (chooseD chooseB fail markD cutD asserter) body ...)
-       (letnondeterministic -1 (chooseD chooseB fail markD cutD asserter) body ...))
-      ((_ nr ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) lbody ...))
-       (callcc (nondeterministic (lambda (chooseD chooseB fail markD cutD asserter) body ...) (lambda (arg next) lbody ...) nr)))
-      ((_ nr (chooseD chooseB fail markD cutD asserter) body ...) 
-       (letnondeterministic nr ((chooseD chooseB fail markD cutD asserter) body ...) ((arg next) (next))))))
-
-  (define-syntax define-nondeterministic
-   (syntax-rules ()
-    ((_ (q (chooseD chooseB fail markD cutD asserter)) body ...)
-     (begin
-      (define q (void))
-      (letnondeterministic
-                  ((chooseD chooseB fail markD cutD asserter) (set! q fail) body ...)
-                  ((v next) v))))))
+     ((_ (chooseD chooseB asserter markD cutD) body ...)
+      (letnondeterministic -1 (chooseD chooseB asserter markD cutD) body ...))
+     ((_ nr (chooseD chooseB asserter markD cutD) body ...)
+      (§->list (take§ nr (letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...))))))
 
   (define (memoize f)
    (let ((called #f) (memo (void)))
