@@ -253,5 +253,6 @@
     ((_ args body ...) (memoize (lambda args body ...)))))
 
   (define ((boolean->P prob) bool) (if bool prob (- 1 prob)))
+  (define boolean->01 (boolean->P 1))
 
 )

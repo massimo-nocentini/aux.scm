@@ -2,4 +2,5 @@
 ((author "Massimo Nocentini")
  (synopsis "Auxiliary definitions and macros.")
  (license "MIT")
- (components (extension aux)))
+ (components
+  (extension aux)))
