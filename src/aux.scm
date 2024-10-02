@@ -177,6 +177,8 @@
     (let1 (p (car§ s)) 
      (cons§ p (P (filter§ (lambda (n) (not (zero? (modulo n p)))) (cdr§ s)))))))
 
+  (define 1§ (const§ 1))
+
   (define (τ->§ t) (cons§ (t) (τ->§ t)))
   (define-syntax thunk§ (syntax-rules () ((thunk§ body ...) (τ->§ (τ body ...)))))
 
@@ -197,7 +199,7 @@
                                   ((procedure? t) (t))
                                   (else (fail))))))))
                  (chooseD (lambda list-of-choices
-                           (¶ (pair? list-of-choices))
+                           (⊦ (pair? list-of-choices))
                            (letcar&cdr (((choices rest-of-choices) list-of-choices))
                             (cond
                              ((null? choices) (apply chooseD rest-of-choices))
@@ -221,9 +223,9 @@
                          ((null? pool) (void))
                          (else (let1 (a (pop! pool))
                                 (if (eq? a flag) (void) (cutD flag)))))))
-                 (¶ (lambda (b) (unless b (fail)))))
+                 (⊦ (lambda (b) (unless b (fail)))))
 
-          (let1 (v (system chooseD chooseB ¶ markD cutD))
+          (let1 (v (system chooseD chooseB ⊦ markD cutD))
            (push! v values)
            (yield§ v)
            (fail))))
@@ -253,6 +255,15 @@
     ((_ args body ...) (memoize (lambda args body ...)))))
 
   (define ((boolean->P prob) bool) (if bool prob (- 1 prob)))
+  
   (define boolean->01 (boolean->P 1))
+  
+  (define ((indicator set) v) (member? v set))
+  
+  (define (pairwise-different? lst)
+   (cond
+    ((null? lst) #t)  ; Empty list, all elements are trivially different
+    ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
+    (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
 )
