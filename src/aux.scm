@@ -211,7 +211,7 @@
                  (P (make-hash-table))
                  (fail (τ
                          (cond 
-                          ((null? pool) (cc (cons stats P)))
+                          ((null? pool) (cc (list stats P)))
                           (else (let1 (t (pop! pool))
                                  (cond
                                   ((procedure? t) (set-cdr! stats (add1 (cdr stats))) (t))
@@ -249,20 +249,22 @@
            (yield§ v)
            (fail))))
 
+  (define (nondeterministic-describe stats P) 
+   `((tried ,(cdr stats))
+     (accepted ,(car stats))
+     (ratio ,(exact->inexact (/ (car stats) (cdr stats))))
+     (distribution ,(sort (hash-table-map P (λ (value count) 
+                                             (list value (exact->inexact (/ count (car stats))))))
+                          (λ (a b) (> (cadr a) (cadr b)))))))
+
   (define-syntax letnondeterministic§
     (syntax-rules ()
       ((letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...)
        (letnondeterministic§ (gensym) (chooseD chooseB asserter markD cutD) body ...))
       ((letnondeterministic§ sname (chooseD chooseB asserter markD cutD) body ...)
        (resetcc+null
-        (letcar&cdr (((stats P) (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...)))))
-         (pretty-print `( (name ,sname)
-                          (tried ,(cdr stats))
-                          (accepted ,(car stats))
-                          (ratio ,(exact->inexact (/ (car stats) (cdr stats))))
-                          (distribution ,(sort
-                                          (hash-table-map P (λ (value count) (list value (exact->inexact (/ count (car stats))))))
-                                          (λ (a b) (> (cadr a) (cadr b))))))))))))
+        (pretty-print (apply nondeterministic-describe 
+                             (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...)))))))))
 
   (define-syntax letnondeterministic
     (syntax-rules ()
