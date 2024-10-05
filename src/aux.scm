@@ -259,9 +259,7 @@
 
   (define-syntax letnondeterministic§
     (syntax-rules ()
-      ((letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...)
-       (letnondeterministic§ (gensym) (chooseD chooseB asserter markD cutD) body ...))
-      ((letnondeterministic§ sname (chooseD chooseB asserter markD cutD) body ...)
+     ((letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...)
        (resetcc+null
         (pretty-print (apply nondeterministic-describe 
                              (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...)))))))))
@@ -271,9 +269,7 @@
      ((_ (chooseD chooseB asserter markD cutD) body ...)
       (letnondeterministic -1 (chooseD chooseB asserter markD cutD) body ...))
      ((_ nr (chooseD chooseB asserter markD cutD) body ...)
-      (letnondeterministic nr (gensym) (chooseD chooseB asserter markD cutD) body ...))
-     ((_ nr name (chooseD chooseB asserter markD cutD) body ...)
-      (§->list (take§ nr (letnondeterministic§ name (chooseD chooseB asserter markD cutD) body ...))))))
+      (§->list (take§ nr (letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...))))))
 
   (define (memoize f)
    (let ((called #f) (memo (void)))
