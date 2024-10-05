@@ -693,17 +693,18 @@
                               (else (path newp n node2 (cons node1 seen) maxlen maxt)))))
 
                         (let* ((vertices (V graph-simple))
-                               (source (? vertices))
+                               (source 'a #;(? vertices))
                                (destination (? vertices))
                                (p (path (list (list source 1 1)) source destination '() 15 10)))
 
-                         #;(list (list source destination) (map (λ (triple) (list (car triple) (cadr triple))) p))
-                         #;(length p)
-                         #;(? (map (λ (triple) (car triple)) p))
-                         #;(? (map (λ (triple) (list (car triple) (cadr triple))) p))
-                         #;(? (mappair (λ (r s) (list (car r) (car s))) p))
-                         #;(? (mappair (λ (r s) (list (car s) (- (cadr s) (cadr r)))) p))
-                         (list source destination)))))
+                         #;(list (list source destination) (map (λ (triple) (list (car triple) (cadr triple))) p)) ; each path
+                         #;(length p) ; path length
+                         #;(? (map (λ (triple) (car triple)) p)) ; vertex usage
+                         #;(? (map (λ (triple) (list (car triple) (cadr triple))) p)) ; vertex visiting, wrt time.
+                         #;(? (mappair (λ (r s) (list (car r) (car s))) p)) ; edge usage
+                         #;(? (mappair (λ (r s) (list (car s) (- (cadr s) (cadr r)))) p)) ; vertex waiting
+                         (list source destination) ; path "weight"
+                         ))))
 
         ((test/stream/nats _)
          (let1 (nats (take§ 20 (nats§ 0)))
