@@ -675,7 +675,7 @@
            ((e d) ((e 1) (a 2) (b 3) (d 7))))
                 (letnondeterministic -1 "simple temporal graph"
                  ((? ¿ ⊦ • !)
-                  (lst (car lst)))
+                  (lst lst #;(car lst)))
 
                         (define (path p node1 node2 seen maxlen maxt)
                            (let* ((lastpair (car p))
@@ -689,16 +689,17 @@
                                   (_ (⊦ (> t₁ t₀))) ; simulating the fact that transit takes some time > 0.
                                   (newp (cons (list n t₁ (add1 l)) p)))
                              (cond
-                              ((eq? n node2) newp)
+                              ((eq? n node2) (reverse newp))
                               (else (path newp n node2 (cons node1 seen) maxlen maxt)))))
 
                         (let* ((vertices (V graph-simple))
                                (source (? vertices))
                                (destination (? vertices))
-                               (t₀ (? '(1)))
-                               (p (path (list (list source t₀ 1)) source destination '() 15 7)))
-                         (list (list source destination) 
-                               (reverse (map (λ (triple) (list (car triple) (cadr triple))) p)))))))
+                               (p (path (list (list source 1 1)) source destination '() 15 10)))
+                         #;(list (list source destination) 
+                              (map (λ (triple) (list (car triple) (cadr triple))) p))
+                         (? (map (λ (triple) (list (car triple) (cadr triple))) p))
+                         #;(? (mappair (λ (r s) (list (car r) (car s))) p))))))
 
         ((test/stream/nats _)
          (let1 (nats (take§ 20 (nats§ 0)))

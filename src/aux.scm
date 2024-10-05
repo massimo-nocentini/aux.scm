@@ -123,6 +123,11 @@
      (let1 (p (assoc searchexpr lstexpr))
       (if (pair? p) (cadr p) (begin body ...))))))
 
+  (define (mappair f lst)
+   (cond
+    ((or (null? lst) (null? (cdr lst))) '())
+    (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
+
   (define (§->list s)
     (cond
      ((promise? s) (§->list (force s)))
