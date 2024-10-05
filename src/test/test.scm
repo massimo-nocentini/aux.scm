@@ -682,18 +682,13 @@
                                   (pair (? (letassoc (node1 graph-simple) (else '()))))
                                   (n (car pair))
                                   (_ (⊦ (not (member? n seen))))
-                                  (tpair (? (cadr pair) #t))
+                                  (t₁ (? (cadr pair) (λ (t) (< t maxt))))
                                   (t₀ (cadr lastpair))
-                                  (t₁ (car tpair))
                                   (_ (⊦ (> t₁ t₀))) ; simulating the fact that transit takes some time > 0.
-                                  (t! (cdr tpair))
-                                  (pair₁ (list n t₁ (add1 l))))
-                             
-                             (⊦ (> (add1 maxt) t₁) t!)
-                             
-                             (cond 
-                              ((eq? n node2) (cons pair₁ p))
-                              (else (path (cons pair₁ p) n node2 (cons node1 seen) maxlen maxt)))))
+                                  (newp (cons (list n t₁ (add1 l)) p)))
+                             (cond
+                              ((eq? n node2) newp)
+                              (else (path newp n node2 (cons node1 seen) maxlen maxt)))))
 
                         (let* ((vertices (V graph-simple))
                                (source (? vertices))

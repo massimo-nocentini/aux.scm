@@ -210,17 +210,15 @@
                                  (cond
                                   ((procedure? t) (t))
                                   (else (fail))))))))
-                 (chooseD (lambda (choices #!optional (cut? #f))
+                 (chooseD (lambda (choices #!optional (continue? (λ (v) #t)))
                              (cond
                               ((null? choices) (fail))
-                              ((promise? choices) (chooseD (force choices) cut?))
+                              ((promise? choices) (chooseD (force choices) continue?))
                               ((pair? choices) (letcc kk
-                                                (let* ((v (car choices)) ; the current value to try.
-                                                       (continue? #t) ; a stop-variable to not try the rest of computation.
-                                                       (cutter (τ (set! continue? #f)))
-                                                       (cont (τ (kk (chooseD (cdr choices) cut?)))))
-                                                 (push! (τ (if continue? (cont) (fail))) pool)
-                                                 (if cut? (cons v cutter) v))))
+                                                (let1 (v (car choices))
+                                                 (push! (τ (if (continue? v) (kk (chooseD (cdr choices) continue?)) (fail))) pool)
+                                                 (push! (τ (kk v)) pool))
+                                                (fail)))
                               (else (fail)))))
                  (chooseB (lambda (choices)
                            (cond
@@ -237,7 +235,7 @@
                          ((null? pool) (void))
                          (else (let1 (a (pop! pool))
                                 (if (eq? a flag) (void) (cutD flag)))))))
-                 (⊦ (lambda (b? #!optional (f (τ (void)))) (unless b? (f) (fail)))))
+                 (⊦ (lambda (bool) (unless bool (fail)))))
 
           (let1 (v (system chooseD chooseB ⊦ markD cutD))
            (push! v values)
