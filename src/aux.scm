@@ -168,8 +168,20 @@
      ((pair? s) (car s))
      (else (void))))
 
+  (define interleave§
+   (lambda list-of-choices
+    (cond
+     ((null? list-of-choices) '())
+     (else (letcar&cdr (((choices rest-of-choices) list-of-choices))
+            (cond
+             ((null? choices) (apply interleave§ rest-of-choices))
+             ((promise? choices) (delay (apply interleave§ (append rest-of-choices (list (force choices))))))
+             ((pair? choices) (cons§ (car choices) (apply interleave§ (append rest-of-choices (list (cdr choices))))))
+             (else '())))))))
+
   (define (const§ s) (rec N (cons§ s N)))
   (define (nats§ s) (rec N (cons§ s (map§ add1 N))))
+  (define ℕ (nats§ 0))
   (define (gfibs§ f m n) (rec F (cons§ m (cons§ n (zip§ f F (cdr§ F))))))
   (define (fibs§ m n) (gfibs§ + m n))
   (define primes§
@@ -198,16 +210,18 @@
                                  (cond
                                   ((procedure? t) (t))
                                   (else (fail))))))))
-                 (chooseD (lambda list-of-choices
-                           (⊦ (pair? list-of-choices))
-                           (letcar&cdr (((choices rest-of-choices) list-of-choices))
-                            (cond
-                             ((null? choices) (apply chooseD rest-of-choices))
-                             ((promise? choices) (apply chooseD (append rest-of-choices (list (force choices)))))
-                             ((pair? choices) (letcc kk
-                                               (push! (τ (kk (apply chooseD (append rest-of-choices (list (cdr choices)))))) pool)
-                                               (car choices)))
-                             (else (fail))))))
+                 (chooseD (lambda (choices #!optional (cut? #f))
+                             (cond
+                              ((null? choices) (fail))
+                              ((promise? choices) (chooseD (force choices) cut?))
+                              ((pair? choices) (letcc kk
+                                                (let* ((v (car choices)) ; the current value to try.
+                                                       (continue? #t) ; a stop-variable to not try the rest of computation.
+                                                       (cutter (τ (set! continue? #f)))
+                                                       (cont (τ (kk (chooseD (cdr choices) cut?)))))
+                                                 (push! (τ (if continue? (cont) (fail))) pool)
+                                                 (if cut? (cons v cutter) v))))
+                              (else (fail)))))
                  (chooseB (lambda (choices)
                            (cond
                             ((promise? choices) (letcc kk
@@ -223,7 +237,7 @@
                          ((null? pool) (void))
                          (else (let1 (a (pop! pool))
                                 (if (eq? a flag) (void) (cutD flag)))))))
-                 (⊦ (lambda (b) (unless b (fail)))))
+                 (⊦ (lambda (b? #!optional (f (τ (void)))) (unless b? (f) (fail)))))
 
           (let1 (v (system chooseD chooseB ⊦ markD cutD))
            (push! v values)
