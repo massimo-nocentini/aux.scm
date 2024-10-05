@@ -673,7 +673,7 @@
            ((e d) ((e 1) (a 2) (b 3) (d 5)))
            ((e d) ((e 1) (a 2) (b 3) (d 6)))
            ((e d) ((e 1) (a 2) (b 3) (d 7))))
-                (letnondeterministic (? ¿ ⊦ • !)
+                (letnondeterministic -1 '(simple temporal graph) (? ¿ ⊦ • !)
 
                         (define (path p node1 node2 seen maxlen maxt)
                            (let* ((lastpair (car p))

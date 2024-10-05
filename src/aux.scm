@@ -1,7 +1,7 @@
 
 (module aux *
 
-  (import scheme (chicken base) (chicken continuation))
+  (import scheme (chicken base) (chicken continuation) (chicken pretty-print) (chicken fixnum))
 
   (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
@@ -200,15 +200,19 @@
      ((or (null? §) (pred? (car §))) '())
      (else (cons§ (car §) (stop§ pred? (cdr§ §))))))
 
-  (define ((nondeterministic system) cc)
+  (define ((nondeterministic name system) cc)
         (letrec ((pool '())
-                 (values '())
+                 (stats (cons 0 1)) ; `car` counts accepted, `cdr` counts tried.
                  (fail (τ
                          (cond 
-                          ((null? pool) (cc (reverse values)))
+                          ((null? pool) (pretty-print `(,name
+                                                        ((tried ,(cdr stats))
+                                                         (accepted ,(car stats)) 
+                                                         (ratio ,(exact->inexact (/ (car stats) (cdr stats)))))))
+                                        (cc stats))
                           (else (let1 (t (pop! pool))
                                  (cond
-                                  ((procedure? t) (t))
+                                  ((procedure? t) (set-cdr! stats (add1 (cdr stats))) (t))
                                   (else (fail))))))))
                  (chooseD (lambda (choices #!optional (continue? (λ (v) #t)))
                              (cond
@@ -238,21 +242,25 @@
                  (⊦ (lambda (bool) (unless bool (fail)))))
 
           (let1 (v (system chooseD chooseB ⊦ markD cutD))
-           (push! v values)
+           (set-car! stats (add1 (car stats)))
            (yield§ v)
            (fail))))
 
   (define-syntax letnondeterministic§
     (syntax-rules ()
-      ((_ (chooseD chooseB asserter markD cutD) body ...)
-       (resetcc+null (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...)))))))
+      ((letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...)
+       (letnondeterministic§ (gensym) (chooseD chooseB asserter markD cutD) body ...))
+      ((letnondeterministic§ name (chooseD chooseB asserter markD cutD) body ...)
+       (resetcc+null (callcc (nondeterministic name (λ (chooseD chooseB asserter markD cutD) body ...)))))))
 
   (define-syntax letnondeterministic
     (syntax-rules ()
      ((_ (chooseD chooseB asserter markD cutD) body ...)
       (letnondeterministic -1 (chooseD chooseB asserter markD cutD) body ...))
      ((_ nr (chooseD chooseB asserter markD cutD) body ...)
-      (§->list (take§ nr (letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...))))))
+      (letnondeterministic nr (gensym) (chooseD chooseB asserter markD cutD) body ...))
+     ((_ nr name (chooseD chooseB asserter markD cutD) body ...)
+      (§->list (take§ nr (letnondeterministic§ name (chooseD chooseB asserter markD cutD) body ...))))))
 
   (define (memoize f)
    (let ((called #f) (memo (void)))
