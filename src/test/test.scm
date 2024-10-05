@@ -673,9 +673,7 @@
            ((e d) ((e 1) (a 2) (b 3) (d 5)))
            ((e d) ((e 1) (a 2) (b 3) (d 6)))
            ((e d) ((e 1) (a 2) (b 3) (d 7))))
-                (letnondeterministic -1 "simple temporal graph"
-                 ((? ¿ ⊦ • !)
-                  (lst lst #;(car lst)))
+                (letnondeterministic -1 "simple temporal graph" (? ¿ ⊦ • !)
 
                         (define (path p node1 node2 seen maxlen maxt)
                            (let* ((lastpair (car p))
@@ -693,7 +691,7 @@
                               (else (path newp n node2 (cons node1 seen) maxlen maxt)))))
 
                         (let* ((vertices (V graph-simple))
-                               (source 'a #;(? vertices))
+                               (source (? vertices))
                                (destination (? vertices))
                                (p (path (list (list source 1 1)) source destination '() 15 10)))
 

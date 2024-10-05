@@ -205,7 +205,7 @@
      ((or (null? §) (pred? (car §))) '())
      (else (cons§ (car §) (stop§ pred? (cdr§ §))))))
 
-  (define ((nondeterministic name system keyF) cc)
+  (define ((nondeterministic system) cc)
         (letrec ((pool '())
                  (stats (cons 0 1)) ; `car` counts accepted, `cdr` counts tried.
                  (P (make-hash-table))
@@ -245,19 +245,17 @@
 
           (let1 (v (system chooseD chooseB ⊦ markD cutD))
            (set-car! stats (add1 (car stats)))
-           (hash-table-update!/default P (keyF v) add1 0)
+           (hash-table-update!/default P v add1 0)
            (yield§ v)
            (fail))))
 
   (define-syntax letnondeterministic§
     (syntax-rules ()
       ((letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...)
-       (letnondeterministic§ (gensym) ((chooseD chooseB asserter markD cutD) (v v)) body ...))
-      ((letnondeterministic§ sname ((chooseD chooseB asserter markD cutD) (v lbody ...)) body ...)
+       (letnondeterministic§ (gensym) (chooseD chooseB asserter markD cutD) body ...))
+      ((letnondeterministic§ sname (chooseD chooseB asserter markD cutD) body ...)
        (resetcc+null
-        (letcar&cdr (((stats P) (callcc (nondeterministic sname
-                                         (λ (chooseD chooseB asserter markD cutD) body ...)
-                                         (λ (v) lbody ...)))))
+        (letcar&cdr (((stats P) (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...)))))
          (pretty-print `( (name ,sname)
                           (tried ,(cdr stats))
                           (accepted ,(car stats))
@@ -272,10 +270,8 @@
       (letnondeterministic -1 (chooseD chooseB asserter markD cutD) body ...))
      ((_ nr (chooseD chooseB asserter markD cutD) body ...)
       (letnondeterministic nr (gensym) (chooseD chooseB asserter markD cutD) body ...))
-     ((_ nr name ((chooseD chooseB asserter markD cutD) (v lbody ...)) body ...)
-      (§->list (take§ nr (letnondeterministic§ name ((chooseD chooseB asserter markD cutD) (v lbody ...)) body ...))))
      ((_ nr name (chooseD chooseB asserter markD cutD) body ...)
-      (letnondeterministic nr name ((chooseD chooseB asserter markD cutD) (v v)) body ...))))
+      (§->list (take§ nr (letnondeterministic§ name (chooseD chooseB asserter markD cutD) body ...))))))
 
   (define (memoize f)
    (let ((called #f) (memo (void)))
