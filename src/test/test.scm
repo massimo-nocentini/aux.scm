@@ -698,8 +698,11 @@
                                (p (path (list (list source 1 1)) source destination '() 15 10)))
                          #;(list (list source destination) 
                               (map (λ (triple) (list (car triple) (cadr triple))) p))
-                         (? (map (λ (triple) (list (car triple) (cadr triple))) p))
-                         #;(? (mappair (λ (r s) (list (car r) (car s))) p))))))
+                         #;(length p)
+                         #;(? (map (λ (triple) (car triple)) p))
+                         #;(? (map (λ (triple) (list (car triple) (cadr triple))) p))
+                         #;(? (mappair (λ (r s) (list (car r) (car s))) p))
+                         (? (mappair (λ (r s) (list (car s) (- (cadr s) (cadr r)))) p))))))
 
         ((test/stream/nats _)
          (let1 (nats (take§ 20 (nats§ 0)))

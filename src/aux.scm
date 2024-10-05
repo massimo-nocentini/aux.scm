@@ -253,18 +253,18 @@
     (syntax-rules ()
       ((letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...)
        (letnondeterministic§ (gensym) ((chooseD chooseB asserter markD cutD) (v v)) body ...))
-      ((letnondeterministic§ name ((chooseD chooseB asserter markD cutD) (v lbody ...)) body ...)
+      ((letnondeterministic§ sname ((chooseD chooseB asserter markD cutD) (v lbody ...)) body ...)
        (resetcc+null
-        (letcar&cdr (((stats P) (callcc (nondeterministic name
+        (letcar&cdr (((stats P) (callcc (nondeterministic sname
                                          (λ (chooseD chooseB asserter markD cutD) body ...)
                                          (λ (v) lbody ...)))))
-         (pretty-print `(,name
-                         ((tried ,(cdr stats))
+         (pretty-print `( (name ,sname)
+                          (tried ,(cdr stats))
                           (accepted ,(car stats))
                           (ratio ,(exact->inexact (/ (car stats) (cdr stats))))
                           (distribution ,(sort
                                           (hash-table-map P (λ (value count) (list value (exact->inexact (/ count (car stats))))))
-                                          (λ (a b) (> (cadr a) (cadr b)))))))))))))
+                                          (λ (a b) (> (cadr a) (cadr b))))))))))))
 
   (define-syntax letnondeterministic
     (syntax-rules ()
