@@ -207,8 +207,9 @@
 
   (define ((nondeterministic system) cc)
         (letrec ((pool '())
-                 (stats (cons 0 1)) ; `car` counts accepted, `cdr` counts tried.
+                 (stats (cons 0 0)) ; `car` counts accepted, `cdr` counts tried.
                  (P (make-hash-table))
+                 (stats-get (τ (nondeterministic-describe stats P)))
                  (fail (τ
                          (cond 
                           ((null? pool) (cc (list stats P)))
@@ -243,6 +244,7 @@
                                 (if (eq? a flag) (void) (cutD flag)))))))
                  (⊦ (lambda (bool) (unless bool (fail)))))
 
+          (set-cdr! stats (add1 (cdr stats)))
           (let1 (v (system chooseD chooseB ⊦ markD cutD))
            (set-car! stats (add1 (car stats)))
            (hash-table-update!/default P v add1 0)
@@ -250,12 +252,13 @@
            (fail))))
 
   (define (nondeterministic-describe stats P) 
-   `((tried ,(cdr stats))
-     (accepted ,(car stats))
-     (ratio ,(exact->inexact (/ (car stats) (cdr stats))))
-     (distribution ,(sort (hash-table-map P (λ (value count) 
-                                             (list value (exact->inexact (/ count (car stats))))))
-                          (λ (a b) (> (cadr a) (cadr b)))))))
+   (letcar&cdr (((accepted tried) stats))
+    `((tried ,tried)
+      (accepted ,accepted)
+      (ratio ,(exact->inexact (/ accepted tried)))
+      (distribution ,(sort (hash-table-map P (λ (value count) 
+                                              (list value (exact->inexact (/ count accepted)))))
+                           (λ (a b) (> (cadr a) (cadr b))))))))
 
   (define-syntax letnondeterministic§
     (syntax-rules ()
