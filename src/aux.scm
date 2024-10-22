@@ -209,10 +209,18 @@
         (letrec ((pool '())
                  (stats (cons 0 0)) ; `car` counts accepted, `cdr` counts tried.
                  (P (make-hash-table))
-                 (stats-get (τ (nondeterministic-describe stats P)))
+                 (describe (τ
+                            (letcar&cdr (((accepted tried) stats))
+                             `((left ,(length pool))
+                               (tried ,tried)
+                               (accepted ,accepted)
+                               (ratio ,(exact->inexact (/ accepted tried)))
+                               (distribution ,(sort (hash-table-map P (λ (value count) 
+                                                                       (list value (exact->inexact (/ count accepted)))))
+                                                    (λ (a b) (> (cadr a) (cadr b)))))))))
                  (fail (τ
-                         (cond 
-                          ((null? pool) (cc (list stats P)))
+                         (cond
+                          ((null? pool) (cc (describe)))
                           (else (let1 (t (pop! pool))
                                  (cond
                                   ((procedure? t) (set-cdr! stats (add1 (cdr stats))) (t))
@@ -223,7 +231,7 @@
                               ((promise? choices) (chooseD (force choices) continue?))
                               ((pair? choices) (letcc kk
                                                 (let1 (v (car choices))
-                                                 (push! (τ (if (continue? v) (kk (chooseD (cdr choices) continue?)) (fail))) pool)
+                                                 (when (continue? v) (push! (τ (kk (chooseD (cdr choices) continue?))) pool))
                                                  (push! (τ (kk v)) pool))
                                                 (fail)))
                               (else (fail)))))
@@ -251,21 +259,11 @@
            (yield§ v)
            (fail))))
 
-  (define (nondeterministic-describe stats P) 
-   (letcar&cdr (((accepted tried) stats))
-    `((tried ,tried)
-      (accepted ,accepted)
-      (ratio ,(exact->inexact (/ accepted tried)))
-      (distribution ,(sort (hash-table-map P (λ (value count) 
-                                              (list value (exact->inexact (/ count accepted)))))
-                           (λ (a b) (> (cadr a) (cadr b))))))))
-
   (define-syntax letnondeterministic§
     (syntax-rules ()
      ((letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...)
        (resetcc+null
-        (pretty-print (apply nondeterministic-describe 
-                             (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...)))))))))
+        (pretty-print (callcc (nondeterministic (λ (chooseD chooseB asserter markD cutD) body ...))))))))
 
   (define-syntax letnondeterministic
     (syntax-rules ()
