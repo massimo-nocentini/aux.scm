@@ -296,13 +296,6 @@
     ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
     (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
-  (define (prob-distribution distribution) 
-   (letshiftcc k
-    (map (λ (pair)
-          (letcar&cdr (((v p) pair))
-           `((C ,(τ (k v))) ,(car p))))
-         distribution)))
-
   (define (prob-explore maxdepth choices)
    (letrec ((maxdepth-is-undefined (equal? maxdepth (void)))
             (ans (make-hash-table))
@@ -326,26 +319,45 @@
     (let1 (susp (loop 1 0 #t choices '()))
       (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))))
 
-  (define (flip-delimcc p) (prob-distribution `((#t ,p) (#f ,(- 1 p)))))
-  (define (pv-unit v) `(((V ,v) 1)))
-  (define (pv-fail) (prob-distribution '()))
-  (define (pv-reify0 t) (resetcc (pv-unit (t))))
+  (define (distributioncc distribution) 
+   (letshiftcc k
+    (map (λ (pair)
+          (letcar&cdr (((v p) pair))
+           `((C ,(τ (k v))) ,(car p))))
+         distribution)))
+
+  (define (bernoullicc t f p) (distributioncc `((,t ,p) (,f ,(- 1 p)))))
+  (define (coincc p) (bernoullicc #t #f p))
+  (define (impossiblecc) (distributioncc '()))
   (define (pv-normalize choices)
     (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
      (sort
       (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))) ) choices)
       (λ (a b) (> (cadr a) (cadr b))))))
   
-        (resetcc (flip-delimcc 0.6))
+        (resetcc (coincc 0.6))
 
-        (define (grass-model)
-         (let* ((rain (flip-delimcc 0.3))
-                (sprinkler (flip-delimcc 0.5))
-                (grass-is-wet (or (and (flip-delimcc 0.9) rain) 
-                                  (and (flip-delimcc 0.8) sprinkler) 
-                                  (flip-delimcc 0.1))))
-          (if grass-is-wet rain (pv-fail))))
+  (define-syntax probabilitycc
+   (syntax-rules ()
+    ((probabilitycc body ...) (resetcc (let1 (v (begin body ...)) `(((V ,v) 1)))))))
 
-     (pv-normalize (prob-explore 4 (pv-reify0 grass-model)))
+        #;(define (grass-model)
+         (let* ((rain (coincc 0.3))
+                (sprinkler (coincc 0.5))
+                (grass-is-wet (or (and (coincc 0.9) rain) 
+                                  (and (coincc 0.8) sprinkler) 
+                                  (coincc 0.1))))
+          (if grass-is-wet rain (impossiblecc))))
 
+        (define grass-model
+         (probabilitycc
+          (let* ((rain (coincc 0.3))
+                 (sprinkler (coincc 0.5))
+                 (grass-is-wet (or (and (coincc 0.9) rain)
+                                   (and (coincc 0.8) sprinkler)
+                                   (coincc 0.1))))
+           (if grass-is-wet rain (impossiblecc)))))
+
+     (pv-normalize (prob-explore 11 grass-model))
+(string->number "")
 )
