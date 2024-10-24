@@ -296,4 +296,56 @@
     ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
     (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
+  (define (prob-distribution distribution) 
+   (letshiftcc k
+    (map (λ (pair)
+          (letcar&cdr (((v p) pair))
+           `((C ,(τ (k v))) ,(car p))))
+         distribution)))
+
+  (define (prob-explore maxdepth choices)
+   (letrec ((maxdepth-is-undefined (equal? maxdepth (void)))
+            (ans (make-hash-table))
+            (loop (λ (p depth down choices susp)
+                   (cond
+                    ((null? choices) susp)
+                    (else (let* ((probpair (car choices))
+                                 (slot (car probpair))
+                                 (flag (car slot))
+                                 (payload (cadr slot))
+                                 (pt (cadr probpair))
+                                 (p*pt (* p pt))
+                                 (rest (cdr choices))
+                                 (down-new (or maxdepth-is-undefined (< depth maxdepth))))
+                           (cond
+                            ((equal? flag 'V) (hash-table-update!/default ans payload (λ (w) (+ w p*pt)) 0)
+                                              (loop p depth down rest susp))
+                            ((and (equal? flag 'C) down) (loop p depth down rest
+                                                          (loop p*pt (add1 depth) down-new (payload) susp)))
+                            (else (loop p depth down rest (cons (list slot p*pt) susp))))))))))
+    (let1 (susp (loop 1 0 #t choices '()))
+      (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))))
+
+  (define (flip-delimcc p) (prob-distribution `((#t ,p) (#f ,(- 1 p)))))
+  (define (pv-unit v) `(((V ,v) 1)))
+  (define (pv-fail) (prob-distribution '()))
+  (define (pv-reify0 t) (resetcc (pv-unit (t))))
+  (define (pv-normalize choices)
+    (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
+     (sort
+      (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))) ) choices)
+      (λ (a b) (> (cadr a) (cadr b))))))
+  
+        (resetcc (flip-delimcc 0.6))
+
+        (define (grass-model)
+         (let* ((rain (flip-delimcc 0.3))
+                (sprinkler (flip-delimcc 0.5))
+                (grass-is-wet (or (and (flip-delimcc 0.9) rain) 
+                                  (and (flip-delimcc 0.8) sprinkler) 
+                                  (flip-delimcc 0.1))))
+          (if grass-is-wet rain (pv-fail))))
+
+     (pv-normalize (prob-explore 4 (pv-reify0 grass-model)))
+
 )
