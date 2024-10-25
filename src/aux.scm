@@ -280,9 +280,9 @@
       (set! called #t))
      memo)))
 
-  (define-syntax lambdamemo
+  (define-syntax λ-memo
    (syntax-rules ()
-    ((_ args body ...) (memoize (lambda args body ...)))))
+    ((λ-memo args body ...) (memoize (λ args body ...)))))
 
   (define ((boolean->P prob) bool) (if bool prob (- 1 prob)))
   
@@ -296,7 +296,7 @@
     ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
     (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
-  (define (prob-explore maxdepth choices)
+  (define (probcc-explore maxdepth choices)
    (letrec ((maxdepth-is-undefined (equal? maxdepth (void)))
             (ans (make-hash-table))
             (loop (λ (p depth down choices susp)
@@ -315,49 +315,42 @@
                                               (loop p depth down rest susp))
                             ((and (equal? flag 'C) down) (loop p depth down rest
                                                           (loop p*pt (add1 depth) down-new (payload) susp)))
-                            (else (loop p depth down rest (cons (list slot p*pt) susp))))))))))
-    (let1 (susp (loop 1 0 #t choices '()))
-      (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))))
+                            (else (loop p depth down rest (cons (list slot p*pt) susp)))))))))
+            (normalize (λ (choices)
+                          (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
+                           (sort (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))) ) choices)
+                                 (λ (a b) (> (cadr a) (cadr b))))))))
+    (let* ((susp (loop 1 0 #t choices '()))
+           (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp)))
+     (normalize folded))))
 
-  (define (distributioncc distribution) 
+  (define (probcc-distribution distribution)
    (letshiftcc k
     (map (λ (pair)
           (letcar&cdr (((v p) pair))
            `((C ,(τ (k v))) ,(car p))))
          distribution)))
 
-  (define (bernoullicc t f p) (distributioncc `((,t ,p) (,f ,(- 1 p)))))
-  (define (coincc p) (bernoullicc #t #f p))
-  (define (impossiblecc) (distributioncc '()))
-  (define (pv-normalize choices)
-    (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
-     (sort
-      (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))) ) choices)
-      (λ (a b) (> (cadr a) (cadr b))))))
-  
-        (resetcc (coincc 0.6))
-
-  (define-syntax probabilitycc
+  (define (probcc-bernoulli t f p) (probcc-distribution `((,t ,p) (,f ,(- 1 p)))))
+  (define (probcc-coin p) (probcc-bernoulli #t #f p))
+  (define (probcc-impossible) (probcc-distribution '()))
+  (define-syntax probcc-when
    (syntax-rules ()
-    ((probabilitycc body ...) (resetcc (let1 (v (begin body ...)) `(((V ,v) 1)))))))
-
-        #;(define (grass-model)
-         (let* ((rain (coincc 0.3))
-                (sprinkler (coincc 0.5))
-                (grass-is-wet (or (and (coincc 0.9) rain) 
-                                  (and (coincc 0.8) sprinkler) 
-                                  (coincc 0.1))))
-          (if grass-is-wet rain (impossiblecc))))
+    ((_ test body ...) (cond (test body ...) (else (probcc-impossible))))))
+  (define-syntax probcc-model
+   (syntax-rules ()
+    ((_ body ...) (resetcc (let1 (v (begin body ...)) `(((V ,v) 1)))))))
 
         (define grass-model
-         (probabilitycc
-          (let* ((rain (coincc 0.3))
-                 (sprinkler (coincc 0.5))
-                 (grass-is-wet (or (and (coincc 0.9) rain)
-                                   (and (coincc 0.8) sprinkler)
-                                   (coincc 0.1))))
-           (if grass-is-wet rain (impossiblecc)))))
+         (probcc-model
+          (let* ((rain (probcc-coin 0.3))
+                 (sprinkler (probcc-coin 0.5))
+                 (grass-is-wet (or (and (probcc-coin 0.9) rain)
+                                   (and (probcc-coin 0.8) sprinkler)
+                                   (probcc-coin 0.1))))
+           (probcc-when grass-is-wet rain))))
 
-     (pv-normalize (prob-explore 11 grass-model))
-(string->number "")
+     (probcc-explore 5 grass-model)
+
+  (string->number "nan")
 )
