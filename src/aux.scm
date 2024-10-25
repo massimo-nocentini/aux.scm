@@ -317,12 +317,12 @@
                                                           (loop p*pt (add1 depth) down-new (payload) susp)))
                             (else (loop p depth down rest (cons (list slot p*pt) susp)))))))))
             (normalize (λ (choices)
-                          (let* ((tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
-                                 (normalized (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot)))) choices)))
-                           (sort normalized (λ (a b) (> (cadr a) (cadr b))))))))
+                          (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
+                           (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot)))) choices)))))
     (let* ((susp (loop 1 0 #t choices '()))
-           (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp)))
-     (normalize folded))))
+           (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))
+           (normalized (normalize folded)))
+     (sort normalized (λ (a b) (> (cadr a) (cadr b)))))))
 
   (define (probcc-distribution distribution)
    (letshiftcc k
