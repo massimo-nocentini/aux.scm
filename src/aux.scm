@@ -296,26 +296,30 @@
     ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
     (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
+  (define-syntax letprobccpair 
+   (syntax-rules () 
+    ((_ (((flag payload) p) probpair) body ...) (let* ((slot (car probpair))
+                                                       (p (cadr probpair))
+                                                       (flag (car slot))
+                                                       (payload (cadr slot)))
+                                                 body ...))))
+
   (define (probcc-explore maxdepth choices)
    (letrec ((maxdepth-is-undefined (equal? maxdepth (void)))
             (ans (make-hash-table))
             (loop (λ (p depth down choices susp)
                    (cond
                     ((null? choices) susp)
-                    (else (let* ((probpair (car choices))
-                                 (slot (car probpair))
-                                 (flag (car slot))
-                                 (payload (cadr slot))
-                                 (pt (cadr probpair))
-                                 (p*pt (* p pt))
-                                 (rest (cdr choices))
-                                 (down-new (or maxdepth-is-undefined (< depth maxdepth))))
+                    (else (letprobccpair (((flag payload) pt) (car choices)) 
+                           (let* ((p*pt (* p pt))
+                                  (rest (cdr choices))
+                                  (down-new (or maxdepth-is-undefined (< depth maxdepth))))
                            (cond
                             ((equal? flag 'V) (hash-table-update!/default ans payload (λ (w) (+ w p*pt)) 0)
                                               (loop p depth down rest susp))
                             ((and (equal? flag 'C) down) (loop p depth down rest
                                                           (loop p*pt (add1 depth) down-new (payload) susp)))
-                            (else (loop p depth down rest (cons (list slot p*pt) susp)))))))))
+                            (else (loop p depth down rest (cons `((,flag ,payload) ,p*pt) susp))))))))))
             (normalize (λ (choices)
                           (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
                            (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot)))) choices)))))
@@ -330,6 +334,16 @@
           (letcar&cdr (((v p) pair))
            `((C ,(τ (k v))) ,(car p))))
          distribution)))
+
+  (define (probcc-reflect choices)
+   (letshiftcc k
+    (letrec ((make-choices (λ (pv) (map f pv)))
+             (f (λ (probpair)
+                 (letprobccpair (((flag payload) p) probpair)
+                  (cond
+                   ((equal? flag 'V) (list (τ (k payload)) p))
+                   (else (list (τ (make-choices (payload))) p)))))))
+     (make-choices choices))))
 
   (define (probcc-bernoulli t f p) (probcc-distribution `((,t ,p) (,f ,(- 1 p)))))
   (define (probcc-coin p) (probcc-bernoulli #t #f p))
