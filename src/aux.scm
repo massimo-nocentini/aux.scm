@@ -25,7 +25,7 @@
   
   (define-syntax resetcc (syntax-rules () ((resetcc body ...) (callcc (delimcc-reset (τ body ...))))))
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
-  
+  (define (callshiftcc f) (letshiftcc k (f k)))
   (define-values (delimcc-reset delimcc-shift)
    (let1 (cont (lambda (v) (error "Missing enclosing resetcc" v)))
     (define (delimcc-abort v) (cont v))
