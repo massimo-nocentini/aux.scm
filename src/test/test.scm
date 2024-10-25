@@ -723,6 +723,19 @@
         ((test/stream/ones+τ _)
          (let1 (ones (take§ 20 (thunk§ 1)))
                 (⊦= '(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1) (§->list ones))))
+
+        ((test/procc/grass-model _)
+
+          (define grass-model
+           (probcc-model
+            (let* ((rain (probcc-coin 0.3))
+                   (sprinkler (probcc-coin 0.5))
+                   (grass-is-wet (or (and (probcc-coin 0.9) rain)
+                                     (and (probcc-coin 0.8) sprinkler)
+                                     (probcc-coin 0.1))))
+             (probcc-when grass-is-wet rain))))
+             
+          (⊦= '(((V #f) 0.53152855727963) ((V #t) 0.46847144272037)) (probcc-explore 5 grass-model)))
 )
 
 (unittest/✓ auxtest)

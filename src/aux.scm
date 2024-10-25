@@ -317,9 +317,9 @@
                                                           (loop p*pt (add1 depth) down-new (payload) susp)))
                             (else (loop p depth down rest (cons (list slot p*pt) susp)))))))))
             (normalize (λ (choices)
-                          (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
-                           (sort (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))) ) choices)
-                                 (λ (a b) (> (cadr a) (cadr b))))))))
+                          (let* ((tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
+                                 (normalized (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot)))) choices)))
+                           (sort normalized (λ (a b) (> (cadr a) (cadr b))))))))
     (let* ((susp (loop 1 0 #t choices '()))
            (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp)))
      (normalize folded))))
@@ -341,16 +341,4 @@
    (syntax-rules ()
     ((_ body ...) (resetcc (let1 (v (begin body ...)) `(((V ,v) 1)))))))
 
-        (define grass-model
-         (probcc-model
-          (let* ((rain (probcc-coin 0.3))
-                 (sprinkler (probcc-coin 0.5))
-                 (grass-is-wet (or (and (probcc-coin 0.9) rain)
-                                   (and (probcc-coin 0.8) sprinkler)
-                                   (probcc-coin 0.1))))
-           (probcc-when grass-is-wet rain))))
-
-     (probcc-explore 5 grass-model)
-
-  (string->number "nan")
 )
