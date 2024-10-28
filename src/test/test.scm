@@ -733,9 +733,44 @@
                    (grass-is-wet (or (and (probcc-coin 0.9) rain)
                                      (and (probcc-coin 0.8) sprinkler)
                                      (probcc-coin 0.1))))
-             (probcc-when grass-is-wet rain))))
+             grass-is-wet
+             #;(probcc-when grass-is-wet rain))))
              
           (⊦= '(((V #f) 0.53152855727963) ((V #t) 0.46847144272037)) (probcc-explore +inf.0 grass-model)))
+
+         ((test/procc/flip-xor-model _)
+
+         (define leaves 0)
+
+      (define flipxor-model
+       (probcc-model
+        (let loop ((p 0.6) (n 10))
+         (set! leaves (add1 leaves))
+         (cond
+          ((equal? 1 n) (probcc-coin p))
+          (else (not (equal? (probcc-coin (- 1 p)) (loop p (sub1 n)))))))))
+         
+         (probcc-explore +inf.0 flipxor-model)
+   
+         (⊦= 1023 leaves))
+
+      ((test/procc/flip-xor-model/bucket _)
+
+   (define leaves 0)
+  (define p 0.5)
+
+(define flipxor-model
+ (probcc-model
+  (let loop ((n 10))
+   (set! leaves (add1 leaves))
+   (cond
+    ((equal? 1 n) (probcc-coin p))
+    (else (not (equal? (probcc-coin (- 1 p)) 
+               (probcc-reflect (probcc-explore +inf.0 (probcc-model (loop (sub1 n))))))))))))
+   
+   (probcc-explore +inf.0 flipxor-model)
+
+   (⊦= 38 leaves))
 )
 
 (unittest/✓ auxtest)

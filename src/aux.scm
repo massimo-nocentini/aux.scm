@@ -350,6 +350,8 @@
                    (else (list (τ (make-choices (payload))) p)))))))
      (make-choices choices))))
 
+  (define (probcc-unit v) `(((V ,v) 1)))
+  (define (probcc-reify0 m) (resetcc (probcc-unit (m))))
   (define (probcc-bernoulli t f p) (probcc-distribution `((,t ,p) (,f ,(- 1 p)))))
   (define (probcc-coin p) (probcc-bernoulli #t #f p))
   (define (probcc-impossible) (probcc-distribution '()))
@@ -358,6 +360,9 @@
     ((_ test body ...) (cond (test body ...) (else (probcc-impossible))))))
   (define-syntax probcc-model
    (syntax-rules ()
-    ((_ body ...) (resetcc (let1 (v (begin body ...)) `(((V ,v) 1)))))))
+    ((_ body ...) (probcc-reify0 (τ body ...)))))
+  (define (probcc-bucket f)
+   (let1 (bucket (memoize/arg (λ (x) (probcc-explore +inf.0 (probcc-model (f x))))))
+    (λ (x) (probcc-reflect (bucket x)))))
 
 )
