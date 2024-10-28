@@ -765,8 +765,7 @@
    (set! leaves (add1 leaves))
    (cond
     ((equal? 1 n) (probcc-coin p))
-    (else (not (equal? (probcc-coin (- 1 p)) 
-               (probcc-reflect (probcc-explore +inf.0 (probcc-model (loop (sub1 n))))))))))))
+    (else (not (equal? (probcc-coin (- 1 p)) ((probcc-bucket loop) (sub1 n)))))))))
    
    (probcc-explore +inf.0 flipxor-model)
 

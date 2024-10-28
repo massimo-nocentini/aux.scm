@@ -346,8 +346,8 @@
              (f (λ (probpair)
                  (letprobccpair (((flag payload) p) probpair)
                   (cond
-                   ((equal? flag 'V) (list (τ (k payload)) p))
-                   (else (list (τ (make-choices (payload))) p)))))))
+                   ((equal? flag 'V) `((C ,(τ (k payload))) ,p))
+                   (else `((C ,(τ (make-choices (payload)))) ,p)))))))
      (make-choices choices))))
 
   (define (probcc-unit v) `(((V ,v) 1)))
