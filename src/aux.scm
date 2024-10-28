@@ -272,13 +272,19 @@
      ((_ nr (chooseD chooseB asserter markD cutD) body ...)
       (§->list (take§ nr (letnondeterministic§ (chooseD chooseB asserter markD cutD) body ...))))))
 
-  (define (memoize f)
+  (define (memoize/call f)
    (let ((called #f) (memo (void)))
     (λ args
      (unless called 
       (set! memo (apply f args))
       (set! called #t))
      memo)))
+
+ (define (memoize/arg f)
+  (let1 (memo (make-hash-table))
+   (λ (arg)
+    (unless (hash-table-exists? memo arg) (hash-table-set! memo arg (f arg)))
+    (hash-table-ref memo arg))))
 
   (define-syntax λ-memo
    (syntax-rules ()
@@ -305,24 +311,23 @@
                                                  body ...))))
 
   (define (probcc-explore maxdepth choices)
-   (letrec ((maxdepth-is-undefined (equal? maxdepth (void)))
-            (ans (make-hash-table))
+   (letrec ((ans (make-hash-table))
             (loop (λ (p depth down choices susp)
                    (cond
                     ((null? choices) susp)
                     (else (letprobccpair (((flag payload) pt) (car choices)) 
                            (let* ((p*pt (* p pt))
-                                  (rest (cdr choices))
-                                  (down-new (or maxdepth-is-undefined (< depth maxdepth))))
+                                  (rest (cdr choices)))
                            (cond
                             ((equal? flag 'V) (hash-table-update!/default ans payload (λ (w) (+ w p*pt)) 0)
                                               (loop p depth down rest susp))
                             ((and (equal? flag 'C) down) (loop p depth down rest
-                                                          (loop p*pt (add1 depth) down-new (payload) susp)))
+                                                          (loop p*pt (add1 depth) (< depth maxdepth) (payload) susp)))
                             (else (loop p depth down rest (cons `((,flag ,payload) ,p*pt) susp))))))))))
             (normalize (λ (choices)
                           (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
-                           (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot)))) choices)))))
+                           (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))))
+                                choices)))))
     (let* ((susp (loop 1 0 #t choices '()))
            (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))
            (normalized (normalize folded)))

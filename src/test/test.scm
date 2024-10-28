@@ -735,7 +735,7 @@
                                      (probcc-coin 0.1))))
              (probcc-when grass-is-wet rain))))
              
-          (⊦= '(((V #f) 0.53152855727963) ((V #t) 0.46847144272037)) (probcc-explore 5 grass-model)))
+          (⊦= '(((V #f) 0.53152855727963) ((V #t) 0.46847144272037)) (probcc-explore +inf.0 grass-model)))
 )
 
 (unittest/✓ auxtest)
