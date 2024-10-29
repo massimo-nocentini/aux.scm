@@ -6,7 +6,8 @@
   (define-syntax push! (syntax-rules () ((push! val var) (begin (set! var (cons val var)) (void)))))
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
   (define-syntax append-right! (syntax-rules () ((append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
-  (define-syntax sub1! (syntax-rules () ((sub1! var) (begin (set! var (sub1 var)) (void)))))
+  (define-syntax add1! (syntax-rules () ((_ var) (begin (set! var (add1 var)) (void)))))
+  (define-syntax sub1! (syntax-rules () ((_ var) (begin (set! var (sub1 var)) (void)))))
 
   (define-syntax λ (syntax-rules () ((λ formals body ...) (lambda formals body ...))))
   (define-syntax τ (syntax-rules () ((τ body ...) (lambda () body ...))))
@@ -288,7 +289,14 @@
 
   (define-syntax λ-memo
    (syntax-rules ()
-    ((λ-memo args body ...) (memoize (λ args body ...)))))
+    ((_ args body ...) (letrec ((memo (make-hash-table))
+                                (f (λ args body ...)))
+                        (λ vargs
+                         (unless (hash-table-exists? memo vargs) (hash-table-set! memo vargs (apply f vargs)))
+                         (hash-table-ref memo vargs))))))
+  (define-syntax define-memo
+   (syntax-rules ()
+    ((_ (name arg ...) body ...) (define name (letrec ((f (λ-memo (arg ...) body ...))) f)))))
 
   (define ((boolean->P prob) bool) (if bool prob (- 1 prob)))
   
@@ -331,7 +339,7 @@
     (let* ((susp (loop 1 0 #t choices '()))
            (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))
            (normalized (normalize folded)))
-     (sort normalized (λ (a b) (> (cadr a) (cadr b)))))))
+     (sort folded (λ (a b) (> (cadr a) (cadr b)))))))
 
   (define (probcc-distribution distribution)
    (letshiftcc k
@@ -361,8 +369,13 @@
   (define-syntax probcc-model
    (syntax-rules ()
     ((_ body ...) (probcc-reify0 (τ body ...)))))
-  (define (probcc-bucket f)
-   (let1 (bucket (memoize/arg (λ (x) (probcc-explore +inf.0 (probcc-model (f x))))))
-    (λ (x) (probcc-reflect (bucket x)))))
+  (define-syntax probcc-inference-exact
+   (syntax-rules ()
+    ((_ body ...) (probcc-explore +inf.0 (probcc-model body ...)))))
+  (define-syntax λ-probcc-bucket
+   (syntax-rules ()
+    ((_ args body ...) (letrec ((f (λ args body ...))
+                                (bucket (λ-memo bargs (probcc-inference-exact (apply f bargs)))))
+                        (o probcc-reflect bucket)))))
 
 )

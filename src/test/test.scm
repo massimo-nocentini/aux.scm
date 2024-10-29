@@ -693,15 +693,15 @@
                         (let* ((vertices (V graph-simple))
                                (source (? vertices))
                                (destination (? vertices))
-                               (p (path (list (list source 1 1)) source destination '() 15 10)))
+                               (p (path (list (list source 1 1)) source destination '() 15 7)))
 
-                         #;(list (list source destination) (map (λ (triple) (list (car triple) (cadr triple))) p)) ; each path
+                         (list (list source destination) (map (λ (triple) (list (car triple) (cadr triple))) p)) ; each path
                          #;(length p) ; path length
                          #;(? (map (λ (triple) (car triple)) p)) ; vertex usage
                          #;(? (map (λ (triple) (list (car triple) (cadr triple))) p)) ; vertex visiting, wrt time.
                          #;(? (mappair (λ (r s) (list (car r) (car s))) p)) ; edge usage
                          #;(? (mappair (λ (r s) (list (car s) (- (cadr s) (cadr r)))) p)) ; vertex waiting
-                         (list source destination) ; path "weight"
+                         #;(list source destination) ; path "weight"
                          ))))
 
         ((test/stream/nats _)
@@ -733,10 +733,10 @@
                    (grass-is-wet (or (and (probcc-coin 0.9) rain)
                                      (and (probcc-coin 0.8) sprinkler)
                                      (probcc-coin 0.1))))
-             grass-is-wet
-             #;(probcc-when grass-is-wet rain))))
+             #;grass-is-wet
+             (probcc-when grass-is-wet rain))))
              
-          (⊦= '(((V #f) 0.53152855727963) ((V #t) 0.46847144272037)) (probcc-explore +inf.0 grass-model)))
+          (⊦= '(((V #f) 0.322) ((V #t) 0.2838)) (probcc-explore +inf.0 grass-model)))
 
          ((test/procc/flip-xor-model _)
 
@@ -759,17 +759,46 @@
    (define leaves 0)
   (define p 0.5)
 
-(define flipxor-model
+(define (flipxor-model c)
  (probcc-model
-  (let loop ((n 10))
-   (set! leaves (add1 leaves))
-   (cond
-    ((equal? 1 n) (probcc-coin p))
-    (else (not (equal? (probcc-coin (- 1 p)) ((probcc-bucket loop) (sub1 n)))))))))
+  (letrec ((loop (λ-probcc-bucket (n)
+                  (add1! leaves)
+                  (cond
+                   ((equal? 1 n) (probcc-coin p))
+                   (else (not (equal? (probcc-coin (- 1 p)) 
+                              (loop (sub1 n)))))))))
+   (loop c))))
    
-   (probcc-explore +inf.0 flipxor-model)
+   (probcc-explore +inf.0 (flipxor-model 10))
 
    (⊦= 38 leaves))
+
+((test/procc/λ-memo _)
+
+(define count 0)
+(define fib (λ (n) 
+             (add1! count)
+             (cond 
+              ((< n 2) n) 
+              (else (let1 (m (sub1 n)) 
+                     (+ (fib m) (fib (sub1 m))))))))
+(let1 (v (fib 10))
+ (⊦= 55 v)
+ (⊦= 177 count))
+
+(set! count 0)
+
+(define fib-memo
+ (λ-memo (n) 
+  (add1! count)
+  (cond 
+   ((< n 2) n) 
+   (else (let1 (m (sub1 n)) 
+          (+ (fib-memo m) (fib-memo (sub1 m))))))))
+(let1 (v (fib-memo 10))
+ (⊦= 55 v)
+ (⊦= 11 count)))
+
 )
 
 (unittest/✓ auxtest)
