@@ -316,26 +316,42 @@
                                                        (p (cadr probpair))
                                                        (flag (car slot))
                                                        (payload (cadr slot)))
-                                                 body ...))))
+                                                 body ...))
+    ((_ ((slot p) probpair) body ...) (let* ((slot (car probpair))
+                                             (p (cadr probpair)))
+                                       body ...))))
+
+  (define-syntax cond-probccslot
+   (syntax-rules (V C)
+    ((_ slot 
+      ((V v) vbody ...)
+      ((C t) cbody ...))
+     (let ((flag (car slot))
+           (payload (cadr slot)))
+      (cond
+       ((equal? flag 'V) (let1 (v payload) vbody ...))
+       ((equal? flag 'C) (let1 (t payload) cbody ...))
+       (else (error `(not a probability slot ,slot))))))))
 
   (define (probcc-explore maxdepth choices)
    (letrec ((ans (make-hash-table))
             (loop (λ (p depth down choices susp)
                    (cond
                     ((null? choices) susp)
-                    (else (letprobccpair (((flag payload) pt) (car choices)) 
+                    (else (letprobccpair ((slot pt) (car choices)) 
                            (let* ((p*pt (* p pt))
                                   (rest (cdr choices)))
-                           (cond
-                            ((equal? flag 'V) (hash-table-update!/default ans payload (λ (w) (+ w p*pt)) 0)
-                                              (loop p depth down rest susp))
-                            ((and (equal? flag 'C) down) (loop p depth down rest
-                                                          (loop p*pt (add1 depth) (< depth maxdepth) (payload) susp)))
-                            (else (loop p depth down rest (cons `((,flag ,payload) ,p*pt) susp))))))))))
+                            (cond-probccslot slot
+                             ((V v) (hash-table-update!/default ans v (λ (w) (+ w p*pt)) 0)
+                                    (loop p depth down rest susp))
+                             ((C t) (cond 
+                                     (down (loop p depth down rest
+                                            (loop p*pt (add1 depth) (< depth maxdepth) (t) susp)))
+                                     (else (loop p depth down rest (cons `((C ,t) ,p*pt) susp))))))))))))
             (normalize (λ (choices)
-                          (let1 (tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
-                           (map (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))))
-                                choices)))))
+                          (let* ((tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
+                                 (N (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))))))
+                           (map N choices)))))
     (let* ((susp (loop 1 0 #t choices '()))
            (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))
            (normalized (normalize folded)))
