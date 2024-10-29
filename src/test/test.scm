@@ -740,38 +740,50 @@
 
          ((test/procc/flip-xor-model _)
 
-         (define leaves 0)
+         
 
       (define flipxor-model
        (probcc-model
         (let loop ((p 0.6) (n 10))
-         (set! leaves (add1 leaves))
          (cond
           ((equal? 1 n) (probcc-coin p))
           (else (not (equal? (probcc-coin (- 1 p)) (loop p (sub1 n)))))))))
          
-         (probcc-explore +inf.0 flipxor-model)
+         (let1 (res (probcc-explore +inf.0 flipxor-model))
+          #;(⊦= 1024 res)
+          (⊦= 1024 (probcc-leaves flipxor-model))))
+
+      ((test/procc/flip-xor-model/middle _)
+
+(define (flipxor-model c p)
+ (probcc-model
+  (letrec ((loop (λ (n)
+                  (cond
+                   ((equal? 1 n) (probcc-coin p))
+                   (else (not (equal? (probcc-coin (- 1 p)) 
+                                      (probcc-reflect (probcc-inference-exact (loop (sub1 n)))))))))))
+   (loop c))))
    
-         (⊦= 1023 leaves))
+  (let* ((tree (flipxor-model 10 0.6))
+         (res (probcc-explore +inf.0 tree)))
+   #;(⊦= 2 res)
+   (⊦= 4 (probcc-leaves tree))))
 
-      ((test/procc/flip-xor-model/bucket _)
+((test/procc/flip-xor-model/bucket _)
 
-   (define leaves 0)
-  (define p 0.5)
-
-(define (flipxor-model c)
+(define (flipxor-model c p)
  (probcc-model
   (letrec ((loop (λ-probcc-bucket (n)
-                  (add1! leaves)
                   (cond
                    ((equal? 1 n) (probcc-coin p))
                    (else (not (equal? (probcc-coin (- 1 p)) 
                               (loop (sub1 n)))))))))
    (loop c))))
    
-   (probcc-explore +inf.0 (flipxor-model 10))
-
-   (⊦= 38 leaves))
+  (let* ((tree (flipxor-model 10 0.6))
+         (res (probcc-explore +inf.0 tree)))
+   #;(⊦= 2 res)
+   (⊦= 2 (probcc-leaves tree))))
 
 ((test/procc/λ-memo _)
 

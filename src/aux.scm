@@ -357,22 +357,22 @@
            (normalized (normalize folded)))
      (sort folded (λ (a b) (> (cadr a) (cadr b)))))))
 
-  (define (probcc-distribution distribution)
-   (letshiftcc k
+  (define ((probcc-distribution/k distribution) k)
     (map (λ (pair)
           (letcar&cdr (((v p) pair))
            `((C ,(τ (k v))) ,(car p))))
-         distribution)))
+         distribution))
+  (define (probcc-distribution distribution) (callshiftcc (probcc-distribution/k distribution)))
 
-  (define (probcc-reflect choices)
-   (letshiftcc k
+  (define ((probcc-reflect/k choices) k)
     (letrec ((make-choices (λ (pv) (map f pv)))
              (f (λ (probpair)
-                 (letprobccpair (((flag payload) p) probpair)
-                  (cond
-                   ((equal? flag 'V) `((C ,(τ (k payload))) ,p))
-                   (else `((C ,(τ (make-choices (payload)))) ,p)))))))
-     (make-choices choices))))
+                 (letprobccpair ((slot p) probpair)
+                  (cond-probccslot slot
+                   ((V v) `((C ,(τ (k v))) ,p))
+                   ((C t) `((C ,(τ (make-choices (t)))) ,p)))))))
+     (make-choices choices)))
+  (define (probcc-reflect choices) (callshiftcc (probcc-reflect/k choices)))
 
   (define (probcc-unit v) `(((V ,v) 1)))
   (define (probcc-reify0 m) (resetcc (probcc-unit (m))))
@@ -393,5 +393,15 @@
     ((_ args body ...) (letrec ((f (λ args body ...))
                                 (bucket (λ-memo bargs (probcc-inference-exact (apply f bargs)))))
                         (o probcc-reflect bucket)))))
+
+  (define (probcc-leaves choices)
+    (letrec ((L (λ (choices count)
+                 (let1 (F (λ (probpair acc) 
+                           (letprobccpair ((slot p) probpair)
+                            (cond-probccslot slot
+                            ((V v) (add1 acc))
+                            ((C t) (L (t) acc))))))
+                  (foldr F count choices)))))
+     (L choices 0)))
 
 )
