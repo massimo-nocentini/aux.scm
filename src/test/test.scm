@@ -1,5 +1,4 @@
 
-
 (import unittest aux (chicken sort))
 
 (define-suite auxtest
@@ -724,19 +723,26 @@
          (let1 (ones (take§ 20 (thunk§ 1)))
                 (⊦= '(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1) (§->list ones))))
 
-        ((test/procc/grass-model _)
+               ((test/procc/simple-model _)
+                 (⊦= '(((V (#t #t)) 0.36) ((V (#t #f)) 0.24) ((V (#f #t)) 0.24))
+                     (probcc-inference-exact
+                      (let* ((p 0.6)
+                             (x (probcc-coin p))
+                             (y (probcc-coin p)))
+                       (probcc-when (or x y) (list x y))))))
 
-          (define grass-model
-           (probcc-model
-            (let* ((rain (probcc-coin 0.3))
-                   (sprinkler (probcc-coin 0.5))
-                   (grass-is-wet (or (and (probcc-coin 0.9) rain)
-                                     (and (probcc-coin 0.8) sprinkler)
-                                     (probcc-coin 0.1))))
-             #;grass-is-wet
-             (probcc-when grass-is-wet rain))))
-             
-          (⊦= '(((V #f) 0.322) ((V #t) 0.2838)) (probcc-explore +inf.0 grass-model)))
+   
+     ((test/procc/grass-model _)
+      (define grass-model
+        (probcc-model
+          (let* ((rain (probcc-coin 0.3))
+                 (sprinkler (probcc-coin 0.5))
+                 (grass-is-wet
+                   (or (and (probcc-coin 0.9) rain)
+                       (and (probcc-coin 0.8) sprinkler)
+                       (probcc-coin 0.1))))
+            (probcc-when grass-is-wet rain))))
+      (⊦= '(((V #f) 0.322) ((V #t) 0.2838)) (probcc-explore +inf.0 grass-model)))
 
          ((test/procc/flip-xor-model _)
 
@@ -814,4 +820,3 @@
 )
 
 (unittest/✓ auxtest)
-
