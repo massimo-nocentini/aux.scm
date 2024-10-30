@@ -289,14 +289,15 @@
 
   (define-syntax λ-memo
    (syntax-rules ()
-    ((_ args body ...) (letrec ((memo (make-hash-table))
-                                (f (λ args body ...)))
+    ((_ args body ...) (let ((memo (make-hash-table))
+                             (f (λ args body ...)))
                         (λ vargs
-                         (unless (hash-table-exists? memo vargs) (hash-table-set! memo vargs (apply f vargs)))
+                         (unless (hash-table-exists? memo vargs) 
+                          (hash-table-set! memo vargs (apply f vargs)))
                          (hash-table-ref memo vargs))))))
   (define-syntax define-memo
    (syntax-rules ()
-    ((_ (name arg ...) body ...) (define name (letrec ((f (λ-memo (arg ...) body ...))) f)))))
+    ((_ (name arg ...) body ...) (define name (λ-memo (arg ...) body ...)))))
 
   (define ((boolean->P prob) bool) (if bool prob (- 1 prob)))
   
