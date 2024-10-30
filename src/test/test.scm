@@ -756,7 +756,7 @@
           (else (not (equal? (probcc-coin (- 1 p)) (loop p (sub1 n)))))))))
          
          (let1 (res (probcc-explore +inf.0 flipxor-model))
-          #;(⊦= 1024 res)
+          (⊦= '(((V #t) 0.500000051200001) ((V #f) 0.4999999488)) res)
           (⊦= 1024 (probcc-leaves flipxor-model))))
 
       ((test/procc/flip-xor-model/middle _)
@@ -772,7 +772,7 @@
    
   (let* ((tree (flipxor-model 10 0.6))
          (res (probcc-explore +inf.0 tree)))
-   #;(⊦= 2 res)
+   (⊦= '(((V #t) 0.5000000512) ((V #f) 0.4999999488)) res)
    (⊦= 4 (probcc-leaves tree))))
 
 ((test/procc/flip-xor-model/bucket _)
@@ -788,7 +788,7 @@
    
   (let* ((tree (flipxor-model 10 0.6))
          (res (probcc-explore +inf.0 tree)))
-   #;(⊦= 2 res)
+   (⊦= '(((V #t) 0.5000000512) ((V #f) 0.4999999488)) res)
    (⊦= 2 (probcc-leaves tree))))
 
 ((test/procc/λ-memo _)
