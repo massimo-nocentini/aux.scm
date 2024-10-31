@@ -4,9 +4,15 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Compile & test",
+            "label": "Compile",
             "type": "shell",
-            "command": "cd src && sudo chicken-install && make test -B",
+            "command": "cd src && sudo chicken-install",
+            "group": "build"
+        },
+        {
+            "label": "Test",
+            "type": "shell",
+            "command": "cd src && make test -B",
             "group": "build"
         }
     ]

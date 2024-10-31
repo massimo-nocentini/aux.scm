@@ -348,15 +348,15 @@
                              ((C t) (cond 
                                      (down (loop p depth down rest
                                             (loop p*pt (add1 depth) (< depth maxdepth) (t) susp)))
-                                     (else (loop p depth down rest (cons `((C ,t) ,p*pt) susp))))))))))))
-            (normalize (λ (choices)
-                          (let* ((tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
-                                 (N (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))))))
-                           (map N choices)))))
+                                     (else (loop p depth down rest (cons `((C ,t) ,p*pt) susp)))))))))))))
     (let* ((susp (loop 1 0 #t choices '()))
-           (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp))
-           (normalized (normalize folded)))
+           (folded (hash-table-fold ans (λ (v p l) (cons `((V ,v) ,p) l)) susp)))
      (sort folded (λ (a b) (> (cadr a) (cadr b)))))))
+
+  (define (probcc-normalize choices)
+    (let* ((tot (foldr (λ (each t) (+ t (cadr each))) 0 choices))
+           (N (λ (each) (list (car each) (exact->inexact (/ (cadr each) tot))))))
+      (map N choices)))
 
   (define ((probcc-distribution/k distribution) k)
     (map (λ (pair)
