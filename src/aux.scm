@@ -363,7 +363,7 @@
           (letcar&cdr (((v p) pair))
            `((C ,(τ (k v))) ,(car p))))
          distribution))
-  (define (probcc-distribution distribution) (callshiftcc (probcc-distribution/k distribution)))
+  (define probcc-distribution (o callshiftcc probcc-distribution/k))
 
   (define ((probcc-reflect/k choices) k)
     (letrec ((make-choices (λ (pv) (map f pv)))
@@ -373,7 +373,7 @@
                    ((V v) `((C ,(τ (k v))) ,p))
                    ((C t) `((C ,(τ (make-choices (t)))) ,p)))))))
      (make-choices choices)))
-  (define (probcc-reflect choices) (callshiftcc (probcc-reflect/k choices)))
+  (define probcc-reflect (o callshiftcc probcc-reflect/k))
 
   (define (probcc-unit v) `(((V ,v) 1)))
   (define (probcc-reify0 m) (resetcc (probcc-unit (m))))
