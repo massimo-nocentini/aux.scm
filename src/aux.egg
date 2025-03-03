@@ -2,5 +2,6 @@
 ((author "Massimo Nocentini")
  (synopsis "Auxiliary definitions and macros.")
  (license "MIT")
+ (dependencies srfi-69)
  (components
   (extension aux)))
