@@ -1,9 +1,22 @@
 
 (module aux *
 
-  (import scheme (chicken base) (chicken continuation) (chicken pretty-print) (chicken fixnum) (chicken sort) srfi-69)
+  (import scheme (chicken base) (chicken continuation) (chicken pretty-print) (chicken fixnum) (chicken sort) (chicken port) srfi-69)
+
+  (define-syntax letport/string 
+    (syntax-rules (out else) 
+      ((_ (p out) body ...) (let* ((v (void))
+                                   (s (call-with-output-string (λ (p) (set! v (begin body ...))))))
+                              (values v s)))
+      ((_ (p instring) body ...) (let* ((v (void))
+                                        (s (call-with-input-string instring (λ (p) (set! v (begin body ...))))))
+                                   (values v s)))
+      ((_ else body ...) (let* ((v (void))
+				(s (with-error-output-to-string (τ (set! v (begin body ...))))))
+			   (values v s)))))
 
   (define-syntax push! 
+
     (syntax-rules () 
       ((push! val var) (begin (set! var (cons val var)) (void)))))
 
@@ -12,13 +25,18 @@
   (define-syntax add1! (syntax-rules () ((_ var) (begin (set! var (add1 var)) (void)))))
   (define-syntax sub1! (syntax-rules () ((_ var) (begin (set! var (sub1 var)) (void)))))
 
-
   (define-syntax λ (syntax-rules () ((λ formals body ...) (lambda formals body ...))))
   (define-syntax τ (syntax-rules () ((τ body ...) (lambda () body ...))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
   (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
-  (define-syntax let1 (syntax-rules () ((let1 (var val) body ...) (let ((var val)) body ...))))
+
+  (define-syntax let1 
+    (syntax-rules () 
+      ((let1 (var val) body ...) (let ((var val)) body ...))
+      ((let1 var body ...) (let1 (var (void)) body ...))))
+
+
 
   (define-syntax letcc
     (syntax-rules ()
