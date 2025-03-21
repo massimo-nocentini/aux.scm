@@ -16,7 +16,6 @@
 			   (values v s)))))
 
   (define-syntax push! 
-
     (syntax-rules () 
       ((push! val var) (begin (set! var (cons val var)) (void)))))
 
