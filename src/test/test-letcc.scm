@@ -19,7 +19,7 @@
 					     "Module " (code/inline "(chicken continuation)")) 
 		  " and based on " (cite/a "http://www.iro.umontreal.ca/~feeley/papers/FeeleySW01.pdf" 
 					   "A Better API for First-Class Continuations") 
-		  "by Marc Feeley, respectively."))))
+		  " by Marc Feeley, respectively."))))
 
   ((test/letcc* _)
    (⊦= '(1) (letcc* ⤶ ((v (cons 1 '()))
@@ -38,7 +38,12 @@
    (⊦= '(2) (letcc* ⤶ ((v (cons 3 (⤶ '(2)))))
                    (cons 1 (⤶ v))))
    (⊦= '(4 2) (letcc* ⤶ ((v (cons 3 (⤶ '(2)))))
-                   (cons 1 (⤶ (cons 4 v))))))
+                   (cons 1 (⤶ (cons 4 v)))))
+   `(doc (p "The frame in "
+	    (cite/a "https://mitpress.mit.edu/9780262561006/the-seasoned-schemer/" 
+		    "The Seasoned Schemer: page 89, see " 
+		    (code/inline "rember1*") " definition.")
+	    " is of inspiration of the " (code/inline "letcc*") " macro.")))
 
   ((test/trycc1 _)
    (⊦= 5 (trycc
