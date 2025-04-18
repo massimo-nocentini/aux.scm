@@ -3,19 +3,30 @@
 
 (define-suite delimcc-suite
 
+  ((doc r) 
+   `((p "Tests according to the tutorial at " 
+       (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
+	       "Introduction to Programming with Shift and Reset") 
+       " by Kenichi Asai and Oleg Kiselyov.")))
+
   ((test/letcc/delimcc _)
    #;(⊦= 10 (letshiftcc k 10))
    #;(⊦= 21 (+ 1 (* 2 (letshiftcc k (k (k 10))))))
+   (⊦= '(1 2 2 10) (cons 1 (resetcc (cons 2 (letshiftcc k (k (k '(10))))))))
    (⊦= 41 (+ 1 (resetcc (* 2 (letshiftcc k (k (k 10)))))))
    (⊦= 15 (+ 10 (resetcc (+ 2 3))))
    (⊦= 13 (+ 10 (resetcc (+ 2 (letshiftcc k 3)))))
+   (⊦= '(10 3) (cons 10 (resetcc (cons 2 (letshiftcc k '(3))))))
    (⊦= 15 (+ 10 (resetcc (+ 2 (letshiftcc k (k 3))))))
+   (⊦= '(10 2 3) (cons 10 (resetcc (cons 2 (letshiftcc k (k '(3)))))))
    (⊦= 115 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k 3)))))))
+   (⊦= '(10 100 2 3) (cons 10 (resetcc (cons 2 (letshiftcc k (cons 100 (k '(3))))))))
    (⊦= 117 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3))))))))
-   (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3))))))))))
+   (⊦= '(10 100 2 2 3) (cons 10 (resetcc (cons 2 (letshiftcc k (cons 100 (k (k '(3)))))))))
+   (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
+   (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letshiftcc k (cons 100 (k (k '(3)))))))))))
 
   ((test/letcc/delimcc+asai+tutorial _)
-   ; Tests according to the tutorial at http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf by Kenichi Asai.
 
    (⊦= 10 (resetcc (sub1 (+ 3 (letshiftcc k (* 5 2))))))
    (⊦= 9 (sub1 (resetcc (+ 3 (letshiftcc k (* 5 2))))))
