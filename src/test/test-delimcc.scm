@@ -7,7 +7,32 @@
    `((p "Tests according to the tutorial at " 
        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
 	       "Introduction to Programming with Shift and Reset") 
-       " by Kenichi Asai and Oleg Kiselyov.")))
+       " by Kenichi Asai and Oleg Kiselyov. The former author "
+       (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Kenichi Asai") " recorded a talk "
+       (cite/a "https://www.youtube.com/watch?v=QNM-njddhIw" 
+	       "Delimited Continuations for Everyone by Kenichi Asai")
+       " that relies on the tutorial " 
+       (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/" "CW 2011 Tutorial: home page")
+       ", where slides "
+       (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/slides.pdf" "CW 2011 Tutorial: slides")
+       " are available too.")
+     (p "In this section we describe two fundamental macros, " (code/inline "resetcc") " and " (code/inline "letshiftcc") 
+	" respectively, that support all the other forms stressed in the tests that follows.")
+     (structure/section "The " (code/inline "resetcc") " macro")
+     ,(let ((resetcc-expr '(resetcc body ...)))
+       `(p "The expression " (code/scheme ,resetcc-expr) 
+	   " introduces a delimiter and captures the rest of the computation up to it; for the sake of clarity, it expands to "
+	   (code/scheme/expand ,resetcc-expr)))
+     (structure/section "The " (code/inline "letshiftcc") " macro")
+     ,(let ((letshiftcc-expr '(letshiftcc k body ...)))
+       `(p "The expression " (code/scheme ,letshiftcc-expr) 
+	   (cite/quote "Kenichi Asai" 
+		       (ol
+			 (li "clears the current continuation")
+			 (li "binds the cleared continuation to " (code/inline "k"))
+			 (li "and executes " (code/inline "body ..."))))
+	   "For the sake of clarity, it expands to "
+	   (code/scheme/expand ,letshiftcc-expr)))))
 
   ((test/letcc/delimcc _)
    #;(⊦= 10 (letshiftcc k 10))
@@ -27,9 +52,10 @@
    (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letshiftcc k (cons 100 (k (k '(3)))))))))))
 
   ((test/letcc/delimcc+asai+tutorial _)
-
    (⊦= 10 (resetcc (sub1 (+ 3 (letshiftcc k (* 5 2))))))
+   (⊦= '(10) (resetcc (cdr (cons 3 (letshiftcc k (list (* 5 2)))))))
    (⊦= 9 (sub1 (resetcc (+ 3 (letshiftcc k (* 5 2))))))
+   (⊦= '() (cdr (resetcc (cons 3 (letshiftcc k (list (* 5 2)))))))
    (⊦= 'hello (resetcc (sub1 (+ 3 (letshiftcc k 'hello)))))
 
    (define (prod lst)
