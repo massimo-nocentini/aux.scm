@@ -20,7 +20,9 @@
       ((push! val var) (begin (set! var (cons val var)) (void)))))
 
   (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
-  (define-syntax append-right! (syntax-rules () ((append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
+  (define-syntax append-right! 
+    (syntax-rules () 
+      ((append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
   (define-syntax add1! (syntax-rules () ((_ var) (begin (set! var (add1 var)) (void)))))
   (define-syntax sub1! (syntax-rules () ((_ var) (begin (set! var (sub1 var)) (void)))))
 
@@ -35,8 +37,6 @@
       ((let1 (var val) body ...) (let ((var val)) body ...))
       ((let1 var body ...) (let1 (var (void)) body ...))))
 
-
-
   (define-syntax letcc
     (syntax-rules ()
       ((letcc hop body ...) (continuation-capture (lambda (cont) 
@@ -49,7 +49,7 @@
   (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
   (define (callshiftcc f) (letshiftcc k (f k)))
   (define-values (delimcc-reset delimcc-shift)
-    (let1 (cont (lambda (v) (error "Missing enclosing resetcc" v)))
+    (let1 (cont (lambda (v) v)) ;(let1 (cont (lambda (v) (error "Missing enclosing resetcc" v)))
           (define (delimcc-abort v) (cont v))
           (define (delimcc-cont-push! k) (set! cont k))
           (define (delimcc-cont-pop!) cont)
@@ -66,8 +66,12 @@
   (define (delimcc-extract) (letshiftcc k k))
   (define (delimcc-discard v) (letshiftcc _ v))
   (define (delimcc-cons v) (letshiftcc k (cons v k)))
-  (define-syntax delimcc-τ (syntax-rules () ((delimcc-τ body ...) (letshiftcc k (τ (let1 (x (begin body ...)) (k x)))))))
-  (define-syntax delimcc-lambda (syntax-rules () ((delimcc-lambda args body ...) (letshiftcc k (lambda args (let1 (x (begin body ...)) (k x)))))))
+  (define-syntax delimcc-τ 
+    (syntax-rules () 
+      ((delimcc-τ body ...) (letshiftcc k (τ (let1 (x (begin body ...)) (k x)))))))
+  (define-syntax delimcc-lambda 
+    (syntax-rules () 
+      ((delimcc-lambda args body ...) (letshiftcc k (lambda args (let1 (x (begin body ...)) (k x)))))))
   (define (delimcc-either lst) (letshiftcc k (map k lst)))
 
   (define-syntax resetcc+null (syntax-rules () ((resetcc+null body ...) (resetcc body ... '()))))

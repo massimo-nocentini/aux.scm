@@ -35,8 +35,8 @@
 	   (code/scheme/expand ,letshiftcc-expr)))))
 
   ((test/letcc/delimcc _)
-   #;(⊦= 10 (letshiftcc k 10))
-   #;(⊦= 21 (+ 1 (* 2 (letshiftcc k (k (k 10))))))
+   (⊦= 10 (letshiftcc k 10))
+   (⊦= '(1 2 10) (cons 1 (cons 2 (letshiftcc k (k (k '(10)))))))
    (⊦= '(1 2 2 10) (cons 1 (resetcc (cons 2 (letshiftcc k (k (k '(10))))))))
    (⊦= 41 (+ 1 (resetcc (* 2 (letshiftcc k (k (k 10)))))))
    (⊦= 15 (+ 10 (resetcc (+ 2 3))))
@@ -60,14 +60,14 @@
 
    (define (prod lst)
      (cond
-       ((null? lst) 1))
-     ((zero? (car lst)) (delimcc-discard 'zero))
-     (else (* (car lst) (prod (cdr lst)))))
+       ((null? lst) 1)
+       ((zero? (car lst)) (delimcc-discard 'zero))
+       (else (* (car lst) (prod (cdr lst))))))
 
    (⊦= 'zero (resetcc (prod '(2 3 0 5))))
 
    (define-resetcc f (sub1 (+ 3 (letshiftcc k k))))
-   (⊦= 12 (f 10))
+   (⊦= (sub1 (+ 3 10)) (f 10))
 
    (define-resetcc g (sub1 (+ 3 (delimcc-extract))))
    (⊦= 12 (g 10))
