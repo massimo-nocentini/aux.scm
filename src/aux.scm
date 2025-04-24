@@ -86,6 +86,7 @@
   (define-syntax resetcc+null (syntax-rules () ((resetcc+null body ...) (resetcc body ... '()))))
   (define (yield v) (letcc/shift k (cons v (k (void)))))
   (define-syntax yield§ (syntax-rules () ((yield§ body) (letcc/shift k (cons§ body (k (void)))))))
+  (define (yield§/a v) (yield§ v))
 
   (define-syntax delimcc-foldr
     (syntax-rules ()

@@ -36,7 +36,7 @@
 	   "For the sake of clarity, it expands to "
 	   (code/scheme/expand ,letcc/shift-expr)))))
 
-  ((test/letcc/delimcc _)
+  ((test/delimcc/basic _)
    (⊦= 10 (letcc/shift k 10))
    (⊦= '(1 2 10) (cons 1 (cons 2 (letcc/shift k (k (k '(10)))))))
    (⊦= '(1 2 2 10) (cons 1 (resetcc (cons 2 (letcc/shift k (k (k '(10))))))))
@@ -51,37 +51,51 @@
    (⊦= 117 (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3))))))))
    (⊦= '(10 100 2 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3)))))))))
    (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3)))))))))
-   (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3)))))))))))
+   (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3))))))))))
+   `(doc (p "This test case introduces basic expressions to get introduced to delimited continuations.")))
 
-  ((test/letcc/delimcc+asai+tutorial _)
+  ((test/delimcc/tutorial/discard _)
    (⊦= 10 (resetcc (sub1 (+ 3 (letcc/shift k (* 5 2))))))
    (⊦= '(10) (resetcc (cdr (cons 3 (letcc/shift k (list (* 5 2)))))))
    (⊦= 9 (sub1 (resetcc (+ 3 (letcc/shift k (* 5 2))))))
    (⊦= '() (cdr (resetcc (cons 3 (letcc/shift k (list (* 5 2)))))))
-   (⊦= 'hello (resetcc (sub1 (+ 3 (letcc/shift k 'hello)))))
+   (⊦= 'hello (resetcc (sub1 (+ 3 (letcc/shift k 'hello))))))
 
+  ((test/delimcc/tutorial/discard/prod _)
    (define (prod lst)
      (cond
        ((null? lst) 1)
        ((zero? (car lst)) (delimcc-discard 'zero))
        (else (* (car lst) (prod (cdr lst))))))
 
-   (⊦= 'zero (resetcc (prod '(2 3 0 5))))
+   (⊦= 'zero (resetcc (prod '(2 3 0 5)))))
 
+  ((test/delimcc/tutorial/extract _)
    (define-resetcc f (sub1 (+ 3 (letcc/shift k k))))
    (⊦= (sub1 (+ 3 10)) (f 10))
 
    (define-resetcc g (sub1 (+ 3 (delimcc-extract))))
-   (⊦= 12 (g 10))
+   (⊦= 12 (g 10)))
 
+  ((test/delimcc/tutorial/extract/appender _)
    (define (appender lst)
      (cond
        ((null? lst) (delimcc-extract))
        (else (cons (car lst) (appender (cdr lst))))))
 
    (define-resetcc A (appender '(1 2 3)))
-   (⊦= '(1 2 3 4 5 6) (A '(4 5 6)))
+   (⊦= '(1 2 3 4 5 6) (A '(4 5 6))))
 
+  ((test/delimcc/yield _)
+   (⊦= '(1) (resetcc+null (yield 1)))
+   (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
+
+  ((test/delimcc/yield§ _)
+   (⊦= '(1) (§->list (resetcc+null (yield§ 1))))
+   (⊦= '(1) (§->list (take§ 1 (resetcc+null (yield§ 1) (yield§ 2)))))
+   (⊦= '(1 2) (§->list (resetcc+null (yield§ 1) (yield§ 2)))))
+
+  ((test/delimcc/tutorial/yield§/walk _)
    (define (walk f tree)
      (cond
        ((null? tree) (void))
@@ -91,42 +105,36 @@
          (walk f (caddr tree)))))
 
    (⊦= '(1 2 3) (§->list (resetcc+null (walk (lambda (v) (yield§ v)) '((() 1 ()) 2 (() 3 ()))))))
-
    (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
-                            (walk delimcc-cons '((() 1 ()) 2 (() 3 ())))))
+                            (walk delimcc-cons '((() 1 ()) 2 (() 3 ()))))))
 
-   (define-resetcc a (append (delimcc-τ '(hello)) '(world)))
-   (⊦= '(hello world) (a))
+  ((test/delimcc/tutorial/either _)
+   (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3)))))
 
-   (define-resetcc p (append '(hello) (delimcc-lambda (x) (list x)) '(world)))
-   (⊦= '(hello 4 world) (p 4))
-
-   (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3))))
-
+  ((test/delimcc/tutorial/either/tensor _)
    (⊦= '(((p #t) (q #f))) 
-         (let1 (sols '())
+       (let1 (sols '())
+	     (resetcc
+	       (let ((p (delimcc-either '(#t #f)))
+		     (q (delimcc-either '(#t #f))))
+		 (when (and (or p q) (or p (not q)) (or (not p) (not q)))
+		   (push! `((p ,p) (q ,q)) sols))))
+	     sols))
+
+   (⊦= '((((p #t) (q #t) no) ((p #t) (q #f) yes)) (((p #f) (q #t) no) ((p #f) (q #f) no))) 
                (resetcc
                  (let ((p (delimcc-either '(#t #f)))
                        (q (delimcc-either '(#t #f))))
-                   (when (and (or p q) (or p (not q)) (or (not p) (not q)))
-                     (push! `((p ,p) (q ,q)) sols))))
-               sols))
+                     `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no)) 
+		     ))))
 
-   (⊦= '((no ((p #t) (q #f))) (no no)) 
-               (resetcc
-                 (let ((p (delimcc-either '(#t #f)))
-                       (q (delimcc-either '(#t #f))))
-                   (if (and (or p q) (or p (not q)) (or (not p) (not q)))
-                     `((p ,p) (q ,q)) 
-		     'no)))))
+  ((test/delimcc/tutorial/τ _)
+   (define-resetcc a (append (delimcc-τ '(hello)) '(world)))
+   (⊦= '(hello world) (a)))
 
-  ((test/letcc/delimcc+yield _)
-   (⊦= '(1) (resetcc+null (yield 1)))
-   (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
-
-  ((test/letcc/delimcc+yield§ _)
-   (⊦= '(1) (§->list (resetcc+null (yield§ 1))))
-   (⊦= '(1 2) (§->list (resetcc+null (yield§ 1) (yield§ 2)))))
+  ((test/delimcc/tutorial/λ _)
+   (define-resetcc p (append '(hello) (delimcc-lambda (x) (list x)) '(world)))
+   (⊦= '(hello 4 world) (p 4)))
 
   ((test/letcc/delimcc+monad _)
 
