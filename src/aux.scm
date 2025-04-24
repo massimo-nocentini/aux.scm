@@ -1,7 +1,15 @@
 
 (module aux *
 
-  (import scheme (chicken base) (chicken continuation) (chicken pretty-print) (chicken fixnum) (chicken sort) (chicken port) srfi-69)
+  (import scheme 
+	  (chicken base) 
+	  (chicken continuation) 
+	  (chicken pretty-print) 
+	  (chicken fixnum) 
+	  (chicken sort) 
+	  (chicken port) 
+	  srfi-1
+	  srfi-69)
 
   (define-syntax letport/string 
     (syntax-rules (out else) 
@@ -46,8 +54,8 @@
   (define (callcc f) (letcc k (f k)))
 
   (define-syntax resetcc (syntax-rules () ((resetcc body ...) (callcc (delimcc-reset (τ body ...))))))
-  (define-syntax letshiftcc (syntax-rules () ((letshiftcc k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
-  (define (callshiftcc f) (letshiftcc k (f k)))
+  (define-syntax letcc/shift (syntax-rules () ((letcc/shift k body ...) (callcc (delimcc-shift (lambda (k) body ...))))))
+  (define (callshiftcc f) (letcc/shift k (f k)))
   (define-values (delimcc-reset delimcc-shift)
     (let1 (cont (lambda (v) v)) ;(let1 (cont (lambda (v) (error "Missing enclosing resetcc" v)))
           (define (delimcc-abort v) (cont v))
@@ -63,20 +71,21 @@
           (values resetk shiftk)))
 
   (define-syntax define-resetcc (syntax-rules () ((define-resetcc def body ...) (define def (resetcc body ...)))))
-  (define (delimcc-extract) (letshiftcc k k))
-  (define (delimcc-discard v) (letshiftcc _ v))
-  (define (delimcc-cons v) (letshiftcc k (cons v k)))
+  (define (delimcc-extract) (letcc/shift k k))
+  (define (delimcc-discard v) (letcc/shift _ v))
+  (define (delimcc-cons v) (letcc/shift k (cons v k)))
   (define-syntax delimcc-τ 
     (syntax-rules () 
-      ((delimcc-τ body ...) (letshiftcc k (τ (let1 (x (begin body ...)) (k x)))))))
+      ((delimcc-τ body ...) (letcc/shift k (τ (let1 (x (begin body ...)) (k x)))))))
   (define-syntax delimcc-lambda 
     (syntax-rules () 
-      ((delimcc-lambda args body ...) (letshiftcc k (lambda args (let1 (x (begin body ...)) (k x)))))))
-  (define (delimcc-either lst) (letshiftcc k (map k lst)))
+      ((delimcc-lambda args body ...) (letcc/shift k (lambda args (let1 (x (begin body ...)) (k x)))))))
+  (define (delimcc-either lst) (letcc/shift k (map k lst)))
+  (define (delimcc-filter lst) (letcc/shift k (filter k lst)))
 
   (define-syntax resetcc+null (syntax-rules () ((resetcc+null body ...) (resetcc body ... '()))))
-  (define (yield v) (letshiftcc k (cons v (k (void)))))
-  (define-syntax yield§ (syntax-rules () ((yield§ body) (letshiftcc k (cons§ body (k (void)))))))
+  (define (yield v) (letcc/shift k (cons v (k (void)))))
+  (define-syntax yield§ (syntax-rules () ((yield§ body) (letcc/shift k (cons§ body (k (void)))))))
 
   (define-syntax delimcc-foldr
     (syntax-rules ()

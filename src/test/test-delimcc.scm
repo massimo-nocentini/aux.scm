@@ -4,59 +4,61 @@
 (define-suite delimcc-suite
 
   ((doc r) 
-   `((p "Tests according to the tutorial at " 
+   `((p "In this page we describe two fundamental macros, " (code/inline "resetcc") " and " (code/inline "letcc/shift") 
+	" respectively, that support all the other forms stressed in the tests that follows."
+	" Moreover, we show how to " (i "discard") ", " (i "extract") ", " (i "preserve") ", and " (i "wrap") 
+	" delimited continuations, accordingly to the tutorial "
        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
 	       "Introduction to Programming with Shift and Reset") 
        " by Kenichi Asai and Oleg Kiselyov. The former author "
        (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Kenichi Asai") " recorded a talk "
        (cite/a "https://www.youtube.com/watch?v=QNM-njddhIw" 
 	       "Delimited Continuations for Everyone by Kenichi Asai")
-       " that relies on the tutorial " 
+       " that given in the workshop " 
        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/" "CW 2011 Tutorial: home page")
-       ", where slides "
+       ", slides "
        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/slides.pdf" "CW 2011 Tutorial: slides")
-       " are available too.")
-     (p "In this section we describe two fundamental macros, " (code/inline "resetcc") " and " (code/inline "letshiftcc") 
-	" respectively, that support all the other forms stressed in the tests that follows.")
+       " are also available.")
      (structure/section "The " (code/inline "resetcc") " macro")
      ,(let ((resetcc-expr '(resetcc body ...)))
-       `(p "The expression " (code/scheme ,resetcc-expr) 
-	   " introduces a delimiter and captures the rest of the computation up to it; for the sake of clarity, it expands to "
+       `(p "Continuations are delimited by the " (code/inline "resetcc") " syntax as in the following generic expression"
+	   (code/scheme ,resetcc-expr) 
+	   "where the expressions " (code/inline "body ...") " execute in a delimited context; for the sake of clarity, it expands to "
 	   (code/scheme/expand ,resetcc-expr)))
-     (structure/section "The " (code/inline "letshiftcc") " macro")
-     ,(let ((letshiftcc-expr '(letshiftcc k body ...)))
-       `(p "The expression " (code/scheme ,letshiftcc-expr) 
+     (structure/section "The " (code/inline "letcc/shift") " macro")
+     ,(let ((letcc/shift-expr '(letcc/shift k body ...)))
+       `(p "The expression " (code/scheme ,letcc/shift-expr) 
 	   (cite/quote "Kenichi Asai" 
 		       (ol
 			 (li "clears the current continuation")
 			 (li "binds the cleared continuation to " (code/inline "k"))
 			 (li "and executes " (code/inline "body ..."))))
 	   "For the sake of clarity, it expands to "
-	   (code/scheme/expand ,letshiftcc-expr)))))
+	   (code/scheme/expand ,letcc/shift-expr)))))
 
   ((test/letcc/delimcc _)
-   (⊦= 10 (letshiftcc k 10))
-   (⊦= '(1 2 10) (cons 1 (cons 2 (letshiftcc k (k (k '(10)))))))
-   (⊦= '(1 2 2 10) (cons 1 (resetcc (cons 2 (letshiftcc k (k (k '(10))))))))
-   (⊦= 41 (+ 1 (resetcc (* 2 (letshiftcc k (k (k 10)))))))
+   (⊦= 10 (letcc/shift k 10))
+   (⊦= '(1 2 10) (cons 1 (cons 2 (letcc/shift k (k (k '(10)))))))
+   (⊦= '(1 2 2 10) (cons 1 (resetcc (cons 2 (letcc/shift k (k (k '(10))))))))
+   (⊦= 41 (+ 1 (resetcc (* 2 (letcc/shift k (k (k 10)))))))
    (⊦= 15 (+ 10 (resetcc (+ 2 3))))
-   (⊦= 13 (+ 10 (resetcc (+ 2 (letshiftcc k 3)))))
-   (⊦= '(10 3) (cons 10 (resetcc (cons 2 (letshiftcc k '(3))))))
-   (⊦= 15 (+ 10 (resetcc (+ 2 (letshiftcc k (k 3))))))
-   (⊦= '(10 2 3) (cons 10 (resetcc (cons 2 (letshiftcc k (k '(3)))))))
-   (⊦= 115 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k 3)))))))
-   (⊦= '(10 100 2 3) (cons 10 (resetcc (cons 2 (letshiftcc k (cons 100 (k '(3))))))))
-   (⊦= 117 (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3))))))))
-   (⊦= '(10 100 2 2 3) (cons 10 (resetcc (cons 2 (letshiftcc k (cons 100 (k (k '(3)))))))))
-   (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letshiftcc k (+ 100 (k (k 3)))))))))
-   (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letshiftcc k (cons 100 (k (k '(3)))))))))))
+   (⊦= 13 (+ 10 (resetcc (+ 2 (letcc/shift k 3)))))
+   (⊦= '(10 3) (cons 10 (resetcc (cons 2 (letcc/shift k '(3))))))
+   (⊦= 15 (+ 10 (resetcc (+ 2 (letcc/shift k (k 3))))))
+   (⊦= '(10 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (k '(3)))))))
+   (⊦= 115 (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k 3)))))))
+   (⊦= '(10 100 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k '(3))))))))
+   (⊦= 117 (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3))))))))
+   (⊦= '(10 100 2 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3)))))))))
+   (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3)))))))))
+   (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3)))))))))))
 
   ((test/letcc/delimcc+asai+tutorial _)
-   (⊦= 10 (resetcc (sub1 (+ 3 (letshiftcc k (* 5 2))))))
-   (⊦= '(10) (resetcc (cdr (cons 3 (letshiftcc k (list (* 5 2)))))))
-   (⊦= 9 (sub1 (resetcc (+ 3 (letshiftcc k (* 5 2))))))
-   (⊦= '() (cdr (resetcc (cons 3 (letshiftcc k (list (* 5 2)))))))
-   (⊦= 'hello (resetcc (sub1 (+ 3 (letshiftcc k 'hello)))))
+   (⊦= 10 (resetcc (sub1 (+ 3 (letcc/shift k (* 5 2))))))
+   (⊦= '(10) (resetcc (cdr (cons 3 (letcc/shift k (list (* 5 2)))))))
+   (⊦= 9 (sub1 (resetcc (+ 3 (letcc/shift k (* 5 2))))))
+   (⊦= '() (cdr (resetcc (cons 3 (letcc/shift k (list (* 5 2)))))))
+   (⊦= 'hello (resetcc (sub1 (+ 3 (letcc/shift k 'hello)))))
 
    (define (prod lst)
      (cond
@@ -66,7 +68,7 @@
 
    (⊦= 'zero (resetcc (prod '(2 3 0 5))))
 
-   (define-resetcc f (sub1 (+ 3 (letshiftcc k k))))
+   (define-resetcc f (sub1 (+ 3 (letcc/shift k k))))
    (⊦= (sub1 (+ 3 10)) (f 10))
 
    (define-resetcc g (sub1 (+ 3 (delimcc-extract))))
@@ -108,7 +110,15 @@
                        (q (delimcc-either '(#t #f))))
                    (when (and (or p q) (or p (not q)) (or (not p) (not q)))
                      (push! `((p ,p) (q ,q)) sols))))
-               sols)))
+               sols))
+
+   (⊦= '((no ((p #t) (q #f))) (no no)) 
+               (resetcc
+                 (let ((p (delimcc-either '(#t #f)))
+                       (q (delimcc-either '(#t #f))))
+                   (if (and (or p q) (or p (not q)) (or (not p) (not q)))
+                     `((p ,p) (q ,q)) 
+		     'no)))))
 
   ((test/letcc/delimcc+yield _)
    (⊦= '(1) (resetcc+null (yield 1)))
@@ -120,7 +130,7 @@
 
   ((test/letcc/delimcc+monad _)
 
-   (define (reflect meaning) (letshiftcc k (extend k meaning)))
+   (define (reflect meaning) (letcc/shift k (extend k meaning)))
    (define (reify* t) (resetcc (eta (t))))
    (define (eta x) (list x))
    (define (extend f l) (apply append (map f l)))
