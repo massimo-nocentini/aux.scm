@@ -136,6 +136,12 @@
                         (let1 (w (f v))
                               (cons w (map/yielded f (k w))))))))
 
+  (define (foldr/yielded f t init)
+    (cond
+      ((null? t) init)
+      (else (letcar&cdr (((v k) t))
+                        (f v (foldr/yielded f (k (void)) init))))))
+
   (define-syntax delimcc-foldr
     (syntax-rules ()
       ((delimcc-fold bexpr ((each acc) fbody ...) body ...)

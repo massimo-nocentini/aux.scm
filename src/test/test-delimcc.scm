@@ -92,7 +92,8 @@
 
   ((test/delimcc/yield/extract _)
    (⊦= '((a 1) (a 2)) (map/yielded (λ (v) (list 'a v)) 
-				   (resetcc+null (yield/extract 1) (yield/extract 2)))))
+				   (resetcc+null (yield/extract 1) (yield/extract 2))))
+   (⊦= 3 (foldr/yielded + (resetcc+null (yield/extract 1) (yield/extract 2)) 0)))
 
   ((test/delimcc/yield§ _)
    (⊦= '(1) (§->list (resetcc+null (yield§ 1))))
