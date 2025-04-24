@@ -38,6 +38,46 @@
   (define-syntax τ (syntax-rules () ((τ body ...) (lambda () body ...))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
+  (define-syntax letcar&cdr
+    (syntax-rules ()
+      ((letcar&cdr () body ...) (begin body ...))        
+      ((letcar&cdr (((a d) expr) ((aa dd) eexpr) ...) body ...)
+       (let* ((x expr) (a (car x)) (d (cdr x)))
+         (letcar&cdr (((aa dd) eexpr) ...) body ...)))))
+
+  (define-syntax define-let
+    (syntax-rules ()
+      ((define-let ((v e) ...) (name formal ...) body ...)
+       (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
+
+  (define-syntax lettensor
+    (syntax-rules ()
+      ((lettensor f () body ...) (begin body ...))
+      ((lettensor f ((x expr) (xx exprr) ...) body ...) 
+       (f (lambda (x) (lettensor f ((xx exprr) ...) body ...)) expr))))
+
+  (define-syntax letmaptensor
+    (syntax-rules () ((letmaptensor ((x expr) ...) body ...) (lettensor map ((x expr) ...) body ...))))
+
+  (define-syntax letmap
+    (syntax-rules ()
+      ((letmap () body ...) (list (begin body ...)))
+      ((letmap ((x expr) (xx exprr) ...) body ...) 
+       (apply append (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr)))))
+
+  (define (member? v lst) (pair? (member v lst)))
+
+  (define-syntax letassoc 
+    (syntax-rules (else) 
+      ((letassoc (searchexpr lstexpr) (else body ...))
+       (let1 (p (assoc searchexpr lstexpr))
+             (if (pair? p) (cadr p) (begin body ...))))))
+
+  (define (mappair f lst)
+    (cond
+      ((or (null? lst) (null? (cdr lst))) '())
+      (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
+
   (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
 
   (define-syntax let1 
@@ -85,8 +125,16 @@
 
   (define-syntax resetcc+null (syntax-rules () ((resetcc+null body ...) (resetcc body ... '()))))
   (define (yield v) (letcc/shift k (cons v (k (void)))))
+  (define (yield/extract v) (letcc/shift k (cons v k)))
   (define-syntax yield§ (syntax-rules () ((yield§ body) (letcc/shift k (cons§ body (k (void)))))))
   (define (yield§/a v) (yield§ v))
+
+  (define (map/yielded f t)
+    (cond
+      ((null? t) '())
+      (else (letcar&cdr (((v k) t))
+                        (let1 (w (f v))
+                              (cons w (map/yielded f (k w))))))))
 
   (define-syntax delimcc-foldr
     (syntax-rules ()
@@ -123,46 +171,6 @@
       ((trycc (next exp ...) (else body ...))
        (letcc* hop ((v (let1 (next (τ (hop (void)))) exp)) ...)
                body ...))))
-
-  (define-syntax letcar&cdr
-    (syntax-rules ()
-      ((letcar&cdr () body ...) (begin body ...))        
-      ((letcar&cdr (((a d) expr) ((aa dd) eexpr) ...) body ...)
-       (let* ((x expr) (a (car x)) (d (cdr x)))
-         (letcar&cdr (((aa dd) eexpr) ...) body ...)))))
-
-  (define-syntax define-let
-    (syntax-rules ()
-      ((define-let ((v e) ...) (name formal ...) body ...)
-       (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
-
-  (define-syntax lettensor
-    (syntax-rules ()
-      ((lettensor f () body ...) (begin body ...))
-      ((lettensor f ((x expr) (xx exprr) ...) body ...) 
-       (f (lambda (x) (lettensor f ((xx exprr) ...) body ...)) expr))))
-
-  (define-syntax letmaptensor
-    (syntax-rules () ((letmaptensor ((x expr) ...) body ...) (lettensor map ((x expr) ...) body ...))))
-
-  (define-syntax letmap
-    (syntax-rules ()
-      ((letmap () body ...) (list (begin body ...)))
-      ((letmap ((x expr) (xx exprr) ...) body ...) 
-       (apply append (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr)))))
-
-  (define (member? v lst) (pair? (member v lst)))
-
-  (define-syntax letassoc 
-    (syntax-rules (else) 
-      ((letassoc (searchexpr lstexpr) (else body ...))
-       (let1 (p (assoc searchexpr lstexpr))
-             (if (pair? p) (cadr p) (begin body ...))))))
-
-  (define (mappair f lst)
-    (cond
-      ((or (null? lst) (null? (cdr lst))) '())
-      (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
 
   (define (§->list s)
     (cond

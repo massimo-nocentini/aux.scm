@@ -90,6 +90,10 @@
    (⊦= '(1) (resetcc+null (yield 1)))
    (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
 
+  ((test/delimcc/yield/extract _)
+   (⊦= '((a 1) (a 2)) (map/yielded (λ (v) (list 'a v)) 
+				   (resetcc+null (yield/extract 1) (yield/extract 2)))))
+
   ((test/delimcc/yield§ _)
    (⊦= '(1) (§->list (resetcc+null (yield§ 1))))
    (⊦= '(1) (§->list (take§ 1 (resetcc+null (yield§ 1) (yield§ 2)))))
@@ -104,7 +108,7 @@
          (f (cadr tree))
          (walk f (caddr tree)))))
 
-   (⊦= '(1 2 3) (§->list (resetcc+null (walk (lambda (v) (yield§ v)) '((() 1 ()) 2 (() 3 ()))))))
+   (⊦= '(1 2 3) (§->list (resetcc+null (walk yield§/a '((() 1 ()) 2 (() 3 ()))))))
    (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
                             (walk delimcc-cons '((() 1 ()) 2 (() 3 ()))))))
 
