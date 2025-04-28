@@ -11,7 +11,7 @@
        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
 	       "Introduction to Programming with Shift and Reset") 
        " by Kenichi Asai and Oleg Kiselyov. The former author "
-       (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Kenichi Asai") " recorded a talk "
+       (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Professor Kenichi Asai's home page") " recorded a talk "
        (cite/a "https://www.youtube.com/watch?v=QNM-njddhIw" 
 	       "Delimited Continuations for Everyone by Kenichi Asai")
        " that given in the workshop " 
@@ -28,6 +28,7 @@
      (structure/section "The " (code/inline "letcc/shift") " macro")
      ,(let ((letcc/shift-expr '(letcc/shift k body ...)))
        `(p "The expression " (code/scheme ,letcc/shift-expr) 
+	   "is explained by author's word:"
 	   (cite/quote "Kenichi Asai" 
 		       (ol
 			 (li "clears the current continuation")
@@ -91,8 +92,9 @@
    (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
 
   ((test/delimcc/yield/extract _)
-   (⊦= '((a 1) (a 2)) (map/yielded (λ (v) (list 'a v)) 
-				   (resetcc+null (yield/extract 1) (yield/extract 2))))
+   (⊦= '((a 1) (a 2)) (§->list 
+			  (map§/yielded (λ (v) (list 'a v)) 
+					(resetcc+null (yield/extract 1) (yield/extract 2)))))
    (⊦= 3 (foldr/yielded + (resetcc+null (yield/extract 1) (yield/extract 2)) 0)))
 
   ((test/delimcc/yield§ _)
@@ -111,7 +113,7 @@
 
    (⊦= '(1 2 3) (§->list (resetcc+null (walk yield§/a '((() 1 ()) 2 (() 3 ()))))))
    (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
-                            (walk delimcc-cons '((() 1 ()) 2 (() 3 ()))))))
+                            (walk yield/extract '((() 1 ()) 2 (() 3 ()))))))
 
   ((test/delimcc/tutorial/either _)
    (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3)))))
@@ -130,8 +132,7 @@
                (resetcc
                  (let ((p (delimcc-either '(#t #f)))
                        (q (delimcc-either '(#t #f))))
-                     `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no)) 
-		     ))))
+                     `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no))))))
 
   ((test/delimcc/tutorial/τ _)
    (define-resetcc a (append (delimcc-τ '(hello)) '(world)))

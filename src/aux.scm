@@ -113,7 +113,6 @@
   (define-syntax define-resetcc (syntax-rules () ((define-resetcc def body ...) (define def (resetcc body ...)))))
   (define (delimcc-extract) (letcc/shift k k))
   (define (delimcc-discard v) (letcc/shift _ v))
-  (define (delimcc-cons v) (letcc/shift k (cons v k)))
   (define-syntax delimcc-τ 
     (syntax-rules () 
       ((delimcc-τ body ...) (letcc/shift k (τ (let1 (x (begin body ...)) (k x)))))))
@@ -121,7 +120,6 @@
     (syntax-rules () 
       ((delimcc-lambda args body ...) (letcc/shift k (lambda args (let1 (x (begin body ...)) (k x)))))))
   (define (delimcc-either lst) (letcc/shift k (map k lst)))
-  (define (delimcc-filter lst) (letcc/shift k (filter k lst)))
 
   (define-syntax resetcc+null (syntax-rules () ((resetcc+null body ...) (resetcc body ... '()))))
   (define (yield v) (letcc/shift k (cons v (k (void)))))
@@ -129,12 +127,11 @@
   (define-syntax yield§ (syntax-rules () ((yield§ body) (letcc/shift k (cons§ body (k (void)))))))
   (define (yield§/a v) (yield§ v))
 
-  (define (map/yielded f t)
+  (define (map§/yielded f t)
     (cond
       ((null? t) '())
       (else (letcar&cdr (((v k) t))
-                        (let1 (w (f v))
-                              (cons w (map/yielded f (k w))))))))
+			(cons§ (f v) (map§/yielded f (k (void))))))))
 
   (define (foldr/yielded f t init)
     (cond
