@@ -36,6 +36,7 @@
 
   (define-syntax λ (syntax-rules () ((λ formals body ...) (lambda formals body ...))))
   (define-syntax τ (syntax-rules () ((τ body ...) (lambda () body ...))))
+  (define-syntax define-τ (syntax-rules () ((define-τ name body ...) (define name (τ body ...)))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
   (define-syntax letcar&cdr
@@ -278,7 +279,8 @@
                           ((promise? choices) (chooseD (force choices) continue?))
                           ((pair? choices) (letcc kk
                                                   (let1 (v (car choices))
-                                                        (when (continue? v) (push! (τ (kk (chooseD (cdr choices) continue?))) pool))
+                                                        (when (continue? v) 
+							  (push! (τ (kk (chooseD (cdr choices) continue?))) pool))
                                                         (push! (τ (kk v)) pool))
                                                   (fail)))
                           (else (fail)))))
@@ -288,7 +290,9 @@
                                                      (append-right! (list (τ (kk (chooseB (force choices))))) pool)
                                                      (chooseB '())))
                           ((pair? choices) (letcc kk
-                                                  (append-right! (list (τ (kk (car choices))) (τ (kk (chooseB (cdr choices))))) pool)
+                                                  (append-right! (list (τ (kk (car choices))) 
+								       (τ (kk (chooseB (cdr choices))))) 
+								 pool)
                                                   (chooseB '())))
                           (else (fail)))))
              (markD (τ (letgensym (flag) (push! flag pool) flag)))
