@@ -35,7 +35,8 @@
   (define-syntax sub1! (syntax-rules () ((_ var) (begin (set! var (sub1 var)) (void)))))
 
   (define-syntax λ (syntax-rules () ((λ formals body ...) (lambda formals body ...))))
-  (define-syntax τ (syntax-rules () ((τ body ...) (lambda () body ...))))
+  (define-syntax λ/_ (syntax-rules () ((λ/_ body ...) (λ formals body ...))))
+  (define-syntax τ (syntax-rules () ((τ body ...) (λ () body ...))))
   (define-syntax define-τ (syntax-rules () ((define-τ name body ...) (define name (τ body ...)))))
   (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
 
@@ -78,6 +79,9 @@
     (cond
       ((or (null? lst) (null? (cdr lst))) '())
       (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
+
+  (define (curry f g)
+   (λ args (apply f (cons g args)))) 
 
   (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
 
