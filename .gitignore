@@ -6,3 +6,6 @@ src/aux.link
 src/aux.so
 src/aux.static.o
 src/test/test
+src/aux.static.a
+src/chicken-timsort.o
+src/chicken-timsort.static.o

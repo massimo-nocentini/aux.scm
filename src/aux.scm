@@ -8,6 +8,7 @@
 	  (chicken fixnum) 
 	  (chicken sort) 
 	  (chicken port) 
+    (chicken foreign) 
 	  srfi-1
 	  srfi-69)
 
@@ -365,7 +366,11 @@
       ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
+  (foreign-declare "#include \"chicken-timsort.h\"")
+  
+  (define timsort (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object))
+
 
   )
-
+ 
 

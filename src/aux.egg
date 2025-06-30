@@ -3,5 +3,6 @@
  (synopsis "Auxiliary definitions and macros.")
  (license "MIT")
  (dependencies srfi-69)
- (components
-  (extension aux)))
+ (components 
+  (c-object chicken-timsort (link-options "-L" "-ltimsort"))
+  (extension aux (objects chicken-timsort))))
