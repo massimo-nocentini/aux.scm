@@ -4,30 +4,30 @@
 #include <chicken/chicken.h>
 #include <timsort.h>
 
-typedef struct comp_s
+typedef struct
 {
-    C_word comparison;
-} comp_t;
+    size_t index;
+    C_word scheme_object;
+} timsort_scheme_t;
 
 int timsort_comparator(timsort_object_t *a, timsort_object_t *b, void *arg)
 {
-    comp_t *comparator = arg;
+    C_word comparator = ((timsort_scheme_t *)arg)->scheme_object;
 
-    C_save(C_i_car(((comp_t *)a->external_object)->comparison));
-    C_save(C_i_car(((comp_t *)b->external_object)->comparison));
+    C_save(((timsort_scheme_t *)a)->scheme_object);
+    C_save(((timsort_scheme_t *)b)->scheme_object);
 
-    C_word result = C_callback(comparator->comparison, 2);
+    C_word result = C_callback(comparator, 2);
 
     return C_unfix(result);
 }
 
 C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer)
 {
-    comp_t comp = {comparator};
 
-    timsort_list_t *list = malloc(sizeof(timsort_list_t));
-    list->ob_size = size;
-    list->ob_item = malloc(size * sizeof(timsort_object_t *));
+    timsort_list_t list;
+    list.ob_size = size;
+    list.ob_item = malloc(size * sizeof(timsort_object_t *));
 
     C_word each = in;
 
@@ -35,16 +35,21 @@ C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer)
 
     while (each != C_SCHEME_END_OF_LIST)
     {
-        list->ob_item[index] = malloc(sizeof(timsort_object_t));
-        list->ob_item[index]->external_object = malloc(sizeof(comp_t));
-        ((comp_t *)(list->ob_item[index]->external_object))->comparison = each;
-        list->ob_item[index]->index = index;
+        timsort_scheme_t *obj = malloc(sizeof(timsort_scheme_t));
+        obj->scheme_object = C_i_car(each);
+        obj->index = index;
+
+        list.ob_item[index] = (timsort_object_t *)obj;
+
         index++;
         each = C_i_cdr(each);
     }
 
-    // Call the timsort function
-    int res = list_sort_impl(list, 0, timsort_comparator, &comp);
+    timsort_scheme_t comparator_obj;
+    comparator_obj.scheme_object = comparator;
+    comparator_obj.index = 0;
+
+    int res = list_sort_impl(&list, 0, timsort_comparator, &comparator_obj);
 
     assert(res == 0);
 
@@ -55,22 +60,17 @@ C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer)
     while (each != C_SCHEME_END_OF_LIST)
     {
 
-        comp_t *sorted = list->ob_item[index]->external_object;
-        printf("Resulting pair: %d %d %ld\n", index, list->ob_item[index]->index, C_unfix(C_i_car(sorted->comparison)));
+        C_word sorted = ((timsort_scheme_t *)list.ob_item[index])->scheme_object;
 
-        C_u_i_set_car(each, C_i_car(sorted->comparison));
+        C_u_i_set_car(each, sorted);
 
         each = C_i_cdr(each);
         index++;
-        // printf("Resulting pair: %ld\n", C_unfix(C_i_car(each)));
 
-        // free(list->ob_item[index]);
+        // free(list.ob_item[index]);
     }
 
-    printf("Timsort completed.\n");
-
-    // free(list->ob_item);
-    // free(list);
+    free(list.ob_item);
 
     C_return(buffer);
 }
