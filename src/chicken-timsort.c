@@ -22,7 +22,7 @@ int timsort_comparator(timsort_object_t *a, timsort_object_t *b, void *arg)
     return C_unfix(result);
 }
 
-C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer)
+C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer, int inplace, int reverse)
 {
 
     timsort_list_t list;
@@ -49,17 +49,15 @@ C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer)
     comparator_obj.scheme_object = comparator;
     comparator_obj.index = 0;
 
-    int res = list_sort_impl(&list, 0, timsort_comparator, &comparator_obj);
+    int res = list_sort_impl(&list, reverse, timsort_comparator, &comparator_obj);
 
     assert(res == 0);
 
-    // C_word *e = C_alloc(C_SIZEOF_PAIR);
-    // each = C_SCHEME_END_OF_LIST;
-    each = buffer;
+    each = inplace ? in : buffer;
     index = 0;
+
     while (each != C_SCHEME_END_OF_LIST)
     {
-
         C_word sorted = ((timsort_scheme_t *)list.ob_item[index])->scheme_object;
 
         C_u_i_set_car(each, sorted);
@@ -72,5 +70,5 @@ C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer)
 
     free(list.ob_item);
 
-    C_return(buffer);
+    C_return(inplace ? C_SCHEME_UNDEFINED : buffer);
 }

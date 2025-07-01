@@ -367,15 +367,20 @@
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
   (foreign-declare "#include \"chicken-timsort.h\"")
-  
-  (define (threeways-comparer a b)
-    (if (< a b) 0 1))
 
-  (define (timsort lst) 
-      (let* ((size 0)
-             (new-lst (map (λ (each) (add1! size)) lst))
-             (T (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object)))
-        (T lst size threeways-comparer new-lst)))
+  (define timsort-foreign 
+    (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object bool bool))
+
+  (define ((timsort/gen lt? inplace reverse) lst) 
+    (let* ((size 0)
+            (new-lst (map (λ (each) (add1! size)) lst))
+            (<? (λ (a b) (if (lt? a b) 0 1))))
+      (timsort-foreign lst size <? new-lst inplace reverse)))
+
+  (define timsort (timsort/gen < #f #f))
+  (define timsort! (timsort/gen < #t #f))
+  (define timtros (timsort/gen < #f #t))
+  (define timtros! (timsort/gen < #t #t))
 
   )
  
