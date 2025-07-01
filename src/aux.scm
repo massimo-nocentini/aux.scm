@@ -368,8 +368,14 @@
 
   (foreign-declare "#include \"chicken-timsort.h\"")
   
-  (define timsort (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object))
+  (define (threeways-comparer a b)
+    (if (< a b) 0 1))
 
+  (define (timsort lst) 
+      (let* ((size 0)
+             (new-lst (map (λ (each) (add1! size)) lst))
+             (T (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object)))
+        (T lst size threeways-comparer new-lst)))
 
   )
  
