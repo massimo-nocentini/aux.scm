@@ -1,0 +1,584 @@
+<!doctype html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="stylesheet" href="https://www.w3schools.com/w3css/5/w3.css" type="text/css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Georgia" type="text/css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/default.min.css" type="text/css" />
+<style>code, pre, tt, kbd, samp, .w3-code, .w3-codespan { font-family: Monaco, Lucida Console, Roboto Mono, Ubuntu Mono, monospace; }math { font-family: Euler Math; }html, body, h1, h2, h3, h4, h5, h6 { font-family: Georgia, Lucida Sans, Times New Roman, serif; }</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/scheme.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/mathematica.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/ocaml.min.js"></script>
+<script>hljs.highlightAll();</script>
+<title>letnondeterministic-suite</title></head>
+<body class="w3-content" style="max-width:61.8%">
+<header class="w3-container w3-center">
+<h1><b>letnondeterministic-suite</b></h1>
+<p></p><small><small>
+<p>Tue Jul 01 13:21:14+0200 2025</p></small><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" /></a><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/by.svg" /></a><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" /></a>
+<p>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a></p></small></header>
+<div class="w3-container">
+<header><b>Table of contents</b></header>
+<ol>
+<li><a href="#section564"><code>test/letnondeterministic/choose-null?</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section565"><code>test/letnondeterministic/choose</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section566"><code>test/letnondeterministic/choose§</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section567"><code>test/letnondeterministic/choose-rec</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section568"><code>test/letnondeterministic/choose+nested</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section569"><code>test/letnondeterministic/choose+nested+¿</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section570"><code>test/letnondeterministic/choose+double</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section571"><code>test/letnondeterministic/choose+fair+fibs</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section572"><code>test/letnondeterministic/choose+fair</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section573"><code>test/letnondeterministic/odd</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section574"><code>test/letnondeterministic/parlor</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section575"><code>test/letnondeterministic/parlor+sorted</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section576"><code>test/letnondeterministic/coin</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section577"><code>test/letnondeterministic/coin+cut</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section578"><code>test/letnondeterministic/graph+cycles/bfs</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section579"><code>test/letnondeterministic/temporal-graphs</code>: <span class="w3-text-green">pass</span></a></li></ol></div>
+<hr />
+<p><b>Tests summary</b>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((ran 16) (failed 0))
+</code></pre></div></p>
+<section id="section564">
+<header>
+<h1>1. <code>test/letnondeterministic/choose-null?</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose-null? _)
+  (⊦= '() (letnondeterministic (? ¿ ⊦ • !) (? '()))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1415968 1048576))
+ (stdout &quot;((left 0) (tried 1) (accepted 0) (ratio 0.0) (distribution ()))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section565">
+<header>
+<h1>2. <code>test/letnondeterministic/choose</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose _)
+  (⊦= '(1 2 3) (letnondeterministic (? ¿ ⊦ • !) (? '(1 2 3)))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1422480 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 7)\n (accepted 3)\n (ratio 0.428571428571429)\n (distribution\n   ((1 0.333333333333333) (2 0.333333333333333) (3 0.333333333333333))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section566">
+<header>
+<h1>3. <code>test/letnondeterministic/choose§</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose§ _)
+  (⊦= '(1 2 3)
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (? (cons§ 1 (cons§ 2 (cons§ 3 '())))))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1417864 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 7)\n (accepted 3)\n (ratio 0.428571428571429)\n (distribution\n   ((3 0.333333333333333) (2 0.333333333333333) (1 0.333333333333333))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section567">
+<header>
+<h1>4. <code>test/letnondeterministic/choose-rec</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose-rec _)
+  (⊦= '(0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584)
+        (§-&gt;list
+          (stop§
+            (λ (v) (&gt; v 3000))
+            (letnondeterministic§ (? ¿ ⊦ • !) (? (fibs§ 0 1)))))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.001) (memory #(6291456 1422936 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section568">
+<header>
+<h1>5. <code>test/letnondeterministic/choose+nested</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose+nested _)
+  (⊦= '(1 4 3 1 5 3)
+        (letnondeterministic (? ¿ ⊦ • !) (? `(1 ,(? '(4 5)) 3)))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1429056 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 17)\n (accepted 6)\n (ratio 0.352941176470588)\n (distribution\n   ((3 0.333333333333333)\n    (1 0.333333333333333)\n    (5 0.166666666666667)\n    (4 0.166666666666667))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section569">
+<header>
+<h1>6. <code>test/letnondeterministic/choose+nested+¿</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose+nested+¿ _)
+  (⊦= '(1 4 3 1 5 3)
+        (letnondeterministic (? ¿ ⊦ • !) (? `(1 ,(¿ '(4 5)) 3)))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1435416 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 17)\n (accepted 6)\n (ratio 0.352941176470588)\n (distribution\n   ((1 0.333333333333333)\n    (3 0.333333333333333)\n    (5 0.166666666666667)\n    (4 0.166666666666667))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section570">
+<header>
+<h1>7. <code>test/letnondeterministic/choose+double</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose+double _)
+  (⊦= '(5 6 6 7 7 8)
+        (letnondeterministic (? ¿ ⊦ • !) (+ (? '(1 2 3)) (? '(4 5))))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1436296 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 19)\n (accepted 6)\n (ratio 0.315789473684211)\n (distribution\n   ((6 0.333333333333333)\n    (7 0.333333333333333)\n    (5 0.166666666666667)\n    (8 0.166666666666667))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section571">
+<header>
+<h1>8. <code>test/letnondeterministic/choose+fair+fibs</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose+fair+fibs _)
+  (⊦= '((a 0)
+          (b 0)
+          (c 0)
+          (a 1)
+          (b 1)
+          (c 1)
+          (a 1)
+          (b 1)
+          (c 1)
+          (a 2)
+          (b 2)
+          (c 2)
+          (a 3)
+          (b 3)
+          (c 3)
+          (a 5)
+          (b 5)
+          (c 5)
+          (a 8)
+          (b 8)
+          (c 8))
+        (letnondeterministic
+          21
+          (? ¿ ⊦ • !)
+          (? (interleave§
+               (map§ (lambda (v) (list 'a v)) (fibs§ 0 1))
+               (map§ (lambda (v) (list 'b v)) (fibs§ 0 1))
+               (map§ (lambda (v) (list 'c v)) (fibs§ 0 1)))))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0) (memory #(6291456 1428080 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section572">
+<header>
+<h1>9. <code>test/letnondeterministic/choose+fair</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/choose+fair _)
+  (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3))
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (? (interleave§ '((a 1) (a 2) (a 3)) '((b 1) (b 2)))))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1434240 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 11)\n (accepted 5)\n (ratio 0.454545454545455)\n (distribution (((b 1) 0.2) ((a 2) 0.2) ((a 1) 0.2) ((a 3) 0.2) ((b 2) 0.2))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section573">
+<header>
+<h1>10. <code>test/letnondeterministic/odd</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/odd _)
+  (⊦= '(1 3)
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (let1 (v (? '(1 2 3))) (⊦ (odd? v)) v))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1440496 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 7)\n (accepted 2)\n (ratio 0.285714285714286)\n (distribution ((1 0.5) (3 0.5))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section574">
+<header>
+<h1>11. <code>test/letnondeterministic/parlor</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/parlor _)
+  (⊦= '((1 1 5)
+          (1 2 4)
+          (1 3 3)
+          (1 4 2)
+          (1 5 1)
+          (2 1 4)
+          (2 2 3)
+          (2 3 2)
+          (2 4 1)
+          (3 1 3)
+          (3 2 2)
+          (3 3 1)
+          (4 1 2)
+          (4 2 1)
+          (5 1 1))
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (define (two-numbers)
+            (list (? '(1 2 3 4 5)) (? '(1 2 3 4 5)) (? '(1 2 3 4 5))))
+          (define (parlor sum)
+            (let ((nums (two-numbers))) (⊦ (eq? (apply + nums) sum)) nums))
+          (parlor 7))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1426720 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 311)\n (accepted 15)\n (ratio 0.0482315112540193)\n (distribution\n   (((1 3 3) 0.0666666666666667)\n    ((3 1 3) 0.0666666666666667)\n    ((3 3 1) 0.0666666666666667)\n    ((1 2 4) 0.0666666666666667)\n    ((1 4 2) 0.0666666666666667)\n    ((2 1 4) 0.0666666666666667)\n    ((2 4 1) 0.0666666666666667)\n    ((4 1 2) 0.0666666666666667)\n    ((4 2 1) 0.0666666666666667)\n    ((1 1 5) 0.0666666666666667)\n    ((1 5 1) 0.0666666666666667)\n    ((5 1 1) 0.0666666666666667)\n    ((2 2 3) 0.0666666666666667)\n    ((2 3 2) 0.0666666666666667)\n    ((3 2 2) 0.0666666666666667))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section575">
+<header>
+<h1>12. <code>test/letnondeterministic/parlor+sorted</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/parlor+sorted _)
+  (⊦= '((1 1 5) (1 2 4) (1 3 3) (2 2 3))
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (define (two-numbers)
+            (list (? '(1 2 3 4 5)) (? '(1 2 3 4 5)) (? '(1 2 3 4 5))))
+          (define (parlor sum)
+            (let ((nums (two-numbers)))
+              (⊦ (and (eq? (apply + nums) sum) (sorted? nums &lt;)))
+              nums))
+          (parlor 7))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1425424 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 311)\n (accepted 4)\n (ratio 0.0128617363344051)\n (distribution (((1 2 4) 0.25) ((2 2 3) 0.25) ((1 1 5) 0.25) ((1 3 3) 0.25))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section576">
+<header>
+<h1>13. <code>test/letnondeterministic/coin</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/coin _)
+  (⊦= '(((la 1 1) (la 1 2))
+          ((la 1 1) (la 1 2) (la 2 1) (la 2 2) (ny 1 1))
+          ((la 1 1)
+           (la 1 2)
+           (la 2 1)
+           (la 2 2)
+           (ny 1 1)
+           (ny 1 2)
+           (ny 2 1)
+           (ny 2 2)
+           (bos 1 1)
+           (bos 1 2)
+           (bos 2 1)
+           (bos 2 2)))
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (define (coin? x) (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
+          (let* ((*paths* '())
+                 (attempts '())
+                 (city (? '(la ny bos)))
+                 (store (? '(1 2)))
+                 (box (? '(1 2)))
+                 (triple (list city store box)))
+            (push! triple attempts)
+            (⊦ (coin? triple))
+            (reverse attempts)))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1431776 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 43)\n (accepted 3)\n (ratio 0.0697674418604651)\n (distribution\n   ((((la 1 1) (la 1 2) (la 2 1) (la 2 2) (ny 1 1)) 0.333333333333333)\n    (((la 1 1)\n      (la 1 2)\n      (la 2 1)\n      (la 2 2)\n      (ny 1 1)\n      (ny 1 2)\n      (ny 2 1)\n      (ny 2 2)\n      (bos 1 1)\n      (bos 1 2)\n      (bos 2 1)\n      (bos 2 2))\n     0.333333333333333)\n    (((la 1 1) (la 1 2)) 0.333333333333333))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section577">
+<header>
+<h1>14. <code>test/letnondeterministic/coin+cut</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/coin+cut _)
+  (⊦= '(((la 1 1) (la 1 2))
+          ((la 1 1) (la 1 2) (ny 1 1))
+          ((la 1 1) (la 1 2) (ny 1 1) (bos 1 1) (bos 1 2) (bos 2 1) (bos 2 2)))
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (define (coin? x) (member? x '((la 1 2) (ny 1 1) (bos 2 2))))
+          (let* ((*paths* '())
+                 (attempts '())
+                 (city (? '(la ny bos)))
+                 (flag (•))
+                 (store (? '(1 2)))
+                 (_ (•))
+                 (box (? '(1 2)))
+                 (triple (list city store box)))
+            (push! triple attempts)
+            (⊦ (coin? triple))
+            (! flag)
+            (reverse attempts)))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1435904 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 23)\n (accepted 3)\n (ratio 0.130434782608696)\n (distribution\n   ((((la 1 1) (la 1 2) (ny 1 1) (bos 1 1) (bos 1 2) (bos 2 1) (bos 2 2))\n     0.333333333333333)\n    (((la 1 1) (la 1 2)) 0.333333333333333)\n    (((la 1 1) (la 1 2) (ny 1 1)) 0.333333333333333))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section578">
+<header>
+<h1>15. <code>test/letnondeterministic/graph+cycles/bfs</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/graph+cycles/bfs _)
+  (⊦= '((a b c a) (a b c e a) (a b d e a))
+        (letnondeterministic
+          (? ¿ ⊦ • !)
+          (define (neighbors node)
+            (letassoc
+              (node '((a (b)) (b (c d)) (c (a e)) (d (e)) (e (a))))
+              (else '())))
+          (define (path node1 node2 seen)
+            (⊦ (not (member? node1 seen)))
+            (let1 (n (? (neighbors node1)))
+                  (if (eq? n node2)
+                    (list node2)
+                    (cons n (path n node2 (cons node1 seen))))))
+          (let* ((source 'a) (p (path source 'a '()))) (cons source p)))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0)
+ (memory #(6291456 1429872 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 17)\n (accepted 3)\n (ratio 0.176470588235294)\n (distribution\n   (((a b d e a) 0.333333333333333)\n    ((a b c a) 0.333333333333333)\n    ((a b c e a) 0.333333333333333))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section579">
+<header>
+<h1>16. <code>test/letnondeterministic/temporal-graphs</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/letnondeterministic/temporal-graphs _)
+  (define graph-simple
+    `((a ((b (1 2 3))))
+      (b ((c (2 5)) (d ,ℕ)))
+      (c ((a (2 3 4 5 6)) (e ,ℕ)))
+      (d ((e (3 4 5))))
+      (e ((a ,ℕ)))))
+  (define (V g) (map car g))
+  (⊦= '(((a b) ((a 1) (b 2)))
+          ((a b) ((a 1) (b 3)))
+          ((a c) ((a 1) (b 2) (c 5)))
+          ((a c) ((a 1) (b 3) (c 5)))
+          ((a d) ((a 1) (b 2) (d 3)))
+          ((a d) ((a 1) (b 2) (d 4)))
+          ((a d) ((a 1) (b 2) (d 5)))
+          ((a d) ((a 1) (b 2) (d 6)))
+          ((a d) ((a 1) (b 2) (d 7)))
+          ((a d) ((a 1) (b 3) (d 4)))
+          ((a d) ((a 1) (b 3) (d 5)))
+          ((a d) ((a 1) (b 3) (d 6)))
+          ((a d) ((a 1) (b 3) (d 7)))
+          ((a e) ((a 1) (b 2) (c 5) (e 6)))
+          ((a e) ((a 1) (b 2) (c 5) (e 7)))
+          ((a e) ((a 1) (b 2) (d 3) (e 4)))
+          ((a e) ((a 1) (b 2) (d 3) (e 5)))
+          ((a e) ((a 1) (b 2) (d 4) (e 5)))
+          ((a e) ((a 1) (b 3) (c 5) (e 6)))
+          ((a e) ((a 1) (b 3) (c 5) (e 7)))
+          ((a e) ((a 1) (b 3) (d 4) (e 5)))
+          ((b a) ((b 1) (c 2) (a 3)))
+          ((b a) ((b 1) (c 2) (a 4)))
+          ((b a) ((b 1) (c 2) (a 5)))
+          ((b a) ((b 1) (c 2) (a 6)))
+          ((b a) ((b 1) (c 2) (e 3) (a 4)))
+          ((b a) ((b 1) (c 2) (e 3) (a 5)))
+          ((b a) ((b 1) (c 2) (e 3) (a 6)))
+          ((b a) ((b 1) (c 2) (e 3) (a 7)))
+          ((b a) ((b 1) (c 2) (e 4) (a 5)))
+          ((b a) ((b 1) (c 2) (e 4) (a 6)))
+          ((b a) ((b 1) (c 2) (e 4) (a 7)))
+          ((b a) ((b 1) (c 2) (e 5) (a 6)))
+          ((b a) ((b 1) (c 2) (e 5) (a 7)))
+          ((b a) ((b 1) (c 2) (e 6) (a 7)))
+          ((b a) ((b 1) (c 5) (a 6)))
+          ((b a) ((b 1) (c 5) (e 6) (a 7)))
+          ((b a) ((b 1) (d 2) (e 3) (a 4)))
+          ((b a) ((b 1) (d 2) (e 3) (a 5)))
+          ((b a) ((b 1) (d 2) (e 3) (a 6)))
+          ((b a) ((b 1) (d 2) (e 3) (a 7)))
+          ((b a) ((b 1) (d 2) (e 4) (a 5)))
+          ((b a) ((b 1) (d 2) (e 4) (a 6)))
+          ((b a) ((b 1) (d 2) (e 4) (a 7)))
+          ((b a) ((b 1) (d 2) (e 5) (a 6)))
+          ((b a) ((b 1) (d 2) (e 5) (a 7)))
+          ((b a) ((b 1) (d 3) (e 4) (a 5)))
+          ((b a) ((b 1) (d 3) (e 4) (a 6)))
+          ((b a) ((b 1) (d 3) (e 4) (a 7)))
+          ((b a) ((b 1) (d 3) (e 5) (a 6)))
+          ((b a) ((b 1) (d 3) (e 5) (a 7)))
+          ((b a) ((b 1) (d 4) (e 5) (a 6)))
+          ((b a) ((b 1) (d 4) (e 5) (a 7)))
+          ((b c) ((b 1) (c 2)))
+          ((b c) ((b 1) (c 5)))
+          ((b d) ((b 1) (d 2)))
+          ((b d) ((b 1) (d 3)))
+          ((b d) ((b 1) (d 4)))
+          ((b d) ((b 1) (d 5)))
+          ((b d) ((b 1) (d 6)))
+          ((b d) ((b 1) (d 7)))
+          ((b e) ((b 1) (c 2) (e 3)))
+          ((b e) ((b 1) (c 2) (e 4)))
+          ((b e) ((b 1) (c 2) (e 5)))
+          ((b e) ((b 1) (c 2) (e 6)))
+          ((b e) ((b 1) (c 2) (e 7)))
+          ((b e) ((b 1) (c 5) (e 6)))
+          ((b e) ((b 1) (c 5) (e 7)))
+          ((b e) ((b 1) (d 2) (e 3)))
+          ((b e) ((b 1) (d 2) (e 4)))
+          ((b e) ((b 1) (d 2) (e 5)))
+          ((b e) ((b 1) (d 3) (e 4)))
+          ((b e) ((b 1) (d 3) (e 5)))
+          ((b e) ((b 1) (d 4) (e 5)))
+          ((c a) ((c 1) (a 2)))
+          ((c a) ((c 1) (a 3)))
+          ((c a) ((c 1) (a 4)))
+          ((c a) ((c 1) (a 5)))
+          ((c a) ((c 1) (a 6)))
+          ((c a) ((c 1) (e 2) (a 3)))
+          ((c a) ((c 1) (e 2) (a 4)))
+          ((c a) ((c 1) (e 2) (a 5)))
+          ((c a) ((c 1) (e 2) (a 6)))
+          ((c a) ((c 1) (e 2) (a 7)))
+          ((c a) ((c 1) (e 3) (a 4)))
+          ((c a) ((c 1) (e 3) (a 5)))
+          ((c a) ((c 1) (e 3) (a 6)))
+          ((c a) ((c 1) (e 3) (a 7)))
+          ((c a) ((c 1) (e 4) (a 5)))
+          ((c a) ((c 1) (e 4) (a 6)))
+          ((c a) ((c 1) (e 4) (a 7)))
+          ((c a) ((c 1) (e 5) (a 6)))
+          ((c a) ((c 1) (e 5) (a 7)))
+          ((c a) ((c 1) (e 6) (a 7)))
+          ((c b) ((c 1) (a 2) (b 3)))
+          ((c d) ((c 1) (a 2) (b 3) (d 4)))
+          ((c d) ((c 1) (a 2) (b 3) (d 5)))
+          ((c d) ((c 1) (a 2) (b 3) (d 6)))
+          ((c d) ((c 1) (a 2) (b 3) (d 7)))
+          ((c e) ((c 1) (a 2) (b 3) (d 4) (e 5)))
+          ((c e) ((c 1) (e 2)))
+          ((c e) ((c 1) (e 3)))
+          ((c e) ((c 1) (e 4)))
+          ((c e) ((c 1) (e 5)))
+          ((c e) ((c 1) (e 6)))
+          ((c e) ((c 1) (e 7)))
+          ((d a) ((d 1) (e 3) (a 4)))
+          ((d a) ((d 1) (e 3) (a 5)))
+          ((d a) ((d 1) (e 3) (a 6)))
+          ((d a) ((d 1) (e 3) (a 7)))
+          ((d a) ((d 1) (e 4) (a 5)))
+          ((d a) ((d 1) (e 4) (a 6)))
+          ((d a) ((d 1) (e 4) (a 7)))
+          ((d a) ((d 1) (e 5) (a 6)))
+          ((d a) ((d 1) (e 5) (a 7)))
+          ((d e) ((d 1) (e 3)))
+          ((d e) ((d 1) (e 4)))
+          ((d e) ((d 1) (e 5)))
+          ((e a) ((e 1) (a 2)))
+          ((e a) ((e 1) (a 3)))
+          ((e a) ((e 1) (a 4)))
+          ((e a) ((e 1) (a 5)))
+          ((e a) ((e 1) (a 6)))
+          ((e a) ((e 1) (a 7)))
+          ((e b) ((e 1) (a 2) (b 3)))
+          ((e c) ((e 1) (a 2) (b 3) (c 5)))
+          ((e d) ((e 1) (a 2) (b 3) (d 4)))
+          ((e d) ((e 1) (a 2) (b 3) (d 5)))
+          ((e d) ((e 1) (a 2) (b 3) (d 6)))
+          ((e d) ((e 1) (a 2) (b 3) (d 7))))
+        (letnondeterministic
+          -1
+          (? ¿ ⊦ • !)
+          (define (path p node1 node2 seen maxlen maxt)
+            (let* ((lastpair (car p))
+                   (l (caddr lastpair))
+                   (_ (⊦ (&lt; l (add1 maxlen))))
+                   (pair (? (letassoc (node1 graph-simple) (else '()))))
+                   (n (car pair))
+                   (_ (⊦ (not (member? n seen))))
+                   (t₁ (? (cadr pair) (λ (t) (&lt; t maxt))))
+                   (t₀ (cadr lastpair))
+                   (_ (⊦ (&gt; t₁ t₀)))
+                   (newp (cons (list n t₁ (add1 l)) p)))
+              (cond ((eq? n node2) (reverse newp))
+                    (else (path newp n node2 (cons node1 seen) maxlen maxt)))))
+          (let* ((vertices (V graph-simple))
+                 (source (? vertices))
+                 (destination (? vertices))
+                 (p (path (list (list source 1 1))
+                          source
+                          destination
+                          '()
+                          15
+                          7)))
+            (list (list source destination)
+                  (map (λ (triple) (list (car triple) (cadr triple))) p))))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.005)
+ (memory #(6291456 1498704 1048576))
+ (stdout
+   &quot;((left 0)\n (tried 4013)\n (accepted 130)\n (ratio 0.0323947171692001)\n (distribution\n   ((((a b) ((a 1) (b 2))) 0.00769230769230769)\n    (((a b) ((a 1) (b 3))) 0.00769230769230769)\n    (((a c) ((a 1) (b 2) (c 5))) 0.00769230769230769)\n    (((a c) ((a 1) (b 3) (c 5))) 0.00769230769230769)\n    (((a d) ((a 1) (b 2) (d 3))) 0.00769230769230769)\n    (((a d) ((a 1) (b 2) (d 4))) 0.00769230769230769)\n    (((a d) ((a 1) (b 2) (d 5))) 0.00769230769230769)\n    (((a d) ((a 1) (b 2) (d 6))) 0.00769230769230769)\n    (((a d) ((a 1) (b 2) (d 7))) 0.00769230769230769)\n    (((a d) ((a 1) (b 3) (d 4))) 0.00769230769230769)\n    (((a d) ((a 1) (b 3) (d 5))) 0.00769230769230769)\n    (((a d) ((a 1) (b 3) (d 6))) 0.00769230769230769)\n    (((a d) ((a 1) (b 3) (d 7))) 0.00769230769230769)\n    (((a e) ((a 1) (b 2) (c 5) (e 6))) 0.00769230769230769)\n    (((a e) ((a 1) (b 2) (c 5) (e 7))) 0.00769230769230769)\n    (((a e) ((a 1) (b 2) (d 3) (e 4))) 0.00769230769230769)\n    (((a e) ((a 1) (b 2) (d 3) (e 5))) 0.00769230769230769)\n    (((a e) ((a 1) (b 2) (d 4) (e 5))) 0.00769230769230769)\n    (((a e) ((a 1) (b 3) (c 5) (e 6))) 0.00769230769230769)\n    (((a e) ((a 1) (b 3) (c 5) (e 7))) 0.00769230769230769)\n    (((a e) ((a 1) (b 3) (d 4) (e 5))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (a 3))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (a 4))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (a 5))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 3) (a 4))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 3) (a 5))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 3) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 3) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 4) (a 5))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 4) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 4) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 5) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 5) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (c 2) (e 6) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (c 5) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (c 5) (e 6) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 3) (a 4))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 3) (a 5))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 3) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 3) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 4) (a 5))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 4) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 4) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 5) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (d 2) (e 5) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (d 3) (e 4) (a 5))) 0.00769230769230769)\n    (((b a) ((b 1) (d 3) (e 4) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (d 3) (e 4) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (d 3) (e 5) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (d 3) (e 5) (a 7))) 0.00769230769230769)\n    (((b a) ((b 1) (d 4) (e 5) (a 6))) 0.00769230769230769)\n    (((b a) ((b 1) (d 4) (e 5) (a 7))) 0.00769230769230769)\n    (((b c) ((b 1) (c 2))) 0.00769230769230769)\n    (((b c) ((b 1) (c 5))) 0.00769230769230769)\n    (((b d) ((b 1) (d 2))) 0.00769230769230769)\n    (((b d) ((b 1) (d 3))) 0.00769230769230769)\n    (((b d) ((b 1) (d 4))) 0.00769230769230769)\n    (((b d) ((b 1) (d 5))) 0.00769230769230769)\n    (((b d) ((b 1) (d 6))) 0.00769230769230769)\n    (((b d) ((b 1) (d 7))) 0.00769230769230769)\n    (((b e) ((b 1) (c 2) (e 3))) 0.00769230769230769)\n    (((b e) ((b 1) (c 2) (e 4))) 0.00769230769230769)\n    (((b e) ((b 1) (c 2) (e 5))) 0.00769230769230769)\n    (((b e) ((b 1) (c 2) (e 6))) 0.00769230769230769)\n    (((b e) ((b 1) (c 2) (e 7))) 0.00769230769230769)\n    (((b e) ((b 1) (c 5) (e 6))) 0.00769230769230769)\n    (((b e) ((b 1) (c 5) (e 7))) 0.00769230769230769)\n    (((b e) ((b 1) (d 2) (e 3))) 0.00769230769230769)\n    (((b e) ((b 1) (d 2) (e 4))) 0.00769230769230769)\n    (((b e) ((b 1) (d 2) (e 5))) 0.00769230769230769)\n    (((b e) ((b 1) (d 3) (e 4))) 0.00769230769230769)\n    (((b e) ((b 1) (d 3) (e 5))) 0.00769230769230769)\n    (((b e) ((b 1) (d 4) (e 5))) 0.00769230769230769)\n    (((c a) ((c 1) (a 2))) 0.00769230769230769)\n    (((c a) ((c 1) (a 3))) 0.00769230769230769)\n    (((c a) ((c 1) (a 4))) 0.00769230769230769)\n    (((c a) ((c 1) (a 5))) 0.00769230769230769)\n    (((c a) ((c 1) (a 6))) 0.00769230769230769)\n    (((c a) ((c 1) (e 2) (a 3))) 0.00769230769230769)\n    (((c a) ((c 1) (e 2) (a 4))) 0.00769230769230769)\n    (((c a) ((c 1) (e 2) (a 5))) 0.00769230769230769)\n    (((c a) ((c 1) (e 2) (a 6))) 0.00769230769230769)\n    (((c a) ((c 1) (e 2) (a 7))) 0.00769230769230769)\n    (((c a) ((c 1) (e 3) (a 4))) 0.00769230769230769)\n    (((c a) ((c 1) (e 3) (a 5))) 0.00769230769230769)\n    (((c a) ((c 1) (e 3) (a 6))) 0.00769230769230769)\n    (((c a) ((c 1) (e 3) (a 7))) 0.00769230769230769)\n    (((c a) ((c 1) (e 4) (a 5))) 0.00769230769230769)\n    (((c a) ((c 1) (e 4) (a 6))) 0.00769230769230769)\n    (((c a) ((c 1) (e 4) (a 7))) 0.00769230769230769)\n    (((c a) ((c 1) (e 5) (a 6))) 0.00769230769230769)\n    (((c a) ((c 1) (e 5) (a 7))) 0.00769230769230769)\n    (((c a) ((c 1) (e 6) (a 7))) 0.00769230769230769)\n    (((c b) ((c 1) (a 2) (b 3))) 0.00769230769230769)\n    (((c d) ((c 1) (a 2) (b 3) (d 4))) 0.00769230769230769)\n    (((c d) ((c 1) (a 2) (b 3) (d 5))) 0.00769230769230769)\n    (((c d) ((c 1) (a 2) (b 3) (d 6))) 0.00769230769230769)\n    (((c d) ((c 1) (a 2) (b 3) (d 7))) 0.00769230769230769)\n    (((c e) ((c 1) (a 2) (b 3) (d 4) (e 5))) 0.00769230769230769)\n    (((c e) ((c 1) (e 2))) 0.00769230769230769)\n    (((c e) ((c 1) (e 3))) 0.00769230769230769)\n    (((c e) ((c 1) (e 4))) 0.00769230769230769)\n    (((c e) ((c 1) (e 5))) 0.00769230769230769)\n    (((c e) ((c 1) (e 6))) 0.00769230769230769)\n    (((c e) ((c 1) (e 7))) 0.00769230769230769)\n    (((d a) ((d 1) (e 3) (a 4))) 0.00769230769230769)\n    (((d a) ((d 1) (e 3) (a 5))) 0.00769230769230769)\n    (((d a) ((d 1) (e 3) (a 6))) 0.00769230769230769)\n    (((d a) ((d 1) (e 3) (a 7))) 0.00769230769230769)\n    (((d a) ((d 1) (e 4) (a 5))) 0.00769230769230769)\n    (((d a) ((d 1) (e 4) (a 6))) 0.00769230769230769)\n    (((d a) ((d 1) (e 4) (a 7))) 0.00769230769230769)\n    (((d a) ((d 1) (e 5) (a 6))) 0.00769230769230769)\n    (((d a) ((d 1) (e 5) (a 7))) 0.00769230769230769)\n    (((d e) ((d 1) (e 3))) 0.00769230769230769)\n    (((d e) ((d 1) (e 4))) 0.00769230769230769)\n    (((d e) ((d 1) (e 5))) 0.00769230769230769)\n    (((e a) ((e 1) (a 2))) 0.00769230769230769)\n    (((e a) ((e 1) (a 3))) 0.00769230769230769)\n    (((e a) ((e 1) (a 4))) 0.00769230769230769)\n    (((e a) ((e 1) (a 5))) 0.00769230769230769)\n    (((e a) ((e 1) (a 6))) 0.00769230769230769)\n    (((e a) ((e 1) (a 7))) 0.00769230769230769)\n    (((e b) ((e 1) (a 2) (b 3))) 0.00769230769230769)\n    (((e c) ((e 1) (a 2) (b 3) (c 5))) 0.00769230769230769)\n    (((e d) ((e 1) (a 2) (b 3) (d 4))) 0.00769230769230769)\n    (((e d) ((e 1) (a 2) (b 3) (d 5))) 0.00769230769230769)\n    (((e d) ((e 1) (a 2) (b 3) (d 6))) 0.00769230769230769)\n    (((e d) ((e 1) (a 2) (b 3) (d 7))) 0.00769230769230769))))\n&quot;)
+ (stderr &quot;&quot;))
+</code></pre></div></body></html>
