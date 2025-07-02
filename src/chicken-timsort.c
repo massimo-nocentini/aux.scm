@@ -19,50 +19,57 @@ int timsort_comparator(timsort_object_t *a, timsort_object_t *b, void *arg)
 
     C_word result = C_callback(comparator, 2);
 
-    return C_unfix(result);
+    return C_truep(result) ? 0 : 1;
 }
 
-C_word C_timsort(C_word in, size_t size, C_word comparator, C_word buffer, int inplace, int reverse)
+C_word C_timsort(C_word in,
+                 size_t size,
+                 C_word comparator,
+                 C_word buffer,
+                 int inplace,
+                 int reverse,
+                 int use_ordinary_insertion_sort,
+                 int unpredictable_branch_on_random_data)
 {
 
     timsort_list_t list;
     list.ob_size = size;
     list.ob_item = malloc(size * sizeof(timsort_object_t *));
 
-    C_word each = in;
+    C_word cons_cell = in;
 
     int index = 0;
 
-    while (each != C_SCHEME_END_OF_LIST)
+    while (cons_cell != C_SCHEME_END_OF_LIST)
     {
         timsort_scheme_t *obj = malloc(sizeof(timsort_scheme_t));
-        obj->scheme_object = C_i_car(each);
+        obj->scheme_object = C_i_car(cons_cell);
         obj->index = index;
 
         list.ob_item[index] = (timsort_object_t *)obj;
 
         index++;
-        each = C_i_cdr(each);
+        cons_cell = C_i_cdr(cons_cell);
     }
 
     timsort_scheme_t comparator_obj;
     comparator_obj.scheme_object = comparator;
     comparator_obj.index = 0;
 
-    int res = list_sort_impl(&list, reverse, timsort_comparator, &comparator_obj);
+    int res = list_sort_impl(&list, reverse, use_ordinary_insertion_sort, unpredictable_branch_on_random_data, timsort_comparator, &comparator_obj);
 
     assert(res == 0);
 
-    each = inplace ? in : buffer;
+    cons_cell = inplace ? in : buffer;
     index = 0;
 
-    while (each != C_SCHEME_END_OF_LIST)
+    while (cons_cell != C_SCHEME_END_OF_LIST)
     {
         C_word sorted = ((timsort_scheme_t *)list.ob_item[index])->scheme_object;
 
-        C_u_i_set_car(each, sorted);
+        C_u_i_set_car(cons_cell, sorted);
 
-        each = C_i_cdr(each);
+        cons_cell = C_i_cdr(cons_cell);
         index++;
 
         // free(list.ob_item[index]);

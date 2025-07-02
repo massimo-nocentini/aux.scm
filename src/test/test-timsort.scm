@@ -30,12 +30,12 @@
    (⊦= '() (timsort '())))
 
   ((test/already-sorted _)
-    (let* ((n 1000000)
+    (let* ((n 10000000)
            (r (iota n)))
       (⊦= r (timsort r))))
 
   ((test/already-sorted/sort _)
-    (let* ((n 1000000)
+    (let* ((n 10000000)
            (r (iota n)))
       (⊦= r (sort r <))))
 
@@ -53,7 +53,7 @@
 
   ((test/tros/iota _)
     (let1 (n 1000000)
-      (⊦= (iota n (sub1 n) -1) (sort (iota n) >=))))
+      (⊦= (iota n (sub1 n) -1) (reverse (sort (iota n) <)))))
 
 )
 

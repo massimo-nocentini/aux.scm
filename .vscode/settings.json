@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "timsort.h": "c"
+        "timsort.h": "c",
+        "time.h": "c"
     }
 }

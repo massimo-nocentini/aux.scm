@@ -369,18 +369,17 @@
   (foreign-declare "#include \"chicken-timsort.h\"")
 
   (define timsort-foreign 
-    (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object bool bool))
+    (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object bool bool bool bool))
 
-  (define ((timsort/gen lt? inplace reverse) lst) 
+  (define ((timsort/gen lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data) lst) 
     (let* ((size 0)
-            (new-lst (map (λ (each) (add1! size)) lst))
-            (<? (λ (a b) (if (lt? a b) 0 1))))
-      (timsort-foreign lst size <? new-lst inplace reverse)))
+           (new-lst (map (λ (each) (add1! size)) lst)))
+      (timsort-foreign lst size lt? new-lst inplace reverse use-insertion-sort be-unpredictable-on-random-data)))
 
-  (define timsort (timsort/gen < #f #f))
-  (define timsort! (timsort/gen < #t #f))
-  (define timtros (timsort/gen < #f #t))
-  (define timtros! (timsort/gen < #t #t))
+  (define timsort (timsort/gen < #f #f #f #t))
+  (define timsort! (timsort/gen < #t #f #f #t))
+  (define timtros (timsort/gen < #f #t #f #t))
+  (define timtros! (timsort/gen < #t #t #f #t))
 
   )
  
