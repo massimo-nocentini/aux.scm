@@ -46,7 +46,7 @@ int timsort_comparator(timsort_object_t *a, timsort_object_t *b, void *arg)
             {
                 char *as = C_string_or_null(aw);
                 char *bs = C_string_or_null(bw);
-                result = strcmp(as, bs) < 0 ? C_SCHEME_TRUE : C_SCHEME_FALSE;
+                result = strncmp(as, bs, al) < 0 ? C_SCHEME_TRUE : C_SCHEME_FALSE;
             }
             else if (al < bl)
             {
