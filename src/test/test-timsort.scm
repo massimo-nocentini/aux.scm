@@ -1,6 +1,9 @@
 
 (import unittest aux scheme (chicken sort) (chicken syntax) srfi-1)
 
+(define n 1000000)
+(define r (iota n))
+
 (define-suite timsort-suite
 
 
@@ -29,31 +32,31 @@
    (⊦= '(1) (timsort '(1)))
    (⊦= '() (timsort '())))
 
-  ((test/already-sorted _)
-    (let* ((n 10000000)
-           (r (iota n)))
-      (⊦= r (timsort r))))
-
-  ((test/already-sorted/sort _)
-    (let* ((n 10000000)
-           (r (iota n)))
-      (⊦= r (sort r <))))
-
   ((test/iota _)
-    (let1 (n 1000000)
-      (⊦= (iota n) (timsort (iota n (sub1 n) -1)))))
+    (⊦= r (timsort (iota n (sub1 n) -1))))
 
   ((test/iota/sort _)
-    (let1 (n 1000000)
-      (⊦= (iota n) (sort (iota n (sub1 n) -1) <))))
+    (⊦= r (sort (iota n (sub1 n) -1) <)))
 
   ((test/timtros/iota _)
-    (let1 (n 1000000)
-      (⊦= (iota n (sub1 n) -1) (timtros (iota n)))))
+    (⊦= (iota n (sub1 n) -1) (timtros r)))
 
   ((test/tros/iota _)
-    (let1 (n 1000000)
-      (⊦= (iota n (sub1 n) -1) (reverse (sort (iota n) <)))))
+    (⊦= (iota n (sub1 n) -1) (reverse (sort r <))))
+
+  ((test/already-sorted _)
+    (⊦= r (timsort r)))
+
+  ((test/already-sorted/sort _)
+    (⊦= r (sort r <)))
+  
+  ((test/already-sorted/primitive _)
+    (⊦= r (timsort/primitive r)))
+
+  ((test/primitive _)
+    (⊦= (sort '(5 4 3 2 1) <) (timsort/primitive '(5 4 3 2 1)))
+    #;(⊦= '(1.1 2.1 3.1 4.1 5.1) (timsort/primitive '(5.1 4.1 3.1 2.1 1.1)))
+    (⊦= '(hello world) (timsort/primitive '(world hello))))
 
 )
 

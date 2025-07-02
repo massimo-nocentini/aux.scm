@@ -17,40 +17,42 @@
 <header class="w3-container w3-center">
 <h1><b>timsort-suite</b></h1>
 <p></p><small><small>
-<p>Wed Jul 02 09:36:13+0200 2025</p></small><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" /></a><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/by.svg" /></a><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" /></a>
+<p>Wed Jul 02 11:55:49+0200 2025</p></small><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" /></a><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/by.svg" /></a><a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://mirrors.creativecommons.org/presskit/icons/sa.svg" /></a>
 <p>This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a></p></small></header>
 <div class="w3-container">
 <header><b>Table of contents</b></header>
 <ol>
-<li><a href="#section88">Call with current continuation: the <code class="w3-codespan">letcc</code> macro</a></li>
-<li><a href="#section101"><code>test/simple</code>: <span class="w3-text-green">pass</span></a></li>
-<li><a href="#section102"><code>test/already-sorted</code>: <span class="w3-text-green">pass</span></a></li>
-<li><a href="#section103"><code>test/already-sorted/sort</code>: <span class="w3-text-green">pass</span></a></li>
-<li><a href="#section104"><code>test/iota</code>: <span class="w3-text-green">pass</span></a></li>
-<li><a href="#section105"><code>test/iota/sort</code>: <span class="w3-text-green">pass</span></a></li>
-<li><a href="#section106"><code>test/timtros/iota</code>: <span class="w3-text-green">pass</span></a></li>
-<li><a href="#section107"><code>test/tros/iota</code>: <span class="w3-text-green">pass</span></a></li></ol></div>
+<li><a href="#section82">Call with current continuation: the <code class="w3-codespan">letcc</code> macro</a></li>
+<li><a href="#section95"><code>test/simple</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section96"><code>test/iota</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section97"><code>test/iota/sort</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section98"><code>test/timtros/iota</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section99"><code>test/tros/iota</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section100"><code>test/already-sorted</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section101"><code>test/already-sorted/sort</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section102"><code>test/already-sorted/primitive</code>: <span class="w3-text-green">pass</span></a></li>
+<li><a href="#section103"><code>test/primitive</code>: <span class="w3-text-green">pass</span></a></li></ol></div>
 <hr />
 <p><b>Tests summary</b>
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((ran 7) (failed 0))
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((ran 9) (failed 0))
 </code></pre></div></p>
-<section id="section88">
+<section id="section82">
 <header>
 <h1>1. Call with current continuation: the <code class="w3-codespan">letcc</code> macro</h1></header></section>
 <p>The fundamental macro <code class="w3-codespan">letcc</code> in the form 
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
 <pre class="w3-container"><code class="w3-code w3-round language-scheme">(letcc k body ...)
-</code></pre></div> binds <code class="w3-codespan">k</code> to the <i>current continuation </i><cite>[<a href="#cite89">1</a>]</cite><cite>[<a href="#cite90">2</a>]</cite><cite>[<a href="#cite91">3</a>]</cite><cite>[<a href="#cite92">4</a>]</cite> in <code class="w3-codespan">body...</code> expressions; for the sake of clarity, it expands to
+</code></pre></div> binds <code class="w3-codespan">k</code> to the <i>current continuation </i><cite>[<a href="#cite83">1</a>]</cite><cite>[<a href="#cite84">2</a>]</cite><cite>[<a href="#cite85">3</a>]</cite><cite>[<a href="#cite86">4</a>]</cite> in <code class="w3-codespan">body...</code> expressions; for the sake of clarity, it expands to
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
 <pre class="w3-container"><code class="w3-code w3-round language-scheme">(continuation-capture
   (lambda (cont)
     (let1 (k (lambda (arg) (continuation-return cont arg))) body ...)))
-</code></pre></div>where <code class="w3-codespan">continuation-capture</code> and <code class="w3-codespan">continuation-return</code> are defined in <cite>[<a href="#cite99">5</a>]</cite> and based on <cite>[<a href="#cite100">6</a>]</cite> by Marc Feeley, respectively.</p>
-<section id="section101">
+</code></pre></div>where <code class="w3-codespan">continuation-capture</code> and <code class="w3-codespan">continuation-return</code> are defined in <cite>[<a href="#cite93">5</a>]</cite> and based on <cite>[<a href="#cite94">6</a>]</cite> by Marc Feeley, respectively.</p>
+<section id="section95">
 <header>
 <h1>2. <code>test/simple</code>: <span class="w3-text-green">pass</span></h1></header></section>
 <div class="w3-card w3-round">
@@ -64,86 +66,104 @@
 </code></pre></div>
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0) (memory #(6291456 946616 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0) (memory #(50331648 24951368 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section96">
+<header>
+<h1>3. <code>test/iota</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/iota _) (⊦= r (timsort (iota n (sub1 n) -1))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.523) (memory #(100663296 48947960 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section97">
+<header>
+<h1>4. <code>test/iota/sort</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/iota/sort _) (⊦= r (sort (iota n (sub1 n) -1) &lt;)))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.506) (memory #(201326592 48948640 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section98">
+<header>
+<h1>5. <code>test/timtros/iota</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/timtros/iota _) (⊦= (iota n (sub1 n) -1) (timtros r)))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.487) (memory #(201326592 72949376 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section99">
+<header>
+<h1>6. <code>test/tros/iota</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/tros/iota _) (⊦= (iota n (sub1 n) -1) (reverse (sort r &lt;))))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.372) (memory #(201326592 72949944 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section100">
+<header>
+<h1>7. <code>test/already-sorted</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/already-sorted _) (⊦= r (timsort r)))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.439) (memory #(201326592 48950680 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+</code></pre></div>
+<section id="section101">
+<header>
+<h1>8. <code>test/already-sorted/sort</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/already-sorted/sort _) (⊦= r (sort r &lt;)))
+</code></pre></div>
+<div class="w3-card w3-round">
+<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.308) (memory #(201326592 48951280 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
 </code></pre></div>
 <section id="section102">
 <header>
-<h1>3. <code>test/already-sorted</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<h1>9. <code>test/already-sorted/primitive</code>: <span class="w3-text-green">pass</span></h1></header></section>
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/already-sorted _)
-  (let* ((n 10000000) (r (iota n))) (⊦= r (timsort r))))
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/already-sorted/primitive _) (⊦= r (timsort/primitive r)))
 </code></pre></div>
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 5.909) (memory #(805306368 480942744 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.122) (memory #(201326592 48952032 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
 </code></pre></div>
 <section id="section103">
 <header>
-<h1>4. <code>test/already-sorted/sort</code>: <span class="w3-text-green">pass</span></h1></header></section>
+<h1>10. <code>test/primitive</code>: <span class="w3-text-green">pass</span></h1></header></section>
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/already-sorted/sort _)
-  (let* ((n 10000000) (r (iota n))) (⊦= r (sort r &lt;))))
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/primitive _)
+  (⊦= (sort '(5 4 3 2 1) &lt;) (timsort/primitive '(5 4 3 2 1)))
+  (⊦= '(hello world) (timsort/primitive '(world hello))))
 </code></pre></div>
 <div class="w3-card w3-round">
 <header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 5.29) (memory #(1610612736 720943536 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
-</code></pre></div>
-<section id="section104">
-<header>
-<h1>5. <code>test/iota</code>: <span class="w3-text-green">pass</span></h1></header></section>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/iota _)
-  (let1 (n 1000000) (⊦= (iota n) (timsort (iota n (sub1 n) -1)))))
-</code></pre></div>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.495) (memory #(1610612736 528944280 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
-</code></pre></div>
-<section id="section105">
-<header>
-<h1>6. <code>test/iota/sort</code>: <span class="w3-text-green">pass</span></h1></header></section>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/iota/sort _)
-  (let1 (n 1000000) (⊦= (iota n) (sort (iota n (sub1 n) -1) &lt;))))
-</code></pre></div>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.371) (memory #(1610612736 528944968 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
-</code></pre></div>
-<section id="section106">
-<header>
-<h1>7. <code>test/timtros/iota</code>: <span class="w3-text-green">pass</span></h1></header></section>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/timtros/iota _)
-  (let1 (n 1000000) (⊦= (iota n (sub1 n) -1) (timtros (iota n)))))
-</code></pre></div>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.48) (memory #(1610612736 288945528 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
-</code></pre></div>
-<section id="section107">
-<header>
-<h1>8. <code>test/tros/iota</code>: <span class="w3-text-green">pass</span></h1></header></section>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">(define (test/tros/iota _)
-  (let1 (n 1000000) (⊦= (iota n (sub1 n) -1) (reverse (sort (iota n) &lt;)))))
-</code></pre></div>
-<div class="w3-card w3-round">
-<header class="w3-container w3-border w3-round w3-light-gray w3-right">scheme code</header>
-<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.381) (memory #(1610612736 48945960 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
+<pre class="w3-container"><code class="w3-code w3-round language-scheme">((eta 0.0) (memory #(201326592 48952664 1048576)) (stdout &quot;&quot;) (stderr &quot;&quot;))
 </code></pre></div>
 <hr />
 <div class="w3-container">
-<header><b>References</b></header><span id="cite89">[1] <a href="https://docs.scheme.org/schintro/schintro_141.html">https://docs.scheme.org/schintro/schintro_141.html</a></span>
-<br /><span id="cite90">[2] <a href="https://en.wikipedia.org/wiki/Call-with-current-continuation">https://en.wikipedia.org/wiki/Call-with-current-continuation</a></span>
-<br /><span id="cite91">[3] <a href="https://ds26gte.github.io/tyscheme/index-Z-H-15.html">https://ds26gte.github.io/tyscheme/index-Z-H-15.html</a></span>
-<br /><span id="cite92">[4] <a href="https://matt.might.net/articles/programming-with-continuations--exceptions-backtracking-search-threads-generators-coroutines/">Continuations by example</a></span>
-<br /><span id="cite99">[5] <a href="https://wiki.call-cc.org/man/5/Module%20(chicken%20continuation)">Module <code class="w3-codespan">(chicken continuation)</code></a></span>
-<br /><span id="cite100">[6] <a href="http://www.iro.umontreal.ca/~feeley/papers/FeeleySW01.pdf">A Better API for First-Class Continuations</a></span>
+<header><b>References</b></header><span id="cite83">[1] <a href="https://docs.scheme.org/schintro/schintro_141.html">https://docs.scheme.org/schintro/schintro_141.html</a></span>
+<br /><span id="cite84">[2] <a href="https://en.wikipedia.org/wiki/Call-with-current-continuation">https://en.wikipedia.org/wiki/Call-with-current-continuation</a></span>
+<br /><span id="cite85">[3] <a href="https://ds26gte.github.io/tyscheme/index-Z-H-15.html">https://ds26gte.github.io/tyscheme/index-Z-H-15.html</a></span>
+<br /><span id="cite86">[4] <a href="https://matt.might.net/articles/programming-with-continuations--exceptions-backtracking-search-threads-generators-coroutines/">Continuations by example</a></span>
+<br /><span id="cite93">[5] <a href="https://wiki.call-cc.org/man/5/Module%20(chicken%20continuation)">Module <code class="w3-codespan">(chicken continuation)</code></a></span>
+<br /><span id="cite94">[6] <a href="http://www.iro.umontreal.ca/~feeley/papers/FeeleySW01.pdf">A Better API for First-Class Continuations</a></span>
 <br /></div></body></html>
