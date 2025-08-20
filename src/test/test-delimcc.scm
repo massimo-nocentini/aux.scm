@@ -5,37 +5,37 @@
 
   ((doc r) 
    `((p "In this page we describe two fundamental macros, " (code/inline "resetcc") " and " (code/inline "letcc/shift") 
-	" respectively, that support all the other forms stressed in the tests that follows."
-	" Moreover, we show how to " (i "discard") ", " (i "extract") ", " (i "preserve") ", and " (i "wrap") 
-	" delimited continuations, accordingly to the tutorial "
-       (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
-	       "Introduction to Programming with Shift and Reset") 
-       " by Kenichi Asai and Oleg Kiselyov. The former author "
-       (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Professor Kenichi Asai's home page") " recorded a talk "
-       (cite/a "https://www.youtube.com/watch?v=QNM-njddhIw" 
-	       "Delimited Continuations for Everyone by Kenichi Asai")
-       " that given in the workshop " 
-       (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/" "CW 2011 Tutorial: home page")
-       ", slides "
-       (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/slides.pdf" "CW 2011 Tutorial: slides")
-       " are also available.")
+        " respectively, that support all the other forms stressed in the tests that follows."
+        " Moreover, we show how to " (i "discard") ", " (i "extract") ", " (i "preserve") ", and " (i "wrap") 
+        " delimited continuations, accordingly to the tutorial "
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
+                "Introduction to Programming with Shift and Reset") 
+        " by Kenichi Asai and Oleg Kiselyov. The former author "
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Professor Kenichi Asai's home page") " recorded a talk "
+        (cite/a "https://www.youtube.com/watch?v=QNM-njddhIw" 
+                "Delimited Continuations for Everyone by Kenichi Asai")
+        " that given in the workshop " 
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/" "CW 2011 Tutorial: home page")
+        ", slides "
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/slides.pdf" "CW 2011 Tutorial: slides")
+        " are also available.")
      (structure/section "The " (code/inline "resetcc") " macro")
      ,(let ((resetcc-expr '(resetcc body ...)))
-       `(p "Continuations are delimited by the " (code/inline "resetcc") " syntax as in the following generic expression"
-	   (code/scheme ,resetcc-expr) 
-	   "where the expressions " (code/inline "body ...") " execute in a delimited context; for the sake of clarity, it expands to "
-	   (code/scheme/expand ,resetcc-expr)))
+        `(p "Continuations are delimited by the " (code/inline "resetcc") " syntax as in the following generic expression"
+            (code/scheme ,resetcc-expr) 
+            "where the expressions " (code/inline "body ...") " execute in a delimited context; for the sake of clarity, it expands to "
+            (code/scheme/expand ,resetcc-expr)))
      (structure/section "The " (code/inline "letcc/shift") " macro")
      ,(let ((letcc/shift-expr '(letcc/shift k body ...)))
-       `(p "The expression " (code/scheme ,letcc/shift-expr) 
-	   "is explained by author's word:"
-	   (cite/quote "Kenichi Asai" 
-		       (ol
-			 (li "clears the current continuation")
-			 (li "binds the cleared continuation to " (code/inline "k"))
-			 (li "and executes " (code/inline "body ..."))))
-	   "For the sake of clarity, it expands to "
-	   (code/scheme/expand ,letcc/shift-expr)))))
+        `(p "The expression " (code/scheme ,letcc/shift-expr) 
+            "is explained by author's word:"
+            (cite/quote "Kenichi Asai" 
+                        (ol
+                          (li "clears the current continuation")
+                          (li "binds the cleared continuation to " (code/inline "k"))
+                          (li "and executes " (code/inline "body ..."))))
+            "For the sake of clarity, it expands to "
+            (code/scheme/expand ,letcc/shift-expr)))))
 
   ((test/delimcc/basic _)
    (⊦= 10 (letcc/shift k 10))
@@ -92,9 +92,9 @@
    (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
 
   ((test/delimcc/yield/extract _)
-   (⊦= '((a 1) (a 2)) (§->list 
-			  (map§/yielded (λ (v) (list 'a v)) 
-					(resetcc+null (yield/extract 1) (yield/extract 2)))))
+   (⊦= '((a 1) (a 2)) (§->list
+                          (map§/yielded (λ (v) (list 'a v)) 
+                                         (resetcc+null (yield/extract 1) (yield/extract 2)))))
    (⊦= 3 (foldr/yielded + (resetcc+null (yield/extract 1) (yield/extract 2)) 0)))
 
   ((test/delimcc/yield§ _)
@@ -120,19 +120,19 @@
 
   ((test/delimcc/tutorial/either/tensor _)
    (⊦= '(((p #t) (q #f))) 
-       (let1 (sols '())
-	     (resetcc
-	       (let ((p (delimcc-either '(#t #f)))
-		     (q (delimcc-either '(#t #f))))
-		 (when (and (or p q) (or p (not q)) (or (not p) (not q)))
-		   (push! `((p ,p) (q ,q)) sols))))
-	     sols))
-
-   (⊦= '((((p #t) (q #t) no) ((p #t) (q #f) yes)) (((p #f) (q #t) no) ((p #f) (q #f) no))) 
+         (let1 (sols '())
                (resetcc
                  (let ((p (delimcc-either '(#t #f)))
                        (q (delimcc-either '(#t #f))))
-                     `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no))))))
+                   (when (and (or p q) (or p (not q)) (or (not p) (not q)))
+                     (push! `((p ,p) (q ,q)) sols))))
+               sols))
+
+   (⊦= '((((p #t) (q #t) no) ((p #t) (q #f) yes)) (((p #f) (q #t) no) ((p #f) (q #f) no))) 
+         (resetcc
+           (let ((p (delimcc-either '(#t #f)))
+                 (q (delimcc-either '(#t #f))))
+             `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no))))))
 
   ((test/delimcc/tutorial/τ _)
    (define-resetcc a (append (delimcc-τ '(hello)) '(world)))
@@ -2559,7 +2559,7 @@
            (32 8 1 8 4)
            (32 8 1 8 5)
            (32 8 1 8 4)
-	   (32 8 1 8 1)) 
+           (32 8 1 8 1)) 
          (www))
 
    (define (wwww)
@@ -2574,4 +2574,10 @@
   )
 
 (unittest/✓ delimcc-suite)
+
+
+
+
+
+
 

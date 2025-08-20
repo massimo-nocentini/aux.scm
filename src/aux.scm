@@ -2,15 +2,15 @@
 (module aux *
 
   (import scheme 
-	  (chicken base) 
-	  (chicken continuation) 
-	  (chicken pretty-print) 
-	  (chicken fixnum) 
-	  (chicken sort) 
-	  (chicken port) 
-    (chicken foreign) 
-	  srfi-1
-	  srfi-69)
+          (chicken base) 
+          (chicken continuation) 
+          (chicken pretty-print) 
+          (chicken fixnum) 
+          (chicken sort) 
+          (chicken port) 
+          (chicken foreign) 
+          srfi-1
+          srfi-69)
 
   (define-syntax letport/string 
     (syntax-rules (out else) 
@@ -21,8 +21,8 @@
                                         (s (call-with-input-string instring (λ (p) (set! v (begin body ...))))))
                                    (values v s)))
       ((_ else body ...) (let* ((v (void))
-				(s (with-error-output-to-string (τ (set! v (begin body ...))))))
-			   (values v s)))))
+                                (s (with-error-output-to-string (τ (set! v (begin body ...))))))
+                           (values v s)))))
 
   (define-syntax push! 
     (syntax-rules () 
@@ -82,7 +82,7 @@
       (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
 
   (define (curry f g)
-   (λ args (apply f (cons g args)))) 
+    (λ args (apply f (cons g args)))) 
 
   (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
 
@@ -137,7 +137,7 @@
     (cond
       ((null? t) '())
       (else (letcar&cdr (((v k) t))
-			(cons§ (f v) (map§/yielded f (k (void))))))))
+                        (cons§ (f v) (map§/yielded f (k (void))))))))
 
   (define (foldr/yielded f t init)
     (cond
@@ -285,7 +285,7 @@
                           ((pair? choices) (letcc kk
                                                   (let1 (v (car choices))
                                                         (when (continue? v) 
-							  (push! (τ (kk (chooseD (cdr choices) continue?))) pool))
+                                                          (push! (τ (kk (chooseD (cdr choices) continue?))) pool))
                                                         (push! (τ (kk v)) pool))
                                                   (fail)))
                           (else (fail)))))
@@ -296,8 +296,8 @@
                                                      (chooseB '())))
                           ((pair? choices) (letcc kk
                                                   (append-right! (list (τ (kk (car choices))) 
-								       (τ (kk (chooseB (cdr choices))))) 
-								 pool)
+                                                                       (τ (kk (chooseB (cdr choices))))) 
+                                                                 pool)
                                                   (chooseB '())))
                           (else (fail)))))
              (markD (τ (letgensym (flag) (push! flag pool) flag)))
@@ -389,6 +389,12 @@
   (define timtros/primitive (timsort/gen < #f #t #f #t TIMSORT_USE_LESS_THAN))
   (define timtros/primitive! (timsort/gen < #t #t #f #t TIMSORT_USE_LESS_THAN))
 
-)
- 
+  )
+
+
+
+
+
+
+
 
