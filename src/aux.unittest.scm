@@ -14,7 +14,7 @@
     (chicken gc) 
     srfi-1 
     srfi-19
-    sxml)
+    (aux sxml))
 
 
   (define-record unittest/testcase name log)
@@ -161,6 +161,11 @@
          ))))
 
   )
+
+
+
+
+
 
 
 
