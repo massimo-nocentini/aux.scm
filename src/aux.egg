@@ -2,7 +2,7 @@
 ((author "Massimo Nocentini")
  (synopsis "Auxiliary definitions and macros.")
  (license "MIT")
- (dependencies srfi-69)
+ (dependencies srfi-69 srfi-1 srfi-19 sxml-transforms)
  (components 
   (c-object chicken-timsort (link-options "-L" "-ltimsort"))
   (extension aux.base)
@@ -10,4 +10,5 @@
   (extension aux.stream)
   (extension aux.continuation)
   (extension aux.nondeterministic)
-  (extension aux.unittest)))
+  (extension aux.unittest)
+  (extension aux.sxml)))
