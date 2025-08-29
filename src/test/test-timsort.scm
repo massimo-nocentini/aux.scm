@@ -1,5 +1,5 @@
 
-(import unittest aux scheme (chicken sort) (chicken syntax) srfi-1)
+(import unittest (aux timsort) scheme (chicken sort) (chicken syntax) srfi-1)
 
 (define n 1000000)
 (define r (iota n))
@@ -16,7 +16,9 @@
                   " and we compare it against the built-in " (code/inline "sort") " function "
                   (cite/a "https://srfi.schemers.org/srfi-95/srfi-95.html" "SRFI 95") 
                   (cite/a "https://en.wikipedia.org/wiki/Sorting_algorithm" "Wikipedia: Sorting algorithm")
-                  ". For the sake of completeness, we report their implementation of the " (code/inline "sort!") " function, which is a wrapper around the " (code/inline "merge!") " function, which merges two sorted sequences. The " (code/inline "sort!") " function sorts a sequence in place using a provided comparison function " (code/inline "less?") "."
+                  ". For the sake of completeness, we report their implementation of the " (code/inline "sort!") 
+                  " function, which is a wrapper around the " (code/inline "merge!") " function, which merges two sorted sequences. The " 
+                  (code/inline "sort!") " function sorts a sequence in place using a provided comparison function " (code/inline "less?") "."
                   (code/scheme
                     (define (sort! seq less?)
                       (define (step n)

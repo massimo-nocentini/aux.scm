@@ -5,4 +5,8 @@
  (dependencies srfi-69)
  (components 
   (c-object chicken-timsort (link-options "-L" "-ltimsort"))
-  (extension aux (objects chicken-timsort))))
+  (extension aux.base)
+  (extension aux.timsort (objects chicken-timsort))
+  (extension aux.stream)
+  (extension aux.continuation)
+  (extension aux.nondeterministic)))

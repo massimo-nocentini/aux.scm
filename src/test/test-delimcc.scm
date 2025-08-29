@@ -1,5 +1,5 @@
 
-(import unittest aux (chicken sort))
+(import unittest (aux base) (aux continuation) (aux stream))
 
 (define-suite delimcc-suite
 
@@ -2574,6 +2574,20 @@
   )
 
 (unittest/✓ delimcc-suite)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

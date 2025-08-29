@@ -1,5 +1,5 @@
 
-(import unittest aux scheme (chicken sort) (chicken syntax))
+(import unittest (aux base) (aux continuation))
 
 (define-suite letcc-suite
 
@@ -189,6 +189,20 @@
   )
 
 (unittest/✓ letcc-suite)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

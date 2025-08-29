@@ -1,5 +1,5 @@
 
-(import unittest aux (chicken sort))
+(import unittest (aux base) (aux nondeterministic) (aux stream) (chicken pretty-print) (chicken sort))
 
 (define-suite letnondeterministic-suite
 
@@ -50,13 +50,13 @@
            (b 8)
            (c 8)) 
          (letnondeterministic 21 (? ¿ ⊦ • !)
-                              (? (interleave§
+                              (? (append§/interleaved
                                    (map§ (lambda (v) (list 'a v)) (fibs§ 0 1)) 
                                    (map§ (lambda (v) (list 'b v)) (fibs§ 0 1))
                                    (map§ (lambda (v) (list 'c v)) (fibs§ 0 1)))))))
 
   ((test/letnondeterministic/choose+fair _)
-   (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3)) (letnondeterministic (? ¿ ⊦ • !) (? (interleave§ '((a 1) (a 2) (a 3)) '((b 1) (b 2)))))))
+   (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3)) (letnondeterministic (? ¿ ⊦ • !) (? (append§/interleaved '((a 1) (a 2) (a 3)) '((b 1) (b 2)))))))
 
   ((test/letnondeterministic/odd _)
    (⊦= '(1 3)
@@ -397,6 +397,20 @@
   )
 
 (unittest/✓ letnondeterministic-suite)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
