@@ -1,5 +1,5 @@
 
-(import unittest (aux base) (aux stream))
+(import (aux unittest) (aux base) (aux stream))
 
 (define-suite stream-suite
 

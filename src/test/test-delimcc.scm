@@ -1,5 +1,5 @@
 
-(import unittest (aux base) (aux continuation) (aux stream))
+(import (aux unittest) (aux base) (aux continuation) (aux stream))
 
 (define-suite delimcc-suite
 
@@ -2574,6 +2574,10 @@
   )
 
 (unittest/✓ delimcc-suite)
+
+
+
+
 
 
 

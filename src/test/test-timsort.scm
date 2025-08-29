@@ -1,5 +1,5 @@
 
-(import unittest (aux timsort) scheme (chicken sort) (chicken syntax) srfi-1)
+(import (aux unittest) (aux timsort) scheme (chicken sort) (chicken syntax) srfi-1)
 
 (define n 1000000)
 (define r (iota n))

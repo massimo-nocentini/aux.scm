@@ -7,6 +7,8 @@ test:
 	cd test && csi -s test-letnondeterministic.scm
 	cd test && csi -s test-delimcc.scm
 	cd test && csi -s test-timsort.scm
+	cd test && csi -s bootstrap.scm
+	cd test && csc learning.scm && ./learning
 
 install:
 	chicken-install -sudo
@@ -18,9 +20,12 @@ format:
 		scheme-indent -T 2 < test/test-timsort.scm > test/test-timsort.scm.tmp && mv test/test-timsort.scm.tmp test/test-timsort.scm
 		scheme-indent -T 2 < test/test.scm > test/test.scm.tmp && mv test/test.scm.tmp test/test.scm
 		scheme-indent -T 2 < test/test-stream.scm > test/test-stream.scm.tmp && mv test/test-stream.scm.tmp test/test-stream.scm
-		
+		scheme-indent -T 2 < test/bootstrap.scm > test/bootstrap.scm.tmp && mv test/bootstrap.scm.tmp test/bootstrap.scm
+		scheme-indent -T 2 < test/learning.scm > test/learning.scm.tmp && mv test/learning.scm.tmp test/learning.scm
+
 		scheme-indent -T 2 < aux.base.scm > aux.base.scm.tmp && mv aux.base.scm.tmp aux.base.scm
 		scheme-indent -T 2 < aux.stream.scm > aux.stream.scm.tmp && mv aux.stream.scm.tmp aux.stream.scm
 		scheme-indent -T 2 < aux.timsort.scm > aux.timsort.scm.tmp && mv aux.timsort.scm.tmp aux.timsort.scm
 		scheme-indent -T 2 < aux.continuation.scm > aux.continuation.scm.tmp && mv aux.continuation.scm.tmp aux.continuation.scm
+		scheme-indent -T 2 < aux.unittest.scm > aux.unittest.scm.tmp && mv aux.unittest.scm.tmp aux.unittest.scm 
 		scheme-indent -T 2 < aux.nondeterministic.scm > aux.nondeterministic.scm.tmp && mv aux.nondeterministic.scm.tmp aux.nondeterministic.scm

@@ -1,5 +1,5 @@
 
-(import unittest (aux base) (chicken sort))
+(import (aux unittest) (aux base) (chicken sort))
 
 (define-suite auxtest
 
@@ -72,6 +72,10 @@
   )
 
 (unittest/✓ auxtest)
+
+
+
+
 
 
 

@@ -9,4 +9,5 @@
   (extension aux.timsort (objects chicken-timsort))
   (extension aux.stream)
   (extension aux.continuation)
-  (extension aux.nondeterministic)))
+  (extension aux.nondeterministic)
+  (extension aux.unittest)))

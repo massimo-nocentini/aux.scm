@@ -1,5 +1,5 @@
 
-(import unittest (aux base) (aux nondeterministic) (aux stream) (chicken pretty-print) (chicken sort))
+(import (aux unittest) (aux base) (aux nondeterministic) (aux stream) (chicken pretty-print) (chicken sort))
 
 (define-suite letnondeterministic-suite
 
@@ -397,6 +397,10 @@
   )
 
 (unittest/✓ letnondeterministic-suite)
+
+
+
+
 
 
 
