@@ -13,4 +13,5 @@
   (extension aux.continuation)
   (extension aux.stream)
   (extension aux.nondeterministic)
-  (extension aux.hansei)))
+  (extension aux.hansei)
+  (extension aux.kanren.micro)))
