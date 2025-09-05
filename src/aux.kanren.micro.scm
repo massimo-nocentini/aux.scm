@@ -122,15 +122,17 @@
 
   (define-syntax °->§
     (syntax-rules ()
+      ((°->§ () g ...) (map§ (λ/_ #t) (°->§ (v) g ...)))
       ((°->§ (var ...) g ...) (let1 (main (fresh° (q)
-                                                     (fresh° (var ...) 
-                                                              (=° q (list var ...)) 
-                                                              g ...)))
-                                      (map§ (µkanren-project (µkanren-var 0)) 
-                                             (delay (main µkanren-state-empty)))))
+						  (fresh° (var ...) 
+							  (=° q (list var ...)) 
+							  g ...)))
+				    (map§ (µkanren-project (µkanren-var 0)) 
+					  (delay (main µkanren-state-empty)))))
       ((°->§ var g ...) (map§ car (°->§ (var) g ...)))))
 
   )
+
 
 
 

@@ -13,7 +13,7 @@
      (⊦= 'a (µkanren-state-find v1 s2))
      (⊦= 'a (µkanren-state-find v2 s2))))
 
-  ((test/=° _) (⊦= '(()) (§->list (°->§ () (=° 'z 'z)))))
+  ((test/=° _) (⊦= '(#t) (§->list (°->§ () (=° 'z 'z)))))
   ((test/peano° _) 
    (define-relation (peano° n)
      (or°
