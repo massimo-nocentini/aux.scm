@@ -14,7 +14,12 @@
      (⊦= 'a (µkanren-state-find v2 s2))))
 
   ((test/=° _) (⊦= '(#t) (§->list (°->§ () (=° 'z 'z)))))
-  ((test/peano° _) 
+  ((test/sharing _) 
+   (⊦= '((((▢ 0) z) z ((▢ 0) (▢ 1)))) 
+        (§->list (°->§ (n q x) 
+                   (=° q 'z) 
+                   (fresh° (w r) (=° n (list w q)) (=° x (list w r)))))))
+  ((test/peano° _)
    (define-relation (peano° n)
      (or°
        (=° n 'z)

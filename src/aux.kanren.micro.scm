@@ -6,8 +6,7 @@
           (chicken base)
           (aux base)
           (aux stream)
-          (fds sbral)
-          )
+          (fds sbral))
 
   ; stuff for variables
   (define µkanren-var-metaid (gensym 'µkanren-var-))
@@ -21,6 +20,7 @@
   (define (µkanren-state-substitution s) (car s))
   (define (µkanren-state-counter s) (cadr s))
   (define (µkanren-var-index/state v s) (- (µkanren-state-counter s) 1 (µkanren-var-index v)))
+
   (define (µkanren-state-find v s)
     (let ((size (µkanren-state-counter s))
           (subst (µkanren-state-substitution s)))
@@ -38,7 +38,7 @@
                        (occur? (µkanren-state-find (cdr w) s))))
         (else #f)))
     (cond
-      #;((occur? v) #f)
+      ((occur? v) #f)
       (else
         (let ((size (µkanren-state-counter s))
               (subst (µkanren-state-substitution s))
@@ -57,7 +57,7 @@
                                            (and (pair? ss) (µkanren-state-unify (cdr u*) (cdr v*) ss))))
         (else #f))))
 
-  (define (µkanren-apply-subst v s)
+  (define (µkanren-state-find* v s)
     (let A ((w v))
       (let1 (w* (µkanren-state-find w s))
             (cond
@@ -65,21 +65,39 @@
               ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
               (else w*)))))
 
-  (define (µkanren-build-r v s)
+  #;(define (µkanren-build-r v s)
     (let ((c (µkanren-state-counter s))
           (subst (µkanren-state-substitution s)))
       (cond
-        ((µkanren-var? v) (list (cons/sbral (+ c (length/sbral subst)) subst) (add1 c)))
+        ((µkanren-var? v) (list (cons/sbral (void) (update/sbral (µkanren-var-index/state v s) (- c (length/sbral subst)) subst))
+				(add1 c)))
         ((pair? v) (µkanren-build-r (cdr v) (µkanren-build-r (car v) s)))
         (else s))))
 
+  (define (µkanren-state-reify v s)
+    (let R ((w v) (r s) (c 0))
+      (let1 (w* (µkanren-state-find w r))
+	(cond
+	  ((µkanren-var? w*) (values 
+				(list (update/sbral (µkanren-var-index/state w* r) `(▢ ,c) (µkanren-state-substitution r))
+				      (µkanren-state-counter r))
+				(add1 c)))
+	  ((pair? w*) (let-values (((r* c*) (R (car w*) r c)))
+		       (let-values (((r** c**) (R (cdr w*) r* c*)))
+			 (values r** c**))))
+	  (else (values r c))))))
+
+  #;(define ((µkanren-project w) s)
+    (let* ((w* (µkanren-state-unify* w s))
+           (s* (µkanren-build-r w* s))
+           (w** (µkanren-state-unify* w* s*))
+           (s** (µkanren-build-r w** µkanren-state-empty)))
+      (µkanren-state-unify* w** s**)))
+
   (define ((µkanren-project w) s)
-    (let* ((w* (µkanren-apply-subst w s))
-           #;(s* (µkanren-build-r w* (list empty/sbral 0)))
-           #;(w** (µkanren-apply-subst w* s*))
-           #;(s** (µkanren-build-r w** µkanren-state-empty)))
-      #;(µkanren-apply-subst w** s**)
-      w*))
+    (let1 (w* (µkanren-state-find* w s))
+	  (let-values (((s* _) (µkanren-state-reify w* s)))
+	    (µkanren-state-find* w* s*))))
 
   (define (✓° s) (cons§ s '()))
   (define (✗° s) '())
@@ -130,6 +148,12 @@
 				    (map§ (µkanren-project (µkanren-var 0)) 
 					  (delay (main µkanren-state-empty)))))
       ((°->§ var g ...) (map§ car (°->§ (var) g ...)))))
+
+  (define-syntax project°
+    (syntax-rules ()
+      ((project° ((v expr) ...) g ...) (let ((v (µkanren-state-find* expr s)) ...) (and° g ...)))
+      ((project° (v ...) g ...) (project° ((v v) ...) g ...))))
+
 
   )
 

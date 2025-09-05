@@ -9,3 +9,4 @@ src/*.static.a
 src/*.o
 src/test/*.html
 src/test/learning
+*.swp
