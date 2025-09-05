@@ -13,16 +13,22 @@
      (⊦= 'a (µkanren-state-find v1 s2))
      (⊦= 'a (µkanren-state-find v2 s2))))
 
-  ((test/peano° _)
+  ((test/=° _) (⊦= '(()) (§->list (°->§ () (=° 'z 'z)))))
+  ((test/peano° _) 
    (define-relation (peano° n)
      (or°
        (=° n 'z)
-       (fresh° (r)
-                (=° n `(s ,r))
-                (peano° r))))
-   (⊦= '() (§->list (take§ 10 (solutions§ (n) (peano° n)))))
-
-   )
+       (fresh° (r) (=° n `(s ,r)) (peano° r))))
+   (⊦= '(z (s z)
+             (s (s z))
+             (s (s (s z)))
+             (s (s (s (s z))))
+             (s (s (s (s (s z)))))
+             (s (s (s (s (s (s z))))))
+             (s (s (s (s (s (s (s z)))))))
+             (s (s (s (s (s (s (s (s z))))))))
+             (s (s (s (s (s (s (s (s (s z)))))))))) 
+         (§->list (take§ 10 (°->§ n (peano° n))))))
 
 
   )
