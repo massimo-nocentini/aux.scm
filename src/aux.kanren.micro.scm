@@ -138,6 +138,13 @@
       ((or° g) g)
       ((or° g1 g2 g* ...) (µkanren-goal/or° g1 (or° g2 g* ...)))))
 
+  (define ((if° g? gt gf) s)
+    (let L ((§ (g? s)))
+      (cond
+	((null? §) (delay (gf s)))
+	((promise? §) (delay (L (force §))))
+	(else (append-map§ gt §)))))
+
   (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
 
   (define-syntax-rule (°->§ (var ...) g ...) (let1 (main (fresh° (q)
@@ -147,11 +154,9 @@
 						   (map§ (µkanren-project (µkanren-var 0)) 
 							 (delay (main µkanren-state-empty)))))
 
-  (define-syntax project°
-    (syntax-rules ()
-      ((project° ((v expr) ...) g ...) (let ((v (µkanren-state-find* expr s)) ...) (and° g ...)))
-      ((project° (v ...) g ...) (project° ((v v) ...) g ...))))
+  (define-syntax-rule (project° (v ...) g ...) (let ((v (µkanren-state-find* v s)) ...) (and° g ...)))
 
+  (define-syntax-rule (cond° ((g ...) ...)) (or° (and° g ...) ...))
 
   )
 
