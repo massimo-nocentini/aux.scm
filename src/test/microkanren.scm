@@ -23,9 +23,14 @@
 
   ((test/peano° _)
    (define-relation (peano° n)
-     (or°
-       (=° n 'z)
-       (fresh° (r) (=° n `(s ,r)) (peano° r))))
+		    (or°
+		      (=° n 'z)
+		      (fresh° (r) (=° n `(s ,r)) (peano° r))))
+   (define-relation (church° n)
+		    (fresh°(b)
+			 (and°
+			   (=° n `(λ (s) (λ (z) ,b)))
+			   (peano° b))))
    (⊦= '((λ () `(z))
            (λ () `((s z)))
            (λ () `((s (s z))))
@@ -36,8 +41,19 @@
            (λ () `((s (s (s (s (s (s (s z)))))))))
            (λ () `((s (s (s (s (s (s (s (s z))))))))))
            (λ () `((s (s (s (s (s (s (s (s (s z))))))))))))
-         (§->list (take§ 10 (°->§ (n) (peano° n))))))
+         (§->list (take§ 10 (°->§ (n) (peano° n)))))
 
+   (⊦= '((λ () `((λ (s) (λ (z) z))))
+           (λ () `((λ (s) (λ (z) (s z)))))
+           (λ () `((λ (s) (λ (z) (s (s z))))))
+           (λ () `((λ (s) (λ (z) (s (s (s z)))))))
+           (λ () `((λ (s) (λ (z) (s (s (s (s z))))))))
+           (λ () `((λ (s) (λ (z) (s (s (s (s (s z)))))))))
+           (λ () `((λ (s) (λ (z) (s (s (s (s (s (s z))))))))))
+           (λ () `((λ (s) (λ (z) (s (s (s (s (s (s (s z)))))))))))
+           (λ () `((λ (s) (λ (z) (s (s (s (s (s (s (s (s z))))))))))))
+           (λ () `((λ (s) (λ (z) (s (s (s (s (s (s (s (s (s z))))))))))))))
+         (§->list (take§ 10 (°->§ (n) (church° n))))))
 
   )
 
