@@ -134,6 +134,10 @@
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
 
+  (define-syntax define-syntax-rule
+    (syntax-rules ()
+      ((define-syntax-rule (name p ...) r) (define-syntax name (syntax-rules () ((_ p ...) r))))))
+
   )
 
 

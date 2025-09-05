@@ -138,20 +138,14 @@
       ((or° g) g)
       ((or° g1 g2 g* ...) (µkanren-goal/or° g1 (or° g2 g* ...)))))
 
-  (define-syntax define-relation
-    (syntax-rules ()
-      ((define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))))
+  (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
 
-  (define-syntax °->§
-    (syntax-rules ()
-      #;((°->§ () g ...) (map§ (λ/_ #t) (°->§ (v) g ...)))
-      ((°->§ (var ...) g ...) (let1 (main (fresh° (q)
-						  (fresh° (var ...) 
-							  (=° q (list var ...)) 
-							  g ...)))
-				    (map§ (µkanren-project (µkanren-var 0)) 
-					  (delay (main µkanren-state-empty)))))
-      #;((°->§ var g ...) (map§ car (°->§ (var) g ...)))))
+  (define-syntax-rule (°->§ (var ...) g ...) (let1 (main (fresh° (q)
+								 (fresh° (var ...) 
+									 (=° q (list var ...)) 
+									 g ...)))
+						   (map§ (µkanren-project (µkanren-var 0)) 
+							 (delay (main µkanren-state-empty)))))
 
   (define-syntax project°
     (syntax-rules ()
