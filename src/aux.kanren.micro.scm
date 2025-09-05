@@ -75,17 +75,21 @@
         (else s))))
 
   (define (µkanren-state-reify v s)
-    (let R ((w v) (r s) (c 0))
+    (let R ((w v) (r s) (c 0) (vars '()))
       (let1 (w* (µkanren-state-find w r))
 	(cond
-	  ((µkanren-var? w*) (values 
-				(list (update/sbral (µkanren-var-index/state w* r) `(▢ ,c) (µkanren-state-substitution r))
-				      (µkanren-state-counter r))
-				(add1 c)))
-	  ((pair? w*) (let-values (((r* c*) (R (car w*) r c)))
-		       (let-values (((r** c**) (R (cdr w*) r* c*)))
-			 (values r** c**))))
-	  (else (values r c))))))
+	  ((µkanren-var? w*) (let1 (new-var (string->symbol (string-append "_" (number->string c))))
+				   (values 
+				     (list (update/sbral (µkanren-var-index/state w* r) 
+							 (list 'unquote new-var)
+							 (µkanren-state-substitution r))
+					   (µkanren-state-counter r))
+				     (add1 c)
+				     (cons new-var vars))))
+	  ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
+		       (let-values (((r** c** vars**) (R (cdr w*) r* c* vars*)))
+			 (values r** c** vars**))))
+	  (else (values r c vars))))))
 
   #;(define ((µkanren-project w) s)
     (let* ((w* (µkanren-state-unify* w s))
@@ -96,8 +100,8 @@
 
   (define ((µkanren-project w) s)
     (let1 (w* (µkanren-state-find* w s))
-	  (let-values (((s* _) (µkanren-state-reify w* s)))
-	    (µkanren-state-find* w* s*))))
+	  (let-values (((s* _ vars) (µkanren-state-reify w* s)))
+	    (list 'λ (reverse vars) (list 'quasiquote (µkanren-state-find* w* s*))))))
 
   (define (✓° s) (cons§ s '()))
   (define (✗° s) '())
@@ -140,14 +144,14 @@
 
   (define-syntax °->§
     (syntax-rules ()
-      ((°->§ () g ...) (map§ (λ/_ #t) (°->§ (v) g ...)))
+      #;((°->§ () g ...) (map§ (λ/_ #t) (°->§ (v) g ...)))
       ((°->§ (var ...) g ...) (let1 (main (fresh° (q)
 						  (fresh° (var ...) 
 							  (=° q (list var ...)) 
 							  g ...)))
 				    (map§ (µkanren-project (µkanren-var 0)) 
 					  (delay (main µkanren-state-empty)))))
-      ((°->§ var g ...) (map§ car (°->§ (var) g ...)))))
+      #;((°->§ var g ...) (map§ car (°->§ (var) g ...)))))
 
   (define-syntax project°
     (syntax-rules ()
