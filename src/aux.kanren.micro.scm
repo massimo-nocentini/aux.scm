@@ -145,6 +145,9 @@
 	((promise? §) (delay (L (force §))))
 	(else (append-map§ gt §)))))
 
+  (define (null° l) (=° l '()))
+  (define (cons° a d c) (=° c (cons a d)))
+
   (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
 
   (define-syntax-rule (°->§ (var ...) g ...) (let1 (main (fresh° (q)
@@ -156,7 +159,7 @@
 
   (define-syntax-rule (project° (v ...) g ...) (let ((v (µkanren-state-find* v s)) ...) (and° g ...)))
 
-  (define-syntax-rule (cond° ((g ...) ...)) (or° (and° g ...) ...))
+  (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
 
   )
 
