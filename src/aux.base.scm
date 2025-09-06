@@ -12,6 +12,10 @@
           srfi-1
           srfi-69)
 
+  (define-syntax define-syntax-rule
+    (syntax-rules ()
+      ((define-syntax-rule (name p ...) r) (define-syntax name (syntax-rules () ((_ p ...) r))))))
+
   (define-syntax letport/string 
     (syntax-rules (out else) 
       ((_ (p out) body ...) (let* ((v (void))
@@ -24,22 +28,16 @@
                                 (s (with-error-output-to-string (τ (set! v (begin body ...))))))
                            (values v s)))))
 
-  (define-syntax push! 
-    (syntax-rules () 
-      ((push! val var) (begin (set! var (cons val var)) (void)))))
-
-  (define-syntax pop! (syntax-rules () ((pop! var) (let ((a (car var))) (set! var (cdr var)) a))))
-  (define-syntax append-right! 
-    (syntax-rules () 
-      ((append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))))
-  (define-syntax add1! (syntax-rules () ((_ var) (begin (set! var (add1 var)) (void)))))
-  (define-syntax sub1! (syntax-rules () ((_ var) (begin (set! var (sub1 var)) (void)))))
-
-  (define-syntax λ (syntax-rules () ((λ formals body ...) (lambda formals body ...))))
-  (define-syntax λ/_ (syntax-rules () ((λ/_ body ...) (λ formals body ...))))
-  (define-syntax τ (syntax-rules () ((τ body ...) (λ () body ...))))
-  (define-syntax define-τ (syntax-rules () ((define-τ name body ...) (define name (τ body ...)))))
-  (define-syntax letgensym (syntax-rules () ((letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))))
+  (define-syntax-rule (push! val var) (begin (set! var (cons val var)) (void)))
+  (define-syntax-rule (pop! var) (let ((a (car var))) (set! var (cdr var)) a))
+  (define-syntax-rule (append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))
+  (define-syntax-rule (add1! var) (begin (set! var (add1 var)) (void)))
+  (define-syntax-rule (sub1! var) (begin (set! var (sub1 var)) (void)))
+  (define-syntax-rule (λ formals body ...) (lambda formals body ...))
+  (define-syntax-rule (λ/_ body ...) (λ _ body ...))
+  (define-syntax-rule (τ body ...) (λ () body ...))
+  (define-syntax-rule (define-τ name body ...) (define name (τ body ...)))
+  (define-syntax-rule (letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))
 
   (define-syntax letcar&cdr
     (syntax-rules ()
@@ -59,8 +57,7 @@
       ((lettensor f ((x expr) (xx exprr) ...) body ...) 
        (f (lambda (x) (lettensor f ((xx exprr) ...) body ...)) expr))))
 
-  (define-syntax letmaptensor
-    (syntax-rules () ((letmaptensor ((x expr) ...) body ...) (lettensor map ((x expr) ...) body ...))))
+  (define-syntax-rule (letmaptensor ((x expr) ...) body ...) (lettensor map ((x expr) ...) body ...))
 
   (define-syntax letmap
     (syntax-rules ()
@@ -81,8 +78,7 @@
       ((or (null? lst) (null? (cdr lst))) '())
       (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
 
-  (define (curry f g)
-    (λ args (apply f (cons g args)))) 
+  (define (curry f g) (λ args (apply f (cons g args)))) 
 
   (define-syntax let1 
     (syntax-rules () 
@@ -109,17 +105,14 @@
               (unless (hash-table-exists? memo arg) (hash-table-set! memo arg (f arg)))
               (hash-table-ref memo arg))))
 
-  (define-syntax λ-memo
-    (syntax-rules ()
-      ((_ args body ...) (let ((memo (make-hash-table))
-                               (f (λ args body ...)))
-                           (λ vargs
-                               (unless (hash-table-exists? memo vargs) 
-                                 (hash-table-set! memo vargs (apply f vargs)))
-                               (hash-table-ref memo vargs))))))
-  (define-syntax define-memo
-    (syntax-rules ()
-      ((_ (name arg ...) body ...) (define name (λ-memo (arg ...) body ...)))))
+  (define-syntax-rule (λ-memo args body ...) (let ((memo (make-hash-table))
+							 (f (λ args body ...)))
+						  (λ vargs
+						     (unless (hash-table-exists? memo vargs) 
+						       (hash-table-set! memo vargs (apply f vargs)))
+						     (hash-table-ref memo vargs))))
+
+  (define-syntax-rule (define-memo (name arg ...) body ...) (define name (λ-memo (arg ...) body ...)))
 
   (define ((boolean->P prob) bool) (if bool prob (- 1 prob)))
 
@@ -133,10 +126,11 @@
       ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
-
-  (define-syntax define-syntax-rule
-    (syntax-rules ()
-      ((define-syntax-rule (name p ...) r) (define-syntax name (syntax-rules () ((_ p ...) r))))))
+  (define one? (λ (n) (equal? n 1)))
+  (define K (λ keep (λ/_ (apply values keep))))
+  (define Φ (λ (f) (f f)))
+  (define Y (λ (f) (Φ (λ (g) (f (λ args (apply (g g) args)))))))
+  (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
   )
 
