@@ -1,6 +1,8 @@
 
 
-(import (aux unittest) scheme (chicken base) (chicken pretty-print) (chicken condition) (chicken foreign) (chicken gc))
+(import 
+  (aux base) (aux unittest) 
+  scheme (chicken base) (chicken pretty-print) (chicken condition) (chicken foreign) (chicken gc))
 
 
 (define-suite learning-suite
@@ -17,6 +19,11 @@
                   (⊦= 2 (my-strlen (cons 1 '())))
                   (⊦= 2 (my-strlen (cons 1 (cons 2 (cons 3 '())))))
                   (⊦= 11 (my-strlen "hello world"))))
+
+  ((test/unquote _) 
+   (let1 (a '(3)) (⊦= (cons 1 a)  `(1 unquote a)))
+   `(doc (p "Very interesting test about quasiquotation: it shows how " (code/inline "unquote")
+	    " can be used in a quasiquotation pattern in the " (code/inline "cdr") " slot.")))
 
   ((test/c-apply _) 
    (let ((witness (gensym))

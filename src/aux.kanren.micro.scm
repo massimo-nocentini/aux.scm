@@ -34,8 +34,7 @@
     (define (occur? w)
       (cond
         ((µkanren-var? w) (equal? w var))
-        ((pair? w) (or (occur? (µkanren-state-find (car w) s)) 
-                       (occur? (µkanren-state-find (cdr w) s))))
+        ((pair? w) (or (occur? (µkanren-state-find (car w) s)) (occur? (µkanren-state-find (cdr w) s))))
         (else #f)))
     (cond
       ((occur? v) #f)
@@ -65,15 +64,6 @@
               ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
               (else w*)))))
 
-  #;(define (µkanren-build-r v s)
-    (let ((c (µkanren-state-counter s))
-          (subst (µkanren-state-substitution s)))
-      (cond
-        ((µkanren-var? v) (list (cons/sbral (void) (update/sbral (µkanren-var-index/state v s) (- c (length/sbral subst)) subst))
-				(add1 c)))
-        ((pair? v) (µkanren-build-r (cdr v) (µkanren-build-r (car v) s)))
-        (else s))))
-
   (define (µkanren-state-reify v s)
     (let R ((w v) (r s) (c 0) (vars '()))
       (let1 (w* (µkanren-state-find w r))
@@ -87,16 +77,8 @@
 				     (add1 c)
 				     (cons new-var vars))))
 	  ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
-		       (let-values (((r** c** vars**) (R (cdr w*) r* c* vars*)))
-			 (values r** c** vars**))))
+			(R (cdr w*) r* c* vars*)))
 	  (else (values r c vars))))))
-
-  #;(define ((µkanren-project w) s)
-    (let* ((w* (µkanren-state-unify* w s))
-           (s* (µkanren-build-r w* s))
-           (w** (µkanren-state-unify* w* s*))
-           (s** (µkanren-build-r w** µkanren-state-empty)))
-      (µkanren-state-unify* w** s**)))
 
   (define ((µkanren-project w) s)
     (let1 (w* (µkanren-state-find* w s))
@@ -147,6 +129,8 @@
 
   (define (null° l) (=° l '()))
   (define (cons° a d c) (=° c (cons a d)))
+  (define-syntax-rule (project° (v ...) g ...) (λ (s) (let ((v (µkanren-state-find* v s)) ...) (delay ((and° g ...) s)))))
+  (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
 
   (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
 
@@ -157,9 +141,6 @@
 						   (map§ (µkanren-project (µkanren-var 0)) 
 							 (delay (main µkanren-state-empty)))))
 
-  (define-syntax-rule (project° (v ...) g ...) (let ((v (µkanren-state-find* v s)) ...) (and° g ...)))
-
-  (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
 
   )
 
