@@ -92,7 +92,7 @@
     (cond
       ((null? $) '())
       ((promise? $) (delay (append-map§ f (force $))))
-      (else (append§/interleaved (f (car $)) (append-map§ f (cdr $))))))
+      (else (append§/interleaved/2 (delay (f (car $))) (append-map§ f (cdr $))))))
 
   (define (const§ s) (rec N (cons§ s N)))
   (define (nats§ s) (rec N (cons§ s (map§ add1 N))))
