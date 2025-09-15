@@ -100,7 +100,7 @@
             ((pair? s*) (✓° s*))
             (else (✗° s*)))))
 
-  (define ((µkanren-goal/or° f g) s) (append§/interleaved (delay (f s)) (delay (g s))))
+  (define ((µkanren-goal/or° f g) s) (append§/interleaved/2 (delay (f s)) (delay (g s))))
   (define ((µkanren-goal/and° f g) s) (append-map§ g (delay (f s))))
 
   (define-syntax fresh°
