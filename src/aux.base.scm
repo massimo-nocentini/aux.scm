@@ -106,11 +106,11 @@
               (hash-table-ref memo arg))))
 
   (define-syntax-rule (λ-memo args body ...) (let ((memo (make-hash-table))
-							 (f (λ args body ...)))
-						  (λ vargs
-						     (unless (hash-table-exists? memo vargs) 
-						       (hash-table-set! memo vargs (apply f vargs)))
-						     (hash-table-ref memo vargs))))
+                                                    (f (λ args body ...)))
+                                                (λ vargs
+                                                    (unless (hash-table-exists? memo vargs) 
+                                                      (hash-table-set! memo vargs (apply f vargs)))
+                                                    (hash-table-ref memo vargs))))
 
   (define-syntax-rule (define-memo (name arg ...) body ...) (define name (λ-memo (arg ...) body ...)))
 
@@ -133,38 +133,5 @@
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
   )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

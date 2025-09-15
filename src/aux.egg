@@ -12,6 +12,8 @@
   (extension aux.timsort (objects chicken-timsort))
   (extension aux.continuation)
   (extension aux.stream)
+  (extension aux.fds.queue)
+  (extension aux.fds.sbral)
   (extension aux.nondeterministic)
   (extension aux.hansei)
   (extension aux.kanren.micro)))

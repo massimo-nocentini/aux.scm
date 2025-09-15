@@ -67,23 +67,23 @@
   (define (µkanren-state-reify v s)
     (let R ((w v) (r s) (c 0) (vars '()))
       (let1 (w* (µkanren-state-find w r))
-	(cond
-	  ((µkanren-var? w*) (let1 (new-var (string->symbol (string-append "_" (number->string c))))
-				   (values 
-				     (list (update/sbral (µkanren-var-index/state w* r) 
-							 (list 'unquote new-var)
-							 (µkanren-state-substitution r))
-					   (µkanren-state-counter r))
-				     (add1 c)
-				     (cons new-var vars))))
-	  ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
-			(R (cdr w*) r* c* vars*)))
-	  (else (values r c vars))))))
+            (cond
+              ((µkanren-var? w*) (let1 (new-var (string->symbol (string-append "_" (number->string c))))
+                                        (values
+                                          (list (update/sbral (µkanren-var-index/state w* r) 
+                                                              (list 'unquote new-var)
+                                                              (µkanren-state-substitution r))
+                                                (µkanren-state-counter r))
+                                          (add1 c)
+                                          (cons new-var vars))))
+              ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
+                            (R (cdr w*) r* c* vars*)))
+              (else (values r c vars))))))
 
   (define ((µkanren-project w) s)
     (let1 (w* (µkanren-state-find* w s))
-	  (let-values (((s* _ vars) (µkanren-state-reify w* s)))
-	    (list 'λ (reverse vars) (list 'quasiquote (µkanren-state-find* w* s*))))))
+          (let-values (((s* _ vars) (µkanren-state-reify w* s)))
+            (list 'λ (reverse vars) (list 'quasiquote (µkanren-state-find* w* s*))))))
 
   (define (✓° s) (cons§ s '()))
   (define (✗° s) '())
@@ -123,9 +123,9 @@
   (define ((if° g? gt gf) s)
     (let L ((§ (g? s)))
       (cond
-	((null? §) (delay (gf s)))
-	((promise? §) (delay (L (force §))))
-	(else (append-map§ gt §)))))
+        ((null? §) (delay (gf s)))
+        ((promise? §) (delay (L (force §))))
+        (else (append-map§ gt §)))))
 
   (define (null° l) (=° l '()))
   (define (cons° a d c) (=° c (cons a d)))
@@ -135,14 +135,18 @@
   (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
 
   (define-syntax-rule (°->§ (var ...) g ...) (let1 (main (fresh° (q)
-								 (fresh° (var ...) 
-									 (=° q (list var ...)) 
-									 g ...)))
-						   (map§ (µkanren-project (µkanren-var 0)) 
-							 (delay (main µkanren-state-empty)))))
+                                                                    (fresh° (var ...) 
+                                                                             (=° q (list var ...)) 
+                                                                             g ...)))
+                                                     (map§ (µkanren-project (µkanren-var 0)) 
+                                                            (delay (main µkanren-state-empty)))))
 
 
   )
+
+
+
+
 
 
 

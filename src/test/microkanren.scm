@@ -17,13 +17,13 @@
 
   ((test/sharing _) 
    (⊦= '((λ (_0 _1) `((,_0 z) z (,_0 ,_1)))) 
-        (§->list (°->§ (n q x) 
-                   (=° q 'z) 
-                   (fresh° (w r) (=° n (list w q)) (=° x (list w r)))))))
+         (§->list (°->§ (n q x) 
+                           (=° q 'z) 
+                           (fresh° (w r) (=° n (list w q)) (=° x (list w r)))))))
 
   ((test/peano° _)
    (define-relation (peano° n) (or° (=° n 'z) (fresh° (r) (=° n `(s ,r)) (peano° r))))
-   (define-relation (church° n) (fresh°(b) (=° n `(λ (s) (λ (z) ,b))) (peano° b)))
+   (define-relation (church° n) (fresh° (b) (=° n `(λ (s) (λ (z) ,b))) (peano° b)))
    (⊦= '((λ () `(z))
            (λ () `((s z)))
            (λ () `((s (s z))))
@@ -48,12 +48,12 @@
            (λ () `((λ (s) (λ (z) (s (s (s (s (s (s (s (s (s z))))))))))))))
          (§->list (take§ 10 (°->§ (n) (church° n))))))
 
-    ((test/append° _)
-     (define-relation (append° r s rs)
-		      (cond°
-			((null° r) (=° s rs))
-			((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
-     (⊦= '((λ (_0) `(,_0))
+  ((test/append° _)
+   (define-relation (append° r s rs)
+     (cond°
+       ((null° r) (=° s rs))
+       ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
+   (⊦= '((λ (_0) `(,_0))
            (λ (_0 _1) `((,_0 unquote _1)))
            (λ (_0 _1 _2) `((,_0 ,_1 unquote _2)))
            (λ (_0 _1 _2 _3) `((,_0 ,_1 ,_2 unquote _3)))
@@ -66,8 +66,12 @@
                `((,_0 ,_1 ,_2 ,_3 ,_4 ,_5 ,_6 ,_7 unquote _8)))
            (λ (_0 _1 _2 _3 _4 _5 _6 _7 _8 _9)
                `((,_0 ,_1 ,_2 ,_3 ,_4 ,_5 ,_6 ,_7 ,_8 unquote _9))))
-	 (§->list (take§ 10 (°->§ (l) (fresh° (a d) (append° a d l)))))))
+         (§->list (take§ 10 (°->§ (l) (fresh° (a d) (append° a d l)))))))
 
   )
 
 (unittest/✓ microkanren-suite)
+
+
+
+

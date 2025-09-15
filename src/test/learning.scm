@@ -1,6 +1,6 @@
 
 
-(import 
+(import
   (aux base) (aux unittest) 
   scheme (chicken base) (chicken pretty-print) (chicken condition) (chicken foreign) (chicken gc))
 
@@ -23,10 +23,10 @@
   ((test/unquote _) 
    (let1 (a '(3)) (⊦= (cons 1 a)  `(1 unquote a)))
    `(doc (p "Very interesting test about quasiquotation " 
-	    (cite/a "https://wiki.call-cc.org/man/5/Module%20scheme#quasiquotation" 
-		    "Quasiquotation, Chicken Scheme manual.") 
-	    " : it shows how " (code/inline "unquote")
-	    " can be used in a quasiquotation pattern in the " (code/inline "cdr") " slot.")))
+            (cite/a "https://wiki.call-cc.org/man/5/Module%20scheme#quasiquotation" 
+                    "Quasiquotation, Chicken Scheme manual.") 
+            " : it shows how " (code/inline "unquote")
+            " can be used in a quasiquotation pattern in the " (code/inline "cdr") " slot.")))
 
   ((test/c-apply _) 
    (let ((witness (gensym))
@@ -45,6 +45,10 @@ END
   )
 
 (unittest/✓ learning-suite)
+
+
+
+
 
 
 
