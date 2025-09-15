@@ -1,5 +1,5 @@
 
-(import (aux unittest) (aux base) (aux stream) (aux kanren micro) (fds sbral))
+(import (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
 
 (define-suite microkanren-suite
 

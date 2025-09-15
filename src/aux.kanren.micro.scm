@@ -6,7 +6,7 @@
           (chicken base)
           (aux base)
           (aux stream)
-          (fds sbral))
+          (aux fds sbral))
 
   ; stuff for variables
   (define µkanren-var-metaid (gensym 'µkanren-var-))
