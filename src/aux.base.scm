@@ -9,12 +9,28 @@
           (chicken sort) 
           (chicken port) 
           (chicken foreign)
+          (chicken syntax)
           srfi-1
           srfi-69)
 
   (define-syntax define-syntax-rule
     (syntax-rules ()
       ((define-syntax-rule (name p ...) r) (define-syntax name (syntax-rules () ((_ p ...) r))))))
+
+  (define-syntax-rule (define-macro-ir (name expr inject compare) body ...)
+    (define-syntax name (ir-macro-transformer (λ (expr inject compare) body ...))))
+
+  (define-syntax-rule (define-macro-er (name expr rename compare) body ...)
+    (define-syntax name (er-macro-transformer (λ (expr rename compare) body ...))))
+
+  (define-syntax-rule (define-macro (inject (bi i) ...) (compare (bl l) ...) ((name expr) body ...))
+    (define-macro-ir (name expr inject compare)
+      (let ((bi (inject i)) ...
+            (bl (λ (x) (compare x l))) ...)
+        body ...)))
+
+  (define (symbols->symbol/stripped-syntax symbols) 
+    (apply symbol-append (map strip-syntax symbols)))
 
   (define-syntax letport/string 
     (syntax-rules (out else) 
@@ -133,5 +149,6 @@
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
   )
+
 
 

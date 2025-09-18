@@ -72,10 +72,10 @@
 
   (define append§/interleaved/2
     (λ (s1 s2)
-      (cond
-        ((null? s1) s2)
-        ((promise? s1) (delay (append§/interleaved/2 s2 (force s1))))
-        (else (cons§ (car s1) (append§/interleaved/2 (cdr s1) s2))))))
+        (cond
+          ((null? s1) s2)
+          ((promise? s1) (delay (append§/interleaved/2 s2 (force s1))))
+          (else (cons§ (car s1) (append§/interleaved/2 (cdr s1) s2))))))
 
   (define append§/interleaved
     (lambda list-of-choices
@@ -116,6 +116,7 @@
       (else (cons§ (car §) (stop§ pred? (cdr§ §))))))
 
   )
+
 
 
 
