@@ -27,13 +27,13 @@
     (define-syntax name (er-macro-transformer (λ (expr rename compare) body ...))))
 
   (define-syntax-rule (define-macro (name (inject (bi i) ...) (compare (bl l) ...)) ((pattern ...) body ...) ...)
-    (define-macro-ir (name expr inject compare)
-      (let ((bi (inject i)) ...
-            (bl (λ (x) (compare x l))) ...)
+    (define-macro-ir (name expr inject* compare)
+      (let* ((inject (λ symbols (inject* (symbols->symbol/stripped-syntax symbols))))
+             (bi (inject i)) ...
+             (bl (λ (x) (compare x l))) ...)
         (match expr ((pattern ...) body ...) ...))))
 
-  (define (symbols->symbol/stripped-syntax symbols) 
-    (apply symbol-append (map strip-syntax symbols)))
+  (define (symbols->symbol/stripped-syntax symbols) (apply symbol-append (map strip-syntax symbols)))
 
   (define-syntax letport/string 
     (syntax-rules (out else) 
