@@ -11,7 +11,8 @@
           (chicken foreign)
           (chicken syntax)
           srfi-1
-          srfi-69)
+          srfi-69
+          matchable)
 
   (define-syntax define-syntax-rule
     (syntax-rules ()
@@ -23,11 +24,11 @@
   (define-syntax-rule (define-macro-er (name expr rename compare) body ...)
     (define-syntax name (er-macro-transformer (λ (expr rename compare) body ...))))
 
-  (define-syntax-rule (define-macro (inject (bi i) ...) (compare (bl l) ...) ((name expr) body ...))
+  (define-syntax-rule (define-macro (name (inject (bi i) ...) (compare (bl l) ...)) ((pattern ...) body ...) ...)
     (define-macro-ir (name expr inject compare)
       (let ((bi (inject i)) ...
             (bl (λ (x) (compare x l))) ...)
-        body ...)))
+        (match expr ((pattern ...) body ...) ...))))
 
   (define (symbols->symbol/stripped-syntax symbols) 
     (apply symbol-append (map strip-syntax symbols)))
