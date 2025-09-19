@@ -10,9 +10,11 @@
           (chicken port) 
           (chicken foreign)
           (chicken syntax)
+          (chicken module)
           srfi-1
-          srfi-69
-          matchable)
+          srfi-69)
+
+  (reexport matchable)
 
   (define-syntax define-syntax-rule
     (syntax-rules ()
