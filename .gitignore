@@ -10,3 +10,6 @@ src/*.o
 src/test/*.html
 src/test/learning
 *.swp
+src/simdjson.cpp
+src/simdjson.h
+src/twitter.json

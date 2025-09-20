@@ -4,6 +4,7 @@
         "time.h": "c",
         "stdlib.h": "c",
         "chicken.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "ostream": "cpp"
     }
 }
