@@ -8,7 +8,7 @@ test:
 	cd test && csi -s delimcc.scm
 	cd test && csi -s timsort.scm
 	cd test && csi -s bootstrap.scm
-	cd test && csc learning.scm && ./learning && rm learning
+	cd test && csc learning.scm bar.c && ./learning && rm learning
 	cd test && csi -s hansei.scm
 	cd test && csi -s microkanren.scm
 	cd test && csi -s fds.queue.scm
