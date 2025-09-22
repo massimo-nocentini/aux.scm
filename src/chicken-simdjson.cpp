@@ -12,55 +12,72 @@
 using namespace std;
 using namespace simdjson;
 
-void print_json(dom::element element)
+C_word print_json(C_word C_k, dom::element element)
 {
+  C_word res;
+  C_word *ptr;
+
   switch (element.type())
   {
-  case dom::element_type::ARRAY:
-    cout << "[";
-    for (dom::element child : dom::array(element))
-    {
-      print_json(child);
-      cout << ",";
-    }
-    cout << "]";
-    break;
+  // case dom::element_type::ARRAY:
+  //   // cout << "[";
+  //   // for (dom::element child : dom::array(element))
+  //   // {
+  //   //   print_json(child);
+  //   //   cout << ",";
+  //   // }
+  //   // cout << "]";
+
+  //   dom::array array = dom::array(element);
+  //   size_t length = array.size();
+  //   ptr = C_alloc(C_SIZEOF_PAIR);
+  //   res = C_a_pair(&ptr, C_fix(length), C_SCHEME_END_OF_LIST);
+
+  //   break;
   case dom::element_type::OBJECT:
-    cout << "{";
-    for (dom::key_value_pair field : dom::object(element))
-    {
-      cout << "\"" << field.key << "\": ";
-      print_json(field.value);
-    }
-    cout << "}";
+    // cout << "{";
+    // for (dom::key_value_pair field : dom::object(element))
+    // {
+    //   cout << "\"" << field.key << "\": ";
+    //   print_json(field.value);
+    // }
+    // cout << "}";
+    dom::object array = dom::object(element);
+    size_t length = array.size();
+    ptr = C_alloc(C_SIZEOF_PAIR);
+    res = C_a_pair(&ptr, C_fix(length), C_SCHEME_END_OF_LIST);
+    // C_gc_protect(&ptr, 1);
     break;
-  case dom::element_type::INT64:
-    cout << int64_t(element) << endl;
-    break;
-  case dom::element_type::UINT64:
-    cout << uint64_t(element) << endl;
-    break;
-  case dom::element_type::DOUBLE:
-    cout << double(element) << endl;
-    break;
-  case dom::element_type::STRING:
-    cout << std::string_view(element) << endl;
-    break;
-  case dom::element_type::BOOL:
-    cout << bool(element) << endl;
-    break;
-  case dom::element_type::NULL_VALUE:
-    cout << "null" << endl;
-    break;
+    // case dom::element_type::INT64:
+    //   cout << int64_t(element) << endl;
+    //   break;
+    // case dom::element_type::UINT64:
+    //   cout << uint64_t(element) << endl;
+    //   break;
+    // case dom::element_type::DOUBLE:
+    //   cout << double(element) << endl;
+    //   break;
+    // case dom::element_type::STRING:
+    //   const char *str = element.get_c_str();
+    //   size_t length = element.get_string_length();
+    //   C_word *ptr = C_alloc(C_SIZEOF_STRING(length));
+    //   C_word res = C_string(&ptr, length, (char *)str);
+    //   break;
+    // case dom::element_type::BOOL:
+    //   cout << bool(element) << endl;
+    //   break;
+    // case dom::element_type::NULL_VALUE:
+    //   cout << "null" << endl;
+    //   break;
   }
+
+  // C_kontinue(C_k, res);
+  printf("done\n");
+  // C_word args[] = {C_SCHEME_UNDEFINED, C_k, res};
+  return res;
 }
 
-dom::element array_at(dom::element *element, size_t index)
-{
-  return dom::array(*element).at(index);
-}
-
-extern C_word f(const char *filename)
+C_word f(const char *filename)
 {
   const char *str = "hello world";
   int length = strlen(str);
@@ -70,15 +87,34 @@ extern C_word f(const char *filename)
   return res;
 }
 
-extern void parse_json(C_word C_k, const char *filename)
+C_word g(const char *filename)
+{
+  const char *str = "hello world";
+  int length = strlen(str);
+  C_word *ptr = C_alloc(C_SIZEOF_PAIR);
+  C_word res = C_a_pair(&ptr, C_fix(length), C_SCHEME_END_OF_LIST);
+  C_gc_protect(&ptr, 1);
+  C_return(res);
+}
+
+C_word c(C_word C_k, C_word l)
+{
+  if (l == C_SCHEME_END_OF_LIST)
+  {
+    C_return(C_SCHEME_END_OF_LIST);
+  }
+
+  C_word cdr = c(C_k, C_i_cdr(l));
+  C_word *ptr = C_alloc(C_SIZEOF_PAIR);
+  C_word res = C_a_pair(&ptr, C_i_car(l), cdr);
+  C_return(res);
+}
+
+extern void parse_json(C_word C_k, const char *filename, C_word l)
 {
   simdjson::dom::parser parser;
   simdjson::dom::element tweets = parser.load(filename);
-  print_json(tweets);
-  // const char *str = "hello world";
-  // int length = strlen(str);
-  // C_word *ptr = C_alloc(C_SIZEOF_STRING(length));
-
-  // C_word res = C_string(&ptr, length, (char *)str);
-  C_kontinue(C_k, f(filename));
+  // C_kontinue(C_k, print_json(C_k, tweets));
+  // C_kontinue(C_k, g(filename));
+  C_kontinue(C_k, c(C_k, l));
 }

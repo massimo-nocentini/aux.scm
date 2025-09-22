@@ -12,9 +12,10 @@
   #include "chicken-simdjson.h"
   <#
 
-  (define simdjson-parse (foreign-primitive scheme-object (((const c-string) filename))
-      "parse_json(C_k, filename);"
-  ))
+  (define-external (c_rec (scheme-object l)) scheme-object #f)
+
+  (define simdjson-parse (foreign-primitive scheme-object (((const c-string) filename) (scheme-object l))
+      "parse_json(C_k, filename, l);"))
    
   )
 
@@ -31,7 +32,10 @@
 
 
 
-#;(import (aux simdjson))
+#|
+
+(import (aux simdjson))
+(simdjson-parse "twitter.json" '(1 2 3))
 
 
 
@@ -40,4 +44,4 @@
 
 
 
-#;(simdjson-parse "twitter.json")
+|#

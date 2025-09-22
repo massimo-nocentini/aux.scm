@@ -10,7 +10,7 @@ extern "C"
 {
 #endif
 
-    void parse_json(C_word C_k, const char *filename);
+    void parse_json(C_word C_k, const char *filename, C_word l);
 
 #ifdef __cplusplus
 }
