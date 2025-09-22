@@ -97,14 +97,16 @@ C_word g(const char *filename)
   C_return(res);
 }
 
-C_word c(C_word C_k, C_word l)
+extern C_word c_rec(C_word l);
+
+extern C_word c(C_word l)
 {
   if (l == C_SCHEME_END_OF_LIST)
   {
     C_return(C_SCHEME_END_OF_LIST);
   }
 
-  C_word cdr = c(C_k, C_i_cdr(l));
+  C_word cdr = c(C_i_cdr(l));
   C_word *ptr = C_alloc(C_SIZEOF_PAIR);
   C_word res = C_a_pair(&ptr, C_i_car(l), cdr);
   C_return(res);
@@ -116,5 +118,5 @@ extern void parse_json(C_word C_k, const char *filename, C_word l)
   simdjson::dom::element tweets = parser.load(filename);
   // C_kontinue(C_k, print_json(C_k, tweets));
   // C_kontinue(C_k, g(filename));
-  C_kontinue(C_k, c(C_k, l));
+  C_kontinue(C_k, c(l));
 }

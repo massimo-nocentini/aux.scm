@@ -56,8 +56,10 @@ format:
 	#sed -e :a -e '/^\n\n*$/{$d;N;};/\n$/ba' aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm	
 
 simdjson:
-	rm -rf simdjson.cpp simdjson.h twitter.json libsimdjson.so
+	rm -rf simdjson.cpp simdjson.h twitter.json
 	wget --no-verbose https://github.com/simdjson/simdjson/releases/latest/download/simdjson.cpp
 	wget --no-verbose https://github.com/simdjson/simdjson/releases/latest/download/simdjson.h
 	wget --no-verbose https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json
 	clang++ -O3 -shared -fPIC simdjson.cpp -o libsimdjson.so
+	sudo mv libsimdjson.so /usr/local/lib
+	sudo ldconfig

@@ -5,9 +5,10 @@
  (version "0.1.0")
  (dependencies srfi-69 srfi-1 srfi-19 sxml-transforms)
  (components 
-  (c-object chicken-timsort (link-options "-L" "-ltimsort") (link-options "-L./" "-L" "-lsimdjson"))
-  (c-object chicken-simdjson (source "chicken-simdjson.cpp") )
-  (extension aux.simdjson (objects chicken-simdjson) )
+  (c-object chicken-timsort (link-options "-L" "-ltimsort"))
+  (c-object chicken-simdjson (source "chicken-simdjson.cpp") (link-options "-L" "-lsimdjson"))
+  
+  (extension aux.simdjson (objects chicken-simdjson))
   (extension aux.sxml)
   (extension aux.unittest)
   (extension aux.base)
