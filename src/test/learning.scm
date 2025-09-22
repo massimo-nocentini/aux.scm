@@ -8,30 +8,30 @@
 
 C_word C_my_allocate_string (C_word C_k)
 {
-  char* str = "hello world";
-  int length = strlen(str);
-  C_word* ptr = C_alloc (C_SIZEOF_STRING (length));
-  C_word res = C_string (&ptr, length, str);
-  C_kontinue (C_k, res);
-}
+ char* str = "hello world";
+ int length = strlen(str);
+ C_word* ptr = C_alloc (C_SIZEOF_STRING (length));
+ C_word res = C_string (&ptr, length, str);
+ C_kontinue (C_k, res);
+ }
 
 extern int callout(int, int, int);
 
 extern C_word C_list_walk(C_word l, C_word p)
 {
-  if (l == C_SCHEME_END_OF_LIST)
-  {
-    //C_save(C_SCHEME_END_OF_LIST);
-    //C_return(C_callback(p, 1));
-    C_return(C_SCHEME_END_OF_LIST);
+ if (l == C_SCHEME_END_OF_LIST)
+ {
+  //C_save(C_SCHEME_END_OF_LIST);
+  //C_return(C_callback (p, 1));
+  C_return(C_SCHEME_END_OF_LIST);
   }
 
-  C_word cdr = C_list_walk(C_i_cdr(l), p);
-  C_word *ptr = C_alloc(C_SIZEOF_PAIR);
-  C_word res = C_a_pair(&ptr, C_i_car(l), cdr);
-  C_save(res);
-  C_return(C_callback(p, 1));
-}
+ C_word cdr = C_list_walk(C_i_cdr (l), p);
+ C_word *ptr = C_alloc(C_SIZEOF_PAIR);
+ C_word res = C_a_pair(&ptr, C_i_car(l), cdr);
+ C_save(res);
+ C_return(C_callback (p, 1));
+ }
 
 <#
 
@@ -114,6 +114,7 @@ END
   )
 
 (unittest/✓ learning-suite)
+
 
 
 

@@ -9,26 +9,21 @@
     (aux base))
 
   #>
+
   #include "chicken-simdjson.h"
-  extern C_word c(C_word l);
+  
   <#
 
-  
+  (define (simdjson-parse filename)
+    (let ((P (foreign-safe-lambda scheme-object "chicken_simdjson_load" (const c-string) scheme-object scheme-object scheme-object))
+          (callback-object list))
+    (P filename callback-object identity vector-set!)))
 
-  ; (define sc (foreign-safe-lambda scheme-object "c" scheme-object))
-
-  ; (define-external (c_rec (scheme-object l)) scheme-object (sc l))
-
-  #;(define simdjson-parse (foreign-primitive scheme-object (((const c-string) filename) (scheme-object l) (scheme-object p))
-      "parse_json(C_k, filename, l, p);"))
-   
-(define simdjson-parse (foreign-safe-lambda scheme-object "parse_json" scheme-object (const c-string) scheme-object scheme-object))
-   
 
   )
 
 
- 
+
 
 
 
@@ -48,7 +43,7 @@
 
 (define stack '())
 
-(simdjson-parse #t "twitter.json" '(1 2 3) (λ (x) #;(display x) #;(push! x stack) (list x)))
+(simdjson-parse "twitter.json")
 
 stack
 

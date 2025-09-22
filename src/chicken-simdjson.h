@@ -10,8 +10,7 @@ extern "C"
 {
 #endif
 
-    C_word parse_json(C_word C_k, const char *filename, C_word l, C_word p);
-    // extern C_word c(C_word l);
+    C_word chicken_simdjson_load(const char *filename, C_word callback_object, C_word callback_int64, C_word callback_vector);
 
 #ifdef __cplusplus
 }
