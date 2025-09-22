@@ -12,10 +12,10 @@
 using namespace std;
 using namespace simdjson;
 
-C_word print_json(C_word C_k, dom::element element)
+C_word print_json(C_word C_k, dom::element element, C_word p)
 {
-  C_word res;
-  C_word *ptr;
+  C_word res = C_SCHEME_UNDEFINED;
+  C_word *ptr = NULL;
 
   switch (element.type())
   {
@@ -45,8 +45,9 @@ C_word print_json(C_word C_k, dom::element element)
     dom::object array = dom::object(element);
     size_t length = array.size();
     ptr = C_alloc(C_SIZEOF_PAIR);
-    res = C_a_pair(&ptr, C_fix(length), C_SCHEME_END_OF_LIST);
-    // C_gc_protect(&ptr, 1);
+    C_word w = C_a_pair(&ptr, C_fix(length), C_SCHEME_END_OF_LIST);
+    C_save(w);
+    res = C_callback(p, 1);
     break;
     // case dom::element_type::INT64:
     //   cout << int64_t(element) << endl;
@@ -74,7 +75,7 @@ C_word print_json(C_word C_k, dom::element element)
   // C_kontinue(C_k, res);
   printf("done\n");
   // C_word args[] = {C_SCHEME_UNDEFINED, C_k, res};
-  return res;
+  C_return(res);
 }
 
 C_word f(const char *filename)
@@ -99,24 +100,28 @@ C_word g(const char *filename)
 
 extern C_word c_rec(C_word l);
 
-extern C_word c(C_word l)
+extern C_word c(C_word l, C_word p)
 {
   if (l == C_SCHEME_END_OF_LIST)
   {
-    C_return(C_SCHEME_END_OF_LIST);
+    C_save(C_SCHEME_END_OF_LIST);
+    C_return(C_callback(p, 1));
   }
 
-  C_word cdr = c(C_i_cdr(l));
+  C_word cdr = c(C_i_cdr(l), p);
   C_word *ptr = C_alloc(C_SIZEOF_PAIR);
   C_word res = C_a_pair(&ptr, C_i_car(l), cdr);
-  C_return(res);
+  C_save(res);
+  C_return(C_callback(p, 1));
 }
 
-extern void parse_json(C_word C_k, const char *filename, C_word l)
+extern C_word parse_json(C_word C_k, const char *filename, C_word l, C_word p)
 {
   simdjson::dom::parser parser;
   simdjson::dom::element tweets = parser.load(filename);
+  // C_return(print_json(C_k, &tweets, p));
+  // C_kontinue(C_k, print_json(C_k, &tweets, p));
   // C_kontinue(C_k, print_json(C_k, tweets));
   // C_kontinue(C_k, g(filename));
-  C_kontinue(C_k, c(l));
+  C_return(c(l, p));
 }

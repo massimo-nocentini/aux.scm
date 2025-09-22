@@ -5,18 +5,33 @@
   scheme (chicken base) (chicken pretty-print) (chicken condition) (chicken foreign) (chicken gc))
 
 #>
-extern C_word C_my_allocate_string ();
 
-C_word C_my_allocate_string ()
+C_word C_my_allocate_string (C_word C_k)
 {
- char* str = "hello world";
- int length = strlen(str);
- C_word* ptr = C_alloc (C_SIZEOF_STRING (length));
- C_word res = C_string (&ptr, length, str);
- return res;
- }
+  char* str = "hello world";
+  int length = strlen(str);
+  C_word* ptr = C_alloc (C_SIZEOF_STRING (length));
+  C_word res = C_string (&ptr, length, str);
+  C_kontinue (C_k, res);
+}
 
 extern int callout(int, int, int);
+
+extern C_word C_list_walk(C_word l, C_word p)
+{
+  if (l == C_SCHEME_END_OF_LIST)
+  {
+    //C_save(C_SCHEME_END_OF_LIST);
+    //C_return(C_callback(p, 1));
+    C_return(C_SCHEME_END_OF_LIST);
+  }
+
+  C_word cdr = C_list_walk(C_i_cdr(l), p);
+  C_word *ptr = C_alloc(C_SIZEOF_PAIR);
+  C_word res = C_a_pair(&ptr, C_i_car(l), cdr);
+  C_save(res);
+  C_return(C_callback(p, 1));
+}
 
 <#
 
@@ -66,13 +81,18 @@ END
                                                 ))
          (⊦= "hello world" (allocate_string))))
 
-  ((test/foreign-safe-lambda*/allocate_string/called _) 
-   (let1 (allocate_string (foreign-safe-lambda* scheme-object () "C_word r = C_my_allocate_string(); C_return(r);"))
-         (⊦= "hello world" (allocate_string))))
+  ((test/foreign-primitive/allocate-string _) 
+   (let1 (allocate_string (foreign-primitive scheme-object () "C_my_allocate_string(C_k);"))
+         (⊦= "hello world" (allocate_string)))
+   `(doc (p "An example of " (code/inline "foreign-primitive") 
+            " " (cite/a "https://wiki.call-cc.org/man/5/Module%20(chicken%20foreign)#foreign-primitive" 
+                        (code/inline "foreign-primitive") ", Chicken Scheme manual.") 
+            " that allocates a string in C and returns it to Scheme. "
+            "The C code is inlined in the Scheme source code.")))
 
-  ((test/foreign-safe-lambda*/allocate_string/defined _) 
-   (let1 (allocate_string (foreign-safe-lambda scheme-object "C_my_allocate_string"))
-         (⊦= "hello world" (allocate_string))))
+  ((test/foreign-safe-lambda/list-walk _) 
+   (let1 (list-walk (foreign-safe-lambda scheme-object "C_list_walk" scheme-object scheme-object))
+         (⊦= '(1 2 3) (list-walk '(1 2 3) identity))))
 
   ((test/foreign/callout-callin _) 
    (define callout (foreign-safe-lambda int "callout" int int int))
@@ -86,7 +106,7 @@ END
             ". The function that is called back from C into Scheme is " (code/inline "callin") 
             ". Taken from the Chicken Scheme manual " 
             (cite/a "https://wiki.call-cc.org/man/5/C%20interface#an-example-for-simple-calls-to-foreign-code-involving-callbacks"
-                    "An example for simple calls to foreign code involving callbacks") ".")))
+                    "An example for simple calls to foreign code involving callbacks, Chicken Scheme manual.") ".")))
 
 
   ((test-null-eq? _) (⊨ (eq? '() '())))
