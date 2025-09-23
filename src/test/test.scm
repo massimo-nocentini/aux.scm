@@ -96,13 +96,10 @@
 
   ((test/simdjson/load-twitter/ondemand _)
    (⊦= (simdjson-load "twitter.json") (simdjson-load/ondemand "twitter.json"))
-   `(doc (p "Loaded a testbed json file " (code/inline "twitter.json") 
-            (cite/a "https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json" 
-              (code/inline "twitter.json") " : a twitter search result JSON file")
-            " with the " (code/inline "simdjson") 
-            (cite/a "https://github.com/simdjson/simdjson" (code/inline "simdjson") " : parsing gigabytes of JSON per second")
-            (cite/a "https://simdjson.github.io/simdjson/index.html" (code/inline "simdjson") " : user manual and documentation")
-            " library. The file contains a twitter search result with 100 tweets. ")))
+   `(doc (p "Here we show the " (i "on demand") " parsing mode of " (code/inline "simdjson") 
+            (cite/a "https://simdjson.github.io/simdjson/md_doc_basics.html#documents-are-iterators" 
+            (code/inline "simdjson") " : Documents are iterators") 
+            ", which yields equivalent Scheme objects with respect to the DOM parsing.")))
 
             
 
