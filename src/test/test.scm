@@ -71,7 +71,6 @@
 
 
   ((test/simdjson/load-twitter _)
-   ;(import (aux simdjson))
    (define twitter-json (simdjson-load "twitter.json"))
    (⊦= 2 (length twitter-json))
    (⊦= '("search_metadata"
@@ -86,7 +85,16 @@
             ("count" 100)
             ("since_id" 0)
             ("since_id_str" "0"))) (cadr twitter-json))
-   (⊦= 100 (vector-length (cadar twitter-json))))
+   (⊦= 100 (vector-length (cadar twitter-json)))
+   `(doc (p "Loaded a testbed json file " (code/inline "twitter.json") 
+            (cite/a "https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json" 
+              (code/inline "twitter.json") " : a twitter search result JSON file")
+            " with the " (code/inline "simdjson") 
+            (cite/a "https://github.com/simdjson/simdjson" (code/inline "simdjson") " : parsing gigabytes of JSON per second")
+            (cite/a "https://simdjson.github.io/simdjson/index.html" (code/inline "simdjson") " : user manual and documentation")
+            " library. The file contains a twitter search result with 100 tweets. ")))
+
+            
 
   )
 
