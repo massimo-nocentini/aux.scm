@@ -52,7 +52,7 @@ C_word chicken_simdjson_visit(
       C_save(C_fix(i));
       C_save(res);
 
-      C_callback(callback_vector_set, 3);
+      res = C_callback(callback_vector_set, 3);
 
       i++;
     }
@@ -206,7 +206,7 @@ C_word chicken_simdjson_visit_ondemand(
       C_save(C_fix(i));
       C_save(res);
 
-      C_callback(callback_vector_set, 3);
+      res = C_callback(callback_vector_set, 3);
 
       i++;
     }
