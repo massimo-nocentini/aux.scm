@@ -24,7 +24,7 @@
                                   scheme-object 
                                   scheme-object
                                   scheme-object))
-          (P filename list identity make-vector cons (λ (v i x) (vector-set! v i x) v) reverse)))
+          (P filename list identity make-vector cons vector-set! reverse)))
 
   (define (simdjson-load/ondemand filename)
     (let1 (P (foreign-safe-lambda scheme-object "chicken_simdjson_load_ondemand" 
@@ -35,7 +35,7 @@
                                   scheme-object 
                                   scheme-object
                                   scheme-object))
-          (P filename list identity make-vector cons (λ (v i x) (vector-set! v i x) v) reverse)))
+          (P filename list identity make-vector cons vector-set! reverse)))
  
 
   )
