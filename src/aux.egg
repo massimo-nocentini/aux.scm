@@ -3,7 +3,7 @@
  (synopsis "Auxiliary definitions and macros.")
  (license "MIT")
  (version "0.1.0")
- (dependencies srfi-69 srfi-1 srfi-19 sxml-transforms)
+ (dependencies srfi-69 srfi-1 srfi-19 sxml-transforms matchable)
  (components 
   (c-object chicken-timsort (link-options "-L" "-ltimsort"))
 

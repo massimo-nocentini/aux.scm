@@ -63,7 +63,7 @@ simdjson-fetch:
 	cd test && wget --no-verbose https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json
 	
 simdjson-compile:
-	clang++ -O3 -shared -fPIC chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
+	clang++ -O3 -Wall -g -shared -fPIC chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
 	
 simdjson-install:
 	mv libchicken-simdjson.so /usr/local/lib

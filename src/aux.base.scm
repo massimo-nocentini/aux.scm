@@ -53,7 +53,7 @@
   (define-syntax-rule (add1! var) (begin (set! var (add1 var)) (void)))
   (define-syntax-rule (sub1! var) (begin (set! var (sub1 var)) (void)))
   (define-syntax-rule (λ formals body ...) (lambda formals body ...))
-  (define-syntax-rule (λ/_ body ...) (λ _ body ...))
+  (define-syntax-rule (λ_ body ...) (λ _ body ...))
   (define-syntax-rule (τ body ...) (λ () body ...))
   (define-syntax-rule (define-τ name body ...) (define name (τ body ...)))
   (define-syntax-rule (letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))
@@ -146,9 +146,10 @@
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
   (define one? (λ (n) (equal? n 1)))
-  (define K (λ keep (λ/_ (apply values keep))))
+  (define K (λ keep (λ_ (apply values keep))))
+  (define K₁ (λ (x) (λ_ x)))
   (define Φ (λ (f) (f f)))
-  (define Y (λ (f) (Φ (λ (g) (f (λ args (apply (g g) args)))))))
+  (define Y (λ (f) (Φ (λ (g) (f (λ args (apply (Φ g) args)))))))
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
   )
