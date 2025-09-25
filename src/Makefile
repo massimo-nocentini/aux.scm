@@ -68,3 +68,12 @@ simdjson-compile:
 simdjson-install:
 	mv libchicken-simdjson.so /usr/local/lib
 	
+timsort-compile:
+	clang -O3 -Wall -g -shared -fPIC chicken-timsort.c -o libchicken-timsort.so -ltimsort
+
+timsort-install:
+	mv libchicken-timsort.so /usr/local/lib
+
+foreigns: timsort-compile simdjson-compile
+
+foreigns-install: timsort-install simdjson-install
