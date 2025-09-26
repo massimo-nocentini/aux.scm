@@ -85,4 +85,4 @@ foreigns: timsort-compile simdjson-compile
 
 foreigns-install: timsort-install simdjson-install
 
-foreings-all: foreigns-fetch foreigns foreigns-install
+foreigns-all: foreigns-fetch foreigns foreigns-install
