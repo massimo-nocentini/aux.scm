@@ -146,10 +146,17 @@
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
   (define one? (λ (n) (equal? n 1)))
-  (define K (λ keep (λ_ (apply values keep))))
-  (define K₁ (λ (x) (λ_ x)))
+
+  ; the SKI combinators.
+  (define K (λ (x) (λ_ x)))
+  (define K* (λ keeps (λ_ (apply values keeps))))
+  (define (((S x) y) z) (x z (y z)))
+  (define (((S* x) y) . zs) (apply x (append zs (list (apply y zs)))))
+  (define (((S⁺ x) y) . zs) (apply x (cons (apply y zs) zs)))
+
   (define Φ (λ (f) (f f)))
   (define Y (λ (f) (Φ (λ (g) (f (λ args (apply (Φ g) args)))))))
+  
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
   )
