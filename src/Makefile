@@ -63,17 +63,26 @@ simdjson-fetch:
 	cd test && wget --no-verbose https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json
 	
 simdjson-compile:
-	clang++ -O3 -Wall -g -shared -fPIC chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
+	clang++ -O3 -Wall -shared -fPIC chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
 	
 simdjson-install:
 	mv libchicken-simdjson.so /usr/local/lib
-	
+
+timsort-fetch:
+	rm -rf timsort.c timsort.h
+	wget --no-verbose https://raw.githubusercontent.com/massimo-nocentini/timsort.c/refs/heads/master/src/timsort.c
+	wget --no-verbose https://raw.githubusercontent.com/massimo-nocentini/timsort.c/refs/heads/master/src/timsort.h
+
 timsort-compile:
-	clang -O3 -Wall -g -shared -fPIC chicken-timsort.c -o libchicken-timsort.so -ltimsort
+	clang -O3 -Wall -shared -fPIC chicken-timsort.c timsort.c -o libchicken-timsort.so
 
 timsort-install:
 	mv libchicken-timsort.so /usr/local/lib
 
+foreigns-fetch: timsort-fetch simdjson-fetch
+
 foreigns: timsort-compile simdjson-compile
 
 foreigns-install: timsort-install simdjson-install
+
+foreings-all: foreigns-fetch foreigns foreigns-install

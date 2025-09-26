@@ -22,7 +22,7 @@ C_word chicken_simdjson_visit(
     C_word callback_list_finalize)
 {
   C_word res = C_SCHEME_UNDEFINED;
-  C_word tmp = C_SCHEME_UNDEFINED, another_tmp = C_SCHEME_UNDEFINED;
+  C_word tmp = C_SCHEME_UNDEFINED;
   C_word *ptr = NULL;
 
   switch (element.type())
@@ -68,7 +68,7 @@ C_word chicken_simdjson_visit(
 
     for (dom::key_value_pair field : obj)
     {
-      another_tmp = chicken_simdjson_visit(
+      tmp = chicken_simdjson_visit(
           field.value,
           callback_object,
           callback_identity,
@@ -79,10 +79,9 @@ C_word chicken_simdjson_visit(
 
       size_t length = field.key.size();
       ptr = C_alloc(C_SIZEOF_STRING(length));
-      tmp = C_string(&ptr, length, (char *)field.key.data());
 
-      C_save(another_tmp);
       C_save(tmp);
+      C_save(C_string(&ptr, length, (char *)field.key.data()));
       tmp = C_callback(callback_object, 2);
 
       C_save(res);
@@ -138,7 +137,6 @@ C_word chicken_simdjson_visit(
     break;
   }
   default:
-    res = C_SCHEME_UNDEFINED;
     break;
   }
 
@@ -176,7 +174,7 @@ C_word chicken_simdjson_visit_ondemand(
     C_word callback_list_finalize)
 {
   C_word res = C_SCHEME_UNDEFINED;
-  C_word tmp = C_SCHEME_UNDEFINED, another_tmp = C_SCHEME_UNDEFINED;
+  C_word tmp = C_SCHEME_UNDEFINED;
   C_word *ptr = NULL;
 
   switch (element.type())
@@ -222,7 +220,7 @@ C_word chicken_simdjson_visit_ondemand(
 
     for (auto field : obj)
     {
-      another_tmp = chicken_simdjson_visit_ondemand(
+      tmp = chicken_simdjson_visit_ondemand(
           field.value(),
           callback_object,
           callback_identity,
@@ -234,10 +232,9 @@ C_word chicken_simdjson_visit_ondemand(
       auto raw = field.unescaped_key().value();
       size_t key_length = raw.length();
       ptr = C_alloc(C_SIZEOF_STRING(key_length));
-      tmp = C_string(&ptr, key_length, (char *)raw.data());
 
-      C_save(another_tmp);
       C_save(tmp);
+      C_save(C_string(&ptr, key_length, (char *)raw.data()));
       tmp = C_callback(callback_object, 2);
 
       C_save(res);
@@ -295,7 +292,6 @@ C_word chicken_simdjson_visit_ondemand(
     break;
   }
   default:
-    res = C_SCHEME_UNDEFINED;
     break;
   }
 

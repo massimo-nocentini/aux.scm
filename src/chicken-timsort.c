@@ -2,9 +2,9 @@
 #include <stdio.h>
 #include <assert.h>
 #include <chicken/chicken.h>
-#include <timsort.h>
 #include <stdlib.h>
 #include <string.h>
+#include "timsort.h"
 #include "chicken-timsort.h"
 
 typedef struct
