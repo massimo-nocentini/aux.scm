@@ -57,6 +57,7 @@
   (define-syntax-rule (τ body ...) (λ () body ...))
   (define-syntax-rule (define-τ name body ...) (define name (τ body ...)))
   (define-syntax-rule (letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))
+  (define-syntax-rule (letport/output-string p body ...) (call-with-output-string (λ (p) body ...)))
 
   (define-syntax letcar&cdr
     (syntax-rules ()
@@ -146,6 +147,7 @@
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
   (define one? (λ (n) (equal? n 1)))
+  (define void? (λ (v) (eq? v (void))))
 
   ; the SKI combinators.
   (define K (λ (x) (λ_ x)))
@@ -156,10 +158,12 @@
 
   (define Φ (λ (f) (f f)))
   (define Y (λ (f) (Φ (λ (g) (f (λ args (apply (Φ g) args)))))))
-  
+
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
   )
+
+
 
 
 
