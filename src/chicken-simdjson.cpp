@@ -1,12 +1,9 @@
 
-#include <stdio.h>
-#include <assert.h>
 #include <chicken/chicken.h>
-#include <stdlib.h>
 #include <string.h>
 #include <iostream>
 #include "chicken-simdjson.h"
-#include "simdjson.h"
+#include "simdjson.cpp"
 
 using namespace std;
 using namespace simdjson;
