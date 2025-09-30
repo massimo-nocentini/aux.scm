@@ -28,6 +28,15 @@ extern "C"
         C_word callback_vector_set,
         C_word callback_list_finalize);
 
+    C_word chicken_simdjson_parse_ondemand(
+        C_word data,
+        C_word callback_object,
+        C_word callback_identity,
+        C_word callback_vector,
+        C_word callback_list,
+        C_word callback_vector_set,
+        C_word callback_list_finalize);
+
 #ifdef __cplusplus
 }
 #endif

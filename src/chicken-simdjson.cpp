@@ -315,3 +315,25 @@ extern C_word chicken_simdjson_load_ondemand(
       callback_vector_set,
       callback_list_finalize));
 }
+
+extern C_word chicken_simdjson_parse_ondemand(
+    C_word data,
+    C_word callback_object,
+    C_word callback_identity,
+    C_word callback_vector,
+    C_word callback_list,
+    C_word callback_vector_set,
+    C_word callback_list_finalize)
+{
+  ondemand::parser parser;
+  simdjson::padded_string my_padded_data(C_c_string(data), C_i_string_length(data));
+  ondemand::document doc = parser.iterate(my_padded_data);
+  C_return(chicken_simdjson_visit_ondemand(
+      doc,
+      callback_object,
+      callback_identity,
+      callback_vector,
+      callback_list,
+      callback_vector_set,
+      callback_list_finalize));
+}
