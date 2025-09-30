@@ -68,3 +68,11 @@ timsort-fetch:
 	wget --no-verbose https://raw.githubusercontent.com/massimo-nocentini/timsort.c/refs/heads/master/src/timsort.h
 
 foreigns-fetch: timsort-fetch simdjson-fetch
+
+foreigns-compile:
+	clang -O3 -fPIC -shared chicken-timsort.c timsort.c -o libchicken-timsort.so
+	clang++ -O3 -fPIC -shared chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
+
+foreigns-install:
+	mv libchicken-timsort.so /usr/local/lib/
+	mv libchicken-simdjson.so /usr/local/lib/

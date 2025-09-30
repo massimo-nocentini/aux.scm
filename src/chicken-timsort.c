@@ -4,7 +4,7 @@
 #include <chicken/chicken.h>
 #include <stdlib.h>
 #include <string.h>
-#include "timsort.c"
+#include "timsort.h"
 #include "chicken-timsort.h"
 
 typedef struct
