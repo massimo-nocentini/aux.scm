@@ -201,8 +201,9 @@
          (let* ((request (current-request))
                 (uri (request-uri request))
                 (m (request-method request))
-                (body (foldl (lambda (str each) (string-append str (symbol->string (car each)))) 
-                             "" (if (request-has-message-body? request) (read-urlencoded-request-data request) '()))))
+                (body (if (request-has-message-body? request)
+                        (foldl (lambda (str each) (string-append str (symbol->string (car each)))) "" (read-urlencoded-request-data request))
+                        (void))))
            (cond 
             ((equal? (quote method) m) (match (uri-path uri) (('/ p ...) b ...) ...)) ...
             (else (continue))))))))
