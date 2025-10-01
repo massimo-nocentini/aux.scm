@@ -12,10 +12,18 @@
     (chicken syntax) 
     (chicken flonum) 
     (chicken time) 
-    (chicken gc) 
+    (chicken gc)
+    (chicken module)
     srfi-1 
     srfi-19
-    sxml-transforms)
+    sxml-transforms
+    spiffy 
+    intarweb 
+    uri-common
+    matchable
+    )
+
+  (reexport matchable)
 
   (define highlight-version "11.11.1")
 
@@ -184,5 +192,23 @@
                         alist-conv-rules*))
               (append `((escape *preorder* . ,(lambda (tag body) (apply string-append (map ->string body)))))
                       universal-conversion-rules*)))))))
+
+
+  (define-syntax define-vhost 
+    (syntax-rules () 
+      ((define-vhost (name request body) (method ((p ...) b ...) ...) ...)
+       (define (name continue)
+         (let* ((request (current-request))
+                (uri (request-uri request))
+                (body (foldl (lambda (str each) (string-append str (symbol->string (car each)))) 
+                             "" (if (request-has-message-body? request) (read-urlencoded-request-data request) '()))))
+           (when (equal? (quote method) (request-method request))
+             (match (uri-path uri)
+               (('/ p ...) b ...) ...)) ...
+           (continue))))))
+
+  (define-syntax define-vhost-map 
+    (syntax-rules () 
+      ((define-vhost-map (host handler) ...) (vhost-map `((,host . ,handler) ...)))))
 
   )
