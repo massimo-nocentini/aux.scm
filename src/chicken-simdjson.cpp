@@ -317,7 +317,8 @@ extern C_word chicken_simdjson_load_ondemand(
 }
 
 extern C_word chicken_simdjson_parse_ondemand(
-    C_word data,
+    const char *data,
+    size_t length,
     C_word callback_object,
     C_word callback_identity,
     C_word callback_vector,
@@ -326,7 +327,7 @@ extern C_word chicken_simdjson_parse_ondemand(
     C_word callback_list_finalize)
 {
   ondemand::parser parser;
-  simdjson::padded_string my_padded_data(C_c_string(data), C_i_string_length(data));
+  simdjson::padded_string my_padded_data(data, length);
   ondemand::document doc = parser.iterate(my_padded_data);
   C_return(chicken_simdjson_visit_ondemand(
       doc,

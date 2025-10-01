@@ -29,7 +29,8 @@ extern "C"
         C_word callback_list_finalize);
 
     C_word chicken_simdjson_parse_ondemand(
-        C_word data,
+        const char *data,
+        size_t length,
         C_word callback_object,
         C_word callback_identity,
         C_word callback_vector,

@@ -37,16 +37,17 @@
                                   scheme-object))
           (P filename list identity make-vector cons (λ (v i x) (vector-set! v i x) v) reverse)))
 
-  (define (simdjson-parse/ondemand filename)
+  (define (simdjson-parse/ondemand str)
     (let1 (P (foreign-safe-lambda scheme-object "chicken_simdjson_parse_ondemand" 
-                                  scheme-object 
+                                  (const c-string) 
+                                  size_t 
                                   scheme-object 
                                   scheme-object
                                   scheme-object
                                   scheme-object 
                                   scheme-object
                                   scheme-object))
-          (P filename list identity make-vector cons (λ (v i x) (vector-set! v i x) v) reverse)))
+          (P str (string-length str) list identity make-vector cons (λ (v i x) (vector-set! v i x) v) reverse)))
 
   (define (->string/json w)
     (letport/output-string port
