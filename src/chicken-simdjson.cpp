@@ -229,6 +229,7 @@ C_word chicken_simdjson_visit_ondemand(
       size_t key_length = raw.length();
       ptr = C_alloc(C_SIZEOF_STRING(key_length));
 
+      C_callback_adjust_stack(ptr, 2);
       C_save(tmp);
       C_save(C_string(&ptr, key_length, (char *)raw.data()));
       tmp = C_callback(callback_object, 2);
@@ -255,6 +256,7 @@ C_word chicken_simdjson_visit_ondemand(
     {
       ptr = C_alloc(11); // taken from the upstream Chicken source code.
       res = C_uint64_to_num(&ptr, element.get_uint64());
+      C_callback_adjust_stack(ptr, 1);
       C_save(res);
       res = C_callback(callback_identity, 1);
     }
@@ -262,6 +264,7 @@ C_word chicken_simdjson_visit_ondemand(
     {
       ptr = C_alloc(C_SIZEOF_FLONUM);
       res = C_flonum(&ptr, element.get_double());
+      C_callback_adjust_stack(ptr, 1);
       C_save(res);
       res = C_callback(callback_identity, 1);
     }
@@ -274,6 +277,7 @@ C_word chicken_simdjson_visit_ondemand(
     size_t length = str.size();
     ptr = C_alloc(C_SIZEOF_STRING(length));
     res = C_string(&ptr, length, (char *)str.data());
+    C_callback_adjust_stack(ptr, 1);
     C_save(res);
     res = C_callback(callback_identity, 1);
     break;
