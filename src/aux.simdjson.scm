@@ -71,7 +71,7 @@
                                (let* ((keyvalue (car lst))
                                       (key (car keyvalue))
                                       (val (cadr keyvalue)))
-                                 (if (string? key)
+                                 (if (or (string? key) (symbol? key))
                                      (begin
                                        (display "\"" port)
                                        (display key port)

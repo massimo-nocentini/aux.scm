@@ -71,20 +71,20 @@
 
 
   ((test/simdjson/load-twitter _)
-   (define twitter-json (simdjson-load "twitter.json"))
+   (define twitter-json (simdjson-load/ondemand "twitter.json"))
    (⊦= 2 (length twitter-json))
-   (⊦= '("search_metadata"
-         (("completed_in" 0.087)
-          ("max_id" 505874924095815700)
-          ("max_id_str" "505874924095815681")
-          ("next_results"
+   (⊦= '(search_metadata
+         ((completed_in 0.087)
+          (max_id 505874924095815700)
+          (max_id_str "505874924095815681")
+          (next_results
           "?max_id=505874847260352512&q=%E4%B8%80&count=100&include_entities=1")
-          ("query" "%E4%B8%80")
-          ("refresh_url"
+          (query "%E4%B8%80")
+          (refresh_url
           "?since_id=505874924095815681&q=%E4%B8%80&include_entities=1")
-          ("count" 100)
-          ("since_id" 0)
-          ("since_id_str" "0"))) (cadr twitter-json))
+          (count 100)
+          (since_id 0)
+          (since_id_str "0"))) (cadr twitter-json))
    (⊦= 100 (vector-length (cadar twitter-json)))
    `(doc (p "Loaded a testbed json file " (code/inline "twitter.json") 
             (cite/a "https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json" 
@@ -107,7 +107,7 @@
    `(doc))
 
   ((test/simdjson/parse _)
-   (⊦= #((("a" 1) ("b" 2)) (("c" 3) ("d" 4))) (simdjson-parse/ondemand "[{\"a\":1,\"b\":2},{\"c\":3,\"d\":4}]"))
+   (⊦= #(((a 1) (b 2)) ((c 3) (d 4))) (simdjson-parse/ondemand "[{\"a\":1,\"b\":2},{\"c\":3,\"d\":4}]"))
    `(doc))
 
 
