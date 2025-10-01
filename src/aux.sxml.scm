@@ -200,12 +200,12 @@
        (define (name continue)
          (let* ((request (current-request))
                 (uri (request-uri request))
+                (m (request-method request))
                 (body (foldl (lambda (str each) (string-append str (symbol->string (car each)))) 
                              "" (if (request-has-message-body? request) (read-urlencoded-request-data request) '()))))
-           (when (equal? (quote method) (request-method request))
-             (match (uri-path uri)
-               (('/ p ...) b ...) ...)) ...
-           (continue))))))
+           (cond 
+            ((equal? (quote method) m) (match (uri-path uri) (('/ p ...) b ...) ...)) ...
+            (else (continue))))))))
 
   (define-syntax define-vhost-map 
     (syntax-rules () 
