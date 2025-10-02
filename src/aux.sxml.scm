@@ -17,7 +17,8 @@
     srfi-1 
     srfi-19
     sxml-transforms
-    spiffy 
+    spiffy
+    spiffy-request-vars
     intarweb 
     uri-common
     matchable
@@ -192,19 +193,16 @@
                         alist-conv-rules*))
               (append `((escape *preorder* . ,(lambda (tag body) (apply string-append (map ->string body)))))
                       universal-conversion-rules*)))))))
-
-
+  
   (define-syntax define-vhost 
     (syntax-rules () 
-      ((define-vhost (name request body) (method ((p ...) b ...) ...) ...)
-       (define (name continue)
-         (let* ((request (current-request))
+      ((define-vhost (name request $) (method ((p ...) b ...) ...) ...)
+      (define (name continue)
+        (let* ((request (current-request))
                 (uri (request-uri request))
                 (m (request-method request))
-                (body (if (request-has-message-body? request)
-                        (foldl (lambda (str each) (string-append str (symbol->string (car each)))) "" (read-urlencoded-request-data request))
-                        (void))))
-           (cond 
+                ($ (request-vars)))
+          (cond
             ((equal? (quote method) m) (match (uri-path uri) (('/ p ...) b ...) ...)) ...
             (else (continue))))))))
 
