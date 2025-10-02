@@ -161,6 +161,8 @@
 
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
+  (define (load/string str) (read (open-input-string str)))
+
   )
 
 

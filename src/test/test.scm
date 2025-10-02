@@ -69,6 +69,9 @@
          (⊦= 55 v)
          (⊦= 11 count)))
 
+  ((test/load/string _)
+   (⊦= '(+ 3 4) (load/string "(+ 3 4)"))
+  `(doc))
 
   ((test/simdjson/load-twitter _)
    (define twitter-json (simdjson-load/ondemand "twitter.json"))
