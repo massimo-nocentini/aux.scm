@@ -54,6 +54,7 @@
                            (let J ((v w))
                              (cond
                                ((number? v) (display v port))
+                               ((null? v) (display "{}" port))
                                ((string? v) (write v port))
                                ((boolean? v) (display (if v "true" "false") port))
                                ((void? v) (display "null" port))
