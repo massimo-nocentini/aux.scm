@@ -80,7 +80,7 @@
                                                       (error "JSON object keys must be strings")))
                                                 (loop (cdr lst) #f)))
                                             (display "}" port)))
-                               (else (error "Cannot convert to JSON" v))))))
+                               (else (warning "Cannot convert to JSON" v) (display "\"<unknown>\"" port))))))
 
   )
 
