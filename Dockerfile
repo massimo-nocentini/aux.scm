@@ -5,7 +5,7 @@ RUN git clone --depth=1 https://github.com/massimo-nocentini/spiffy-request-vars
 
 RUN pwd
 RUN ls -la
-COPY src .
+COPY src src
 RUN ls -la
 
 RUN cd src && make foreigns-fetch && make foreigns-compile && make foreigns-install && make install && cd .. && rm -rf src
