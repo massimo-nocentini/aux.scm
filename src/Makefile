@@ -15,7 +15,7 @@ test:
 	cd test && csi -s fds.sbral.scm
 
 install:
-	chicken-install -sudo
+	chicken-install
 
 format:        
 	scheme-indent -T 2 < test/letcc.scm > test/letcc.scm.tmp && mv test/letcc.scm.tmp test/letcc.scm
