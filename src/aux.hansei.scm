@@ -108,8 +108,8 @@
   (define (probcc-coin p) (probcc-bernoulli #t #f p))
   (define (probcc-uniform n)
     (cond
-      ((equal? n 1) 0)
-      ((> n 1) (letrec ((p (/ 1 n))
+      ; ((equal? n 1) 0)
+      ((> n 0) (letrec ((p (/ 1 n))
                         (plus (op/plus))
                         (subtract (op/subtract))
                         (loop (λ (pacc acc i)
