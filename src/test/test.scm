@@ -110,8 +110,8 @@
    `(doc))
 
   ((test/simdjson/parse _)
-   (⊦= #(((a 1) (b 2)) ((c 3) (d 4))) (simdjson-parse/ondemand "[{\"a\":1,\"b\":2},{\"c\":3,\"d\":4}]"))
-  `(doc))
+   (⊦= #(((a 1) (b 2)) ((c 3) (d 4))) (simdjson-parse/ondemand "[{\"a\":1,\"b\":2,\"c\":3},{\"c\":3,\"d\":4}]"))
+  `(doc (p "hello")))
 
 
 )

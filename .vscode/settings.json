@@ -7,6 +7,9 @@
         "stdio.h": "c",
         "ostream": "cpp",
         "string_view": "cpp",
-        "bitset": "cpp"
+        "bitset": "cpp",
+        "optional": "cpp",
+        "system_error": "cpp",
+        "format": "cpp"
     }
 }
