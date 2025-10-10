@@ -23,18 +23,6 @@ extern "C"
         CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER
     };
 
-    /*
-    C_word chicken_simdjson_is_unknown(void *p);
-    C_word chicken_simdjson_is_signed_integer(void *p);
-    C_word chicken_simdjson_is_unsigned_integer(void *p);
-    C_word chicken_simdjson_is_floating_point_number(void *p);
-    C_word chicken_simdjson_is_boolean(void *p);
-    C_word chicken_simdjson_is_string(void *p);
-    C_word chicken_simdjson_is_null(void *p);
-    C_word chicken_simdjson_is_array(void *p);
-    C_word chicken_simdjson_is_object(void *p);
-*/
-
     int chicken_simdjson_get_type(void *p);
 
     int64_t chicken_simdjson_get_signed_integer(void *p);

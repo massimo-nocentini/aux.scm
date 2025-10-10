@@ -25,16 +25,6 @@
   (define-foreign-variable chicken-simdjson-type-null int "CHICKEN_SIMDJSON_TYPE_NULL")
   (define-foreign-variable chicken-simdjson-type-boolean int "CHICKEN_SIMDJSON_TYPE_BOOLEAN")
 
-  ; (define simdjson-signed-integer? (foreign-safe-lambda scheme-object "chicken_simdjson_is_signed_integer" c-pointer))
-  ; (define simdjson-unsigned-integer? (foreign-safe-lambda scheme-object "chicken_simdjson_is_unsigned_integer" c-pointer))
-  ; (define simdjson-floating-point-number? (foreign-safe-lambda scheme-object "chicken_simdjson_is_floating_point_number" c-pointer))
-  ; (define simdjson-string? (foreign-safe-lambda scheme-object "chicken_simdjson_is_string" c-pointer))
-  ; (define simdjson-array? (foreign-safe-lambda scheme-object "chicken_simdjson_is_array" c-pointer))
-  ; (define simdjson-object? (foreign-safe-lambda scheme-object "chicken_simdjson_is_object" c-pointer))
-  ; (define simdjson-null? (foreign-safe-lambda scheme-object "chicken_simdjson_is_null" c-pointer))
-  ; (define simdjson-boolean? (foreign-safe-lambda scheme-object "chicken_simdjson_is_boolean" c-pointer))
-  ; (define simdjson-unknown? (foreign-safe-lambda scheme-object "chicken_simdjson_is_unknown" c-pointer))
-
   (define (simdjson-signed-integer? t) (= t chicken-simdjson-type-signed-integer))
   (define (simdjson-unsigned-integer? t) (= t chicken-simdjson-type-unsigned-integer))
   (define (simdjson-floating-point-number? t) (= t chicken-simdjson-type-floating-point-number))
@@ -50,7 +40,6 @@
   (define simdjson-get-floating-point-number (foreign-lambda double "chicken_simdjson_get_floating_point_number" c-pointer))
   (define simdjson-get-boolean (foreign-lambda scheme-object "chicken_simdjson_get_boolean" c-pointer))
   (define simdjson-get-string (foreign-lambda (const c-string) "chicken_simdjson_get_string" c-pointer))
-  ; (define simdjson-get-array-count-elements (foreign-safe-lambda size_t "chicken_simdjson_get_array_count_elements" c-pointer))
   (define simdjson-get-array (foreign-safe-lambda scheme-object "chicken_simdjson_get_array" c-pointer scheme-object))
   (define simdjson-get-object (foreign-safe-lambda scheme-object "chicken_simdjson_get_object" c-pointer scheme-object))
   (define simdjson-parse-ondemand-callback (foreign-safe-lambda scheme-object "chicken_simdjson_parse_ondemand_callback" c-string size_t scheme-object))
@@ -65,11 +54,12 @@
         ((simdjson-floating-point-number? t) (simdjson-get-floating-point-number w))
         ((simdjson-string? t) (simdjson-get-string w))
         ((simdjson-array? t) (simdjson-get-array w (λ (vec i w*) (vector-set! vec i (simdjson->scheme w*)) vec)))
-        ((simdjson-object? t) (reverse (simdjson-get-object w (λ (lst k w*) (cons (list k (simdjson->scheme w*)) lst)))))
+        ((simdjson-object? t) (vector->list 
+                                (simdjson-get-object w (λ (vec i k w*)
+                                  (vector-set! vec i (list k (simdjson->scheme w*))) vec))))
         ((simdjson-null? t) (void))
         ((simdjson-boolean? t) (simdjson-get-boolean w))
-        ((simdjson-unknown? t) (warning "Unknown simdjson type handled" (simdjson-get-raw-json-string w)) w)
-        (else (warning "Unknown simdjson type" #;(simdjson-get-raw-json-string w)) 'error))))
+        (else (error "Unknown simdjson type" t w)))))
 
   (define (simdjson-load filename)
     (let1 (P (foreign-safe-lambda scheme-object "chicken_simdjson_load" 

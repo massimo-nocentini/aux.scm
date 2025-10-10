@@ -297,74 +297,6 @@ C_word chicken_simdjson_visit_ondemand(
   C_return(res);
 }
 
-/*
-extern C_word chicken_simdjson_is_unknown(void *p)
-{
-  auto element = (ondemand::value *)p;
-  return element->type() == ondemand::json_type::unknown
-             ? C_SCHEME_TRUE
-             : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_signed_integer(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return (element->type() == ondemand::json_type::number &&
-          element->get_number_type() == ondemand::number_type::signed_integer)
-             ? C_SCHEME_TRUE
-             : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_unsigned_integer(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return (element->type() == ondemand::json_type::number &&
-          element->get_number_type() == ondemand::number_type::unsigned_integer)
-             ? C_SCHEME_TRUE
-             : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_floating_point_number(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return (element->type() == ondemand::json_type::number &&
-          element->get_number_type() == ondemand::number_type::floating_point_number)
-             ? C_SCHEME_TRUE
-             : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_boolean(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->type() == ondemand::json_type::boolean ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_string(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->type() == ondemand::json_type::string ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_null(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->type() == ondemand::json_type::null ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_array(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->type() == ondemand::json_type::array ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_is_object(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->type() == ondemand::json_type::object ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-*/
-
 extern int chicken_simdjson_get_type(void *p)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
@@ -443,18 +375,18 @@ extern C_word chicken_simdjson_get_array(void *p, C_word callback)
   ondemand::value *element = static_cast<ondemand::value *>(p);
   auto array = element->get_array();
   size_t n = array.count_elements();
+
   C_word *ptr = C_alloc(C_SIZEOF_VECTOR(n));
   C_word res = C_vector(&ptr, n);
 
-  C_word v = C_SCHEME_UNDEFINED;
   ptr = C_alloc(C_SIZEOF_POINTER);
 
   size_t i = 0;
   for (auto child : array)
   {
-    auto each = child.value();
+    ondemand::value each = child.value();
 
-    v = C_mpointer(&ptr, &each);
+    C_word v = C_mpointer(&ptr, &each);
 
     C_save(v);
     C_save(C_fix(i));
@@ -465,54 +397,50 @@ extern C_word chicken_simdjson_get_array(void *p, C_word callback)
     i++;
   }
 
-  return res;
+  C_return(res);
 }
 
 extern C_word chicken_simdjson_get_object(void *p, C_word callback)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   auto obj = element->get_object();
+  size_t n = obj.count_fields();
 
-  C_word res = C_SCHEME_END_OF_LIST;
-
-  C_word ckey = C_SCHEME_UNDEFINED;
-  C_word cvalue = C_SCHEME_UNDEFINED;
+  C_word *ptr_vector = C_alloc(C_SIZEOF_VECTOR(n));
+  C_word res = C_vector(&ptr_vector, n);
 
   C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
 
+  size_t i = 0;
   for (auto field : obj)
   {
-    std:string_view each_key = field.escaped_key();
+    ondemand::value each = field.value();
 
+    C_word v = C_mpointer(&ptr_pointer, &each);
 
-    // printf("key: %d %d\n", each_value.type(), each_value.get_int64());
+    string_view each_key = field.escaped_key();
     size_t length = each_key.length();
-    char *copy = (char *)malloc(length + 1);
-    memcpy(copy, each_key.data(), length);
-    copy[length] = 0;
+    // it is not necessary to copy the string, because C_intern makes a copy of it.
     C_word *ptr = C_alloc(C_SIZEOF_INTERNED_SYMBOL(length));
-    ckey = C_intern(&ptr, length, copy);
+    C_word ckey = C_intern(&ptr, length, (char *)each_key.data());
 
-
-
-    ondemand::value each_value = field.value();
-    cvalue = C_mpointer(&ptr_pointer, &each_value);
-    
-    C_save(cvalue);
+    C_save(v);
     C_save(ckey);
+    C_save(C_fix(i));
     C_save(res);
 
-    res = C_callback(callback, 3);
+    res = C_callback(callback, 4);
+
+    i++;
   }
 
-  return res;
+  C_return(res);
 }
 
 extern const char *chicken_simdjson_get_raw_json_string(void *p)
 {
   ondemand::value *element = (ondemand::value *)p;
-  printf("chicken_simdjson_get_raw_json_string %p %s\n", element, element->get_raw_json_string().raw().value());
-  return "";
+  return element->get_raw_json_string().raw().value();
 }
 
 extern C_word chicken_simdjson_load_ondemand(
@@ -569,7 +497,7 @@ extern C_word chicken_simdjson_parse_ondemand_callback(
   simdjson::padded_string my_padded_data(data, length);
   ondemand::document ddoc = parser.iterate(my_padded_data);
 
-  ondemand::value doc = ddoc;
+  ondemand::value doc = ddoc; // !
 
   C_word *ptr = C_alloc(C_SIZEOF_POINTER);
   C_word p = C_mpointer(&ptr, &doc);
