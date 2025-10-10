@@ -393,10 +393,10 @@ extern C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callba
     C_word v = C_mpointer(&ptr, &each);
 
     C_save(v);
-    C_save(C_fix(i));
-    C_save(res);
 
-    res = C_callback(callback, 3);
+    v = C_callback(callback, 1);
+
+    C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
 
     i++;
   }
@@ -429,10 +429,9 @@ extern C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callb
 
     C_save(v);
     C_save(ckey);
-    C_save(C_fix(i));
-    C_save(res);
 
-    res = C_callback(callback, 4);
+    v = C_callback(callback, 2);
+    C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
 
     i++;
   }
