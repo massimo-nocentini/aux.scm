@@ -31,8 +31,8 @@ extern "C"
     C_word chicken_simdjson_get_boolean(void *p);
     const char *chicken_simdjson_get_string(void *p);
     size_t chicken_simdjson_get_array_count_elements(void *p);
-    C_word chicken_simdjson_get_array(void *p, C_word callback);
-    C_word chicken_simdjson_get_object(void *p, C_word callback);
+    C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callback);
+    C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callback);
     const char *chicken_simdjson_get_raw_json_string(void *p);
 
     C_word chicken_simdjson_load(

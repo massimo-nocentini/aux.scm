@@ -370,22 +370,24 @@ extern size_t chicken_simdjson_get_array_count_elements(void *p)
   return array.count_elements();
 }
 
-extern C_word chicken_simdjson_get_array(void *p, C_word callback)
+extern C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callback)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   auto array = element->get_array();
   size_t n = array.count_elements();
 
-  C_word *ptr = C_alloc(C_SIZEOF_VECTOR(n));
-  C_word res = C_vector(&ptr, n);
+  // C_word *ptr = C_alloc(C_SIZEOF_VECTOR(n));
+  // C_word res = C_vector(&ptr, n);
 
-  ptr = C_alloc(C_SIZEOF_POINTER);
+  C_save(C_fix(n));
+  C_word res = C_callback(mkvector, 1);
 
   size_t i = 0;
   for (auto child : array)
   {
     ondemand::value each = child.value();
 
+    C_word *ptr = C_alloc(C_SIZEOF_POINTER);
     C_word v = C_mpointer(&ptr, &each);
 
     C_save(v);
@@ -400,22 +402,24 @@ extern C_word chicken_simdjson_get_array(void *p, C_word callback)
   C_return(res);
 }
 
-extern C_word chicken_simdjson_get_object(void *p, C_word callback)
+extern C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callback)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   auto obj = element->get_object();
   size_t n = obj.count_fields();
 
-  C_word *ptr_vector = C_alloc(C_SIZEOF_VECTOR(n));
-  C_word res = C_vector(&ptr_vector, n);
+  // C_word *ptr_vector = C_alloc(C_SIZEOF_VECTOR(n));
+  // C_word res = C_vector(&ptr_vector, n);
 
-  C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
+  C_save(C_fix(n));
+  C_word res = C_callback(mkvector, 1);
 
   size_t i = 0;
   for (auto field : obj)
   {
     ondemand::value each = field.value();
 
+    C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
     C_word v = C_mpointer(&ptr_pointer, &each);
 
     string_view each_key = field.escaped_key();
