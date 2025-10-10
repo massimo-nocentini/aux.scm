@@ -70,8 +70,8 @@ timsort-fetch:
 foreigns-fetch: timsort-fetch simdjson-fetch
 
 foreigns-compile:
-	clang -O3 -fPIC -shared chicken-timsort.c timsort.c -o libchicken-timsort.so
-	clang++ -O3 -fPIC -shared chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
+	clang -O3 -fPIC -march=native -shared chicken-timsort.c timsort.c -o libchicken-timsort.so
+	clang++ -O3 -fPIC -march=native -shared chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
 
 foreigns-install:
 	mv libchicken-timsort.so /usr/local/lib/
