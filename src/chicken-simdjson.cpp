@@ -381,9 +381,6 @@ extern C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callba
   auto array = element->get_array();
   size_t n = array.count_elements();
 
-  // C_word *ptr_pointer = C_alloc(C_SIZEOF_VECTOR(n));
-  // C_word res = C_vector(&ptr_pointer, n);
-
   C_save(C_fix(n));
   C_word res = C_callback(mkvector, 1);
 
@@ -412,9 +409,6 @@ extern C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callb
   ondemand::value *element = static_cast<ondemand::value *>(p);
   auto obj = element->get_object();
   size_t n = obj.count_fields();
-
-  // C_word *ptr_vector = C_alloc(C_SIZEOF_VECTOR(n));
-  // C_word res = C_vector(&ptr_vector, n);
 
   C_save(C_fix(n));
   C_word res = C_callback(mkvector, 1);
