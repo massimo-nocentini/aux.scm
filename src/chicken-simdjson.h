@@ -29,7 +29,7 @@ extern "C"
     uint64_t chicken_simdjson_get_unsigned_integer(void *p);
     double chicken_simdjson_get_floating_point_number(void *p);
     C_word chicken_simdjson_get_boolean(void *p);
-    const char *chicken_simdjson_get_string(void *p);
+    char * chicken_simdjson_get_string(void *p);
     size_t chicken_simdjson_get_array_count_elements(void *p);
     C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callback);
     C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callback);
@@ -52,6 +52,10 @@ extern "C"
         C_word callback_list,
         C_word callback_vector_set,
         C_word callback_list_finalize);
+
+    C_word chicken_simdjson_load_ondemand_callback(
+        const char *filename,
+        C_word callback);
 
     C_word chicken_simdjson_parse_ondemand(
         const char *data,
