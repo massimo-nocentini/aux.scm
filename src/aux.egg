@@ -4,12 +4,14 @@
  (license "MIT")
  (version "0.1.1")
  (dependencies srfi-69 srfi-1 srfi-19 srfi-133 s11n sxml-transforms matchable spiffy)
- (components 
+ (components
+  (c-object chicken-timsort (source "chicken-timsort.c"))
+  (c-object chicken-simdjson (source "chicken-simdjson.cpp") (link-options "-L" "-lstdc++"))
   (extension aux.sxml)
   (extension aux.unittest)
   (extension aux.base)
-  (extension aux.timsort (link-options  "-L" "-lchicken-timsort"))
-  (extension aux.simdjson (link-options  "-L" "-lchicken-simdjson"))
+  (extension aux.timsort (objects chicken-timsort))
+  (extension aux.simdjson (objects chicken-simdjson))
   (extension aux.continuation)
   (extension aux.stream)
   (extension aux.fds.queue)

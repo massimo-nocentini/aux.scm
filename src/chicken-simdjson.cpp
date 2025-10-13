@@ -3,7 +3,7 @@
 #include <string.h>
 #include <iostream>
 #include "chicken-simdjson.h"
-#include "simdjson.h"
+#include "simdjson.cpp"
 
 using namespace std;
 using namespace simdjson;
