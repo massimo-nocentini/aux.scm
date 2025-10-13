@@ -57,10 +57,10 @@ format:
 	#sed -e :a -e '/^\n\n*$/{$d;N;};/\n$/ba' aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm	
 
 simdjson-fetch:
-	rm -rf simdjson.cpp simdjson.h test/twitter.json
+	rm -rf simdjson.cpp simdjson.h #test/twitter.json
 	wget --no-verbose https://github.com/simdjson/simdjson/releases/latest/download/simdjson.cpp
 	wget --no-verbose https://github.com/simdjson/simdjson/releases/latest/download/simdjson.h
-	cd test && wget --no-verbose https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json
+	#cd test && wget --no-verbose https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json
 	
 timsort-fetch:
 	rm -rf timsort.c timsort.h
@@ -68,11 +68,3 @@ timsort-fetch:
 	wget --no-verbose https://raw.githubusercontent.com/massimo-nocentini/timsort.c/refs/heads/master/src/timsort.h
 
 foreigns-fetch: timsort-fetch simdjson-fetch
-
-foreigns-compile:
-	clang -O3 -fPIC -shared chicken-timsort.c timsort.c -o libchicken-timsort.so
-	clang++ -O3 -fPIC -shared chicken-simdjson.cpp simdjson.cpp -o libchicken-simdjson.so
-
-foreigns-install:
-	mv libchicken-timsort.so /usr/local/lib/
-	mv libchicken-simdjson.so /usr/local/lib/
