@@ -10,6 +10,7 @@
   (extension aux.sxml)
   (extension aux.unittest)
   (extension aux.base)
+  (extension aux.libc)
   (extension aux.timsort (objects chicken-timsort))
   (extension aux.simdjson (objects chicken-simdjson))
   (extension aux.continuation)

@@ -32,6 +32,7 @@ format:
 	scheme-indent -T 2 < test/fds.sbral.scm > test/fds.sbral.scm.tmp && mv test/fds.sbral.scm.tmp test/fds.sbral.scm
 
 	scheme-indent -T 2 < aux.base.scm > aux.base.scm.tmp && mv aux.base.scm.tmp aux.base.scm
+    scheme-indent -T 2 < aux.libc.scm > aux.libc.scm.tmp && mv aux.libc.scm.tmp aux.libc.scm
 	scheme-indent -T 2 < aux.simdjson.scm > aux.simdjson.scm.tmp && mv aux.simdjson.scm.tmp aux.simdjson.scm
 	scheme-indent -T 2 < aux.stream.scm > aux.stream.scm.tmp && mv aux.stream.scm.tmp aux.stream.scm
 	scheme-indent -T 2 < aux.timsort.scm > aux.timsort.scm.tmp && mv aux.timsort.scm.tmp aux.timsort.scm
@@ -43,18 +44,6 @@ format:
 	scheme-indent -T 2 < aux.sxml.scm > aux.sxml.scm.tmp && mv aux.sxml.scm.tmp aux.sxml.scm
 	scheme-indent -T 2 < aux.hansei.scm > aux.hansei.scm.tmp && mv aux.hansei.scm.tmp aux.hansei.scm
 	scheme-indent -T 2 < aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm
-
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.base.scm > aux.base.scm.tmp && mv aux.base.scm.tmp aux.base.scm
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.stream.scm > aux.stream.scm.tmp && mv aux.stream.scm.tmp aux.stream.scm
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.timsort.scm > aux.timsort.scm.tmp && mv aux.timsort.scm.tmp aux.timsort.scm
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.continuation.scm > aux.continuation.scm.tmp && mv aux.continuation.scm.tmp aux.continuation.scm
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.unittest.scm > aux.unittest.scm.tmp && mv aux.unittest.scm.tmp aux.unittest.scm 
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.fds.queue.scm > aux.fds.queue.scm.tmp && mv aux.fds.queue.scm.tmp aux.fds.queue.scm
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.fds.sbral.scm > aux.fds.sbral.scm.tmp && mv aux.fds.sbral.scm.tmp aux.fds.sbral.scm 
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.nondeterministic.scm > aux.nondeterministic.scm.tmp && mv aux.nondeterministic.scm.tmp aux.nondeterministic.scm
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.sxml.scm > aux.sxml.scm.tmp && mv aux.sxml.scm.tmp aux.sxml.scm
-	#sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba' aux.hansei.scm > aux.hansei.scm.tmp && mv aux.hansei.scm.tmp aux.hansei.scm
-	#sed -e :a -e '/^\n\n*$/{$d;N;};/\n$/ba' aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm	
 
 simdjson-fetch:
 	rm -rf simdjson.cpp simdjson.h #test/twitter.json
