@@ -4,6 +4,7 @@
 
   (import scheme 
           (chicken base)
+          srfi-1
           (aux base)
           (aux stream)
           (aux fds sbral))
@@ -49,12 +50,16 @@
           (v* (µkanren-state-find v s)))
       (cond
         ((eq? u* v*) s)
+        ((and (string? u*) (string? v*) (string=? u* v*)) s)
+        ((and (number? u*) (number? v*) (= u* v*)) s)
+        ((and (vector? u*) (vector? v*) (= (vector-length u*) (vector-length v*))) 
+          (foldl (λ (ss i) (and (pair? ss) (µkanren-state-unify (vector-ref u* i) (vector-ref v* i) ss))) 
+                 s (iota (vector-length u*))))
         ;((and (µkanren-var? u) (µkanren-var? u)) think about which of the two should reference the other
         ((µkanren-var? u*) (µkanren-state-set u* v* s))
         ((µkanren-var? v*) (µkanren-state-set v* u* s))
         ((and (pair? u*) (pair? v*)) (let1 (ss (µkanren-state-unify (car u*) (car v*) s))
-                                           (and (pair? ss) (µkanren-state-unify (cdr u*) (cdr v*) ss))))
-        ((and (string? u*) (string? v*) (string=? u* v*)) s)
+                                           (and (pair? ss) (µkanren-state-unify (cdr u*) (cdr v*) ss))))        
         (else #f))))
 
   (define (µkanren-state-find* v s)
