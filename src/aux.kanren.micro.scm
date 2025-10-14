@@ -54,6 +54,7 @@
         ((µkanren-var? v*) (µkanren-state-set v* u* s))
         ((and (pair? u*) (pair? v*)) (let1 (ss (µkanren-state-unify (car u*) (car v*) s))
                                            (and (pair? ss) (µkanren-state-unify (cdr u*) (cdr v*) ss))))
+        ((and (string? u*) (string? v*) (string=? u* v*)) s)
         (else #f))))
 
   (define (µkanren-state-find* v s)
