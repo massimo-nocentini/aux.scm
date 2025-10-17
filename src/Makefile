@@ -1,4 +1,6 @@
 
+judy:
+	cd test && csi -s judy.scm
 
 test:
 	cd test && csi -s test.scm

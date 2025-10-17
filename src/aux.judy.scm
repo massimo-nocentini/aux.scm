@@ -61,24 +61,74 @@ TAG
 
   (define JMU (foreign-primitive ((c-pointer PJLArray)) #<<TAG
 
-Word_t PValue;                    // pointer to array element value
-JLMU(PValue, PJLArray);
+Word_t Value;                    // pointer to array element value
+JLMU(Value, PJLArray);
 
-C_kontinue (C_k, C_fix(PValue));
+C_kontinue (C_k, C_fix(Value));
 
 TAG
 ))
 
   (define JFA (foreign-primitive ((c-pointer PJLArray)) #<<TAG
 
-Word_t PValue;                    // pointer to array element value
-JLFA(PValue, PJLArray);
+Word_t Value;                    // pointer to array element value
+JLFA(Value, PJLArray);
 
 C_word *ptr = C_alloc(C_SIZEOF_POINTER);
 C_word res = C_mpointer(&ptr, PJLArray);
 
-C_word av[4] = { C_SCHEME_UNDEFINED, C_k, res, C_fix(PValue) };
+C_word av[4] = { C_SCHEME_UNDEFINED, C_k, res, C_fix(Value) };
 C_values(4, av);
+
+TAG
+))
+
+
+  (define JF (foreign-primitive ((c-pointer PJLArray) (scheme-object k)) #<<TAG
+
+Word_t Index = k;
+Word_t *PValue;                    // pointer to array element value
+JLF(PValue, PJLArray, Index);
+
+C_word key = C_SCHEME_UNDEFINED;
+C_word value = C_SCHEME_UNDEFINED;
+C_word handle = C_SCHEME_UNDEFINED;
+C_word flag = C_SCHEME_FALSE;
+if (PValue != NULL) {  
+  flag = C_SCHEME_TRUE;
+  key = Index;
+  value = *PValue;
+  C_word *ptr = C_alloc(C_SIZEOF_POINTER);
+  handle = C_mpointer(&ptr, PValue);
+}               
+
+C_word av[6] = { C_SCHEME_UNDEFINED, C_k, flag, key, value, handle };
+C_values(6, av);
+
+TAG
+))
+
+
+  (define JN (foreign-primitive ((c-pointer PJLArray) (scheme-object k) (c-pointer h)) #<<TAG
+
+Word_t Index = k;
+Word_t *PValue = h;                    // pointer to array element value
+JLN(PValue, PJLArray, Index);
+
+C_word key = C_SCHEME_UNDEFINED;
+C_word value = C_SCHEME_UNDEFINED;
+C_word handle = C_SCHEME_UNDEFINED;
+C_word flag = C_SCHEME_FALSE;
+if (PValue != NULL) {  
+  flag = C_SCHEME_TRUE;
+  key = Index;
+  value = *PValue;
+  C_word *ptr = C_alloc(C_SIZEOF_POINTER);
+  handle = C_mpointer(&ptr, PValue);
+}               
+
+C_word av[6] = { C_SCHEME_UNDEFINED, C_k, flag, key, value, handle };
+C_values(6, av);
 
 TAG
 ))
@@ -92,7 +142,7 @@ JLF(PValue, PJLArray, Index);
 
 while (PValue != NULL)
 {    
-    C_word v = *PValue;
+    C_word v = (C_word)*PValue;
     C_save(v);
     C_save(Index);
     C_callback(walk, 2);
@@ -115,7 +165,7 @@ JLL(PValue, PJLArray, Index);
 
 while (PValue != NULL)
 {
-    C_word v = *PValue;
+    C_word v = (C_word)*PValue;
     C_save(v);
     C_save(Index);    
     C_callback(walk, 2);
@@ -132,7 +182,7 @@ TAG
 )
 
 
-(functor ((aux judy) (J (JI JG JC JMU JFA JW JWr))) *
+(functor ((aux judy) (J (JI JG JC JMU JFA JF JN))) *
 
   (import scheme (chicken base) (chicken foreign) (chicken gc) (chicken memory) (chicken pretty-print) (aux base) J)
 
@@ -141,7 +191,7 @@ TAG
   (define-record-printer judy-array
     (λ (ja port)
       (pretty-print `((handle ,(judy-array-handle ja)) 
-                      (bytes ,(judy-array-memory-used-in-bytes ja))
+                      (bytes ,(judy-array-bytes ja))
                       (size ,(judy-array-size ja))
                       (alist ,(judy-array->alist ja))) port)))
 
@@ -174,7 +224,7 @@ TAG
 
   (define (judy-array-size ja) (JC (judy-array-handle ja) 0 -1))
 
-  (define (judy-array-memory-used-in-bytes ja) (JMU (judy-array-handle ja)))
+  (define (judy-array-bytes ja) (JMU (judy-array-handle ja)))
 
   (define (judy-array-free ja) 
     (let-values (((handle bytes) (JFA (judy-array-handle ja))))
@@ -194,27 +244,21 @@ TAG
 
   (define (judy-array->alist ja)
     (let1 (result '())
-      (judy-array-walk-reverse ja (λ (index value) (push! (list index value) result)))
-      result))
+      (judy-array-walk ja (λ (index value) (push! (list index value) result)))
+      (reverse result)))
 
-  (define (judy-array-walk ja w) (JW (judy-array-handle ja) w))
-  (define (judy-array-walk-reverse ja w) (JWr (judy-array-handle ja) w))
+  #;(define (judy-array-walk ja w) (JW (judy-array-handle ja) w))
+  #;(define (judy-array-walk-reverse ja w) (JWr (judy-array-handle ja) w))
+
+  (define (judy-array-walk ja w) 
+    (let1 (ja-handle (judy-array-handle ja))
+      (let-values (((flag key value handle) (JF ja-handle 0)))
+        (let loop ((flag flag) (key key) (value value) (handle handle))
+          (when flag
+            (w key value)
+            (let-values (((flag key value handle) (JN ja-handle key handle)))
+              (loop flag key value handle)))))))
 )
 
 (module (aux judyL) = ((aux judy) (aux judy l)))
-
-
-#|
-
-(import srfi-1 (aux base) (aux judy) (aux judyL))
-(define a (alist->judy-array '((0 "zero") (1 "one") (2 "two") (10000 "ten thousand"))))
-(define a (alist->judy-array '((0 'zero) (1 'one) (2 'two) (10000 'ten-thousand))))
-(judy-array-free a)
-(judy-array-ref a 0)
-(judy-array->alist a)
-(judy-array-memory-used-in-bytes a)
-(judy-array-walk a (λ (i v) (when (= (modulo i 10000) 0) (display (list i v)))))
-|#
-
-
 
