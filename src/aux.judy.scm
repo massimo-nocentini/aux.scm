@@ -36,13 +36,14 @@ TAG
 Word_t * PValue;                    // pointer to array element value
 JLG(PValue, PJLArray, Index);
 C_word res = C_SCHEME_UNDEFINED;
-if (PValue == NULL) res = C_SCHEME_FALSE;
-else {
-  C_word *ptr = C_alloc(C_SIZEOF_PAIR);  
-  res = C_pair(&ptr, *PValue, C_SCHEME_END_OF_LIST);
+C_word flag = C_SCHEME_FALSE;
+if (PValue != NULL) {  
+  flag = C_SCHEME_TRUE;
+  res = *PValue;
 }               
 
-C_kontinue (C_k, res);
+C_word av[4] = { C_SCHEME_UNDEFINED, C_k, flag, res };
+C_values(4, av);
 
 TAG
 ))
@@ -73,9 +74,9 @@ TAG
                                             (cond
                                               ((pointer? res) (judy-array-handle-set! ja res))
                                               (else (error "judy-array-set! failed with error code" res)))))
-  (define (judy-array-ref ja index) (let1 (res (JG (judy-array-handle ja) index))
+  (define (judy-array-ref ja index) (let-values (((flag res) (JG (judy-array-handle ja) index)))
                                  (cond
-                                   ((pair? res) (car res))
+                                   (flag res)
                                    (else #f))))
 
   )
