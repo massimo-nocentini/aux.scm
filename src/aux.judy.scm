@@ -83,11 +83,56 @@ C_values(4, av);
 TAG
 ))
 
+ (define JW (foreign-safe-lambda* scheme-object ((c-pointer PJLArray) (scheme-object walk)) #<<TAG
+
+Word_t Index = 0;
+Word_t *PValue;
+
+JLF(PValue, PJLArray, Index);
+
+while (PValue != NULL)
+{    
+    C_word v = *PValue;
+    C_save(v);
+    C_save(Index);
+    C_callback(walk, 2);
+
+    JLN(PValue, PJLArray, Index);
+}
+
+C_return (C_SCHEME_UNDEFINED);
+
+TAG
+))
+
+
+ (define JWr (foreign-safe-lambda* scheme-object ((c-pointer PJLArray) (scheme-object walk)) #<<TAG
+
+Word_t Index = -1;
+Word_t *PValue;
+
+JLL(PValue, PJLArray, Index);
+
+while (PValue != NULL)
+{
+    C_word v = *PValue;
+    C_save(v);
+    C_save(Index);    
+    C_callback(walk, 2);
+
+    JLP(PValue, PJLArray, Index);
+}
+
+C_return (C_SCHEME_UNDEFINED);
+
+TAG
+))
+
 
 )
 
 
-(functor ((aux judy) (J (JI JG JC JMU JFA))) *
+(functor ((aux judy) (J (JI JG JC JMU JFA JW JWr))) *
 
   (import scheme (chicken base) (chicken foreign) (chicken gc) (chicken memory) (chicken pretty-print) (aux base) J)
 
@@ -95,7 +140,10 @@ TAG
 
   (define-record-printer judy-array
     (λ (ja port)
-      (pretty-print `(handle ,(judy-array-handle ja)) port)))
+      (pretty-print `((handle ,(judy-array-handle ja)) 
+                      (bytes ,(judy-array-memory-used-in-bytes ja))
+                      (size ,(judy-array-size ja))
+                      (alist ,(judy-array->alist ja))) port)))
 
   (define make-null-pointer (foreign-primitive () #<<TAG
   
@@ -132,12 +180,41 @@ TAG
     (let-values (((handle bytes) (JFA (judy-array-handle ja))))
       (judy-array-handle-set! ja handle)
       bytes))
+
+  (define (alist->judy-array alist)
+    (let1 (ja (judy-array-empty))
+      (for-each (λ (pair) (judy-array-set! ja (car pair) (cadr pair))) alist)
+      ja))
+
+  (define (list->judy-array lst)
+    (let ((ja (judy-array-empty))
+          (i 0))
+        (for-each (λ (v) (judy-array-set! ja i v) (add1! i)) lst)
+        ja))
+
+  (define (judy-array->alist ja)
+    (let1 (result '())
+      (judy-array-walk-reverse ja (λ (index value) (push! (list index value) result)))
+      result))
+
+  (define (judy-array-walk ja w) (JW (judy-array-handle ja) w))
+  (define (judy-array-walk-reverse ja w) (JWr (judy-array-handle ja) w))
 )
 
 (module (aux judyL) = ((aux judy) (aux judy l)))
 
 
+#|
 
+(import srfi-1 (aux base) (aux judy) (aux judyL))
+(define a (alist->judy-array '((0 "zero") (1 "one") (2 "two") (10000 "ten thousand"))))
+(define a (alist->judy-array '((0 'zero) (1 'one) (2 'two) (10000 'ten-thousand))))
+(judy-array-free a)
+(judy-array-ref a 0)
+(judy-array->alist a)
+(judy-array-memory-used-in-bytes a)
+(judy-array-walk a (λ (i v) (when (= (modulo i 10000) 0) (display (list i v)))))
+|#
 
 
 
