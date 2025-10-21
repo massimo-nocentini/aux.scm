@@ -44,13 +44,13 @@
         ((simdjson-unsigned-integer? t) (simdjson-get-unsigned-integer w))
         ((simdjson-floating-point-number? t) (simdjson-get-floating-point-number w))
         ((simdjson-string? t) (simdjson-get-string w))
-        ((simdjson-array? t) (simdjson-get-array w make-vector simdjson->scheme))
-        ((simdjson-object? t) (vector->list (simdjson-get-object w make-vector (λ (k w*) (list k (simdjson->scheme w*))))))
+        ((simdjson-array? t) (simdjson-get-array w make-vector (λ (res i w*) (vector-set! res i (simdjson->scheme w*)) res)))
+        ((simdjson-object? t) (vector->list (simdjson-get-object w make-vector (λ (res i k w*) (vector-set! res i (list k (simdjson->scheme w*))) res))))
         ((simdjson-null? t) (void))
         ((simdjson-boolean? t) (simdjson-get-boolean w))
         (else (error "Unknown simdjson type" t w)))))
 
-  (define (simdjson-load filename)
+  #;(define (simdjson-load filename)
     (let1 (P (foreign-safe-lambda scheme-object "chicken_simdjson_load" 
                                   (const c-string) 
                                   scheme-object 
@@ -60,6 +60,8 @@
                                   scheme-object
                                   scheme-object))
           (P filename list identity make-vector cons (λ (v i x) (vector-set! v i x) v) reverse)))
+
+  (define (simdjson-load filename) (simdjson-load-ondemand-callback filename simdjson->scheme))
 
   #;(define (simdjson-load/ondemand filename)
     (let1 (P (foreign-safe-lambda scheme-object "chicken_simdjson_load_ondemand" 

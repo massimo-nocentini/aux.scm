@@ -93,6 +93,12 @@
        (let1 (p (assoc searchexpr lstexpr))
              (if (pair? p) (cadr p) (begin body ...))))))
 
+  (define-syntax letassoc/cdr
+    (syntax-rules (else) 
+      ((letassoc (searchexpr lstexpr) (else body ...))
+       (let1 (p (assoc searchexpr lstexpr))
+             (if (pair? p) (cdr p) (begin body ...))))))
+
   (define (mappair f lst)
     (cond
       ((or (null? lst) (null? (cdr lst))) '())
@@ -163,6 +169,7 @@
 
   (define (load/string str) (read (open-input-string str)))
   (define (->string/pretty-print v) (call-with-output-string (λ (p) (pretty-print v p))))
+  (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))
 
   )
 

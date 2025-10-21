@@ -1,7 +1,4 @@
-
-judy:
-	cd test && csi -s judy.scm
-
+	
 test:
 	cd test && csi -s test.scm
 	cd test && csi -s stream.scm
@@ -15,6 +12,7 @@ test:
 	cd test && csi -s microkanren.scm
 	cd test && csi -s fds.queue.scm
 	cd test && csi -s fds.sbral.scm
+	cd test && csi -s judy.scm
 
 install:
 	chicken-install -sudo

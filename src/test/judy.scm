@@ -51,7 +51,10 @@
   (let* ((n 50000) (I (iota n)))
     (let1 (a (list->judy-array I))
       (let1 (collected '())
-        (judy-array-walk a (λ (i v) (push! v collected)))
+        (judy-array-walk/backward a (λ (i v) (push! v collected)))
+        (⊦ equal? I collected)
+        (set! collected '())
+        (judy-array-walk/forward a (λ (i v) (push! v collected)))
         (⊦ equal? I (reverse collected))))))
 
 )

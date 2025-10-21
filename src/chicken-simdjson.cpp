@@ -378,25 +378,27 @@ extern size_t chicken_simdjson_get_array_count_elements(void *p)
 extern C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callback)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
-  auto array = element->get_array();
+  ondemand::array array = element->get_array();
   size_t n = array.count_elements();
 
   C_save(C_fix(n));
   C_word res = C_callback(mkvector, 1);
 
   size_t i = 0;
-  for (auto child : array)
+  for (ondemand::value each : array)
   {
-    auto each = child.value();
+    // ondemand::value each = child->.value();
 
     C_word *ptr = C_alloc(C_SIZEOF_POINTER);
     C_word v = C_mpointer(&ptr, &each);
 
     C_save(v);
+    C_save(C_fix(i));
+    C_save(res);
 
-    v = C_callback(callback, 1);
+    res = C_callback(callback, 3);
 
-    C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
+    // C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
 
     i++;
   }
@@ -407,31 +409,36 @@ extern C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callba
 extern C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callback)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
-  auto obj = element->get_object();
+  ondemand::object obj = element->get_object();
   size_t n = obj.count_fields();
 
   C_save(C_fix(n));
   C_word res = C_callback(mkvector, 1);
 
   size_t i = 0;
-  for (auto field : obj)
+  for (ondemand::field field : obj)
   {
-    auto each = field.value();
-
     auto each_key = field.escaped_key();
-    size_t length = each_key->length();
+    size_t length = each_key.length();
 
     C_word *ptr = C_alloc(C_SIZEOF_INTERNED_SYMBOL(length));
-    C_word ckey = C_intern(&ptr, length, (char *)each_key->data()); // it is not necessary to copy the string, because C_intern makes a copy of it.
+    char *cpy = (char *)malloc(length);
+    memcpy(cpy, each_key.data(), length);
+    C_word ckey = C_intern(&ptr, length, cpy); // it is not necessary to copy the string, because C_intern makes a copy of it.
+    free(cpy);
+
+    ondemand::value each = field.value();
 
     C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
     C_word v = C_mpointer(&ptr_pointer, &each);
 
     C_save(v);
     C_save(ckey);
+    C_save(C_fix(i));
+    C_save(res);
 
-    v = C_callback(callback, 2);
-    C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
+    res = C_callback(callback, 4);
+    // C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
 
     i++;
   }

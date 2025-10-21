@@ -133,67 +133,71 @@ C_values(6, av);
 TAG
 ))
 
- (define JW (foreign-safe-lambda* scheme-object ((c-pointer PJLArray) (scheme-object walk)) #<<TAG
 
-Word_t Index = 0;
-Word_t *PValue;
+  (define JL (foreign-primitive ((c-pointer PJLArray) (scheme-object k)) #<<TAG
 
-JLF(PValue, PJLArray, Index);
-
-while (PValue != NULL)
-{    
-    C_word v = (C_word)*PValue;
-    C_save(v);
-    C_save(Index);
-    C_callback(walk, 2);
-
-    JLN(PValue, PJLArray, Index);
-}
-
-C_return (C_SCHEME_UNDEFINED);
-
-TAG
-))
-
-
- (define JWr (foreign-safe-lambda* scheme-object ((c-pointer PJLArray) (scheme-object walk)) #<<TAG
-
-Word_t Index = -1;
-Word_t *PValue;
-
+Word_t Index = k;
+Word_t *PValue;                    // pointer to array element value
 JLL(PValue, PJLArray, Index);
 
-while (PValue != NULL)
-{
-    C_word v = (C_word)*PValue;
-    C_save(v);
-    C_save(Index);    
-    C_callback(walk, 2);
+C_word key = C_SCHEME_UNDEFINED;
+C_word value = C_SCHEME_UNDEFINED;
+C_word handle = C_SCHEME_UNDEFINED;
+C_word flag = C_SCHEME_FALSE;
+if (PValue != NULL) {  
+  flag = C_SCHEME_TRUE;
+  key = Index;
+  value = *PValue;
+  C_word *ptr = C_alloc(C_SIZEOF_POINTER);
+  handle = C_mpointer(&ptr, PValue);
+}               
 
-    JLP(PValue, PJLArray, Index);
-}
-
-C_return (C_SCHEME_UNDEFINED);
+C_word av[6] = { C_SCHEME_UNDEFINED, C_k, flag, key, value, handle };
+C_values(6, av);
 
 TAG
 ))
 
+
+  (define JP (foreign-primitive ((c-pointer PJLArray) (scheme-object k) (c-pointer h)) #<<TAG
+
+Word_t Index = k;
+Word_t *PValue = h;                    // pointer to array element value
+JLP(PValue, PJLArray, Index);
+
+C_word key = C_SCHEME_UNDEFINED;
+C_word value = C_SCHEME_UNDEFINED;
+C_word handle = C_SCHEME_UNDEFINED;
+C_word flag = C_SCHEME_FALSE;
+if (PValue != NULL) {  
+  flag = C_SCHEME_TRUE;
+  key = Index;
+  value = *PValue;
+  C_word *ptr = C_alloc(C_SIZEOF_POINTER);
+  handle = C_mpointer(&ptr, PValue);
+}               
+
+C_word av[6] = { C_SCHEME_UNDEFINED, C_k, flag, key, value, handle };
+C_values(6, av);
+
+TAG
+))
 
 )
 
 
-(functor ((aux judy) (J (JI JG JC JMU JFA JF JN))) *
+(functor ((aux judy) (J (JI JG JC JMU JFA JF JN JL JP))) *
 
   (import scheme (chicken base) (chicken foreign) (chicken gc) (chicken memory) (chicken pretty-print) (aux base) J)
 
   (define-record judy-array handle)
 
   (define-record-printer judy-array
-    (λ (ja port)
-      (pretty-print `((handle ,(judy-array-handle ja)) 
-                      (bytes ,(judy-array-bytes ja))
-                      (size ,(judy-array-size ja))
-                      (alist ,(judy-array->alist ja))) port)))
+    (pretty-printer/port (λ (ja) 
+                          `((handle ,(judy-array-handle ja)) 
+                            (bytes ,(judy-array-bytes ja))
+                            (size ,(judy-array-size ja))
+                            (alist ,(judy-array->alist ja))))))
 
   (define make-null-pointer (foreign-primitive () #<<TAG
   
@@ -244,20 +248,20 @@ TAG
 
   (define (judy-array->alist ja)
     (let1 (result '())
-      (judy-array-walk ja (λ (index value) (push! (list index value) result)))
-      (reverse result)))
+      (judy-array-walk/backward ja (λ (index value) (push! (list index value) result)))
+      result))
 
-  #;(define (judy-array-walk ja w) (JW (judy-array-handle ja) w))
-  #;(define (judy-array-walk-reverse ja w) (JWr (judy-array-handle ja) w))
-
-  (define (judy-array-walk ja w) 
+  (define ((judy-array-walk init init_key next) ja w) 
     (let1 (ja-handle (judy-array-handle ja))
-      (let-values (((flag key value handle) (JF ja-handle 0)))
+      (let-values (((flag key value handle) (init ja-handle init_key)))
         (let loop ((flag flag) (key key) (value value) (handle handle))
           (when flag
             (w key value)
-            (let-values (((flag key value handle) (JN ja-handle key handle)))
+            (let-values (((flag key value handle) (next ja-handle key handle)))
               (loop flag key value handle)))))))
+    
+  (define judy-array-walk/forward (judy-array-walk JF 0 JN))
+  (define judy-array-walk/backward (judy-array-walk JL -1 JP))
 )
 
 (module (aux judyL) = ((aux judy) (aux judy l)))
