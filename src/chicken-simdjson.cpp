@@ -299,6 +299,7 @@ C_word chicken_simdjson_visit_ondemand(
 
 extern int chicken_simdjson_get_type(void *p)
 {
+
   ondemand::value *element = static_cast<ondemand::value *>(p);
 
   switch (element->type())
@@ -364,83 +365,136 @@ extern void chicken_simdjson_get_string(void *p, C_word k)
   size_t size = s.size();
 
   char *res = (char *)malloc(size);
-  memcpy(res, s.data(), size);
+  s.copy(res, size);
+
   C_word *ptr = C_alloc(C_SIZEOF_STRING(size));
   C_word v = C_string(&ptr, size, res);
+
   free(res);
 
   C_kontinue(k, v);
 }
 
-extern size_t chicken_simdjson_get_array_count_elements(void *p)
-{
-  ondemand::value *element = static_cast<ondemand::value *>(p);
-  auto array = element->get_array();
-  return array.count_elements();
-}
-
-extern void chicken_simdjson_get_array(void *p, C_word callback, C_word C_k)
+extern void chicken_simdjson_get_array(void *p, C_word C_k)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   ondemand::array array = element->get_array();
   size_t n = array.count_elements();
 
-  C_word *ptr_obj = C_alloc(C_SIZEOF_VECTOR(n));
-  C_word res = C_vector(&ptr_obj, n);
+  C_word *ptr_obj = C_alloc(C_SIZEOF_POINTER);
+  C_word vobj = C_mpointer(&ptr_obj, &array);
 
-  size_t i = 0;
-
-  for (ondemand::value each : array)
-  {
-    C_word *ptr = C_alloc(C_SIZEOF_POINTER);
-    C_word v = C_mpointer(&ptr, &each);
-
-    C_save(v);
-
-    v = C_i_vector_set(res, C_fix(i), C_callback(callback, 1));
-    assert(v == C_SCHEME_UNDEFINED);
-
-    i++;
-  }
-
-  C_kontinue(C_k, res);
+  C_word av[4] = {C_SCHEME_UNDEFINED, C_k, vobj, C_fix(n)};
+  C_values(4, av);
 }
 
-extern void chicken_simdjson_get_object(void *p, C_word callback, C_word C_k)
+extern void chicken_simdjson_get_array_begin(void *p, C_word C_k)
+{
+  ondemand::array *element = static_cast<ondemand::array *>(p);
+
+  ondemand::array_iterator iter = element->begin();
+
+  C_word *ptr_iter = C_alloc(C_SIZEOF_POINTER);
+
+  C_kontinue(C_k, C_mpointer(&ptr_iter, &iter));
+}
+
+extern void chicken_simdjson_get_array_endp(void *p, void *i, C_word C_k)
+{
+  ondemand::array *element = static_cast<ondemand::array *>(p);
+  ondemand::array_iterator *iter = static_cast<ondemand::array_iterator *>(i);
+
+  C_kontinue(C_k, iter->operator==(element->end()) ? C_SCHEME_TRUE : C_SCHEME_FALSE);
+}
+
+extern void chicken_simdjson_get_array_each(void *i, C_word C_k)
+{
+
+  ondemand::array_iterator *iter = static_cast<ondemand::array_iterator *>(i);
+
+  ondemand::value each = iter->operator*();
+
+  C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
+
+  C_kontinue(C_k, C_mpointer(&ptr_pointer, &each));
+}
+
+extern void chicken_simdjson_get_array_inc(void *i, C_word C_k)
+{
+
+  ondemand::array_iterator *iter = static_cast<ondemand::array_iterator *>(i);
+
+  ondemand::array_iterator j = iter->operator++();
+
+  C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
+
+  C_kontinue(C_k, C_mpointer(&ptr_pointer, &j));
+}
+
+extern void chicken_simdjson_get_object(void *p, C_word C_k)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   ondemand::object obj = element->get_object();
 
-  C_word res = C_SCHEME_END_OF_LIST;
+  C_word *ptr_obj = C_alloc(C_SIZEOF_POINTER);
 
-  for (ondemand::field field : obj)
-  {
-    std::string_view each_key = field.escaped_key();
-    size_t length = each_key.length();
+  C_kontinue(C_k, C_mpointer(&ptr_obj, &obj));
+}
 
-    C_word *ptr = C_alloc(C_SIZEOF_INTERNED_SYMBOL(length));
-    char *cpy = (char *)malloc(length);
-    memcpy(cpy, each_key.data(), length);
-    C_word ckey = C_intern(&ptr, length, cpy);
-    free(cpy);
+extern void chicken_simdjson_get_object_begin(void *p, C_word C_k)
+{
+  ondemand::object *element = static_cast<ondemand::object *>(p);
 
-    ondemand::value &each = field.value();
+  ondemand::object_iterator iter = element->begin();
 
-    C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
-    C_word v = C_mpointer(&ptr_pointer, &each);
+  C_word *ptr_iter = C_alloc(C_SIZEOF_POINTER);
 
-    C_save(v);
+  C_kontinue(C_k, C_mpointer(&ptr_iter, &iter));
+}
 
-    v = C_callback(callback, 1);
+extern void chicken_simdjson_get_object_endp(void *p, void *i, C_word C_k)
+{
+  ondemand::object *element = static_cast<ondemand::object *>(p);
+  ondemand::object_iterator *iter = static_cast<ondemand::object_iterator *>(i);
 
-    C_word *ptr_list = C_alloc(C_SIZEOF_LIST(2));
-    v = C_list(&ptr_list, 2, ckey, v);
+  C_kontinue(C_k, iter->operator==(element->end()) ? C_SCHEME_TRUE : C_SCHEME_FALSE);
+}
 
-    C_word *ptr_pair = C_alloc(C_SIZEOF_PAIR);
-    res = C_pair(&ptr_pair, v, res);
-  }
+extern void chicken_simdjson_get_object_each(void *i, C_word C_k)
+{
+  ondemand::object_iterator *iter = static_cast<ondemand::object_iterator *>(i);
 
-  C_kontinue(C_k, res);
+  ondemand::field field = iter->operator*();
+
+  std::string_view each_key = field.escaped_key();
+  size_t length = each_key.length();
+
+  char *cpy = (char *)malloc(length);
+  each_key.copy(cpy, length);
+
+  C_word *ptr = C_alloc(C_SIZEOF_INTERNED_SYMBOL(length));
+  C_word key = C_intern(&ptr, length, cpy);
+
+  free(cpy);
+
+  ondemand::value &each_value = field.value();
+  
+  C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
+  C_word value = C_mpointer(&ptr_pointer, &each_value);
+
+  C_word av[4] = {C_SCHEME_UNDEFINED, C_k, key, value};
+  C_values(4, av);
+}
+
+extern void chicken_simdjson_get_object_inc(void *i, C_word C_k)
+{
+  ondemand::object_iterator *iter = static_cast<ondemand::object_iterator *>(i);
+
+  ondemand::object_iterator j = iter->operator++();
+
+  C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
+
+  C_kontinue(C_k, C_mpointer(&ptr_pointer, &j));
 }
 
 extern C_word chicken_simdjson_load_ondemand(
@@ -467,7 +521,6 @@ extern C_word chicken_simdjson_load_ondemand(
 
 extern void chicken_simdjson_load_ondemand_callback(
     const char *filename,
-    C_word callback,
     C_word cont)
 {
   ondemand::parser parser;
@@ -478,8 +531,8 @@ extern void chicken_simdjson_load_ondemand_callback(
 
   C_word *ptr = C_alloc(C_SIZEOF_POINTER);
   C_word p = C_mpointer(&ptr, &doc);
-  C_save(p);
-  C_kontinue(cont, C_callback(callback, 1));
+
+  C_kontinue(cont, p);
 }
 
 extern C_word chicken_simdjson_parse_ondemand(
@@ -508,7 +561,6 @@ extern C_word chicken_simdjson_parse_ondemand(
 extern void chicken_simdjson_parse_ondemand_callback(
     const char *data,
     size_t length,
-    C_word callback,
     C_word cont)
 {
   ondemand::parser parser;
@@ -519,6 +571,6 @@ extern void chicken_simdjson_parse_ondemand_callback(
 
   C_word *ptr = C_alloc(C_SIZEOF_POINTER);
   C_word p = C_mpointer(&ptr, &doc);
-  C_save(p);
-  C_kontinue(cont, C_callback(callback, 1));
+
+  C_kontinue(cont, p);
 }
