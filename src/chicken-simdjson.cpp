@@ -339,7 +339,7 @@ extern int64_t chicken_simdjson_get_signed_integer(void *p)
   return element->get_int64();
 }
 
-extern uint64_t chicken_simdjson_get_unsigned_integer(void *p)
+extern size_t chicken_simdjson_get_unsigned_integer(void *p)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   return element->get_uint64();
@@ -357,15 +357,19 @@ extern C_word chicken_simdjson_get_boolean(void *p)
   return element->get_bool() ? C_SCHEME_TRUE : C_SCHEME_FALSE;
 }
 
-extern char *chicken_simdjson_get_string(void *p)
+extern void chicken_simdjson_get_string(void *p, C_word k)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   auto s = element->get_string();
   auto size = s->size();
-  char *res = (char *)malloc(size + 1);
+
+  char *res = (char *)malloc(size);
   memcpy(res, s->data(), size);
-  res[size] = '\0';
-  return res;
+  C_word *ptr = C_alloc(C_SIZEOF_STRING(size));
+  C_word v = C_string(&ptr, size, res);
+  free(res);
+
+  C_kontinue(k, v);
 }
 
 extern size_t chicken_simdjson_get_array_count_elements(void *p)
@@ -375,45 +379,42 @@ extern size_t chicken_simdjson_get_array_count_elements(void *p)
   return array.count_elements();
 }
 
-extern C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callback)
+extern void chicken_simdjson_get_array(void *p, C_word callback, C_word C_k)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   ondemand::array array = element->get_array();
   size_t n = array.count_elements();
 
-  C_save(C_fix(n));
-  C_word res = C_callback(mkvector, 1);
+  C_word *ptr_obj = C_alloc(C_SIZEOF_VECTOR(n));
+  C_word res = C_vector(&ptr_obj, n);
 
   size_t i = 0;
+
   for (ondemand::value each : array)
   {
-    // ondemand::value each = child->.value();
 
     C_word *ptr = C_alloc(C_SIZEOF_POINTER);
     C_word v = C_mpointer(&ptr, &each);
 
     C_save(v);
-    C_save(C_fix(i));
-    C_save(res);
 
-    res = C_callback(callback, 3);
-
-    // C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
+    v = C_i_vector_set(res, C_fix(i), C_callback(callback, 1));
+    assert(v == C_SCHEME_UNDEFINED);
 
     i++;
   }
 
-  C_return(res);
+  C_kontinue(C_k, res);
 }
 
-extern C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callback)
+extern void chicken_simdjson_get_object(void *p, C_word callback, C_word C_k)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   ondemand::object obj = element->get_object();
   size_t n = obj.count_fields();
 
-  C_save(C_fix(n));
-  C_word res = C_callback(mkvector, 1);
+  C_word *ptr_obj = C_alloc(C_SIZEOF_VECTOR(n));
+  C_word res = C_vector(&ptr_obj, n);
 
   size_t i = 0;
   for (ondemand::field field : obj)
@@ -424,26 +425,24 @@ extern C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callb
     C_word *ptr = C_alloc(C_SIZEOF_INTERNED_SYMBOL(length));
     char *cpy = (char *)malloc(length);
     memcpy(cpy, each_key.data(), length);
-    C_word ckey = C_intern(&ptr, length, cpy); // it is not necessary to copy the string, because C_intern makes a copy of it.
+    C_word ckey = C_intern(&ptr, length, cpy);
     free(cpy);
 
-    ondemand::value each = field.value();
+    ondemand::value &each = field.value();
 
     C_word *ptr_pointer = C_alloc(C_SIZEOF_POINTER);
     C_word v = C_mpointer(&ptr_pointer, &each);
 
     C_save(v);
     C_save(ckey);
-    C_save(C_fix(i));
-    C_save(res);
 
-    res = C_callback(callback, 4);
-    // C_i_vector_set(res, C_fix(i), v); // optimization: avoid callback for vector-set!
+    v = C_i_vector_set(res, C_fix(i), C_callback(callback, 2));
+    assert(v == C_SCHEME_UNDEFINED);
 
     i++;
   }
 
-  C_return(res);
+  C_kontinue(C_k, res);
 }
 
 extern const char *chicken_simdjson_get_raw_json_string(void *p)
@@ -474,9 +473,10 @@ extern C_word chicken_simdjson_load_ondemand(
       callback_list_finalize));
 }
 
-extern C_word chicken_simdjson_load_ondemand_callback(
+extern void chicken_simdjson_load_ondemand_callback(
     const char *filename,
-    C_word callback)
+    C_word callback,
+    C_word cont)
 {
   ondemand::parser parser;
   auto json = padded_string::load(filename);
@@ -487,8 +487,7 @@ extern C_word chicken_simdjson_load_ondemand_callback(
   C_word *ptr = C_alloc(C_SIZEOF_POINTER);
   C_word p = C_mpointer(&ptr, &doc);
   C_save(p);
-  p = C_callback(callback, 1);
-  C_return(p);
+  C_kontinue(cont, C_callback(callback, 1));
 }
 
 extern C_word chicken_simdjson_parse_ondemand(
@@ -514,10 +513,11 @@ extern C_word chicken_simdjson_parse_ondemand(
       callback_list_finalize));
 }
 
-extern C_word chicken_simdjson_parse_ondemand_callback(
+extern void chicken_simdjson_parse_ondemand_callback(
     const char *data,
     size_t length,
-    C_word callback)
+    C_word callback,
+    C_word cont)
 {
   ondemand::parser parser;
   simdjson::padded_string my_padded_data(data, length);
@@ -528,6 +528,5 @@ extern C_word chicken_simdjson_parse_ondemand_callback(
   C_word *ptr = C_alloc(C_SIZEOF_POINTER);
   C_word p = C_mpointer(&ptr, &doc);
   C_save(p);
-  p = C_callback(callback, 1);
-  C_return(p);
+  C_kontinue(cont, C_callback(callback, 1));
 }

@@ -29,10 +29,10 @@ extern "C"
     uint64_t chicken_simdjson_get_unsigned_integer(void *p);
     double chicken_simdjson_get_floating_point_number(void *p);
     C_word chicken_simdjson_get_boolean(void *p);
-    char * chicken_simdjson_get_string(void *p);
+    void chicken_simdjson_get_string(void *p, C_word k);
     size_t chicken_simdjson_get_array_count_elements(void *p);
-    C_word chicken_simdjson_get_array(void *p, C_word mkvector, C_word callback);
-    C_word chicken_simdjson_get_object(void *p, C_word mkvector, C_word callback);
+    void chicken_simdjson_get_array(void *p, C_word callback, C_word C_k);
+    void chicken_simdjson_get_object(void *p, C_word callback, C_word C_k);
     const char *chicken_simdjson_get_raw_json_string(void *p);
 
     C_word chicken_simdjson_load(
@@ -53,9 +53,10 @@ extern "C"
         C_word callback_vector_set,
         C_word callback_list_finalize);
 
-    C_word chicken_simdjson_load_ondemand_callback(
+    void chicken_simdjson_load_ondemand_callback(
         const char *filename,
-        C_word callback);
+        C_word callback,
+        C_word cont);
 
     C_word chicken_simdjson_parse_ondemand(
         const char *data,
@@ -67,10 +68,11 @@ extern "C"
         C_word callback_vector_set,
         C_word callback_list_finalize);
 
-    C_word chicken_simdjson_parse_ondemand_callback(
+    void chicken_simdjson_parse_ondemand_callback(
         const char *data,
         size_t length,
-        C_word callback);
+        C_word callback,
+        C_word cont);
 
 #ifdef __cplusplus
 }
