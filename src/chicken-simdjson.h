@@ -33,7 +33,6 @@ extern "C"
     size_t chicken_simdjson_get_array_count_elements(void *p);
     void chicken_simdjson_get_array(void *p, C_word callback, C_word C_k);
     void chicken_simdjson_get_object(void *p, C_word callback, C_word C_k);
-    const char *chicken_simdjson_get_raw_json_string(void *p);
 
     C_word chicken_simdjson_load(
         const char *filename,

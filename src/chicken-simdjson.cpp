@@ -336,19 +336,19 @@ extern int chicken_simdjson_get_type(void *p)
 extern int64_t chicken_simdjson_get_signed_integer(void *p)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->get_int64();
+  return element->get_int64().value();
 }
 
 extern size_t chicken_simdjson_get_unsigned_integer(void *p)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->get_uint64();
+  return element->get_uint64().value();
 }
 
 extern double chicken_simdjson_get_floating_point_number(void *p)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
-  return element->get_double();
+  return element->get_double().value();
 }
 
 extern C_word chicken_simdjson_get_boolean(void *p)
@@ -360,11 +360,11 @@ extern C_word chicken_simdjson_get_boolean(void *p)
 extern void chicken_simdjson_get_string(void *p, C_word k)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
-  auto s = element->get_string();
-  auto size = s->size();
+  std::string_view s = element->get_string();
+  size_t size = s.size();
 
   char *res = (char *)malloc(size);
-  memcpy(res, s->data(), size);
+  memcpy(res, s.data(), size);
   C_word *ptr = C_alloc(C_SIZEOF_STRING(size));
   C_word v = C_string(&ptr, size, res);
   free(res);
@@ -392,7 +392,6 @@ extern void chicken_simdjson_get_array(void *p, C_word callback, C_word C_k)
 
   for (ondemand::value each : array)
   {
-
     C_word *ptr = C_alloc(C_SIZEOF_POINTER);
     C_word v = C_mpointer(&ptr, &each);
 
@@ -411,15 +410,12 @@ extern void chicken_simdjson_get_object(void *p, C_word callback, C_word C_k)
 {
   ondemand::value *element = static_cast<ondemand::value *>(p);
   ondemand::object obj = element->get_object();
-  size_t n = obj.count_fields();
 
-  C_word *ptr_obj = C_alloc(C_SIZEOF_VECTOR(n));
-  C_word res = C_vector(&ptr_obj, n);
+  C_word res = C_SCHEME_END_OF_LIST;
 
-  size_t i = 0;
   for (ondemand::field field : obj)
   {
-    auto each_key = field.escaped_key();
+    std::string_view each_key = field.escaped_key();
     size_t length = each_key.length();
 
     C_word *ptr = C_alloc(C_SIZEOF_INTERNED_SYMBOL(length));
@@ -434,21 +430,17 @@ extern void chicken_simdjson_get_object(void *p, C_word callback, C_word C_k)
     C_word v = C_mpointer(&ptr_pointer, &each);
 
     C_save(v);
-    C_save(ckey);
 
-    v = C_i_vector_set(res, C_fix(i), C_callback(callback, 2));
-    assert(v == C_SCHEME_UNDEFINED);
+    v = C_callback(callback, 1);
 
-    i++;
+    C_word *ptr_list = C_alloc(C_SIZEOF_LIST(2));
+    v = C_list(&ptr_list, 2, ckey, v);
+
+    C_word *ptr_pair = C_alloc(C_SIZEOF_PAIR);
+    res = C_pair(&ptr_pair, v, res);
   }
 
   C_kontinue(C_k, res);
-}
-
-extern const char *chicken_simdjson_get_raw_json_string(void *p)
-{
-  ondemand::value *element = (ondemand::value *)p;
-  return element->get_raw_json_string().raw().value();
 }
 
 extern C_word chicken_simdjson_load_ondemand(
