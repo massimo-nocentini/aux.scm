@@ -56,3 +56,7 @@ timsort-fetch:
 	wget --no-verbose https://raw.githubusercontent.com/massimo-nocentini/timsort.c/refs/heads/master/src/timsort.h
 
 foreigns-fetch: timsort-fetch simdjson-fetch
+
+json-bench:
+	cd test && rm -rf users_100k.json users_1.7m.json && \
+		wget --no-verbose blob:https://jsoneditoronline.org/1e851c21-64a5-4364-b99a-ab48d0a9e710 -O users_1.7m.json

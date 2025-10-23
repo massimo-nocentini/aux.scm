@@ -113,6 +113,10 @@
    (⊦= #(((a 1) (b #(2 5)) (c #t)) ((c 3) (d 4))) (simdjson-parse/ondemand "[{\"a\":1,\"b\":[2,5],\"c\":true},{\"c\":3,\"d\":4}]"))
   `(doc (p "hello")))
 
+  ((test/simdjson/parse/integer _)
+   (⊦= #(42) (simdjson-parse/ondemand "[42]"))
+  `(doc (p "hello")))
+
   ((test/libc/fma _)
    (⊦ fp= 0.0 (+ (* 0.1 10.0) -1.0))
    (⊦ fp= (fp*+ 0.1 10.0 -1.0) (libc-fma 0.1 10.0 -1.0))
