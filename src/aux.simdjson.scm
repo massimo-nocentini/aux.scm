@@ -48,6 +48,8 @@
   (define simdjson-get-object-ref-key (foreign-lambda symbol "chicken_simdjson_get_object_ref_key" (c-pointer "chicken_simdjson_dom_element_t") size_t))
   (define simdjson-get-object-ref-value (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_get_object_ref_value" (c-pointer "chicken_simdjson_dom_element_t") size_t))
 
+  (define simdjson-free (foreign-lambda void "chicken_simdjson_free" (c-pointer "chicken_simdjson_dom_element_t")))
+
   (define simdjson-parse-ondemand-callback (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_parse_ondemand_callback" (const c-string) size_t))
   (define simdjson-load-ondemand-callback (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_load_ondemand_callback" (const c-string)))
   
@@ -78,9 +80,17 @@
 
   (define (simdjson-load filename) (simdjson->scheme (simdjson-load-ondemand-callback filename)))
 
-  (define (simdjson-load/ondemand filename) (simdjson->scheme (simdjson-load-ondemand-callback filename)))
+  (define (simdjson-load/ondemand filename) 
+    (let* ((dom (simdjson-load-ondemand-callback filename))
+           (v (simdjson->scheme dom)))
+      (simdjson-free dom)
+      v))        
 
-  (define (simdjson-parse/ondemand str) (simdjson->scheme (simdjson-parse-ondemand-callback str (string-length str))))
+  (define (simdjson-parse/ondemand str) 
+    (let* ((dom (simdjson-parse-ondemand-callback str (string-length str)))
+           (v (simdjson->scheme dom)))
+      (simdjson-free dom)
+      v))
 
   (define (->string/json w)
     (letport/output-string port

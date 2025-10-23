@@ -63,6 +63,8 @@ extern "C"
     char *chicken_simdjson_get_object_ref_key(chicken_simdjson_dom_element_t *element, size_t i);
     chicken_simdjson_dom_element_t * chicken_simdjson_get_object_ref_value(chicken_simdjson_dom_element_t *element, size_t i);
     
+    void chicken_simdjson_free(chicken_simdjson_dom_element_t *element);
+
     chicken_simdjson_dom_element_t *chicken_simdjson_load_ondemand_callback(const char *filename);
     chicken_simdjson_dom_element_t *chicken_simdjson_parse_ondemand_callback(const char *data, size_t length);
 

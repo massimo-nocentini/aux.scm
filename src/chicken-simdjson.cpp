@@ -202,3 +202,45 @@ extern chicken_simdjson_dom_element_t *chicken_simdjson_parse_ondemand_callback(
 
   return doc;
 }
+
+extern void chicken_simdjson_free(chicken_simdjson_dom_element_t *element)
+{
+  if (element == NULL)
+    return;
+
+  switch (element->type)
+  {
+  case CHICKEN_SIMDJSON_TYPE_ARRAY:
+  {
+    for (size_t i = 0; i < element->value->as_array->length; i++)
+    {
+      chicken_simdjson_free(element->value->as_array->elements[i]);
+    }
+    free(element->value->as_array->elements);
+    free(element->value->as_array);
+    break;
+  }
+  case CHICKEN_SIMDJSON_TYPE_OBJECT:
+  {
+    for (size_t i = 0; i < element->value->as_object->length; i++)
+    {
+      free(element->value->as_object->keys[i]);
+      chicken_simdjson_free(element->value->as_object->elements[i]);
+    }
+    free(element->value->as_object->keys);
+    free(element->value->as_object->elements);
+    free(element->value->as_object);
+    break;
+  }
+  case CHICKEN_SIMDJSON_TYPE_STRING:
+  {
+    free(element->value->as_string);
+    break;
+  }
+  default:
+    break;
+  }
+
+  free(element->value);
+  free(element);
+}
