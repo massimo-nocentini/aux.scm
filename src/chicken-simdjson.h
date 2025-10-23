@@ -50,14 +50,7 @@ extern "C"
         chicken_simdjson_type_t type;
     };
 
-    C_word chicken_simdjson_stringp(chicken_simdjson_dom_element_t *element);
-    C_word chicken_simdjson_signed_integerp(chicken_simdjson_dom_element_t *element);
-    C_word chicken_simdjson_unsigned_integerp(chicken_simdjson_dom_element_t *element);
-    C_word chicken_simdjson_floating_point_numberp(chicken_simdjson_dom_element_t *element);
-    C_word chicken_simdjson_booleanp(chicken_simdjson_dom_element_t *element);
-    C_word chicken_simdjson_nullp(chicken_simdjson_dom_element_t *element);
-    C_word chicken_simdjson_arrayp(chicken_simdjson_dom_element_t *element);
-    C_word chicken_simdjson_objectp(chicken_simdjson_dom_element_t *element);
+    chicken_simdjson_type_t chicken_simdjson_get_type(chicken_simdjson_dom_element_t *element);
 
     int64_t chicken_simdjson_get_signed_integer(chicken_simdjson_dom_element_t *element);
     uint64_t chicken_simdjson_get_unsigned_integer(chicken_simdjson_dom_element_t *element);
@@ -69,16 +62,7 @@ extern "C"
     size_t chicken_simdjson_get_object_length(chicken_simdjson_dom_element_t *element);
     char *chicken_simdjson_get_object_ref_key(chicken_simdjson_dom_element_t *element, size_t i);
     chicken_simdjson_dom_element_t * chicken_simdjson_get_object_ref_value(chicken_simdjson_dom_element_t *element, size_t i);
-
-    void chicken_simdjson_get_array_begin(chicken_simdjson_dom_element_t *element, C_word C_k);
-    void chicken_simdjson_get_array_endp(chicken_simdjson_dom_element_t *element, void *i, C_word C_k);
-    void chicken_simdjson_get_array_each(void *i, C_word C_k);
-    void chicken_simdjson_get_array_inc(void *i, C_word C_k);
-    void chicken_simdjson_get_object(chicken_simdjson_dom_element_t *element, C_word C_k);
-    void chicken_simdjson_get_object_begin(chicken_simdjson_dom_element_t *element, C_word C_k);
-    void chicken_simdjson_get_object_endp(chicken_simdjson_dom_element_t *element, void *i, C_word C_k);
-    void chicken_simdjson_get_object_each(void *i, C_word C_k);
-    void chicken_simdjson_get_object_inc(void *i, C_word C_k);
+    
     chicken_simdjson_dom_element_t *chicken_simdjson_load_ondemand_callback(const char *filename);
     chicken_simdjson_dom_element_t *chicken_simdjson_parse_ondemand_callback(const char *data, size_t length);
 

@@ -126,6 +126,11 @@ chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(ondemand::value 
   return res;
 }
 
+extern chicken_simdjson_type_t chicken_simdjson_get_type(chicken_simdjson_dom_element_t *element)
+{
+  return element->type;
+}
+
 extern char *chicken_simdjson_get_string(chicken_simdjson_dom_element_t *element)
 {
   return element->value->as_string;
@@ -196,48 +201,4 @@ extern chicken_simdjson_dom_element_t *chicken_simdjson_parse_ondemand_callback(
   chicken_simdjson_dom_element_t *doc = chicken_simdjson_visit_ondemand(ddoc);
 
   return doc;
-}
-
-/*
-  The predicates.
-*/
-
-extern C_word chicken_simdjson_stringp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_STRING) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_signed_integerp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_SIGNED_INTEGER) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_unsigned_integerp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_UNSIGNED_INTEGER) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_floating_point_numberp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_booleanp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_BOOLEAN) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_nullp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_NULL) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_arrayp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_ARRAY) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
-}
-
-extern C_word chicken_simdjson_objectp(chicken_simdjson_dom_element_t *element)
-{
-  return (element->type == CHICKEN_SIMDJSON_TYPE_OBJECT) ? C_SCHEME_TRUE : C_SCHEME_FALSE;
 }

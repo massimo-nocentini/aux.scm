@@ -15,15 +15,28 @@
 
   <#
 
-  (define simdjson-signed-integer? (foreign-lambda scheme-object "chicken_simdjson_signed_integerp" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-unsigned-integer? (foreign-lambda scheme-object "chicken_simdjson_unsigned_integerp" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-floating-point-number? (foreign-lambda scheme-object "chicken_simdjson_floating_point_numberp" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-string? (foreign-lambda scheme-object "chicken_simdjson_stringp" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-array? (foreign-lambda scheme-object "chicken_simdjson_arrayp" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-object? (foreign-lambda scheme-object "chicken_simdjson_objectp" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-null? (foreign-lambda scheme-object "chicken_simdjson_nullp" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-boolean? (foreign-lambda scheme-object "chicken_simdjson_booleanp" (c-pointer "chicken_simdjson_dom_element_t")))
 
+  (define-foreign-variable simdjson-type-signed-integer int "CHICKEN_SIMDJSON_TYPE_SIGNED_INTEGER")
+  (define-foreign-variable simdjson-type-unsigned-integer int "CHICKEN_SIMDJSON_TYPE_UNSIGNED_INTEGER")
+  (define-foreign-variable simdjson-type-floating-point-number int "CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER")
+  (define-foreign-variable simdjson-type-string int "CHICKEN_SIMDJSON_TYPE_STRING")
+  (define-foreign-variable simdjson-type-array int "CHICKEN_SIMDJSON_TYPE_ARRAY")
+  (define-foreign-variable simdjson-type-object int "CHICKEN_SIMDJSON_TYPE_OBJECT")
+  (define-foreign-variable simdjson-type-null int "CHICKEN_SIMDJSON_TYPE_NULL")
+  (define-foreign-variable simdjson-type-boolean int "CHICKEN_SIMDJSON_TYPE_BOOLEAN")
+  (define-foreign-variable simdjson-type-unknown int "CHICKEN_SIMDJSON_TYPE_UNKNOWN")
+
+  (define (simdjson-signed-integer? t) (= t simdjson-type-signed-integer))
+  (define (simdjson-unsigned-integer? t) (= t simdjson-type-unsigned-integer))
+  (define (simdjson-floating-point-number? t) (= t simdjson-type-floating-point-number))
+  (define (simdjson-string? t) (= t simdjson-type-string))
+  (define (simdjson-array? t) (= t simdjson-type-array))
+  (define (simdjson-object? t) (= t simdjson-type-object))
+  (define (simdjson-null? t) (= t simdjson-type-null))
+  (define (simdjson-boolean? t) (= t simdjson-type-boolean))
+  (define (simdjson-unknown? t) (= t simdjson-type-unknown))
+
+  (define simdjson-get-type (foreign-lambda int "chicken_simdjson_get_type" (c-pointer "chicken_simdjson_dom_element_t")))
   (define simdjson-get-signed-integer (foreign-lambda integer64 "chicken_simdjson_get_signed_integer" (c-pointer "chicken_simdjson_dom_element_t")))
   (define simdjson-get-unsigned-integer (foreign-lambda unsigned-integer64 "chicken_simdjson_get_unsigned_integer" (c-pointer "chicken_simdjson_dom_element_t")))  
   (define simdjson-get-floating-point-number (foreign-lambda double "chicken_simdjson_get_floating_point_number" (c-pointer "chicken_simdjson_dom_element_t")))
@@ -39,14 +52,13 @@
   (define simdjson-load-ondemand-callback (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_load_ondemand_callback" (const c-string)))
   
   (define (simdjson->scheme w)
-    (let1 (t w)
+    (let1 (t (simdjson-get-type w))
       (cond
         ((simdjson-signed-integer? t) (simdjson-get-signed-integer w)) 
         ((simdjson-unsigned-integer? t) (simdjson-get-unsigned-integer w))
         ((simdjson-floating-point-number? t) (simdjson-get-floating-point-number w))
         ((simdjson-string? t) (simdjson-get-string w))
-        ((simdjson-array? t) (let* ((n (simdjson-get-array-length w))
-                                    (vec (make-vector n)))
+        ((simdjson-array? t) (let* ((n (simdjson-get-array-length w)) (vec (make-vector n)))
                                 (let loop ((i 0))
                                   (cond
                                     ((< i n) (vector-set! vec i (simdjson->scheme (simdjson-get-array-ref w i))) (loop (add1 i)))
