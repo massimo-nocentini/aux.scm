@@ -171,6 +171,8 @@
   (define (->string/pretty-print v) (call-with-output-string (λ (p) (pretty-print v p))))
   (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))
 
+  (define (string-last s) (string-ref s (sub1 (string-length s))))
+
   )
 
 
