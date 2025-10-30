@@ -4,7 +4,7 @@
 
   (import scheme 
           (chicken base)
-          srfi-1
+          srfi-1 srfi-69
           (aux base)
           (aux stream)
           (aux fds sbral))
@@ -135,7 +135,7 @@
 
   (define (null° l) (=° l '()))
   (define (cons° a d c) (=° c (cons a d)))
-  (define-syntax-rule (project° (v ...) g ...) (λ (s) (let ((v (µkanren-state-find* v s)) ...) (delay ((and° g ...) s)))))
+  (define-syntax-rule (project° ((v* v) ...) g ...) (λ (s) (let ((v* (µkanren-state-find* v s)) ...) (delay ((and° g ...) s)))))
   (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
 
   (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
@@ -147,6 +147,18 @@
                                                      (map§ (µkanren-project (µkanren-var 0)) 
                                                             (delay (main µkanren-state-empty)))))
 
+  (define-syntax-rule (literal over in do) (groupby° (v ...) over (k ...) in g do f)
+    (λ (s)
+      (let* ((§ (delay (g s)))
+             (F (λ (s* H)
+                  (let ((key (list (µkanren-state-find* k s*) ...))
+                        (value (list (µkanren-state-find* v s*) ...)))
+                      (hash-table-update!/default H key (λ (group) (cons value group)) '())
+                      H)))
+             (ht (foldr§ F (make-hash-table) §))
+             (G (λ (key group folded) (or° (f  group) folded)))
+             (g* (hash-table-fold ht G ✗°)))
+        (delay (g* s)))))
 
   )
 

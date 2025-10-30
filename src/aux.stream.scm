@@ -60,6 +60,12 @@
       ((and (pair? r) (pair? s)) (cons§ (f (car r) (car s)) (zip§ f (cdr r) (cdr s))))
       (else '())))
 
+  (define (foldr§ f init s)
+    (cond
+      ((promise? s) (foldr§ f init (force s)))
+      ((pair? s) (f (car s) (foldr§ f init (cdr s))))
+      (else init)))
+
   (define (cdr§ s)
     (cond
       ((promise? s) (delay (cdr§ (force s))))

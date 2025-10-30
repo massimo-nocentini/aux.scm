@@ -17,8 +17,9 @@
   (reexport matchable)
 
   (define-syntax define-syntax-rule
-    (syntax-rules ()
-      ((define-syntax-rule (name p ...) r) (define-syntax name (syntax-rules () ((_ p ...) r))))))
+    (syntax-rules (literal)
+      ((define-syntax-rule (literal k ...) (name p ...) r) (define-syntax name (syntax-rules (k ...) ((_ p ...) r))))
+      ((define-syntax-rule (name p ...) r) (define-syntax-rule (literal) (name p ...) r))))
 
   (define-syntax-rule (define-macro-ir (name expr inject compare) body ...)
     (define-syntax name (ir-macro-transformer (λ (expr inject compare) body ...))))
