@@ -27,7 +27,7 @@
   (reexport matchable)
 
   (define highlight-version "11.11.1")
-  (define highlight-languages '(scheme lisp python mathematica javascript htmlxml css bash c cpp java ruby go rust ocaml sql))
+  (define highlight-languages '(scheme lisp python mathematica javascript htmlxml css bash c cpp java ruby go rust ocaml pgsql))
 
   (define (sxml-tree title body)
     (let ((maintitle (if (pair? title) (car title) title))

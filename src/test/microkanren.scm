@@ -117,7 +117,7 @@
 END
 )
    "with respect to the following query:"
-   (code/lang sql "SELECT depname, empno, salary, avg(salary) OVER (PARTITION BY depname) FROM empsalary;" )
+   (code/lang pgsql "SELECT depname, empno, salary, avg(salary) OVER (PARTITION BY depname) FROM empsalary;" )
    )))
 
   ((test/groupby°/one-column _)
