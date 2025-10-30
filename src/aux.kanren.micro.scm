@@ -143,7 +143,7 @@
   (define-syntax-rule (°->§ (var ...) g ...) (let1 (main (fresh° (q) (fresh° (var ...) (=° q (list var ...)) g ...)))
                                               (map§ (µkanren-project (µkanren-var 0)) (delay (main µkanren-state-empty)))))
 
-  (define-syntax-rule (literal over from =>) (groupby° (v ...) over (k ...) from g => f ...)
+  (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
         (let* ((§ (delay (g s)))
                (F (λ (s* H)
@@ -153,11 +153,11 @@
                                                   (make-hash-table))
                       H))
                (ht (foldr§ F (make-hash-table) §))
-               (G (λ (key group folded) (or° (let ((v (hash-table-ref group v)) ...) (receive (k ...) (apply values key) (and° f ...))) folded)))
+               (G (λ (key group folded) (or° (let ((v* (aggr (hash-table-ref group v))) ...) (receive (k ...) (apply values key) (and° f ...))) folded)))
                (g* (hash-table-fold ht G ✗°)))
           (delay (g* s)))))
 
-  (define-syntax-rule (literal over from =>) (window° ((v v*) ...) over (k ...) from g => f ...)
+  (define-syntax-rule (literal over from =>) (window° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
         (let* ((§ (delay (g s)))
                (F (λ (s* H)
@@ -168,7 +168,7 @@
                       H))
                (ht (foldr§ F (make-hash-table) §))
                (G (λ (s*) (let* ((group (hash-table-ref ht (list (µkanren-state-find* k s*) ...)))
-                                 (v* (hash-table-ref group v)) ...)
+                                 (v* (aggr (hash-table-ref group v))) ...)
                             ((and° f ...) s*)))))
           (append-map§ G §))))
 

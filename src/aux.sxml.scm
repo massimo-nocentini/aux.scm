@@ -27,6 +27,7 @@
   (reexport matchable)
 
   (define highlight-version "11.11.1")
+  (define highlight-languages '(scheme lisp python mathematica javascript htmlxml css bash c cpp java ruby go rust ocaml))
 
   (define (sxml-tree title body)
     (let ((maintitle (if (pair? title) (car title) title))
@@ -51,7 +52,7 @@
                 (script (@ (src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/" ,highlight-version "/highlight.min.js")))
                 ,@(map (lambda (lang) 
                          `(script (@ (src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/" ,highlight-version "/languages/" ,lang ".min.js")))) 
-                    '(scheme python mathematica ocaml))
+                    highlight-languages)
                 (script "hljs.highlightAll();")
                 (title ,maintitle))
               (body (@ (class "w3-content") (style "max-width:61.8%"))
