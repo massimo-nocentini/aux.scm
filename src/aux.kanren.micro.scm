@@ -53,8 +53,8 @@
         ((and (string? u*) (string? v*) (string=? u* v*)) s)
         ((and (number? u*) (number? v*) (= u* v*)) s)
         ((and (vector? u*) (vector? v*) (= (vector-length u*) (vector-length v*))) 
-          (foldl (λ (ss i) (and (pair? ss) (µkanren-state-unify (vector-ref u* i) (vector-ref v* i) ss))) 
-                 s (iota (vector-length u*))))
+         (foldl (λ (ss i) (and (pair? ss) (µkanren-state-unify (vector-ref u* i) (vector-ref v* i) ss))) 
+                s (iota (vector-length u*))))
         ;((and (µkanren-var? u) (µkanren-var? u)) think about which of the two should reference the other
         ((µkanren-var? u*) (µkanren-state-set u* v* s))
         ((µkanren-var? v*) (µkanren-state-set v* u* s))
@@ -140,27 +140,40 @@
 
   (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
 
-  (define-syntax-rule (°->§ (var ...) g ...) (let1 (main (fresh° (q)
-                                                                    (fresh° (var ...) 
-                                                                             (=° q (list var ...)) 
-                                                                             g ...)))
-                                                     (map§ (µkanren-project (µkanren-var 0)) 
-                                                            (delay (main µkanren-state-empty)))))
+  (define-syntax-rule (°->§ (var ...) g ...) (let1 (main (fresh° (q) (fresh° (var ...) (=° q (list var ...)) g ...)))
+                                              (map§ (µkanren-project (µkanren-var 0)) (delay (main µkanren-state-empty)))))
 
-  (define-syntax-rule (literal over in do) (groupby° (v ...) over (k ...) in g do f)
+  (define-syntax-rule (literal over from =>) (groupby° (v ...) over (k ...) from g => f ...)
     (λ (s)
-      (let* ((§ (delay (g s)))
-             (F (λ (s* H)
-                  (let ((key (list (µkanren-state-find* k s*) ...))
-                        (value (list (µkanren-state-find* v s*) ...)))
-                      (hash-table-update!/default H key (λ (group) (cons value group)) '())
-                      H)))
-             (ht (foldr§ F (make-hash-table) §))
-             (G (λ (key group folded) (or° (f  group) folded)))
-             (g* (hash-table-fold ht G ✗°)))
-        (delay (g* s)))))
+        (let* ((§ (delay (g s)))
+               (F (λ (s* H)
+                      (hash-table-update!/default H  
+                                                  (list (µkanren-state-find* k s*) ...) ; key
+                                                  (λ (group) (hash-table-update!/default group v (λ (vs) (cons (µkanren-state-find* v s*) vs)) '()) ... group) ; value
+                                                  (make-hash-table))
+                      H))
+               (ht (foldr§ F (make-hash-table) §))
+               (G (λ (key group folded) (or° (let ((v (hash-table-ref group v)) ...) (receive (k ...) (apply values key) (and° f ...))) folded)))
+               (g* (hash-table-fold ht G ✗°)))
+          (delay (g* s)))))
+
+  (define-syntax-rule (literal over from =>) (window° ((v v*) ...) over (k ...) from g => f ...)
+    (λ (s)
+        (let* ((§ (delay (g s)))
+               (F (λ (s* H)
+                      (hash-table-update!/default H  
+                                                  (list (µkanren-state-find* k s*) ...) ; key
+                                                  (λ (group) (hash-table-update!/default group v (λ (vs) (cons (µkanren-state-find* v s*) vs)) '()) ... group) ; value
+                                                  (make-hash-table))
+                      H))
+               (ht (foldr§ F (make-hash-table) §))
+               (G (λ (s*) (let* ((group (hash-table-ref ht (list (µkanren-state-find* k s*) ...)))
+                                 (v* (hash-table-ref group v)) ...)
+                            ((and° f ...) s*)))))
+          (append-map§ G §))))
 
   )
+
 
 
 

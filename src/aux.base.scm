@@ -174,7 +174,23 @@
 
   (define (string-last s) (string-ref s (sub1 (string-length s))))
 
+  (define (foldr/+ lst) (foldr + 0 lst))
+  (define (foldr/* lst) (foldr * 1 lst))
+  (define (foldr/avg lst) (/ (foldr/+ lst) (length lst)))
+  (define (foldr/var lst)
+    (let1 (m (foldr/avg lst))
+          (/ (foldr (λ (x acc) (let1 (d (- x m)) (+ (* d d) acc))) 0 lst)
+             (sub1 (length lst)))))
+  (define (foldr/stddev lst) (sqrt (foldr/var lst)))
+  (define (foldr/concat lst) (foldr append '() lst))
+  (define (foldr/concat-strings lst) (foldr string-append "" lst))
+  (define (foldr/max lst) (foldr (λ (a b) (if (> a b) a b)) -inf.0 lst))
+  (define (foldr/min lst) (foldr (λ (a b) (if (< a b) a b)) +inf.0 lst))
+  (define (foldr/and lst) (foldr (λ (a b) (and a b)) #t lst))
+  (define (foldr/or lst) (foldr (λ (a b) (or a b)) #f lst))
+
   )
+
 
 
 

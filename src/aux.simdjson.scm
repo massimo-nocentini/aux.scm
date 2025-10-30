@@ -52,31 +52,31 @@
 
   (define simdjson-parse-ondemand-callback (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_parse_ondemand_callback" (const c-string) size_t))
   (define simdjson-load-ondemand-callback (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_load_ondemand_callback" (const c-string)))
-  
+
   (define (simdjson->scheme w)
     (let1 (t (simdjson-get-type w))
-      (cond
-        ((simdjson-signed-integer? t) (simdjson-get-signed-integer w)) 
-        ((simdjson-unsigned-integer? t) (simdjson-get-unsigned-integer w))
-        ((simdjson-floating-point-number? t) (simdjson-get-floating-point-number w))
-        ((simdjson-string? t) (simdjson-get-string w))
-        ((simdjson-array? t) (let* ((n (simdjson-get-array-length w)) (vec (make-vector n)))
-                                (let loop ((i 0))
-                                  (cond
-                                    ((< i n) (vector-set! vec i (simdjson->scheme (simdjson-get-array-ref w i))) (loop (add1 i)))
-                                    (else vec)))))
-        ((simdjson-object? t) (let1 (n (simdjson-get-object-length w))
-                                (let loop ((i (sub1 n)) (lst '()))
-                                  (cond
-                                    ((>= i 0) (let* ((key (simdjson-get-object-ref-key w i))
-                                                     (w* (simdjson-get-object-ref-value w i))
-                                                     (key* (list key (simdjson->scheme w*)))
-                                                     (lst* (cons key* lst)))
-                                                (loop (sub1 i) lst*)))
-                                    (else lst)))))
-        ((simdjson-null? t) (void))
-        ((simdjson-boolean? t) (simdjson-get-boolean w))
-        (else (error "Unknown simdjson type" t w)))))
+          (cond
+            ((simdjson-signed-integer? t) (simdjson-get-signed-integer w)) 
+            ((simdjson-unsigned-integer? t) (simdjson-get-unsigned-integer w))
+            ((simdjson-floating-point-number? t) (simdjson-get-floating-point-number w))
+            ((simdjson-string? t) (simdjson-get-string w))
+            ((simdjson-array? t) (let* ((n (simdjson-get-array-length w)) (vec (make-vector n)))
+                                   (let loop ((i 0))
+                                     (cond
+                                       ((< i n) (vector-set! vec i (simdjson->scheme (simdjson-get-array-ref w i))) (loop (add1 i)))
+                                       (else vec)))))
+            ((simdjson-object? t) (let1 (n (simdjson-get-object-length w))
+                                        (let loop ((i (sub1 n)) (lst '()))
+                                          (cond
+                                            ((>= i 0) (let* ((key (simdjson-get-object-ref-key w i))
+                                                             (w* (simdjson-get-object-ref-value w i))
+                                                             (key* (list key (simdjson->scheme w*)))
+                                                             (lst* (cons key* lst)))
+                                                        (loop (sub1 i) lst*)))
+                                            (else lst)))))
+            ((simdjson-null? t) (void))
+            ((simdjson-boolean? t) (simdjson-get-boolean w))
+            (else (error "Unknown simdjson type" t w)))))
 
   (define (simdjson-load filename) (simdjson->scheme (simdjson-load-ondemand-callback filename)))
 
@@ -127,6 +127,7 @@
                                (else (warning "Cannot convert to JSON" v) (display "\"<unknown>\"" port))))))
 
   )
+
 
 
 

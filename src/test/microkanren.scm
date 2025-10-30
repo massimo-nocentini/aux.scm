@@ -70,41 +70,84 @@
 
   ((test/aggregate° _)
 
-   (define-relation (empsalary° s)
-     (or° (=° s 5000)
-          (=° s 6000)
-          (=° s 5200)
-          (=° s 3500)
-          (=° s 4800)
-          (=° s 3900)
-          (=° s 4200)
-          (=° s 4500)))
+   #|
 
-   (⊦= '((λ () `(5500))
+depname  | empno | salary |          avg
+-----------+-------+--------+-----------------------
+ develop   |    11 |   5200 | 5020.0000000000000000
+ develop   |     7 |   4200 | 5020.0000000000000000
+ develop   |     9 |   4500 | 5020.0000000000000000
+ develop   |     8 |   6000 | 5020.0000000000000000
+ develop   |    10 |   5200 | 5020.0000000000000000
+ personnel |     5 |   3500 | 3700.0000000000000000
+ personnel |     2 |   3900 | 3700.0000000000000000
+ sales     |     3 |   4800 | 4866.6666666666666667
+ sales     |     1 |   5000 | 4866.6666666666666667
+ sales     |     4 |   4800 | 4866.6666666666666667
+ 
+ |#
+
+   (define-relation (empsalary° depname empno salary)
+     (or° (and° (=° depname 'develop) (=° empno 7)  (=° salary 4200))
+           (and° (=° depname 'develop) (=° empno 8)  (=° salary 6000))
+           (and° (=° depname 'develop) (=° empno 9)  (=° salary 4500))
+           (and° (=° depname 'develop) (=° empno 10) (=° salary 5200))
+           (and° (=° depname 'develop) (=° empno 11) (=° salary 5200))
+           (and° (=° depname 'personnel) (=° empno 2)  (=° salary 3900))
+           (and° (=° depname 'personnel) (=° empno 5)  (=° salary 3500))
+           (and° (=° depname 'sales)     (=° empno 1)  (=° salary 5000))
+           (and° (=° depname 'sales)     (=° empno 3)  (=° salary 4800))
+           (and° (=° depname 'sales)     (=° empno 4)  (=° salary 4800))))
+
+   (⊦= '((λ () `(4700))
            (λ () `(6500))
+           (λ () `(5000))
            (λ () `(5700))
-           (λ () `(4000))
-           (λ () `(5300))
+           (λ () `(5700))
            (λ () `(4400))
-           (λ () `(4700))
-           (λ () `(5000)))
-         (§->list (°->§ (s) (fresh° (es) (empsalary° es) (project° ((s* es)) (=° s (+ s* 500)))))))
+           (λ () `(4000))
+           (λ () `(5500))
+           (λ () `(5300))
+           (λ () `(5300)))
+         (§->list (°->§ (r) (fresh° (d e s) (empsalary° d e s) (project° ((s* s)) (=° r (+ s* 500)))))))
 
-  (⊦= '((λ ()
-               `(((5000)
-                  (6000)
-                  (5200)
-                  (3500)
-                  (4800)
-                  (3900)
-                  (4200)
-                  (4500)))))
-         (§->list (°->§ (s) (fresh° (es) (groupby° (es) over () in (empsalary° es) do (λ (group) (=° s group))))))))
+   (⊦= '((λ () `(47100))) (§->list (°->§ (r) (fresh° (d e s) (groupby° (s) over () from (empsalary° d e s) => (=° r (foldr/+ s)))))))
 
+   (⊦= '((λ () `((develop 25100)))
+           (λ () `((sales 14600)))
+           (λ () `((personnel 7400))))
+         (§->list (°->§ (r) (fresh° (d e s) (groupby° (s) over (d) from (empsalary° d e s) => (=° r `(,d ,(foldr/+ s))))))))
+
+   (⊦= '((λ () `((develop 7 4200 5020)))
+           (λ () `((develop 8 6000 5020)))
+           (λ () `((develop 9 4500 5020)))
+           (λ () `((develop 10 5200 5020)))
+           (λ () `((develop 11 5200 5020)))
+           (λ () `((personnel 2 3900 3700)))
+           (λ () `((personnel 5 3500 3700)))
+           (λ () `((sales 1 5000 14600/3)))
+           (λ () `((sales 3 4800 14600/3)))
+           (λ () `((sales 4 4800 14600/3))))
+      (§->list (°->§ (r) (fresh° (d e s) (window° ((s s*)) over (d) from (empsalary° d e s) => (=° r `(,d ,e ,s ,(foldr/avg s*))))))))
+
+    (⊦= '((λ () `((develop 7 4200 4710)))
+           (λ () `((develop 8 6000 4710)))
+           (λ () `((develop 9 4500 4710)))
+           (λ () `((develop 10 5200 4710)))
+           (λ () `((develop 11 5200 4710)))
+           (λ () `((personnel 2 3900 4710)))
+           (λ () `((personnel 5 3500 4710)))
+           (λ () `((sales 1 5000 4710)))
+           (λ () `((sales 3 4800 4710)))
+           (λ () `((sales 4 4800 4710))))
+      (§->list (°->§ (r) (fresh° (d e s) (window° ((s s*)) over () from (empsalary° d e s) => (=° r `(,d ,e ,s ,(foldr/avg s*))))))))
+   
+   )
 
   )
 
 (unittest/✓ microkanren-suite)
+
 
 
 

@@ -193,18 +193,18 @@
                         alist-conv-rules*))
               (append `((escape *preorder* . ,(lambda (tag body) (apply string-append (map ->string body)))))
                       universal-conversion-rules*)))))))
-  
+
   (define-syntax define-vhost 
     (syntax-rules () 
       ((define-vhost (name request $) (method ((p ...) b ...) ...) ...)
-      (define (name continue)
-        (let* ((request (current-request))
+       (define (name continue)
+         (let* ((request (current-request))
                 (uri (request-uri request))
                 (m (request-method request))
                 ($ (request-vars)))
-          (cond
-            ((equal? (quote method) m) (match (uri-path uri) (('/ p ...) b ...) ...)) ...
-            (else (continue))))))))
+           (cond
+             ((equal? (quote method) m) (match (uri-path uri) (('/ p ...) b ...) ...)) ...
+             (else (continue))))))))
 
   (define-syntax define-vhost-map 
     (syntax-rules () 
