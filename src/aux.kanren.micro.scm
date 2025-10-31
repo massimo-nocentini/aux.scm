@@ -14,12 +14,12 @@
   (define µkanren-var-unbound (gensym 'µkanren-void-))
   (define (µkanren-var i) (list µkanren-var-metaid i))
   (define (µkanren-var? v) (and (pair? v) (eq? (car v) µkanren-var-metaid)))
-  (define (µkanren-var-index v) (cadr v))
+  (define µkanren-var-index cadr)
   (define (µkanren-unbound? v) (eq? v µkanren-var-unbound))
 
   (define µkanren-state-empty (list empty/sbral 0))
-  (define (µkanren-state-substitution s) (car s))
-  (define (µkanren-state-counter s) (cadr s))
+  (define µkanren-state-substitution car)
+  (define µkanren-state-counter cadr)
   (define (µkanren-var-index/state v s) (- (µkanren-state-counter s) 1 (µkanren-var-index v)))
 
   (define (µkanren-state-find v s)
@@ -171,6 +171,19 @@
                                  (v* (aggr (hash-table-ref group v))) ...)
                             ((and° f ...) s*)))))
           (append-map§ G §))))
+
+  (define-syntax-rule (literal over from =>) (set° (v aggr init) over ((k* k) ...) from g => f ...)
+    (λ (s)
+        (let* ((§ (delay (g s)))
+               (F (λ (s* H)
+                    (let1 (key (list (µkanren-state-find* k s*) ...))
+                      (hash-table-update!/default H key (λ (u) (apply aggr `(,@key ,u))) init))
+                    H))
+               (ht (foldr§ F (make-hash-table) §))
+               (G (λ (key v folded) (or° (receive (k* ...) (apply values key) (and° f ...)) folded)))
+               (g* (hash-table-fold ht G ✗°)))
+          (delay (g* s)))))
+
 
   )
 

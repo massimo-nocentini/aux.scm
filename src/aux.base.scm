@@ -168,6 +168,13 @@
 
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
+  (define-syntax λ-curry
+    (syntax-rules ()
+     ((λ-curry () body ...) (λ (useless) body ...))
+     ((λ-curry (arg) body ...) (λ (arg) body ...))
+     ((λ-curry (arg args ...) body ...) (λ (arg) (λ-curry (args ...) body ...)))))
+  (define-syntax-rule (define-curry (name arg ...) body ...) (define name (λ-curry (arg ...) body ...)))
+
   (define (load/string str) (read (open-input-string str)))
   (define (->string/pretty-print v) (call-with-output-string (λ (p) (pretty-print v p))))
   (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))

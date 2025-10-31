@@ -127,6 +127,15 @@ END
          (§->list (°->§ (r) (fresh° (d e s) (groupby° (((s* foldr/+) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*)))))))
    )
   
+  ((test/set° _)
+   
+   (⊦= '((λ () `((sales 3)))
+           (λ () `((personnel 2)))
+           (λ () `((develop 5))))
+      (§->list (°->§ (r) (fresh° (d e s) (set° (c (λ (k v) (add1 v)) 0) over ((d* d)) from (empsalary° d e s) => (=° r `(,d* ,c)))))))
+   
+   )
+
   ((test/window° _)
    
    (⊦= '((λ () `((develop 7 4200 5020)))
@@ -139,7 +148,11 @@ END
            (λ () `((sales 1 5000 14600/3)))
            (λ () `((sales 3 4800 14600/3)))
            (λ () `((sales 4 4800 14600/3))))
-      (§->list (°->§ (r) (fresh° (d e s) (window° (((s* foldr/avg) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,e ,s ,s*)))))))
+      (§->list 
+        (°->§ (r) 
+          (fresh° (d e s) 
+            (window° (((s* foldr/avg) s)) over (d) from (empsalary° d e s) 
+              => (=° r `(,d ,e ,s ,s*)))))))
 
     (⊦= '((λ () `((develop 7 4200 4710)))
            (λ () `((develop 8 6000 4710)))
