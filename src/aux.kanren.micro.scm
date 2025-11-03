@@ -145,7 +145,7 @@
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
-        (let* ((§ (delay (g s)))
+        (let* ((§ (delay (g s))) ; the stream to fold over
                (F (λ (s* H)
                       (hash-table-update!/default H  
                                                   (list (µkanren-state-find* k s*) ...) ; key
@@ -159,7 +159,7 @@
 
   (define-syntax-rule (literal over from =>) (window° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
-        (let* ((§ (delay (g s)))
+        (let* ((§ (delay (g s))) ; the stream to fold over
                (F (λ (s* H)
                       (hash-table-update!/default H  
                                                   (list (µkanren-state-find* k s*) ...) ; key
@@ -172,28 +172,33 @@
                             ((and° f ...) s*)))))
           (append-map§ G §))))
 
-  (define-syntax-rule (literal over from =>) (set° (v aggr init) over ((k* k) ...) from g => f ...)
-    (λ (s)
-        (let* ((§ (delay (g s)))
-               (F (λ (s* H)
+  (define-syntax-rule (literal over from =>) 
+    (set° (v aggr init₀) over ((k* k) ...) from g => f ...)
+      (λ (s)
+        (let* ((§ (delay (g s))) ; the stream to fold over
+              (A aggr) ; to evaluate `aggr` only once
+              (init init₀) ; to evaluate `init` only once
+              (F (λ (s* H)
                     (let1 (key (list (µkanren-state-find* k s*) ...))
-                      (hash-table-update!/default H key (λ (u) (apply aggr `(,@key ,u))) init))
+                      (hash-table-update!/default H key (λ (u) (apply A `(,@key ,u))) init))
                     H))
-               (ht (foldr§ F (make-hash-table) §))
-               (G (λ (key v folded) (or° (receive (k* ...) (apply values key) (and° f ...)) folded)))
-               (g* (hash-table-fold ht G ✗°)))
+              (ht (foldr§ F (make-hash-table) §))
+              (G (λ (key v folded) (or° (receive (k* ...) (apply values key) (and° f ...)) folded)))
+              (g* (hash-table-fold ht G ✗°)))
           (delay (g* s)))))
 
-  (define-syntax-rule (literal over from =>) (enumerate° (v aggr) over (k ...) from g => f ...)
-    (λ (s)
-      (let* ((§ (delay (g s)))
-             (i 0)
-             (F (λ (s* H)
-                 (let1 (key (list i (µkanren-state-find* k s*) ...))
-                  (add1! i)
-                  (cons (apply aggr key) H))))
-             (v (reverse (foldr§ F '() §))))
-        (delay ((and° f ...) s)))))
+  (define-syntax-rule (literal over from =>) 
+    (enumerate° (v aggr) over (k ...) from g => f ...)
+      (λ (s)
+        (let* ((§ (delay (g s))) ; the stream to fold over
+               (A aggr) ; to evaluate `aggr` only once
+               (i 0)
+               (F (λ (s* H)
+                   (let1 (key (list i (µkanren-state-find* k s*) ...))
+                     (add1! i)
+                     (cons (apply A key) H))))
+               (v (reverse (foldr§ F '() §))))
+           (delay ((and° f ...) s)))))
 
 
   )
