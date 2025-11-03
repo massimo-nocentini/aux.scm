@@ -184,6 +184,17 @@
                (g* (hash-table-fold ht G ✗°)))
           (delay (g* s)))))
 
+  (define-syntax-rule (literal over from =>) (enumerate° (v aggr) over (k ...) from g => f ...)
+    (λ (s)
+      (let* ((§ (delay (g s)))
+             (i 0)
+             (F (λ (s* H)
+                 (let1 (key (list i (µkanren-state-find* k s*) ...))
+                  (add1! i)
+                  (cons (apply aggr key) H))))
+             (v (reverse (foldr§ F '() §))))
+        (delay ((and° f ...) s)))))
+
 
   )
 

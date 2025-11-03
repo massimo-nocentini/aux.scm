@@ -136,6 +136,21 @@ END
    
    )
 
+  ((test/all° _)
+   
+   (⊦= '((λ ()
+               `(((0 (sales))
+                  (1 (sales))
+                  (2 (sales))
+                  (3 (personnel))
+                  (4 (personnel))
+                  (5 (develop))
+                  (6 (develop))
+                  (7 (develop))
+                  (8 (develop))
+                  (9 (develop))))))
+      (§->list (°->§ (r) (fresh° (d e s) (enumerate° (c (λ (i k) (list i (list k)))) over (d) from (empsalary° d e s) => (=° r c)))))))
+
   ((test/window° _)
    
    (⊦= '((λ () `((develop 7 4200 5020)))
