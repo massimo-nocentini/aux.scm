@@ -50,7 +50,6 @@ simdjson-fetch:
 	rm -rf simdjson.cpp simdjson.h #test/twitter.json
 	wget --no-verbose https://github.com/simdjson/simdjson/releases/latest/download/simdjson.cpp
 	wget --no-verbose https://github.com/simdjson/simdjson/releases/latest/download/simdjson.h
-	#cd test && wget --no-verbose https://raw.githubusercontent.com/simdjson/simdjson/refs/heads/master/jsonexamples/twitter.json
 	
 timsort-fetch:
 	rm -rf timsort.c timsort.h
@@ -60,5 +59,5 @@ timsort-fetch:
 foreigns-fetch: timsort-fetch simdjson-fetch
 
 json-bench:
-	cd test && rm -rf users_100k.json users_1.7m.json && \
-		wget --no-verbose blob:https://jsoneditoronline.org/1e851c21-64a5-4364-b99a-ab48d0a9e710 -O users_1.7m.json
+	# first take json files from https://jsoneditoronline.org/indepth/datasets/json-file-example/#a-large-json-document
+	cd test && csi -s json-benchmark.scm
