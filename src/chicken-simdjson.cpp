@@ -244,3 +244,8 @@ extern void chicken_simdjson_free(chicken_simdjson_dom_element_t *element)
   free(element->value);
   free(element);
 }
+
+extern const char *chicken_simdjson_get_version()
+{
+  return SIMDJSON_VERSION;
+}

@@ -96,7 +96,7 @@
    (§->list (°->§ (r) (fresh° (d e s) (empsalary° d e s) (project° ((s* s)) (=° r (+ s* 500))))))))
 
   ((test/groupby°/empty _)
-   (⊦= '((λ () `(47100))) (§->list (°->§ (r) (fresh° (d e s) (groupby° (((s* foldr/+) s)) over () from (empsalary° d e s) => (=° r s*))))))
+   (⊦= '((λ () `(47100))) (§->list (°->§ (r) (fresh° (d e s) (groupby° (((s* foldr/add) s)) over () from (empsalary° d e s) => (=° r s*))))))
    `(doc (p "The following table has been kept from the PostgreSQL documentation example on " (i "window functions "  )
             (cite/a "https://www.postgresql.org/docs/current/tutorial-window.html" "PostgreSQL Window Functions")
             ":"
@@ -124,7 +124,7 @@ END
    (⊦= '((λ () `((develop 25100)))
            (λ () `((sales 14600)))
            (λ () `((personnel 7400))))
-         (§->list (°->§ (r) (fresh° (d e s) (groupby° (((s* foldr/+) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*)))))))
+         (§->list (°->§ (r) (fresh° (d e s) (groupby° (((s* foldr/add) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*)))))))
    )
   
   ((test/set° _)

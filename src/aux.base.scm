@@ -181,9 +181,9 @@
 
   (define (string-last s) (string-ref s (sub1 (string-length s))))
 
-  (define (foldr/+ lst) (foldr + 0 lst))
-  (define (foldr/* lst) (foldr * 1 lst))
-  (define (foldr/avg lst) (/ (foldr/+ lst) (length lst)))
+  (define (foldr/add lst) (foldr + 0 lst))
+  (define (foldr/times lst) (foldr * 1 lst))
+  (define (foldr/avg lst) (/ (foldr/add lst) (length lst)))
   (define (foldr/var lst)
     (let1 (m (foldr/avg lst))
           (/ (foldr (λ (x acc) (let1 (d (- x m)) (+ (* d d) acc))) 0 lst)

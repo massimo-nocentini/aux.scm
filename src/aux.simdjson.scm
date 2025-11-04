@@ -15,6 +15,7 @@
 
   <#
 
+  
 
   (define-foreign-variable simdjson-type-signed-integer int "CHICKEN_SIMDJSON_TYPE_SIGNED_INTEGER")
   (define-foreign-variable simdjson-type-unsigned-integer int "CHICKEN_SIMDJSON_TYPE_UNSIGNED_INTEGER")
@@ -35,6 +36,8 @@
   (define (simdjson-null? t) (= t simdjson-type-null))
   (define (simdjson-boolean? t) (= t simdjson-type-boolean))
   (define (simdjson-unknown? t) (= t simdjson-type-unknown))
+
+  (define simdjson-get-version (foreign-lambda (const c-string) "chicken_simdjson_get_version"))
 
   (define simdjson-get-type (foreign-lambda int "chicken_simdjson_get_type" (c-pointer "chicken_simdjson_dom_element_t")))
   (define simdjson-get-signed-integer (foreign-lambda integer64 "chicken_simdjson_get_signed_integer" (c-pointer "chicken_simdjson_dom_element_t")))

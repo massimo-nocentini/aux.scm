@@ -68,6 +68,8 @@ extern "C"
     chicken_simdjson_dom_element_t *chicken_simdjson_load_ondemand_callback(const char *filename);
     chicken_simdjson_dom_element_t *chicken_simdjson_parse_ondemand_callback(const char *data, size_t length);
 
+    const char *chicken_simdjson_get_version();
+
 #ifdef __cplusplus
 }
 #endif
