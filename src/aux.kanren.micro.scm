@@ -58,7 +58,9 @@
         ((and (vector? u*) (vector? v*) (= (vector-length u*) (vector-length v*)))
           (let1 (F (λ (ss i) (and (pair? ss) (µkanren-state-unify (vector-ref u* i) (vector-ref v* i) ss))))
             (foldl F s (iota (vector-length u*)))))
-        ((and (structure? u*) (structure? v*)) (µkanren-state-unify (record->vector u*) (record->vector v*) s))
+        ((and (record-instance? u*) (record-instance? v*)) (µkanren-state-unify (record->vector u*) (record->vector v*) s))
+        ((and (vector? u*) (record-instance? v*)) (µkanren-state-unify u* (record->vector v*) s))
+        ((and (record-instance? u*) (vector? v*)) (µkanren-state-unify (record->vector u*) v* s))
         ;((and (µkanren-var? u) (µkanren-var? u)) think about which of the two should reference the other
         ((µkanren-var? u*) (µkanren-state-set u* v* s))
         ((µkanren-var? v*) (µkanren-state-set v* u* s))
@@ -149,6 +151,12 @@
            (§ (delay (g µkanren-state-empty)))
            (P (µkanren-project (µkanren-var 0))))
       (map§ P §)))
+
+  (define (°->list . goals) 
+    (cond
+      ((null? goals) '())
+      ((number? (car goals)) (§->list (take§ (car goals) (apply °->§ (cdr goals)))))
+      (else (§->list (take§ +inf.0 (apply °->§ goals))))))
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)

@@ -1,5 +1,5 @@
 
-(import (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
+(import scheme (chicken base) (chicken memory representation) (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
 
 ; The following is a sample database of employees and their salaries in various departments.
 ; taken from https://www.postgresql.org/docs/current/tutorial-window.html.
@@ -174,9 +174,14 @@ END
            (λ () `(sales 1 5000 4710))
            (λ () `(sales 3 4800 4710))
            (λ () `(sales 4 4800 4710)))
-      (§->list (°->§ (fresh° (r) (fresh° (d e s) (window° (((s* foldr/avg) s)) over () from (empsalary° d e s) => (=° r `(,d ,e ,s ,s*))))))))
-   
-   )
+      (§->list (°->§ (fresh° (r) (fresh° (d e s) (window° (((s* foldr/avg) s)) over () from (empsalary° d e s) => (=° r `(,d ,e ,s ,s*)))))))))
+
+  ((test/=°/structure _)
+    (define-record person name age)
+    (define p (make-person 'alice 30))
+    (⊦= #t (record-instance? p))
+    (⊦= #(person alice 30) (record->vector p))
+    (⊦= '((λ () `(person alice 30))) (°->list (fresh° r (t n a) (=° `#(,t ,n ,a) p)))))
 
   )
 
