@@ -196,6 +196,8 @@
   (define (foldr/and lst) (foldr (λ (a b) (and a b)) #t lst))
   (define (foldr/or lst) (foldr (λ (a b) (or a b)) #f lst))
 
+  (define structure? ##sys#generic-structure?)
+
   )
 
 
