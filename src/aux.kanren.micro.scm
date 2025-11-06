@@ -99,11 +99,11 @@
                 (else #t) ; for tautology when there is no variable
                 ))
       (let-values (((s* c vars-reversed) (µkanren-state-reify w* s)))
-        (let ((quotation 'quasiquote)
+        (let ((quotation (if (< 0 c) 'quasiquote 'quote))
               (vars (reverse vars-reversed))
               (repr (µkanren-state-find* w s*)))
           (cond
-            ((or (number? repr) (string? repr) (symbol? repr) (boolean? repr)) `(λ ,vars ,repr))
+            ((or (number? repr) (string? repr) (boolean? repr)) `(λ ,vars ,repr))
             ; ((record-instance? repr) `(λ ,vars (make-record-instance ,@(vector->list (record->vector repr)))))
             (else `(λ ,vars (,quotation ,repr))))))))
 
