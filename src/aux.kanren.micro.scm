@@ -65,7 +65,7 @@
         ((µkanren-var? u*) (µkanren-state-set u* v* s))
         ((µkanren-var? v*) (µkanren-state-set v* u* s))
         ((and (pair? u*) (pair? v*)) (let1 (ss (µkanren-state-unify (car u*) (car v*) s))
-                                           (and (pair? ss) (µkanren-state-unify (cdr u*) (cdr v*) ss))))        
+                                           (and (pair? ss) (µkanren-state-unify (cdr u*) (cdr v*) ss))))
         (else #f))))
 
   (define (µkanren-state-find* v s)
@@ -90,12 +90,24 @@
                                           (cons new-var vars))))
               ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
                             (R (cdr w*) r* c* vars*)))
+              ;((record-instance? w*) )
               (else (values r c vars))))))
 
   (define ((µkanren-project w) s)
-    (let1 (w* (cond ((< 0 (µkanren-state-counter s)) (µkanren-state-find* w s)) (else #t)))
-          (let-values (((s* _ vars) (µkanren-state-reify w* s)))
-            (list 'λ (reverse vars) (list 'quasiquote (µkanren-state-find* w* s*))))))
+    (let1 (w* (cond 
+                ((< 0 (µkanren-state-counter s)) (µkanren-state-find* w s))
+                (else #t) ; for tautology when there is no variable
+                ))
+      (let-values (((s* c vars-reversed) (µkanren-state-reify w* s)))
+        (let ((quotation 'quasiquote)
+              (vars (reverse vars-reversed))
+              (repr (µkanren-state-find* w s*)))
+          (cond
+            ((or (number? repr) (string? repr) (symbol? repr) (boolean? repr)) `(λ ,vars ,repr))
+            ; ((record-instance? repr) `(λ ,vars (make-record-instance ,@(vector->list (record->vector repr)))))
+            (else `(λ ,vars (,quotation ,repr))))))))
+
+  ; goals --------------------------------------------------------------------------
 
   (define (✓° s) (cons§ s '()))
   (define (✗° s) '())
@@ -103,7 +115,7 @@
   (define ((µkanren-goal/fresh° f) s)
     (let* ((i (µkanren-state-counter s))
            (goal (f (µkanren-var i))))
-      (delay (goal (list (cons/sbral µkanren-var-unbound (µkanren-state-substitution s)) 
+      (delay (goal (list (cons/sbral µkanren-var-unbound (µkanren-state-substitution s))
                          (add1 i))))))
 
   (define ((=° u v) s)
