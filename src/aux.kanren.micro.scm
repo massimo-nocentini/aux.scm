@@ -13,11 +13,8 @@
   (define-record µkanren-var index)
 
   ; stuff for variables
-  (define µkanren-var-metaid (gensym 'µkanren-var-))
   (define µkanren-var-unbound (gensym 'µkanren-void-))
-  (define (µkanren-var i) (list µkanren-var-metaid i))
-  (define (µkanren-var? v) (and (pair? v) (eq? (car v) µkanren-var-metaid)))
-  (define µkanren-var-index cadr)
+  (define (µkanren-var i) (make-µkanren-var i))  
   (define (µkanren-unbound? v) (eq? v µkanren-var-unbound))
 
   (define µkanren-state-empty (list empty/sbral 0))
