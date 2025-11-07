@@ -70,7 +70,7 @@
        ((null° r) (=° s rs))
        ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
    
-   (⊦ equal? 
+   #;(⊦ equal? 
     '(_0
       (_0 . _1)
       (_0 _1 . _2)
