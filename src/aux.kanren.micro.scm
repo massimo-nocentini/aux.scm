@@ -95,6 +95,7 @@
           ((symbol? w*) (list 'quote w*))
           ((null? w*) (list 'quote '()))
           ((pair? w*) (list 'cons (A (car w*)) (A (cdr w*))))
+          ((vector? w*) (cons 'vector (map A (vector->list w*))))
           ((record-instance? w*) (cons 'make-record-instance (vector-fold-right (λ (lst e) (cons (A e) lst)) '() (record->vector w*))))
           (else w*)))))
 
