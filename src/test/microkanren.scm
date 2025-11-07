@@ -20,8 +20,8 @@
 (define-suite microkanren-suite
 
   ((test/find _)
-   (let* ((v1 (µkanren-var 0))
-          (v2 (µkanren-var 1))
+   (let* ((v1 (make-µkanren-var 0))
+          (v2 (make-µkanren-var 1))
           (s0 µkanren-state-empty)
           (s1 (make-µkanren-state (cons/sbral 'a (µkanren-state-substitution s0)) 1))
           (s2 (make-µkanren-state (cons/sbral v1 (µkanren-state-substitution s1)) 2)))
@@ -69,7 +69,7 @@
        ((null° r) (=° s rs))
        ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
    (⊦= '()
-         (°->list/ground 2 (fresh° (l) (fresh° (a d) (append° a d l))))))
+         (°->list/ground 10 (fresh° (l) (fresh° (a d) (append° a d l))))))
 
   ((test/project° _)
     (⊦= '(4700 6500 5000 5700 5700 4400 4000 5500 5300 5300)
