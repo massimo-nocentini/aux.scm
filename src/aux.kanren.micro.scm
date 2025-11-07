@@ -16,10 +16,10 @@
   (define µkanren-var-unbound (gensym 'µkanren-void-))
   (define (µkanren-unbound? v) (eq? v µkanren-var-unbound))
   (define (µkanren-working-var? v) (and (µkanren-var? v) (<= 0 (µkanren-var-index v))))
-  (define (µkanren-var->symbol v prefix) 
+  (define (µkanren-var->symbol v) 
     (let* ((i (µkanren-var-index v))
-           (i* (if (µkanren-working-var? v) i (abs (add1 i)))))
-      (string->symbol (string-append prefix (number->string i*)))))
+           (i* (if (µkanren-working-var? v) (error "just for reified variables") (abs (add1 i)))))
+      (string->symbol (string-append "_" (number->string i*)))))
 
   ; state ------------------------------------------------------------------------
 
@@ -45,11 +45,11 @@
     (and (not (occur? v)) (µkanren-state-update s w v)))
 
   (define (µkanren-state-find v s)
-    (let1 (subst (µkanren-state-substitution s))
-      (let F ((p (void)) (w v))
+    (let1 (r (µkanren-state-substitution s))
+      (let F ((p v) (w v))
         (cond
           ((µkanren-working-var? w) (let* ((i (µkanren-var-index/state w s))
-                                           (w* (sbral-ref subst i)))
+                                           (w* (sbral-ref r i)))
                                       (F w w*)))
           ((µkanren-unbound? w) p)
           (else w)))))
@@ -70,8 +70,8 @@
         ((and (record-instance? u*) (record-instance? v*)) (µkanren-state-unify (record->vector u*) (record->vector v*) s))
         ((and (vector? u*) (record-instance? v*)) (µkanren-state-unify u* (record->vector v*) s))
         ((and (record-instance? u*) (vector? v*)) (µkanren-state-unify (record->vector u*) v* s))
-        ((and (pair? u*) (pair? v*)) (let1 (s* (µkanren-state-unify (car u*) (car v*) s))
-                                           (and (µkanren-state? s*) (µkanren-state-unify (cdr u*) (cdr v*) s*))))
+        ((and (pair? u*) (pair? v*)) 
+          (let1 (s* (µkanren-state-unify (car u*) (car v*) s)) (and (µkanren-state? s*) (µkanren-state-unify (cdr u*) (cdr v*) s*))))
         (else #f))))
 
   (define (µkanren-state-find* v s)
@@ -91,26 +91,24 @@
     (let A ((w v))
       (let1 (w* (µkanren-state-find w s))
         (cond
-          ((µkanren-var? w*) (µkanren-var->symbol w* "_"))
+          ((µkanren-var? w*) (µkanren-var->symbol w*))
           ((symbol? w*) (list 'quote w*))
-          ((null? w*) '(quote ()))
-          ((pair? w*) `(cons ,(A (car w*)) ,(A (cdr w*))))
-          ((record-instance? w*) `(make-record-instance ,@(vector-fold-right (λ (lst e) (cons (A e) lst)) '() (record->vector w*))))
+          ((null? w*) (list 'quote '()))
+          ((pair? w*) (list 'cons (A (car w*)) (A (cdr w*))))
+          ((record-instance? w*) (cons 'make-record-instance (vector-fold-right (λ (lst e) (cons (A e) lst)) '() (record->vector w*))))
           (else w*)))))
 
   (define (µkanren-state-reify v s)
     (let R ((w v) (r s) (c -1) (vars '()))
       (let1 (w* (µkanren-state-find w r))
             (cond
-              ((µkanren-working-var? w*) (let1 (new-var (make-µkanren-var c))
-                                          (values (µkanren-state-update r w* new-var) (sub1 c) (cons new-var vars))))
-              ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
-                            (R (cdr w*) r* c* vars*)))
-              ((vector? w*) (let loop ((i 0) (r r) (c c) (vars vars))
+              ((µkanren-working-var? w*) (let1 (new-var (make-µkanren-var c)) (values (µkanren-state-update r w* new-var) (sub1 c) (cons new-var vars))))
+              ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars))) (R (cdr w*) r* c* vars*)))
+              ((vector? w*) (let loop ((i 0) (r* r) (c* c) (vars* vars))
                               (cond
-                                ((= i (vector-length w*)) (values r c vars))
-                                (else (let-values (((r* c* vars*) (R (vector-ref w* i) r c vars)))
-                                        (loop (add1 i) r* c* vars*))))))
+                                ((= i (vector-length w*)) (values r* c* vars*))
+                                (else (let-values (((r** c** vars**) (R (vector-ref w* i) r* c* vars*)))
+                                        (loop (add1 i) r** c** vars**))))))
               ((record-instance? w*) (R (record->vector w*) r c vars))
               (else (values r c vars))))))
 
@@ -121,7 +119,7 @@
                 ))
       (let-values (((s* _ vars-reversed) (µkanren-state-reify w* s)))
         (let* ((vars (reverse vars-reversed))
-               (vars* (map (λ (v) (µkanren-var->symbol v "_")) vars))
+               (vars* (map µkanren-var->symbol vars))
                (repr (µkanren-state-find*/repr w* s*)))
           `(λ ,vars* ,repr)))))
 
@@ -249,8 +247,8 @@
       ((number? (car goals)) (§->list (take§ (car goals) (apply °->§ (cdr goals)))))
       (else (§->list (take§ +inf.0 (apply °->§ goals))))))
 
-  (define (°->list/ground . goals) 
-    (let1 (M (λ (expr) (let* ((E (eval expr)) (args (cadr expr))) (apply E args))))
+  (define (°->list/ground . goals)
+    (let1 (M (λ (expr) (let ((E (eval expr)) (args (cadr expr))) (apply E args))))
       (map M (apply °->list goals))))
 
   

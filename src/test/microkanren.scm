@@ -63,13 +63,27 @@
            (λ (s) (λ (z) (s (s (s (s (s (s (s (s (s z))))))))))))
          (°->list/ground 10 (fresh° (n) (church° n)))))
 
-  #;((test/append° _)
+  ((test/append° _)
+
    (define-relation (append° r s rs)
      (cond°
        ((null° r) (=° s rs))
        ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
-   (⊦= '()
-         (°->list/ground 10 (fresh° (l) (fresh° (a d) (append° a d l))))))
+   
+   (⊦ equal? 
+    '(_0
+      (_0 . _1)
+      (_0 _1 . _2)
+      (_0 _1 _2 . _3)
+      (_0 _1 _2 _3 . _4)
+      (_0 _1 _2 _3 _4 . _5)
+      (_0 _1 _2 _3 _4 _5 . _6)
+      (_0 _1 _2 _3 _4 _5 _6 . _7)
+      (_0 _1 _2 _3 _4 _5 _6 _7 . _8)
+      (_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
+    (°->list/ground 10 (fresh° (l) (fresh° (a d) (append° a d l)))))
+
+    `(doc (p "This is testing the " (i "append°") " relation which appends two lists together. The expected output is a list of all possible lists that can be formed by appending two lists together to form a list of length 0 to 9.")))
 
   ((test/project° _)
     (⊦= '(4700 6500 5000 5700 5700 4400 4000 5500 5300 5300)
