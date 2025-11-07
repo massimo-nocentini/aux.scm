@@ -5,10 +5,12 @@
   (import scheme 
           (chicken base)
           (chicken memory representation)
-          srfi-1 srfi-69
+          srfi-1 srfi-69 srfi-133
           (aux base)
           (aux stream)
           (aux fds sbral))
+
+  (define-record µkanren-var index)
 
   ; stuff for variables
   (define µkanren-var-metaid (gensym 'µkanren-var-))
@@ -23,13 +25,20 @@
   (define µkanren-state-counter cadr)
   (define (µkanren-var-index/state v s) (- (µkanren-state-counter s) 1 (µkanren-var-index v)))
 
+  (define (µkanren-working-var? v) (and (µkanren-var? v) (<= 0 (µkanren-var-index v))))
+
+   (define (µkanren-var->symbol v prefix) 
+    (let1 (vi (if (µkanren-working-var? v) (µkanren-var-index v) (abs (add1 (µkanren-var-index v)))))
+      (string->symbol (string-append prefix (number->string vi)))))
+
   (define (µkanren-state-find v s)
     (let ((size (µkanren-state-counter s))
           (subst (µkanren-state-substitution s)))
       (let F ((p (void)) (w v))
         (cond
-          ((µkanren-var? w) (let1 (i (µkanren-var-index/state w s))
-                              (F w (sbral-ref subst i))))
+          ((µkanren-working-var? w) (let* ((i (µkanren-var-index/state w s))
+                                           (w* (sbral-ref subst i)))
+                                      (F w w*)))
           ((µkanren-unbound? w) p)
           (else w)))))
 
@@ -71,26 +80,45 @@
   (define (µkanren-state-find* v s)
     (let A ((w v))
       (let1 (w* (µkanren-state-find w s))
-            (cond
-              ((µkanren-var? w*) w*)
-              ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
-              (else w*)))))
+        (cond
+          ((and (µkanren-var? w*) (not (µkanren-working-var? w*))) w*)
+          ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
+          ((vector? w*) (vector-map A w*))
+          ((record-instance? w*) (let* ((vec (record->vector w*))
+                                        (F (λ (lst e) (cons (A e) lst)))
+                                        (type+args (vector-fold-right F '() vec)))
+                                  (apply make-record-instance type+args)))
+          (else w*)))))
+
+  (define (µkanren-state-find*/repr v s)
+    (let A ((w v))
+      (let1 (w* (µkanren-state-find w s))
+        (cond
+          ((µkanren-var? w*) (µkanren-var->symbol w* "_"))
+          ((symbol? w*) (list 'quote w*))
+          ((null? w*) '(quote ()))
+          ((pair? w*) `(cons ,(A (car w*)) ,(A (cdr w*))))
+          ((record-instance? w*) `(make-record-instance ,@(vector-fold-right (λ (lst e) (cons (A e) lst)) '() (record->vector w*))))
+          (else w*)))))
 
   (define (µkanren-state-reify v s)
-    (let R ((w v) (r s) (c 0) (vars '()))
+    (let R ((w v) (r s) (c -1) (vars '()))
       (let1 (w* (µkanren-state-find w r))
             (cond
-              ((µkanren-var? w*) (let1 (new-var (string->symbol (string-append "_" (number->string c))))
-                                        (values
-                                          (list (update/sbral (µkanren-var-index/state w* r) 
-                                                              (list 'unquote new-var)
-                                                              (µkanren-state-substitution r))
-                                                (µkanren-state-counter r))
-                                          (add1 c)
-                                          (cons new-var vars))))
+              ((µkanren-working-var? w*) (let1 (new-var (µkanren-var c))
+                                          (values
+                                            (list (update/sbral (µkanren-var-index/state w* r) new-var (µkanren-state-substitution r))
+                                                  (µkanren-state-counter r))
+                                            (sub1 c)
+                                            (cons new-var vars))))
               ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
                             (R (cdr w*) r* c* vars*)))
-              ;((record-instance? w*) )
+              ((vector? w*) (let loop ((i 0) (r r) (c c) (vars vars))
+                              (cond
+                                ((= i (vector-length w*)) (values r c vars))
+                                (else (let-values (((r* c* vars*) (R (vector-ref w* i) r c vars)))
+                                        (loop (add1 i) r* c* vars*))))))
+              ((record-instance? w*) (R (record->vector w*) r c vars))
               (else (values r c vars))))))
 
   (define ((µkanren-project w) s)
@@ -98,14 +126,11 @@
                 ((< 0 (µkanren-state-counter s)) (µkanren-state-find* w s))
                 (else #t) ; for tautology when there is no variable
                 ))
-      (let-values (((s* c vars-reversed) (µkanren-state-reify w* s)))
-        (let ((quotation (if (< 0 c) 'quasiquote 'quote))
-              (vars (reverse vars-reversed))
-              (repr (µkanren-state-find* w s*)))
-          (cond
-            ((or (number? repr) (string? repr) (boolean? repr)) `(λ ,vars ,repr))
-            ; ((record-instance? repr) `(λ ,vars (make-record-instance ,@(vector->list (record->vector repr)))))
-            (else `(λ ,vars (,quotation ,repr))))))))
+      (let-values (((s* _ vars-reversed) (µkanren-state-reify w* s)))
+        (let* ((vars (reverse vars-reversed))
+               (vars* (map (λ (v) (µkanren-var->symbol v "_")) vars))
+               (repr (µkanren-state-find*/repr w* s*)))
+          `(λ ,vars* ,repr)))))
 
   ; goals --------------------------------------------------------------------------
 
@@ -169,6 +194,10 @@
       ((null? goals) '())
       ((number? (car goals)) (§->list (take§ (car goals) (apply °->§ (cdr goals)))))
       (else (§->list (take§ +inf.0 (apply °->§ goals))))))
+
+  (define (°->list/ground . goals) 
+    (let1 (M (λ (expr) (let* ((E (eval expr)) (args (cadr expr))) (apply E args))))
+      (map M (apply °->list goals))))
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
