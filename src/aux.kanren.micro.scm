@@ -10,27 +10,42 @@
           (aux stream)
           (aux fds sbral))
 
+  ; variables --------------------------------------------------------------------
   (define-record µkanren-var index)
-
-  ; stuff for variables
   (define µkanren-var-unbound (gensym 'µkanren-void-))
   (define (µkanren-var i) (make-µkanren-var i))  
   (define (µkanren-unbound? v) (eq? v µkanren-var-unbound))
-
-  (define µkanren-state-empty (list empty/sbral 0))
-  (define µkanren-state-substitution car)
-  (define µkanren-state-counter cadr)
-  (define (µkanren-var-index/state v s) (- (µkanren-state-counter s) 1 (µkanren-var-index v)))
-
   (define (µkanren-working-var? v) (and (µkanren-var? v) (<= 0 (µkanren-var-index v))))
-
-   (define (µkanren-var->symbol v prefix) 
+  (define (µkanren-var->symbol v prefix) 
     (let1 (vi (if (µkanren-working-var? v) (µkanren-var-index v) (abs (add1 (µkanren-var-index v)))))
       (string->symbol (string-append prefix (number->string vi)))))
 
+  ; state ------------------------------------------------------------------------
+  (define-record µkanren-state substitution counter)
+  (define µkanren-state-empty (make-µkanren-state empty/sbral 0))
+  (define (µkanren-var-index/state v s) (- (µkanren-state-counter s) 1 (µkanren-var-index v)))
+  
+  (define (µkanren-state-update s k v)
+    (let* ((size (µkanren-state-counter s))          
+           (k* (µkanren-var-index/state k s))
+           (subst (µkanren-state-substitution s))
+           (subst* (update/sbral k* v subst)))
+      (make-µkanren-state subst* size)))
+  
+  (define (µkanren-state-update/occur? var v s)
+    (define (occur? w)
+      (cond
+        ((µkanren-var? w) (equal? w var))
+        ((pair? w) (or (occur? (µkanren-state-find (car w) s)) (occur? (µkanren-state-find (cdr w) s))))
+        ((vector? w) (vector-fold (λ (found e) (or found (occur? (µkanren-state-find e s)))) #f w))
+        ((record-instance? w) (occur? (record->vector w)))
+        (else #f)))
+    (cond
+      ((occur? v) #f)
+      (else (µkanren-state-update s var v))))
+
   (define (µkanren-state-find v s)
-    (let ((size (µkanren-state-counter s))
-          (subst (µkanren-state-substitution s)))
+    (let1 (subst (µkanren-state-substitution s))
       (let F ((p (void)) (w v))
         (cond
           ((µkanren-working-var? w) (let* ((i (µkanren-var-index/state w s))
@@ -39,46 +54,31 @@
           ((µkanren-unbound? w) p)
           (else w)))))
 
-  (define (µkanren-state-set var v s)
-    (define (occur? w)
-      (cond
-        ((µkanren-var? w) (equal? w var))
-        ((pair? w) (or (occur? (µkanren-state-find (car w) s))
-                       (occur? (µkanren-state-find (cdr w) s))))
-        (else #f)))
-    (cond
-      ((occur? v) #f)
-      (else
-        (let ((size (µkanren-state-counter s))
-              (subst (µkanren-state-substitution s))
-              (i (µkanren-var-index/state var s)))
-          (list (update/sbral i v subst) size)))))
-
   (define (µkanren-state-unify u v s)
     (let ((u* (µkanren-state-find u s))
           (v* (µkanren-state-find v s)))
       (cond
         ((eq? u* v*) s)
+        ;((and (µkanren-var? u) (µkanren-var? u)) think about which of the two should reference the other
+        ((µkanren-var? u*) (µkanren-state-update/occur? u* v* s))
+        ((µkanren-var? v*) (µkanren-state-update/occur? v* u* s))
         ((and (string? u*) (string? v*) (string=? u* v*)) s)
         ((and (number? u*) (number? v*) (= u* v*)) s)
         ((and (vector? u*) (vector? v*) (= (vector-length u*) (vector-length v*)))
-          (let1 (F (λ (ss i) (and (pair? ss) (µkanren-state-unify (vector-ref u* i) (vector-ref v* i) ss))))
+          (let1 (F (λ (s* i) (and (µkanren-state? s*) (µkanren-state-unify (vector-ref u* i) (vector-ref v* i) s*))))
             (foldl F s (iota (vector-length u*)))))
         ((and (record-instance? u*) (record-instance? v*)) (µkanren-state-unify (record->vector u*) (record->vector v*) s))
         ((and (vector? u*) (record-instance? v*)) (µkanren-state-unify u* (record->vector v*) s))
         ((and (record-instance? u*) (vector? v*)) (µkanren-state-unify (record->vector u*) v* s))
-        ;((and (µkanren-var? u) (µkanren-var? u)) think about which of the two should reference the other
-        ((µkanren-var? u*) (µkanren-state-set u* v* s))
-        ((µkanren-var? v*) (µkanren-state-set v* u* s))
-        ((and (pair? u*) (pair? v*)) (let1 (ss (µkanren-state-unify (car u*) (car v*) s))
-                                           (and (pair? ss) (µkanren-state-unify (cdr u*) (cdr v*) ss))))
+        ((and (pair? u*) (pair? v*)) (let1 (s* (µkanren-state-unify (car u*) (car v*) s))
+                                           (and (µkanren-state? s*) (µkanren-state-unify (cdr u*) (cdr v*) s*))))
         (else #f))))
 
   (define (µkanren-state-find* v s)
     (let A ((w v))
       (let1 (w* (µkanren-state-find w s))
         (cond
-          ((and (µkanren-var? w*) (not (µkanren-working-var? w*))) w*)
+          ((µkanren-var? w*) w*)
           ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
           ((vector? w*) (vector-map A w*))
           ((record-instance? w*) (let* ((vec (record->vector w*))
@@ -103,11 +103,7 @@
       (let1 (w* (µkanren-state-find w r))
             (cond
               ((µkanren-working-var? w*) (let1 (new-var (µkanren-var c))
-                                          (values
-                                            (list (update/sbral (µkanren-var-index/state w* r) new-var (µkanren-state-substitution r))
-                                                  (µkanren-state-counter r))
-                                            (sub1 c)
-                                            (cons new-var vars))))
+                                          (values (µkanren-state-update r w* new-var) (sub1 c) (cons new-var vars))))
               ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars)))
                             (R (cdr w*) r* c* vars*)))
               ((vector? w*) (let loop ((i 0) (r r) (c c) (vars vars))
@@ -136,13 +132,14 @@
 
   (define ((µkanren-goal/fresh° f) s)
     (let* ((i (µkanren-state-counter s))
-           (goal (f (µkanren-var i))))
-      (delay (goal (list (cons/sbral µkanren-var-unbound (µkanren-state-substitution s))
-                         (add1 i))))))
+           (subst (cons/sbral µkanren-var-unbound (µkanren-state-substitution s)))
+           (s* (make-µkanren-state subst (add1 i)))
+           (g (f (µkanren-var i))))
+      (delay (g s*))))
 
   (define ((=° u v) s)
     (let* ((s* (µkanren-state-unify u v s))
-           (g (cond ((pair? s*) ✓°) (else ✗°))))
+           (g (cond ((µkanren-state? s*) ✓°) (else ✗°))))
       (delay (g s*))))
 
   (define ((µkanren-goal/or° f g) s) (append§/interleaved/2 (delay (f s)) (delay (g s))))
@@ -177,24 +174,6 @@
   (define (cons° a d c) (=° c (cons a d)))
   (define-syntax-rule (project° ((v* v) ...) g ...) (λ (s) (let ((v* (µkanren-state-find* v s)) ...) (delay ((and° g ...) s)))))
   (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
-
-  (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
-
-  (define (°->§ . goals)
-    (let* ((g (foldl µkanren-goal/and° ✓° goals))
-           (§ (delay (g µkanren-state-empty)))
-           (P (µkanren-project (µkanren-var 0))))
-      (map§ P §)))
-
-  (define (°->list . goals) 
-    (cond
-      ((null? goals) '())
-      ((number? (car goals)) (§->list (take§ (car goals) (apply °->§ (cdr goals)))))
-      (else (§->list (take§ +inf.0 (apply °->§ goals))))))
-
-  (define (°->list/ground . goals) 
-    (let1 (M (λ (expr) (let* ((E (eval expr)) (args (cadr expr))) (apply E args))))
-      (map M (apply °->list goals))))
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
@@ -253,6 +232,28 @@
                (v (reverse (foldr§ F '() §))))
            (delay ((and° f ...) s)))))
 
+
+  ; API ------------------------------------------------------------------------
+
+  (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
+
+  (define (°->§ . goals)
+    (let* ((g (foldl µkanren-goal/and° ✓° goals))
+           (§ (delay (g µkanren-state-empty)))
+           (P (µkanren-project (µkanren-var 0))))
+      (map§ P §)))
+
+  (define (°->list . goals) 
+    (cond
+      ((null? goals) '())
+      ((number? (car goals)) (§->list (take§ (car goals) (apply °->§ (cdr goals)))))
+      (else (§->list (take§ +inf.0 (apply °->§ goals))))))
+
+  (define (°->list/ground . goals) 
+    (let1 (M (λ (expr) (let* ((E (eval expr)) (args (cadr expr))) (apply E args))))
+      (map M (apply °->list goals))))
+
+  
 
   )
 

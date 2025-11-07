@@ -1,5 +1,7 @@
 
-(import scheme (chicken base) (chicken memory representation) (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
+(import 
+  scheme (chicken base) (chicken memory representation) (chicken sort)
+  (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
 
 ; The following is a sample database of employees and their salaries in various departments.
 ; taken from https://www.postgresql.org/docs/current/tutorial-window.html.
@@ -21,8 +23,8 @@
    (let* ((v1 (µkanren-var 0))
           (v2 (µkanren-var 1))
           (s0 µkanren-state-empty)
-          (s1 (list (cons/sbral 'a (µkanren-state-substitution s0)) 1))
-          (s2 (list (cons/sbral v1 (µkanren-state-substitution s1)) 2)))
+          (s1 (make-µkanren-state (cons/sbral 'a (µkanren-state-substitution s0)) 1))
+          (s2 (make-µkanren-state (cons/sbral v1 (µkanren-state-substitution s1)) 2)))
      (⊦= 5 (µkanren-state-find 5 s2))
      (⊦= 'a (µkanren-state-find v1 s2))
      (⊦= 'a (µkanren-state-find v2 s2))))
@@ -99,12 +101,16 @@ END
    )))
 
   ((test/groupby°/one-column _)
-    (⊦= '((develop 25100) (sales 14600) (personnel 7400))
-        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*))))))))
+    (⊦= '((personnel 7400) (sales 14600) (develop 25100))
+      (sort
+        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*))))))
+        (λ (a b) (< (cadr a) (cadr b))))))
   
   ((test/set° _)
-    (⊦= '((sales 3) (personnel 2) (develop 5))
-        (°->list/ground (fresh° (r) (fresh° (d e s) (set° (c (λ (k v) (add1 v)) 0) over ((d* d)) from (empsalary° d e s) => (=° r `(,d* ,c))))))))
+    (⊦= '((personnel 2) (sales 3) (develop 5))
+      (sort
+        (°->list/ground (fresh° (r) (fresh° (d e s) (set° (c (λ (k v) (add1 v)) 0) over ((d* d)) from (empsalary° d e s) => (=° r `(,d* ,c))))))
+        (λ (a b) (< (cadr a) (cadr b))))))
 
   ((test/enumerate° _)
     (⊦= '(((0 (sales))
