@@ -1,6 +1,7 @@
 
 (import 
   scheme (chicken base) (chicken memory representation) (chicken sort)
+  srfi-1
   (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
 
 ; The following is a sample database of employees and their salaries in various departments.
@@ -69,21 +70,27 @@
      (cond°
        ((null° r) (=° s rs))
        ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
-   
-   #;(⊦ equal? 
-    '(_0
-      (_0 . _1)
-      (_0 _1 . _2)
-      (_0 _1 _2 . _3)
-      (_0 _1 _2 _3 . _4)
-      (_0 _1 _2 _3 _4 . _5)
-      (_0 _1 _2 _3 _4 _5 . _6)
-      (_0 _1 _2 _3 _4 _5 _6 . _7)
-      (_0 _1 _2 _3 _4 _5 _6 _7 . _8)
-      (_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
+
+  (define (dotted-list=? lst1 lst2)
+    (cond
+      ((and (null? lst1) (null? lst2)) #t)
+      ((and (pair? lst1) (pair? lst2)) (dotted-list=? (cdr lst1) (cdr lst2)))
+      (else (equal? lst1 lst2))))
+
+   (⊦ equal?
+    (list '_0
+      (cons '_0 '_1)
+      '(_0 _1 . _2)
+      '(_0 _1 _2 . _3)
+      '(_0 _1 _2 _3 . _4)
+      '(_0 _1 _2 _3 _4 . _5)
+      '(_0 _1 _2 _3 _4 _5 . _6)
+      '(_0 _1 _2 _3 _4 _5 _6 . _7)
+      '(_0 _1 _2 _3 _4 _5 _6 _7 . _8)
+      '(_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
     (°->list/ground 10 (fresh° (l) (fresh° (a d) (append° a d l)))))
 
-    `(doc (p "This is testing the " (i "append°") " relation which appends two lists together. The expected output is a list of all possible lists that can be formed by appending two lists together to form a list of length 0 to 9.")))
+    )
 
   ((test/project° _)
     (⊦= '(4700 6500 5000 5700 5700 4400 4000 5500 5300 5300)
