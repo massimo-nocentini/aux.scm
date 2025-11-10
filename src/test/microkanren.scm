@@ -71,26 +71,18 @@
        ((null° r) (=° s rs))
        ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
 
-  (define (dotted-list=? lst1 lst2)
-    (cond
-      ((and (null? lst1) (null? lst2)) #t)
-      ((and (pair? lst1) (pair? lst2)) (dotted-list=? (cdr lst1) (cdr lst2)))
-      (else (equal? lst1 lst2))))
-
    (⊦ equal?
-    (list '_0
-      (cons '_0 '_1)
-      '(_0 _1 . _2)
-      '(_0 _1 _2 . _3)
-      '(_0 _1 _2 _3 . _4)
-      '(_0 _1 _2 _3 _4 . _5)
-      '(_0 _1 _2 _3 _4 _5 . _6)
-      '(_0 _1 _2 _3 _4 _5 _6 . _7)
-      '(_0 _1 _2 _3 _4 _5 _6 _7 . _8)
-      '(_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
-    (°->list/ground 10 (fresh° (l) (fresh° (a d) (append° a d l)))))
-
-    )
+      (list '_0
+        (cons '_0 '_1)
+        '(_0 _1 . _2)
+        '(_0 _1 _2 . _3)
+        '(_0 _1 _2 _3 . _4)
+        '(_0 _1 _2 _3 _4 . _5)
+        '(_0 _1 _2 _3 _4 _5 . _6)
+        '(_0 _1 _2 _3 _4 _5 _6 . _7)
+        '(_0 _1 _2 _3 _4 _5 _6 _7 . _8)
+        '(_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
+      (°->list/ground 10 (fresh° (l) (fresh° (a d) (append° a d l))))))
 
   ((test/project° _)
     (⊦= '(4700 6500 5000 5700 5700 4400 4000 5500 5300 5300)
@@ -180,10 +172,10 @@ END
     (define-record person name age)
     (define p (make-person 'alice 30))
     (⊦= #t (record-instance? p))
-    (⊦= #(person alice 30) (record->vector p))
-    (⊦= `((record ,p)) (°->list/ground (fresh° (r) (=° r (list 'record p))))))
+    (⊦= `((record ,p)) (°->list/ground (fresh° (r) (=° r (list 'record p)))))
+    (⊦= `((record ,(make-person '_0 30))) (°->list/ground (fresh° (r a) (=° r (list 'record (make-person a 30)))))))
 
-   ((test/=°/structure/vector _)
+  ((test/=°/structure/vector _)
     (define-record person name age)
     (define p (make-person 'alice 30))
     (⊦= #t (record-instance? p))

@@ -103,7 +103,11 @@
     (let R ((w v) (r s) (c -1) (vars '()))
       (let1 (w* (µkanren-state-find w r))
             (cond
-              ((µkanren-working-var? w*) (let1 (new-var (make-µkanren-var c)) (values (µkanren-state-update r w* new-var) (sub1 c) (cons new-var vars))))
+              ((µkanren-working-var? w*) (let* ((new-var (make-µkanren-var c))
+                                                (r* (µkanren-state-update r w* new-var))
+                                                (c* (sub1 c))
+                                                (vars* (cons new-var vars)))
+                                           (values r* c* vars*)))
               ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars))) (R (cdr w*) r* c* vars*)))
               ((vector? w*) (let loop ((i 0) (r* r) (c* c) (vars* vars))
                               (cond
