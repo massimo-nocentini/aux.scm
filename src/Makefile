@@ -60,4 +60,4 @@ foreigns-fetch: timsort-fetch simdjson-fetch
 
 json-bench:
 	# first take json files from https://jsoneditoronline.org/indepth/datasets/json-file-example/#a-large-json-document
-	cd test && csi -s json-benchmark.scm
+	csi -s test/json-bench.scm
