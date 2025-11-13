@@ -16,6 +16,11 @@
 
   (reexport matchable)
 
+  (define-syntax let1 
+    (syntax-rules () 
+      ((let1 (var val) body ...) (let ((var val)) body ...))
+      ((let1 var body ...) (let1 (var (void)) body ...))))
+
   (define-syntax define-syntax-rule
     (syntax-rules (literal)
       ((define-syntax-rule (literal k ...) (name p ...) r) (define-syntax name (syntax-rules (k ...) ((_ p ...) r))))
@@ -70,7 +75,35 @@
   (define-syntax define-let
     (syntax-rules ()
       ((define-let ((v e) ...) (name formal ...) body ...)
-       (define name (let ((v e) ...) (lambda (formal ...) body ...))))))
+       (define name (let ((v e) ...) (lambda (formal ...) body ...))))
+      ((define-let ((v e) ...) name body ...)
+       (define name (let ((v e) ...) body ...)))))
+
+  (define documentation 
+    (letrec ((H (make-hash-table))
+             (set-documentation! (λ (f d) (hash-table-update!/default H f (λ (lst) (cons d lst)) '())))
+             (doc (λ funcs
+                    (let1 (M (λ (f d)
+                              (let1 (info (cond
+                                            ((procedure? f) (procedure-information f))
+                                            (else f)))
+                                `(,info ,d))))
+                      (cond
+                        ((null? funcs) (hash-table-map H M))
+                        (else (let1 (F (λ (f) (M f (hash-table-ref/default H f '()))))
+                                (map F funcs))))))))
+      (set! (setter doc) set-documentation!)
+      doc
+    ))
+
+  (define-syntax-rule (define-documented (docf (tag docbody) ...) name body)
+    (begin
+      (define name* (quote name))
+      (define name body)
+      (set! (docf name) (list (quote tag) docbody)) ...
+      (set! (docf name) (list (string->symbol "name") name*))
+      (set! (docf name) (list 'def (quote body)))
+      (void)))
 
   (define-syntax lettensor
     (syntax-rules ()
@@ -107,10 +140,6 @@
 
   (define (curry f g) (λ args (apply f (cons g args)))) 
 
-  (define-syntax let1 
-    (syntax-rules () 
-      ((let1 (var val) body ...) (let ((var val)) body ...))
-      ((let1 var body ...) (let1 (var (void)) body ...))))
 
   (define (foldr/yielded f t init)
     (cond

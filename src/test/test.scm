@@ -127,8 +127,24 @@
  `(doc (p "Taken from " (cite/a "https://en.cppreference.com/w/c/numeric/math/fma.html" "fma, fmaf, fmal"))))
 
 
+((test/documentation _)
+  (set! (documentation +) "Returns the sum of its arguments.")
+  
+  (define-documented 
+    (documentation 
+      (comment `(p " some comment here")))
+    a (λ (x) (+ x 1)))
+
+  (⊦= '((C_plus ("Returns the sum of its arguments."))) (documentation +))
+  (⊦= '(((a x)
+            ((def (λ (x) (+ x 1)))
+             (name a)
+             (comment (p " some comment here"))))) (documentation a))
+
+ `(doc (p "An initial attempt to support our own documentation framework")))
+
+
+
 )
 
 (unittest/✓ auxtest)
-
-
