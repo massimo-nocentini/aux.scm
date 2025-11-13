@@ -90,19 +90,21 @@
                                 `(,info ,d))))
                       (cond
                         ((null? funcs) (hash-table-map H M))
-                        (else (let1 (F (λ (f) (M f (hash-table-ref/default H f '()))))
+                        (else (let1 (F (λ (f) (M f (reverse (hash-table-ref/default H f '())))))
                                 (map F funcs))))))))
       (set! (setter doc) set-documentation!)
       doc
     ))
 
+  (define (documentation! key tag doc) (set! (documentation key) (list tag doc)))
+
   (define-syntax-rule (define-documented (docf (tag docbody) ...) name body)
     (begin
       (define name* (quote name))
       (define name body)
-      (set! (docf name) (list (quote tag) docbody)) ...
       (set! (docf name) (list (string->symbol "name") name*))
       (set! (docf name) (list 'def (quote body)))
+      (set! (docf name) (list (quote tag) docbody)) ...
       (void)))
 
   (define-syntax lettensor

@@ -135,11 +135,14 @@
       (comment `(p " some comment here")))
     a (λ (x) (+ x 1)))
 
+  (documentation! a 'comment "some other comment here.")
+
   (⊦= '((C_plus ("Returns the sum of its arguments."))) (documentation +))
   (⊦= '(((a x)
-            ((def (λ (x) (+ x 1)))
-             (name a)
-             (comment (p " some comment here"))))) (documentation a))
+            ((name a)
+             (def (λ (x) (+ x 1)))
+             (comment (p " some comment here"))
+             (comment "some other comment here.")))) (documentation a))
 
  `(doc (p "An initial attempt to support our own documentation framework")))
 
