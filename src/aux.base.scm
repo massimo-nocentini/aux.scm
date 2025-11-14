@@ -98,7 +98,7 @@
 
   (define (documentation! key tag doc) (set! (documentation key) (list tag doc)))
 
-  (define-syntax-rule (define-documented (docf (tag docbody) ...) name body)
+  (define-syntax-rule (define-documented (docf (tag docbody) ...) (name body))
     (begin
       (define name* (quote name))
       (define name body)
