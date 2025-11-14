@@ -126,22 +126,29 @@
   (set! (documentation +) "Returns the sum of its arguments.")
   
   (define-documented 
-    (documentation 
-      (comment `(p " some comment here")))
-    (a (λ (x) (+ x 1))))
+    (a (λ (x) (+ x 1)))
+    (documentation (comment `(p " some comment here"))))
 
   (documentation! a 'comment "some other comment here.")
 
-  (⊦= '((C_plus ("Returns the sum of its arguments."))) (documentation +))
-  (⊦= '(((a x)
+  (⊦= '(C_plus ("Returns the sum of its arguments.")) (documentation +))
+  (⊦= '((a x)
             ((name a)
              (def (λ (x) (+ x 1)))
              (comment (p " some comment here"))
-             (comment "some other comment here.")))) (documentation a))
+             (comment "some other comment here."))) (documentation a))
 
   `(doc (p "An initial attempt to support our own documentation framework. The following tests check that documentation can be set and retrieved for functions.")))
 
-
+  ((test/documentation/documentation _)
+    (documentation! documentation 'comment "Test for documentation of the documentation function itself.")
+    (⊦= '((aux.base#documentation func)
+           ((sxml (p "This function is the fundamental documentation storage and retrieval mechanism."))
+            (comment
+              "Test for documentation of the documentation function itself."))) 
+        (documentation documentation))
+    `(doc (p "Test for documentation of the documentation function itself.")))
+  
 
 )
 

@@ -79,33 +79,39 @@
       ((define-let ((v e) ...) name body ...)
        (define name (let ((v e) ...) body ...)))))
 
-  (define documentation 
-    (letrec ((H (make-hash-table))
-             (set-documentation! (λ (f d) (hash-table-update!/default H f (λ (lst) (cons d lst)) '())))
-             (doc (λ funcs
-                    (let1 (M (λ (f d)
-                              (let1 (info (cond
-                                            ((procedure? f) (procedure-information f))
-                                            (else f)))
-                                `(,info ,d))))
-                      (cond
-                        ((null? funcs) (hash-table-map H M))
-                        (else (let1 (F (λ (f) (M f (reverse (hash-table-ref/default H f '())))))
-                                (map F funcs))))))))
-      (set! (setter doc) set-documentation!)
-      doc
-    ))
+  ; ------------------------------------------------------------------------------------------------
+  ; Documentation framework
+  ; ------------------------------------------------------------------------------------------------
 
-  (define (documentation! key tag doc) (set! (documentation key) (list tag doc)))
-
-  (define-syntax-rule (define-documented (docf (tag docbody) ...) (name body))
+  (define-syntax-rule (define-documented (name body) (docf (tag docbody) ...))
     (begin
-      (define name* (quote name))
       (define name body)
-      (set! (docf name) (list (string->symbol "name") name*))
-      (set! (docf name) (list 'def (quote body)))
+      (set! (docf name) (list (string->symbol "name") (quote name)))
+      (set! (docf name) (list (string->symbol "def") (quote body)))
       (set! (docf name) (list (quote tag) docbody)) ...
       (void)))
+
+  (define documentation-hash-table (make-hash-table))
+
+  (define (documentation func)
+    (let1 (M (λ (f d)
+              (let1 (info (cond
+                            ((procedure? f) (procedure-information f))
+                            (else f)))
+                (list info d))))
+      (M func (reverse (hash-table-ref/default documentation-hash-table func '())))))
+
+  (set! (setter documentation)
+    (λ (f d) 
+      (hash-table-update!/default documentation-hash-table f (λ (lst) (cons d lst)) '())))
+                      
+  (define (documentation! key tag doc) (set! (documentation key) (list tag doc)))
+
+  (documentation! documentation 'sxml `(p "This function is the fundamental documentation storage and retrieval mechanism."))
+
+  ; ------------------------------------------------------------------------------------------------
+  ; Miscellaneous utilities
+  ; ------------------------------------------------------------------------------------------------
 
   (define-syntax lettensor
     (syntax-rules ()
