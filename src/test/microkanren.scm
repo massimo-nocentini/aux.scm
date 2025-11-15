@@ -50,7 +50,7 @@
              (s (s (s (s (s (s (s z)))))))
              (s (s (s (s (s (s (s (s z))))))))
              (s (s (s (s (s (s (s (s (s z))))))))))
-         (°->list/ground 10 (fresh° (n) (peano° n))))
+         (°->list/ground (take° 10 (fresh° (n) (peano° n)))))
 
    (⊦= '((λ (s) (λ (z) z))
            (λ (s) (λ (z) (s z)))
@@ -62,7 +62,7 @@
            (λ (s) (λ (z) (s (s (s (s (s (s (s z)))))))))
            (λ (s) (λ (z) (s (s (s (s (s (s (s (s z))))))))))
            (λ (s) (λ (z) (s (s (s (s (s (s (s (s (s z))))))))))))
-         (°->list/ground 10 (fresh° (n) (church° n)))))
+         (°->list/ground (take° 10 (fresh° (n) (church° n))))))
 
   ((test/append° _)
 
@@ -82,7 +82,7 @@
         '(_0 _1 _2 _3 _4 _5 _6 . _7)
         '(_0 _1 _2 _3 _4 _5 _6 _7 . _8)
         '(_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
-      (°->list/ground 10 (fresh° (l) (fresh° (a d) (append° a d l))))))
+      (°->list/ground (take° 10 (fresh° (l) (fresh° (a d) (append° a d l)))))))
 
   ((test/project° _)
     (⊦= '(4700 6500 5000 5700 5700 4400 4000 5500 5300 5300)

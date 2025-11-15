@@ -173,6 +173,8 @@
         ((promise? §) (delay (L (force §))))
         (else (append-map§ gt §)))))
 
+  (define (take° n g) (λ (s) (take§ n (delay (g s)))))
+
   (define (null° l) (=° l '()))
   (define (cons° a d c) (=° c (cons a d)))
   (define-syntax-rule (project° ((v* v) ...) g ...) (λ (s) (let ((v* (µkanren-state-find* v s)) ...) (delay ((and° g ...) s)))))
@@ -246,37 +248,15 @@
            (P (µkanren-project (make-µkanren-var 0))))
       (map§ P §)))
 
+  (define (reify° v g) (λ (s) (map§ (µkanren-project v) (delay (g µkanren-state-empty)))))
+
   (define (°->list . goals) 
     (cond
       ((null? goals) '())
-      ((number? (car goals)) (§->list (take§ (car goals) (apply °->§ (cdr goals)))))
-      (else (§->list (take§ +inf.0 (apply °->§ goals))))))
+      (else (§->list (apply °->§ goals)))))
 
   (define (°->list/ground . goals)
-    (let1 (M (λ (expr) (let ((E (eval expr)) (args (cadr expr))) (apply E args))))
-      (map M (apply °->list goals))))
+    (letmap ((expr (apply °->list goals)))
+      (let ((E (eval expr)) (args (cadr expr))) (apply E args))))
 
-  
-
-  )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+)
