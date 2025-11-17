@@ -255,4 +255,5 @@
 
   (define (°->list/ground g) (°->list #t g))
 
+  (define-syntax-rule (µkanren-run (v n grounded) g ...) (°->list grounded (take° n (fresh° (v) g ...))))
 )
