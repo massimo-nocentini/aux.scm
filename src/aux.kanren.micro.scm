@@ -242,21 +242,17 @@
 
   (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
 
-  (define (°->§ . goals)
-    (let* ((g (foldl µkanren-goal/and° ✓° goals))
-           (§ (delay (g µkanren-state-empty)))
+  (define (°->§ g)
+    (let* ((§ (delay (g µkanren-state-empty)))
            (P (µkanren-project (make-µkanren-var 0))))
       (map§ P §)))
 
-  (define (reify° v g) (λ (s) (map§ (µkanren-project v) (delay (g µkanren-state-empty)))))
+  (define (°->list grounded g)
+    (let1 (sols (§->list (°->§ g)))
+      (cond
+        (grounded (map (λ (expr) (let ((E (eval expr)) (args (cadr expr))) (apply E args))) sols))
+        (else sols))))
 
-  (define (°->list . goals) 
-    (cond
-      ((null? goals) '())
-      (else (§->list (apply °->§ goals)))))
-
-  (define (°->list/ground . goals)
-    (letmap ((expr (apply °->list goals)))
-      (let ((E (eval expr)) (args (cadr expr))) (apply E args))))
+  (define (°->list/ground g) (°->list #t g))
 
 )
