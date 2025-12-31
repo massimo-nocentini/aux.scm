@@ -5,62 +5,50 @@
 
 using namespace std;
 
-void chicken_hwy_vqsort_int32_asc(int32_t* arr, size_t len)
+void chicken_hwy_vqsort_int32(int32_t* arr, size_t len, int ascending)
 {
-    hwy::VQSort(arr, len, hwy::SortAscending());
+    if (ascending)
+        hwy::VQSort(arr, len, hwy::SortAscending());
+    else
+        hwy::VQSort(arr, len, hwy::SortDescending());
 }
 
-void chicken_hwy_vqsort_int32_desc(int32_t* arr, size_t len)
+void chicken_hwy_vqsort_uint32(uint32_t* arr, size_t len, int ascending)
 {
-    hwy::VQSort(arr, len, hwy::SortDescending());
+    if (ascending)
+        hwy::VQSort(arr, len, hwy::SortAscending());
+    else
+        hwy::VQSort(arr, len, hwy::SortDescending());
 }
 
-void chicken_hwy_vqsort_uint32_asc(uint32_t* arr, size_t len)
+void chicken_hwy_vqsort_int64(int64_t* arr, size_t len, int ascending)
 {
-    hwy::VQSort(arr, len, hwy::SortAscending());
+    if (ascending)
+        hwy::VQSort(arr, len, hwy::SortAscending());
+    else
+        hwy::VQSort(arr, len, hwy::SortDescending());
 }
 
-void chicken_hwy_vqsort_uint32_desc(uint32_t* arr, size_t len)
+void chicken_hwy_vqsort_uint64(uint64_t* arr, size_t len, int ascending)
 {
-    hwy::VQSort(arr, len, hwy::SortDescending());
+    if (ascending)
+        hwy::VQSort(arr, len, hwy::SortAscending());
+    else
+        hwy::VQSort(arr, len, hwy::SortDescending());
 }
 
-void chicken_hwy_vqsort_int64_asc(int64_t* arr, size_t len)
+void chicken_hwy_vqsort_f32(float* arr, size_t len, int ascending)
 {
-    hwy::VQSort(arr, len, hwy::SortAscending());
+    if (ascending)
+        hwy::VQSort(arr, len, hwy::SortAscending());
+    else
+        hwy::VQSort(arr, len, hwy::SortDescending());
 }
 
-void chicken_hwy_vqsort_int64_desc(int64_t* arr, size_t len)
+void chicken_hwy_vqsort_f64(double* arr, size_t len, int ascending)
 {
-    hwy::VQSort(arr, len, hwy::SortDescending());
-}
-
-void chicken_hwy_vqsort_uint64_asc(uint64_t* arr, size_t len)
-{
-    hwy::VQSort(arr, len, hwy::SortAscending());
-}
-
-void chicken_hwy_vqsort_uint64_desc(uint64_t* arr, size_t len)
-{
-    hwy::VQSort(arr, len, hwy::SortDescending());
-}
-
-void chicken_hwy_vqsort_f32_asc(float* arr, size_t len)
-{
-    hwy::VQSort(arr, len, hwy::SortAscending());
-}
-
-void chicken_hwy_vqsort_f32_desc(float* arr, size_t len)
-{
-    hwy::VQSort(arr, len, hwy::SortDescending());
-}
-
-void chicken_hwy_vqsort_f64_asc(double* arr, size_t len)
-{
-    hwy::VQSort(arr, len, hwy::SortAscending());
-}
-
-void chicken_hwy_vqsort_f64_desc(double* arr, size_t len)
-{
-    hwy::VQSort(arr, len, hwy::SortDescending());
+    if (ascending)
+        hwy::VQSort(arr, len, hwy::SortAscending());
+    else
+        hwy::VQSort(arr, len, hwy::SortDescending());
 }
