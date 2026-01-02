@@ -41,11 +41,14 @@
 
 #|
 
-(import (chicken base) (chicken memory) (chicken blob) (aux base) (aux hwy) srfi-4)
+(import (chicken base) (chicken memory) (chicken blob) (aux base) (aux hwy) srfi-1 srfi-4 (chicken sort))
 (define lst '(5 3 8 1 4 7 -2 6))
 (display lst) 
 (define v #s64(5 3 8 1 4 7 -2 6))
-(vqsort! v #t)
+(define vi (iota 100000000))
+(define v (list->s64vector vi))
+,t (vqsort! v #f)
+,t (sort vi >)
 v
 (define sorted-desc (vqsort! #f64(5.0 3 8 1 4 7 -2 6) #f))
 (display sorted-desc)

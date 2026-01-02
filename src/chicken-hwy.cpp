@@ -2,6 +2,7 @@
 #include <chicken/chicken.h>
 #include <iostream>
 #include "chicken-hwy.h"
+#include <hwy/contrib/sort/vqsort.h>
 
 using namespace std;
 

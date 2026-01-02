@@ -2,10 +2,6 @@
 #include <chicken/chicken.h>
 
 #ifdef __cplusplus
-#include <hwy/contrib/sort/vqsort.h>
-#endif
-
-#ifdef __cplusplus
 extern "C"
 {
 #endif
