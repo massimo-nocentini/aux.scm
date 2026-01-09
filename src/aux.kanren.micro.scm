@@ -154,6 +154,9 @@
       ((fresh° (v w ...) body ...) (µkanren-goal/fresh° (λ (v) (fresh° (w ...) body ...))))
       ((fresh° r (v ...) body ...) (fresh° (r) (fresh° (v ...) (=° r (list v ...)) body ...)))))
 
+  (define-syntax-rule (fresh°/record r (t v ...) body ...)
+    (fresh° (r v ...) (=° (make-record-instance t v ...) r) body ...))
+
   (define-syntax and°
     (syntax-rules ()
       ((and°) ✓°)
