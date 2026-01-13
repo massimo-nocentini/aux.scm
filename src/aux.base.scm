@@ -41,6 +41,86 @@
 
   (define (symbols->symbol/stripped-syntax . symbols) (apply symbol-append (map strip-syntax symbols)))
 
+  ; ------------------------------------------------------------------------------------------------
+  ; dmatch: pattern matching with dajkstra's algorithm for efficient matching.
+  ; ------------------------------------------------------------------------------------------------
+
+  (define-syntax dmatch
+    (syntax-rules ()
+      ((dmatch v (e ...) ...) (dmatch v "" (e ...) ...))
+      ((dmatch v name (e ...) ...) (let1 (pkg∗ (dmatch-remexp v (e ...) ...)) (run-a-thunk (quote v) v (quote name) pkg∗)))))
+
+  (define pkg cons)
+  (define pkg-clause car)
+  (define pkg-thunk cdr)
+
+  (define-syntax dmatch-remexp
+    (syntax-rules ()
+      ((dmatch-remexp (rator rand ...) cls ...) (let1 (v (rator rand ...)) (dmatch-aux v cls ...)))
+      ((dmatch-remexp v cls ...) (dmatch-aux v cls ...))))
+
+  (define-syntax dmatch-aux
+    (syntax-rules (guard)
+      ((dmatch-aux v) '())
+      ((dmatch-aux v (pat (guard g ...) e0 e ...) cs ...)
+        (let1 (fk (τ (dmatch-aux v cs ...)))
+          (ppat v pat
+            (cond 
+              ((not (and g ...)) (fk))
+              (else (cons (pkg '(pat (guard g ...) e0 e ...) (τ e0 e ...)) (fk))))
+            (fk))))
+      ((dmatch-aux v (pat e0 e ...) cs ...)
+        (let1 (fk (τ (dmatch-aux v cs ...)))
+          (ppat v pat
+            (cons (pkg ’ (pat e0 e ...) (τ e0 e ...)) (fk))
+            (fk))))))
+
+  (define-syntax ppat
+    (syntax-rules (unquote)
+      ((ppat v (unquote var) kt kf) (let1 (var v) kt))
+      ((ppat v (x . y) kt kf)
+        (if (pair? v)
+          (let ((vx (car v)) (vy (cdr v))) (ppat vx x (ppat vy y kt kf) kf))
+          kf))
+      ((ppat v lit kt kf) (if (eq? v 'lit) kt kf))))
+
+  (define (run-a-thunk v-expr v name pkg∗)
+    (cond
+      ((null? pkg∗) (no-matching-pattern name v-expr v))
+      ((null? (cdr pkg∗)) ((pkg-thunk (car pkg∗))))
+      (else (overlapping-patterns/guards name v-expr v pkg∗))))
+
+  (define (no-matching-pattern name v-expr v)
+    #;(if name
+      (printf "dmatch ˜d failed˜n˜d ˜d˜n" name v-expr v)
+      (printf "dmatch failed˜n˜d ˜d˜n" v-expr v))
+    (error 'dmatch (string-append "match failed: " name) v-expr v))
+
+  (define (overlapping-patterns/guards name v-expr v pkg∗)
+    #;(if name
+      (printf "dmatch ˜d overlapping matching clauses˜n" name)
+      (printf "dmatch overlapping matching clauses˜n"))
+    (warning (string-append "dmatch overlapping matching clauses" name) `((expr ,v-expr) (eval ,v)))
+    (for-each pretty-print (map pkg-clause pkg∗)))
+  
+  #|
+  
+  (import scheme (chicken base) (aux base) (chicken pretty-print))
+
+  (define h
+    (lambda (x y)
+      (dmatch
+        `(,x . ,y)
+        "example"
+        ((,a . ,b) (guard (number? a) (number? b)) (* a b))
+        ((,a ,b ,c) (guard (number? a) (number? b) (number? c)) (+ a b c)))))
+
+  (list (h 3 4) (apply h '(1 (3 4)))) ;⇒(12 8)
+  
+  |#
+
+  ; ------------------------------------------------------------------------------------------------
+
   (define-syntax letport/string 
     (syntax-rules (out else) 
       ((_ (p out) body ...) (let* ((v (void))
