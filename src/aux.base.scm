@@ -102,6 +102,12 @@
       (define name value) ...
       (void)))
 
+  (match/guarded '()
+    (() 'empty))
+    
+  (match/guarded '(p)
+    ((,r) r))
+
   (define-many (a b d) (0  4 2))
 
   (list a b d) ; ⇒ (1 2 3)
