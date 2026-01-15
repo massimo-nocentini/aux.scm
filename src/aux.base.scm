@@ -5,14 +5,17 @@
           (chicken base) 
           (chicken continuation) 
           (chicken pretty-print) 
+          (chicken memory representation) 
           (chicken fixnum) 
           (chicken sort) 
           (chicken port) 
           (chicken foreign)
           (chicken syntax)
           (chicken module)
+          (chicken string)
           srfi-1
-          srfi-69)
+          srfi-69
+          vector-lib)
 
   (reexport matchable)
 
@@ -48,12 +51,13 @@
   (define-syntax match/guarded
     (syntax-rules ()
       ((match/guarded v (e ...) ...) (match/guarded v "" (e ...) ...))
-      ((match/guarded v name (e ...) ...) (dmatch-run-a-thunk (quote v) v name (dmatch-remexp v (e ...) ...)))))
+      ((match/guarded v name (e ...) ...) (dmatch-run-a-thunk (quote v) v 
+                                            (string-append " for " (->string name)) 
+                                            (dmatch-remexp v (e ...) ...)))))
 
-  ; (define pkg cons)
-  (define-syntax-rule (pkg pat g e0 e ...) (cons (quote (pat g e0 e ...)) (τ e0 e ...)))
-  (define pkg-clause car)
-  (define pkg-thunk cdr)
+  (define-syntax-rule (dmatch-pkg pat g e0 e ...) (cons (quote (pat g e0 e ...)) (τ e0 e ...)))
+  (define dmatch-pkg-clause car)
+  (define dmatch-pkg-thunk cdr)
 
   (define-syntax dmatch-remexp
     (syntax-rules ()
@@ -63,62 +67,85 @@
   (define-syntax dmatch-aux
     (syntax-rules (guard)
       ((dmatch-aux v) '())
-      ((dmatch-aux v (pat (guard g ...) e0 e ...) cs ...)
-        (let1 (fk (τ (dmatch-aux v cs ...)))
+      ((dmatch-aux v (pat (guard g ...) e0 e ...) cls ...)
+        (let1 (fk (τ (dmatch-aux v cls ...)))
           (dmatch-ppat v pat
             (cond 
               ((not (and g ...)) (fk))
-              (else (cons (pkg pat (guard g ...) e0 e ...) (fk))))
+              (else (cons (dmatch-pkg pat (guard g ...) e0 e ...) (fk))))
             (fk))))
-      ((dmatch-aux v (pat e0 e ...) cs ...)
-        (let1 (fk (τ (dmatch-aux v cs ...)))
+      ((dmatch-aux v (pat e0 e ...) cls ...)
+        (let1 (fk (τ (dmatch-aux v cls ...)))
           (dmatch-ppat v pat
-            (cons (pkg pat (guard ) e0 e ...) (fk))
+            (cons (dmatch-pkg pat (guard ) e0 e ...) (fk))
             (fk))))))
 
   (define-syntax dmatch-ppat
     (syntax-rules (unquote)
       ((dmatch-ppat v (unquote var) kt kf) (let1 (var v) kt))
-      ((dmatch-ppat v (x . y) kt kf)
-        (if (pair? v)
-          (let ((vx (car v)) (vy (cdr v))) (dmatch-ppat vx x (dmatch-ppat vy y kt kf) kf))
-          kf))
-      ((dmatch-ppat v lit kt kf) (if (eq? v (quote lit)) kt kf))))
+      ((dmatch-ppat vv () kt kf) (let1 (v vv) (if (or (null? v) (and (vector? v) (zero? (vector-length v)))) kt kf)))
+      ((dmatch-ppat vv (x . y) kt kf)
+        (let1 (v vv)
+          (cond
+            ((pair? v) (let ((vx (car v)) 
+                             (vy (cdr v))) 
+                        (dmatch-ppat vx x (dmatch-ppat vy y kt kf) kf)))
+            ((and (vector? v) (> (vector-length v) 0)) (let ((vx (vector-ref v 0))
+                                                             (vy (subvector v 1)))
+                                                          (dmatch-ppat vx x (dmatch-ppat vy y kt kf) kf)))
+            ((record-instance? v) (let* ((r (record->vector v))
+                                         (vx (vector-ref r 0))
+                                         (vy (subvector r 1)))
+                                    (dmatch-ppat vx x (dmatch-ppat vy y kt kf) kf)))
+            (else kf))))
+      ((dmatch-ppat v lit kt kf) (if (equal? v (quote lit)) kt kf))))
 
   (define (dmatch-run-a-thunk v-expr v name pkg∗)
     (cond
       ((null? pkg∗) (error 'match/guarded
-                      (string-append "no match found for " name) 
+                      (string-append "no match found" name) 
                       `((expr ,v-expr) (eval ,v))))
-      ((null? (cdr pkg∗)) ((pkg-thunk (car pkg∗))))
+      ((null? (cdr pkg∗)) ((dmatch-pkg-thunk (car pkg∗))))
       (else (error 'match/guarded
-              (string-append "overlapping match for " name) 
-              `((expr ,v-expr) (eval ,v) (ambiguities ,(map pkg-clause pkg∗)))))))
-  
+              (string-append "overlapping match" name) 
+              `((expr ,v-expr) (eval ,v) (ambiguities ,(map dmatch-pkg-clause pkg∗)))))))
+
   #|
-  
+
+  (define-syntax-rule (v-aux (v #(x ...)) body ...) (let1 (v (list x ...)) body ...))
+
+  (v-aux (v #(1 2 3)) (cons 0 v))
+
   (define-syntax-rule (define-many (name ...) (value ...))
     (begin
       (define name value) ...
       (void)))
 
-  (match/guarded '()
-    (() 'empty))
-    
-  (match/guarded '(p)
-    ((,r) r))
+  (match/guarded '() (() 'empty))
+  (match/guarded #() (() 'empty))
+  (match/guarded '() (,r r))
+  (match/guarded #() (,r r))
+  (match/guarded '(p) ((,r) r))
+  (match/guarded #(p) ((p) #t))
+  (match/guarded #(p) ((,r) r))
+  (match/guarded #(3 2) ((,r 2) r))
+  (match/guarded #(3 2) ((,r . ,s) (list r s)))
+  (match/guarded #(3 2) ((,r 2 ,t) r))
+  (match/guarded #(3 2) ((,r ,e) r))
+  (match/guarded (make-record-instance 'hello 3 2) ((hello ,r ,e) r))
+  
 
   (define-many (a b d) (0  4 2))
 
   (list a b d) ; ⇒ (1 2 3)
 
-  (import scheme (chicken base) (aux base) (chicken pretty-print))
+  (import scheme (chicken base) (aux base) (chicken pretty-print) (chicken memory representation) (chicken string))
 
   (define h
     (lambda (x y)
-      (match/guarded `(,x . ,y) "example"
+      (match/guarded `(,x . ,y) "h function, example"
         ((,a . ,b) (guard (number? a) (number? b)) (* a b))
-        ;((,a . ,b) (+ a b))
+        ; ((,a . ,b) (+ a b))
         ((,a ,b ,c) (guard (number? a) (number? b) (number? c)) (+ a b c)))))
 
   (list (h 3 4) (apply h '(1 (3 4)))) 
