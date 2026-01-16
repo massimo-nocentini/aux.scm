@@ -141,11 +141,11 @@
   (define (✓° s) (list s))
   (define (✗° s) '())
 
-  (define (µkanren-goal/fresh° f)
+  (define (freshª f) ; ª means "applicative", so `freshª` is a *function* that consumes a function and returns a goal.
     (λ-goal (s : S D A T)
       (let* ((S* (cons/sbral µkanren-var-unbound S))
              (s* (make-µkanren-state S* D A T))
-             (g (f (make-µkanren-var (length/sbral S)))))
+             (g (f (make-µkanren-var (sub1 (length/sbral S*))))))
         (delay (g s*)))))
 
   (define ((=° u v) s)
@@ -159,7 +159,7 @@
   (define-syntax fresh°
     (syntax-rules ()
       ((fresh° () body ...) (and° body ...))
-      ((fresh° (v w ...) body ...) (µkanren-goal/fresh° (λ (v) (fresh° (w ...) body ...))))
+      ((fresh° (v w ...) body ...) (freshª (λ (v) (fresh° (w ...) body ...))))
       ((fresh° r (v ...) body ...) (fresh° (r) (fresh° (v ...) (=° r (list v ...)) body ...)))))
 
   (define-syntax-rule (fresh°/record r (t v ...) body ...)
