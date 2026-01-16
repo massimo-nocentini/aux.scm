@@ -23,16 +23,23 @@
 
   ; state ------------------------------------------------------------------------
 
-  (define-record µkanren-state substitution counter)
-  (define µkanren-state-empty (make-µkanren-state empty/sbral 0))
-  (define (µkanren-var-index/state v s) (- (µkanren-state-counter s) 1 (µkanren-var-index v)))
+  (define-record µkanren-state S D A T)
+  (define µkanren-state-empty (make-µkanren-state empty/sbral empty/sbral empty/sbral empty/sbral))
+  (define (µkanren-var-index/state v s) (- (length/sbral (µkanren-state-S s)) 1 (µkanren-var-index v)))
   
-  (define (µkanren-state-update s k v)
-    (let* ((c (µkanren-state-counter s))          
-           (k* (µkanren-var-index/state k s))
-           (r (µkanren-state-substitution s))
-           (r* (update/sbral k* v r)))
-      (make-µkanren-state r* c)))
+  (define-syntax-rule (literal :) (λ-goal (state : S D A T) body ...)
+    (λ (state)
+      (let ((S (µkanren-state-S state))
+            (D (µkanren-state-D state))
+            (A (µkanren-state-A state))
+            (T (µkanren-state-T state)))
+        body ...)))
+
+  (define (µkanren-state-update k v)
+    (λ-goal (s : S D A T)
+      (let* ((k* (µkanren-var-index/state k s))
+             (S* (update/sbral k* v S)))
+        (make-µkanren-state S* D A T))))
   
   (define (µkanren-state-update/occur? w v s)
     (define (occur? w*)
@@ -42,10 +49,10 @@
         ((vector? w*) (vector-fold (λ (found e) (or found (occur? (µkanren-state-find e s)))) #f w*))
         ((record-instance? w*) (occur? (record->vector w*)))
         (else #f)))
-    (and (not (occur? v)) (µkanren-state-update s w v)))
+    (and (not (occur? v)) ((µkanren-state-update w v) s)))
 
   (define (µkanren-state-find v s)
-    (let1 (r (µkanren-state-substitution s))
+    (let1 (r (µkanren-state-S s))
       (let F ((p v) (w v))
         (cond
           ((µkanren-working-var? w) (let* ((i (µkanren-var-index/state w s))
@@ -104,7 +111,8 @@
       (let1 (w* (µkanren-state-find w r))
             (cond
               ((µkanren-working-var? w*) (let* ((new-var (make-µkanren-var c))
-                                                (r* (µkanren-state-update r w* new-var))
+                                                (U (µkanren-state-update w* new-var))
+                                                (r* (U r))
                                                 (c* (sub1 c))
                                                 (vars* (cons new-var vars)))
                                            (values r* c* vars*)))
@@ -119,7 +127,7 @@
 
   (define ((µkanren-project w) s)
     (let1 (w* (cond 
-                ((< 0 (µkanren-state-counter s)) (µkanren-state-find* w s))
+                ((< 0 (length/sbral (µkanren-state-S s))) (µkanren-state-find* w s))
                 (else #t) ; for tautology when there is no variable
                 ))
       (let-values (((s* _ vars-reversed) (µkanren-state-reify w* s)))
@@ -130,15 +138,15 @@
 
   ; goals --------------------------------------------------------------------------
 
-  (define (✓° s) (cons§ s '()))
+  (define (✓° s) (list s))
   (define (✗° s) '())
 
-  (define ((µkanren-goal/fresh° f) s)
-    (let* ((i (µkanren-state-counter s))
-           (subst (cons/sbral µkanren-var-unbound (µkanren-state-substitution s)))
-           (s* (make-µkanren-state subst (add1 i)))
-           (g (f (make-µkanren-var i))))
-      (delay (g s*))))
+  (define (µkanren-goal/fresh° f)
+    (λ-goal (s : S D A T)
+      (let* ((S* (cons/sbral µkanren-var-unbound S))
+             (s* (make-µkanren-state S* D A T))
+             (g (f (make-µkanren-var (length/sbral S)))))
+        (delay (g s*)))))
 
   (define ((=° u v) s)
     (let* ((s* (µkanren-state-unify u v s))
@@ -179,6 +187,7 @@
   (define (take° n g) (λ (s) (take§ n (delay (g s)))))
 
   (define (null° l) (=° l '()))
+  (define (boolean° v) (or° (=° v #t) (=° v #f)))
   (define (cons° a d c) (=° c (cons a d)))
   (define-syntax-rule (project° ((v* v) ...) g ...) (λ (s) (let ((v* (µkanren-state-find* v s)) ...) (delay ((and° g ...) s)))))
   (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
