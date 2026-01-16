@@ -57,12 +57,12 @@
 
   (define (µkanren-state-find α s)
     (let1 (S (µkanren-state-S s))
-      (let F ((α0 α) (β α))
+      (let F ((β0 α) (β α))
         (cond
           ((µkanren-working-var? β) (let* ((i   (µkanren-var-index/state β s))
                                            (β*  (sbral-ref S i)))
                                       (F β β*)))
-          ((µkanren-unbound? β) α0)
+          ((µkanren-unbound? β) β0)
           (else β)))))
 
   (define (µkanren-state-unify u v s)
