@@ -11,7 +11,7 @@
 (define-suite bootstrap-sut 
 
   ((doc r) `((p "This test suite drove the implementation of the unittest framework itself.") 
-             (code/scheme-file "../unittest.scm")))
+             (code/scheme/file "../aux.unittest.scm")))
 
   ((setup tc) (lettest ((t 'test-method)) (values t (make-unittest/result 0 '()))))
 

@@ -6,11 +6,12 @@
           (chicken continuation)
           (aux base))
 
-  (define-syntax letcc
-    (syntax-rules ()
-      ((letcc hop body ...) (continuation-capture (lambda (cont) 
-                                                    (let1 (hop (lambda (arg) (continuation-return cont arg)))
-                                                          body ...))))))
+  (define-syntax-rule (letcc hop body ...)
+    (continuation-capture (λ (cont) 
+                            (let1 (hop (λ (arg) (continuation-return cont arg)))
+                              body ...))))
+
+  (define-syntax-rule (letcc/call hop body ...) (call-with-current-continuation (λ (hop) body ...)))
 
   (define (callcc f) (letcc k (f k)))
 
