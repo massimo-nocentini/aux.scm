@@ -36,17 +36,17 @@
                  (xml:lang "en") 
                  (lang "en"))
               (head
-                (meta (@ (name "viewport") (content "width=device-width,initial-scale=1")))
-                (link (@ (rel "stylesheet") 
+                #;(meta (@ (name "viewport") (content "width=device-width,initial-scale=1")))
+                #;(link (@ (rel "stylesheet") 
                          (href "https://www.w3schools.com/w3css/5/w3.css") 
                          (type "text/css")))
-                (link (@ (rel "stylesheet") 
+                #;(link (@ (rel "stylesheet") 
                          (href "https://fonts.googleapis.com/css?family=Merriweather:ital,opsz,wght@0,18..144,300..900;1,18..144,300..900&family=Playfair:ital,opsz,wght@0,5..1200,300..900;1,5..1200,300..900&display=swap") 
                          (type "text/css")))
                 (link (@ (rel "stylesheet") 
                          (href "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/" ,highlight-version "/styles/default.min.css") 
                          (type "text/css")))
-                (style "code, pre, tt, kbd, samp, .w3-code, .w3-codespan { font-family: Monaco, Lucida Console, Roboto Mono, Ubuntu Mono, monospace; }"
+                #;(style "code, pre, tt, kbd, samp, .w3-code, .w3-codespan { font-family: Monaco, Lucida Console, Roboto Mono, Ubuntu Mono, monospace; }"
                        "math { font-family: Euler Math; }"
                        "html, body, h1, h2, h3, h4, h5, h6 { font-family: Merriweather, Lucida Sans, Times New Roman, serif; }")
                 (script (@ (src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/" ,highlight-version "/highlight.min.js")))
@@ -54,9 +54,9 @@
                          `(script (@ (src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/" ,highlight-version "/languages/" ,lang ".min.js")))) 
                     highlight-languages)
                 (script "hljs.highlightAll();")
-                (title ,maintitle))
-              (body (@ (class "w3-content") (style "max-width:61.8%"))
-                    (header (@ (class "w3-container w3-center"))
+                #;(title ,maintitle))
+              (body #;(@ (class "w3-content") (style "max-width:61.8%"))
+                    #;(header (@ (class "w3-container w3-center"))
                             (h1 (b ,maintitle))
                             (p ,@abstract)
                             (small
@@ -73,8 +73,8 @@
                               (p "This work is licensed under a "
                                  (a (@ (rel "license") (href "http://creativecommons.org/licenses/by-sa/4.0/")) 
                                     "Creative Commons Attribution-ShareAlike 4.0 International License"))))
-                    (structure/toc)
-                    (hr)
+                    #;(structure/toc)
+                    #;(hr)
                     ,@body
                     (structure/citations))))))
 
@@ -89,8 +89,8 @@
                  (sxml-handler-code/lang (lambda (tag body)
                                            (let ((lang (car body))
                                                  (code (cdr body)))
-                                             `(div (@ (class "w3-card w3-round"))
-                                                   (header (@ (class "w3-container w3-border w3-round w3-light-gray w3-right")) ,lang " code")
+                                             `(div #;(@ (class "w3-card w3-round"))
+                                                   #;(header (@ (class "w3-container w3-border w3-round w3-light-gray w3-right")) ,lang " code")
                                                    (pre (@ (class "w3-container"))
                                                         (code (@ (class "w3-code w3-round language-" ,lang)) ,code))))))
                  (sxml-handler-code/scheme/expand (lambda (tag body)
@@ -119,7 +119,7 @@
                                                           (i (if (null? sections) 0 (caar sections)))
                                                           (nexti (add1 i)))
                                                      (set! sections (cons (list nexti witness body) sections))
-                                                     `(section (@ (id ,witness)) (header (h1 ,nexti ". ",@body))))))
+                                                     `(section (@ (id ,witness)) (header (h1 #;,nexti #;". ",@body))))))
                  (sxml-handler-structure/toc (lambda (tag body)
                                                `(div (@ (class "w3-container"))
                                                      (header (b "Table of contents"))

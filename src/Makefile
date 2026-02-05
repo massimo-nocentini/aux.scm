@@ -1,20 +1,23 @@
-	
+
+CSI=csi
+CSC=csc
+
 test: test-microkanren
-	cd test && csi -s test.scm
-	cd test && csi -s stream.scm
-	cd test && csi -s letcc.scm
-	cd test && csi -s letnondeterministic.scm
-	cd test && csi -s delimcc.scm
-	cd test && csi -s timsort.scm
-	cd test && csi -s bootstrap.scm
-	cd test && csc learning.scm bar.c -I/usr/local/include && ./learning && rm learning
-	cd test && csi -s hansei.scm
-	cd test && csi -s fds.queue.scm
-	cd test && csi -s fds.sbral.scm
-	cd test && csi -s judy.scm
+	cd test && ${CSI} -s test.scm
+	cd test && ${CSI} -s stream.scm
+	cd test && ${CSI} -s letcc.scm
+	cd test && ${CSI} -s letnondeterministic.scm
+	cd test && ${CSI} -s delimcc.scm
+	cd test && ${CSI} -s timsort.scm
+	cd test && ${CSI} -s bootstrap.scm
+	cd test && ${CSC} learning.scm bar.c -I/usr/local/include && ./learning && rm learning
+	cd test && ${CSI} -s hansei.scm
+	cd test && ${CSI} -s fds.queue.scm
+	cd test && ${CSI} -s fds.sbral.scm
+	cd test && ${CSI} -s judy.scm
 
 test-microkanren:
-	cd test && csi -s microkanren.scm
+	cd test && ${CSI} -s microkanren.scm
 
 install:
 	chicken-install -sudo
@@ -60,4 +63,4 @@ foreigns-fetch: timsort-fetch simdjson-fetch
 
 json-bench:
 	# first take json files from https://jsoneditoronline.org/indepth/datasets/json-file-example/#a-large-json-document
-	csi -s test/json-bench.scm
+	${CSI} -s test/json-bench.scm

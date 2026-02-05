@@ -141,7 +141,7 @@
             (res (unittest/result-summary r))
             (sxml (alist-ref 'doc sut-methods)))
         (SXML->HTML->file! (sxml-tree sut-name 
-                                      `((p (b "Tests summary")
+                                      `(#;(p (b "Tests summary")
                                            (code/scheme ,res))
                                         ,@(if sxml ((car sxml) r) '())
                                         ,@docs))
