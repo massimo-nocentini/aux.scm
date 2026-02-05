@@ -10,7 +10,7 @@
     (source "chicken-simdjson.cpp") 
     (csc-options "-I/usr/local/include" "-C" "-std=c++11" "-DNDEBUG") 
     (link-options "-L" "-lstdc++"))
-  (c-object chicken-hwy
+    #;(c-object chicken-hwy
     (source "chicken-hwy.cpp")
     (csc-options "-I/usr/local/include")
     (link-options "-L" "-lhwy" "-L" "-lhwy_contrib"))

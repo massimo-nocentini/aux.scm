@@ -1,5 +1,5 @@
 #
-name: CHICKEN Scheme Docker image, 5.4.0 on Ubuntu (clang), aux modules.
+name: CHICKEN Scheme Docker image, aux modules.
 
 # Configures this workflow to run every time a change is pushed to the branch called `release`.
 on:
