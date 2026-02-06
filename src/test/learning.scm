@@ -3,7 +3,7 @@
 (import
   scheme (chicken base) (chicken pretty-print) (chicken condition) (chicken foreign) (chicken gc)
   srfi-13
-  (aux base) (aux unittest) )
+  (aux base) (aux unittest))
 
 #>
 
@@ -116,6 +116,11 @@ END
   ((test/string/take-right _) (⊦ equal? "o" (string-take-right "hello" 1)))
 
   ((test-null-eq? _) (⊨ (eq? '() '())))
+
+  ((test-last-syntax _) 
+   (define-syntax-rule (var-last body ... last) last)
+   (⊦ equal? 'a (var-last 'a))
+   (⊦ equal? 7 (var-last 'a (+ 3 4))))
   #;((test-null-car _) (⊦⧳ ((exn)) (car (list))))
   )
 

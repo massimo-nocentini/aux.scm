@@ -139,7 +139,7 @@
    (⊦= '(hello world) (a)))
 
   ((test/delimcc/tutorial/λ _)
-   (define-resetcc p (append '(hello) (delimcc-lambda (x) (list x)) '(world)))
+   (define-resetcc p (append '(hello) (delimcc-λ (x) (list x)) '(world)))
    (⊦= '(hello 4 world) (p 4)))
 
   ((test/letcc/delimcc+monad _)

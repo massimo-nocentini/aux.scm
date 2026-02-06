@@ -44,6 +44,8 @@
 
   (define (symbols->symbol/stripped-syntax . symbols) (apply symbol-append (map strip-syntax symbols)))
 
+  (define-syntax-rule (begin1 expr body ...) (let1 (v expr) (begin body ... v)))
+
   ; ------------------------------------------------------------------------------------------------
   ; dmatch: pattern matching with dajkstra's algorithm for efficient matching.
   ; ------------------------------------------------------------------------------------------------
