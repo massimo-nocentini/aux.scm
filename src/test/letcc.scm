@@ -3,7 +3,6 @@
 
 (define-suite letcc-suite
 
-
   ((doc r) (let ((letcc-expr '(letcc k body ...)))
              `((structure/section "Call with current continuation: the " (code/inline "letcc") " macro")
                (p "The fundamental macro " (code/inline "letcc") " in the form "
@@ -20,7 +19,10 @@
                                              "Module " (code/inline "(chicken continuation)")) 
                   " and based on " (cite/a "http://www.iro.umontreal.ca/~feeley/papers/FeeleySW01.pdf" 
                                            "A Better API for First-Class Continuations") 
-                  " by Marc Feeley, respectively."))))
+                  " by Marc Feeley, respectively.")
+
+               (structure/section "Implementation")
+               (code/scheme/file "../aux.continuation.scm"))))
 
   ((test/letcc/multiarg _)
    (⊦= 'a (letcc k (k 'a))))

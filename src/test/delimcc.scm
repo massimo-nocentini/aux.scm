@@ -1,5 +1,5 @@
 
-(import (aux unittest) (aux base) (aux continuation) (aux stream))
+(import (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
 
 (define-suite delimcc-suite
 
@@ -35,7 +35,9 @@
                           (li "binds the cleared continuation to " (code/inline "k"))
                           (li "and executes " (code/inline "body ..."))))
             "For the sake of clarity, it expands to "
-            (code/scheme/expand ,letcc/shift-expr)))))
+            (code/scheme/expand ,letcc/shift-expr)))
+     (structure/section "Implementation")
+     (code/scheme/file "../aux.continuation.delimited.scm")))
 
   ((test/delimcc/basic _)
    (⊦= 10 (letcc/shift k 10))
@@ -111,7 +113,7 @@
          (f (cadr tree))
          (walk f (caddr tree)))))
 
-   (⊦= '(1 2 3) (§->list (resetcc+null (walk yield§/a '((() 1 ()) 2 (() 3 ()))))))
+   (⊦= '(1 2 3) (§->list (resetcc+null (walk yield§ª '((() 1 ()) 2 (() 3 ()))))))
    (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
                             (walk yield/extract '((() 1 ()) 2 (() 3 ()))))))
 
@@ -135,11 +137,11 @@
              `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no))))))
 
   ((test/delimcc/tutorial/τ _)
-   (define-resetcc a (append (delimcc-τ '(hello)) '(world)))
+   (define-resetcc a (append (τ-shift '(hello)) '(world)))
    (⊦= '(hello world) (a)))
 
   ((test/delimcc/tutorial/λ _)
-   (define-resetcc p (append '(hello) (delimcc-λ (x) (list x)) '(world)))
+   (define-resetcc p (append '(hello) (λ-shift (x) (list x)) '(world)))
    (⊦= '(hello 4 world) (p 4)))
 
   ((test/letcc/delimcc+monad _)

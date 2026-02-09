@@ -11,7 +11,8 @@
           (chicken sort) 
           srfi-69
           (aux base)
-          (aux continuation))
+          (aux continuation)
+          (aux continuation delimited))
 
   (define op/times (make-parameter *))
   (define op/plus (make-parameter +))

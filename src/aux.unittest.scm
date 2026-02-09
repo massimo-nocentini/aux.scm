@@ -65,7 +65,7 @@
                (errstr (third pair))
                (hasdoc (and (pair? v) (eq? (car v) 'doc))))
           (when teardown (apply (car teardown) testcase args))
-          `((structure/section (code ,testcase-name)
+          `((h2 (code ,testcase-name)
                                ": " 
                                ,(if (eq? v witness) 
                                     '(span (@ (class "w3-text-red")) fail) 
@@ -144,6 +144,7 @@
                                       `(#;(p (b "Tests summary")
                                            (code/scheme ,res))
                                         ,@(if sxml ((car sxml) r) '())
+                                        (structure/section "Tests")
                                         ,@docs))
                            (symbol-append 'testsuite- sut-name))
         (pretty-print res)

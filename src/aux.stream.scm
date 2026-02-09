@@ -5,11 +5,12 @@
           (chicken base)
           (aux base)
           (aux continuation)
-          )
+          (aux continuation delimited)
+  )
 
   (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
   (define-syntax yield§ (syntax-rules () ((yield§ body) (letcc/shift k (cons§ body (k (void)))))))
-  (define (yield§/a v) (yield§ v))
+  (define (yield§ª v) (yield§ v))
 
   (define (map§/yielded f t)
     (cond
@@ -17,7 +18,7 @@
       (else (letcar&cdr (((v k) t))
                         (cons§ (f v) (map§/yielded f (k (void))))))))
 
-  (define-syntax delimcc-foldr§
+  #;(define-syntax delimcc-foldr§
     (syntax-rules ()
       ((delimcc-fold body ...)
        (let1 (witness (gensym))

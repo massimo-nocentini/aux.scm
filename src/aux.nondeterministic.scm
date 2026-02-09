@@ -7,6 +7,7 @@
           srfi-69
           (aux base)
           (aux continuation)
+          (aux continuation delimited)
           (aux stream))
 
   (define ((nondeterministic system) cc)
