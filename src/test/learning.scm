@@ -121,8 +121,12 @@ END
    (define-syntax-rule (var-last body ... last) last)
    (⊦ equal? 'a (var-last 'a))
    (⊦ equal? 7 (var-last 'a (+ 3 4))))
-  #;((test-null-car _) (⊦⧳ ((exn)) (car (list))))
-  )
+
+  ((test-vec-syntax _) 
+   (define-syntax-rule (v-aux (v #(x ...)) body ...) (let1 (v (list x ...)) body ...))
+   (⊦ equal? '(0 1 2 3) (v-aux (v #(1 2 3)) (cons 0 v))))
+  
+)
 
 (unittest/✓ learning-suite)
 

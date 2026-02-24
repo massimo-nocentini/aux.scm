@@ -18,10 +18,10 @@
   (define-syntax-rule (λ-shift args body ...) (letcc/shift k (λ args (let1 (x (begin body ...)) (k x)))))
   (define-syntax-rule (τ-shift body ...) (λ-shift () body ...))
 
-  (define *delimcc-stack* (list identity)) ; or: (λ (v) (error "Missing enclosing resetcc" v)) for a more strict experience.
-  (define (delimcc-stack-abort v) (let1 (k (car *delimcc-stack*)) (k v)))
-  (define (delimcc-stack-push! k) (push! k *delimcc-stack*))
-  (define (delimcc-stack-pop!) (pop! *delimcc-stack*))
+  (define *delimcc-stack* identity) ; or: (λ (v) (error "Missing enclosing resetcc" v)) for a more strict experience.
+  (define (delimcc-stack-abort v) (*delimcc-stack* v))
+  (define (delimcc-stack-push! k) (set! *delimcc-stack* k))
+  (define (delimcc-stack-pop!) *delimcc-stack*)
   (define ((delimcc-reset t) k)
     (let* ((s (delimcc-stack-pop!))
            (s* (λ (r) (delimcc-stack-push! s) (k r))))

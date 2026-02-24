@@ -1,168 +1,7 @@
 
 (import (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
 
-(define-suite delimcc-suite
-
-  ((doc r) 
-   `((p "In this page we describe two fundamental macros, " (code/inline "resetcc") " and " (code/inline "letcc/shift") 
-        " respectively, that support all the other forms stressed in the tests that follows."
-        " Moreover, we show how to " (i "discard") ", " (i "extract") ", " (i "preserve") ", and " (i "wrap") 
-        " delimited continuations, accordingly to the tutorial "
-        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
-                "Introduction to Programming with Shift and Reset") 
-        " by Kenichi Asai and Oleg Kiselyov. The former author "
-        (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Professor Kenichi Asai's home page") " recorded a talk "
-        (cite/a "https://www.youtube.com/watch?v=QNM-njddhIw" 
-                "Delimited Continuations for Everyone by Kenichi Asai")
-        " that given in the workshop " 
-        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/" "CW 2011 Tutorial: home page")
-        ", slides "
-        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/slides.pdf" "CW 2011 Tutorial: slides")
-        " are also available.")
-     (structure/section "The " (code/inline "resetcc") " macro")
-     ,(let ((resetcc-expr '(resetcc body ...)))
-        `(p "Continuations are delimited by the " (code/inline "resetcc") " syntax as in the following generic expression"
-            (code/scheme ,resetcc-expr) 
-            "where the expressions " (code/inline "body ...") " execute in a delimited context; for the sake of clarity, it expands to "
-            (code/scheme/expand ,resetcc-expr)))
-     (structure/section "The " (code/inline "letcc/shift") " macro")
-     ,(let ((letcc/shift-expr '(letcc/shift k body ...)))
-        `(p "The expression " (code/scheme ,letcc/shift-expr) 
-            "is explained by author's word:"
-            (cite/quote "Kenichi Asai" 
-                        (ol
-                          (li "clears the current continuation")
-                          (li "binds the cleared continuation to " (code/inline "k"))
-                          (li "and executes " (code/inline "body ..."))))
-            "For the sake of clarity, it expands to "
-            (code/scheme/expand ,letcc/shift-expr)))
-     (structure/section "Implementation")
-     (code/scheme/file "../aux.continuation.delimited.scm")))
-
-  ((test/delimcc/basic _)
-   (⊦= 10 (letcc/shift k 10))
-   (⊦= '(1 2 10) (cons 1 (cons 2 (letcc/shift k (k (k '(10)))))))
-   (⊦= '(1 2 2 10) (cons 1 (resetcc (cons 2 (letcc/shift k (k (k '(10))))))))
-   (⊦= 41 (+ 1 (resetcc (* 2 (letcc/shift k (k (k 10)))))))
-   (⊦= 15 (+ 10 (resetcc (+ 2 3))))
-   (⊦= 13 (+ 10 (resetcc (+ 2 (letcc/shift k 3)))))
-   (⊦= '(10 3) (cons 10 (resetcc (cons 2 (letcc/shift k '(3))))))
-   (⊦= 15 (+ 10 (resetcc (+ 2 (letcc/shift k (k 3))))))
-   (⊦= '(10 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (k '(3)))))))
-   (⊦= 115 (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k 3)))))))
-   (⊦= '(10 100 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k '(3))))))))
-   (⊦= 117 (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3))))))))
-   (⊦= '(10 100 2 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3)))))))))
-   (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3)))))))))
-   (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3))))))))))
-   `(doc (p "This test case introduces basic expressions to get introduced to delimited continuations.")))
-
-  ((test/delimcc/tutorial/discard _)
-   (⊦= 10 (resetcc (sub1 (+ 3 (letcc/shift k (* 5 2))))))
-   (⊦= '(10) (resetcc (cdr (cons 3 (letcc/shift k (list (* 5 2)))))))
-   (⊦= 9 (sub1 (resetcc (+ 3 (letcc/shift k (* 5 2))))))
-   (⊦= '() (cdr (resetcc (cons 3 (letcc/shift k (list (* 5 2)))))))
-   (⊦= 'hello (resetcc (sub1 (+ 3 (letcc/shift k 'hello))))))
-
-  ((test/delimcc/tutorial/discard/prod _)
-   (define (prod lst)
-     (cond
-       ((null? lst) 1)
-       ((zero? (car lst)) (delimcc-discard 'zero))
-       (else (* (car lst) (prod (cdr lst))))))
-
-   (⊦= 'zero (resetcc (prod '(2 3 0 5)))))
-
-  ((test/delimcc/tutorial/extract _)
-   (define-resetcc f (sub1 (+ 3 (letcc/shift k k))))
-   (⊦= (sub1 (+ 3 10)) (f 10))
-
-   (define-resetcc g (sub1 (+ 3 (delimcc-extract))))
-   (⊦= 12 (g 10)))
-
-  ((test/delimcc/tutorial/extract/appender _)
-   (define (appender lst)
-     (cond
-       ((null? lst) (delimcc-extract))
-       (else (cons (car lst) (appender (cdr lst))))))
-
-   (define-resetcc A (appender '(1 2 3)))
-   (⊦= '(1 2 3 4 5 6) (A '(4 5 6))))
-
-  ((test/delimcc/yield _)
-   (⊦= '(1) (resetcc+null (yield 1)))
-   (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
-
-  ((test/delimcc/yield/extract _)
-   (⊦= '((a 1) (a 2)) (§->list
-                          (map§/yielded (λ (v) (list 'a v)) 
-                                         (resetcc+null (yield/extract 1) (yield/extract 2)))))
-   (⊦= 3 (foldr/yielded + (resetcc+null (yield/extract 1) (yield/extract 2)) 0)))
-
-  ((test/delimcc/yield§ _)
-   (⊦= '(1) (§->list (resetcc+null (yield§ 1))))
-   (⊦= '(1) (§->list (take§ 1 (resetcc+null (yield§ 1) (yield§ 2)))))
-   (⊦= '(1 2) (§->list (resetcc+null (yield§ 1) (yield§ 2)))))
-
-  ((test/delimcc/tutorial/yield§/walk _)
-   (define (walk f tree)
-     (cond
-       ((null? tree) (void))
-       (else
-         (walk f (car tree))
-         (f (cadr tree))
-         (walk f (caddr tree)))))
-
-   (⊦= '(1 2 3) (§->list (resetcc+null (walk yield§ª '((() 1 ()) 2 (() 3 ()))))))
-   (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
-                            (walk yield/extract '((() 1 ()) 2 (() 3 ()))))))
-
-  ((test/delimcc/tutorial/either _)
-   (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3)))))
-
-  ((test/delimcc/tutorial/either/tensor _)
-   (⊦= '(((p #t) (q #f))) 
-         (let1 (sols '())
-               (resetcc
-                 (let ((p (delimcc-either '(#t #f)))
-                       (q (delimcc-either '(#t #f))))
-                   (when (and (or p q) (or p (not q)) (or (not p) (not q)))
-                     (push! `((p ,p) (q ,q)) sols))))
-               sols))
-
-   (⊦= '((((p #t) (q #t) no) ((p #t) (q #f) yes)) (((p #f) (q #t) no) ((p #f) (q #f) no))) 
-         (resetcc
-           (let ((p (delimcc-either '(#t #f)))
-                 (q (delimcc-either '(#t #f))))
-             `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no))))))
-
-  ((test/delimcc/tutorial/τ _)
-   (define-resetcc a (append (τ-shift '(hello)) '(world)))
-   (⊦= '(hello world) (a)))
-
-  ((test/delimcc/tutorial/λ _)
-   (define-resetcc p (append '(hello) (λ-shift (x) (list x)) '(world)))
-   (⊦= '(hello 4 world) (p 4)))
-
-  ((test/letcc/delimcc+monad _)
-
-   (define (reflect meaning) (letcc/shift k (extend k meaning)))
-   (define (reify* t) (resetcc (eta (t))))
-   (define (eta x) (list x))
-   (define (extend f l) (apply append (map f l)))
-
-   (define-syntax reify (syntax-rules () ((reify body ...) (reify* (τ body ...)))))
-   (define-syntax amb (syntax-rules () ((amb v ...) (reflect (append (reify v) ...)))))
-
-   (⊦= '(1 2 3) (reify (amb 1 2 3)))
-   (⊦= '((1 3 4) (1 3 5) (2 3 4) (2 3 5)) (reify (list (amb 1 2) 3 (amb 4 5))))
-   (⊦= '((1 10 3) (1 10 1 4)) (reify (cons 1 (letcc k (cons 10 (amb '(3) (k '(4))))))))
-
-   (define (www)
-     (define (f x) (append x (list (amb 6 4 2 8) (amb 2 4 5 4 1))))
-     (reify (f (f (amb '(0) '(2) '(3) '(4) '(5) '(32))))))
-
-   (⊦= '((0 6 2 6 2)
+(define www-expected '((0 6 2 6 2)
            (0 6 2 6 4)
            (0 6 2 6 5)
            (0 6 2 6 4)
@@ -2561,8 +2400,171 @@
            (32 8 1 8 4)
            (32 8 1 8 5)
            (32 8 1 8 4)
-           (32 8 1 8 1)) 
-         (www))
+           (32 8 1 8 1)))
+
+(define-suite delimcc-suite
+
+  ((doc r) 
+   `((p "In this page we describe two fundamental macros, " (code/inline "resetcc") " and " (code/inline "letcc/shift") 
+        " respectively, that support all the other forms stressed in the tests that follows."
+        " Moreover, we show how to " (i "discard") ", " (i "extract") ", " (i "preserve") ", and " (i "wrap") 
+        " delimited continuations, accordingly to the tutorial "
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/main-e.pdf" 
+                "Introduction to Programming with Shift and Reset") 
+        " by Kenichi Asai and Oleg Kiselyov. The former author "
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/" "Professor Kenichi Asai's home page") " recorded a talk "
+        (cite/a "https://www.youtube.com/watch?v=QNM-njddhIw" 
+                "Delimited Continuations for Everyone by Kenichi Asai")
+        " that given in the workshop " 
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/" "CW 2011 Tutorial: home page")
+        ", slides "
+        (cite/a "http://pllab.is.ocha.ac.jp/~asai/cw2011tutorial/slides.pdf" "CW 2011 Tutorial: slides")
+        " are also available.")
+     (structure/section "The " (code/inline "resetcc") " macro")
+     ,(let ((resetcc-expr '(resetcc body ...)))
+        `(p "Continuations are delimited by the " (code/inline "resetcc") " syntax as in the following generic expression"
+            (code/scheme ,resetcc-expr) 
+            "where the expressions " (code/inline "body ...") " execute in a delimited context; for the sake of clarity, it expands to "
+            (code/scheme/expand ,resetcc-expr)))
+     (structure/section "The " (code/inline "letcc/shift") " macro")
+     ,(let ((letcc/shift-expr '(letcc/shift k body ...)))
+        `(p "The expression " (code/scheme ,letcc/shift-expr) 
+            "is explained by author's word:"
+            (cite/quote "Kenichi Asai" 
+                        (ol
+                          (li "clears the current continuation")
+                          (li "binds the cleared continuation to " (code/inline "k"))
+                          (li "and executes " (code/inline "body ..."))))
+            "For the sake of clarity, it expands to "
+            (code/scheme/expand ,letcc/shift-expr)))
+     (structure/section "Implementation")
+     (code/scheme/file "../aux.continuation.delimited.scm")))
+
+  ((test/delimcc/basic _)
+   (⊦= 10 (letcc/shift k 10))
+   (⊦= '(1 2 10) (cons 1 (cons 2 (letcc/shift k (k (k '(10)))))))
+   (⊦= '(1 2 2 10) (cons 1 (resetcc (cons 2 (letcc/shift k (k (k '(10))))))))
+   (⊦= 41 (+ 1 (resetcc (* 2 (letcc/shift k (k (k 10)))))))
+   (⊦= 15 (+ 10 (resetcc (+ 2 3))))
+   (⊦= 13 (+ 10 (resetcc (+ 2 (letcc/shift k 3)))))
+   (⊦= '(10 3) (cons 10 (resetcc (cons 2 (letcc/shift k '(3))))))
+   (⊦= 15 (+ 10 (resetcc (+ 2 (letcc/shift k (k 3))))))
+   (⊦= '(10 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (k '(3)))))))
+   (⊦= 115 (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k 3)))))))
+   (⊦= '(10 100 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k '(3))))))))
+   (⊦= 117 (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3))))))))
+   (⊦= '(10 100 2 2 3) (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3)))))))))
+   (⊦= 117 (resetcc (+ 10 (resetcc (+ 2 (letcc/shift k (+ 100 (k (k 3)))))))))
+   (⊦= '(10 100 2 2 3) (resetcc (cons 10 (resetcc (cons 2 (letcc/shift k (cons 100 (k (k '(3))))))))))
+   `(doc (p "This test case introduces basic expressions to get introduced to delimited continuations.")))
+
+  ((test/delimcc/tutorial/discard _)
+   (⊦= 10 (resetcc (sub1 (+ 3 (letcc/shift k (* 5 2))))))
+   (⊦= '(10) (resetcc (cdr (cons 3 (letcc/shift k (list (* 5 2)))))))
+   (⊦= 9 (sub1 (resetcc (+ 3 (letcc/shift k (* 5 2))))))
+   (⊦= '() (cdr (resetcc (cons 3 (letcc/shift k (list (* 5 2)))))))
+   (⊦= 'hello (resetcc (sub1 (+ 3 (letcc/shift k 'hello))))))
+
+  ((test/delimcc/tutorial/discard/prod _)
+   (define (prod lst)
+     (cond
+       ((null? lst) 1)
+       ((zero? (car lst)) (delimcc-discard 'zero))
+       (else (* (car lst) (prod (cdr lst))))))
+
+   (⊦= 'zero (resetcc (prod '(2 3 0 5)))))
+
+  ((test/delimcc/tutorial/extract _)
+   (define-resetcc f (sub1 (+ 3 (letcc/shift k k))))
+   (⊦= (sub1 (+ 3 10)) (f 10))
+
+   (define-resetcc g (sub1 (+ 3 (delimcc-extract))))
+   (⊦= 12 (g 10)))
+
+  ((test/delimcc/tutorial/extract/appender _)
+   (define (appender lst)
+     (cond
+       ((null? lst) (delimcc-extract))
+       (else (cons (car lst) (appender (cdr lst))))))
+
+   (define-resetcc A (appender '(1 2 3)))
+   (⊦= '(1 2 3 4 5 6) (A '(4 5 6))))
+
+  ((test/delimcc/yield _)
+   (⊦= '(1) (resetcc+null (yield 1)))
+   (⊦= '(1 2) (resetcc+null (yield 1) (yield 2))))
+
+  ((test/delimcc/yield/extract _)
+   (⊦= '((a 1) (a 2)) (§->list
+                          (map§/yielded (λ (v) (list 'a v)) 
+                                         (resetcc+null (yield/extract 1) (yield/extract 2)))))
+   (⊦= 3 (foldr/yielded + (resetcc+null (yield/extract 1) (yield/extract 2)) 0)))
+
+  ((test/delimcc/yield§ _)
+   (⊦= '(1) (§->list (resetcc+null (yield§ 1))))
+   (⊦= '(1) (§->list (take§ 1 (resetcc+null (yield§ 1) (yield§ 2)))))
+   (⊦= '(1 2) (§->list (resetcc+null (yield§ 1) (yield§ 2)))))
+
+  ((test/delimcc/tutorial/yield§/walk _)
+   (define (walk f tree)
+     (cond
+       ((null? tree) (void))
+       (else
+         (walk f (car tree))
+         (f (cadr tree))
+         (walk f (caddr tree)))))
+
+   (⊦= '(1 2 3) (§->list (resetcc+null (walk yield§ª '((() 1 ()) 2 (() 3 ()))))))
+   (⊦= 600 (delimcc-foldr 100 ((each prod) (* each prod))
+                            (walk yield/extract '((() 1 ()) 2 (() 3 ()))))))
+
+  ((test/delimcc/tutorial/either _)
+   (⊦= '(1 3 3) (resetcc (delimcc-either `(1 ,(add1 2) 3)))))
+
+  ((test/delimcc/tutorial/either/tensor _)
+   (⊦= '(((p #t) (q #f))) 
+         (let1 (sols '())
+               (resetcc
+                 (let ((p (delimcc-either '(#t #f)))
+                       (q (delimcc-either '(#t #f))))
+                   (when (and (or p q) (or p (not q)) (or (not p) (not q)))
+                     (push! `((p ,p) (q ,q)) sols))))
+               sols))
+
+   (⊦= '((((p #t) (q #t) no) ((p #t) (q #f) yes)) (((p #f) (q #t) no) ((p #f) (q #f) no))) 
+         (resetcc
+           (let ((p (delimcc-either '(#t #f)))
+                 (q (delimcc-either '(#t #f))))
+             `((p ,p) (q ,q) ,(if (and (or p q) (or p (not q)) (or (not p) (not q))) 'yes 'no))))))
+
+  ((test/delimcc/tutorial/τ _)
+   (define-resetcc a (append (τ-shift '(hello)) '(world)))
+   (⊦= '(hello world) (a)))
+
+  ((test/delimcc/tutorial/λ _)
+   (define-resetcc p (append '(hello) (λ-shift (x) (list x)) '(world)))
+   (⊦= '(hello 4 world) (p 4)))
+
+  ((test/letcc/delimcc+monad _)
+
+   (define (reflect meaning) (letcc/shift k (extend k meaning)))
+   (define (reify* t) (resetcc (eta (t))))
+   (define (eta x) (list x))
+   (define (extend f l) (apply append (map f l)))
+
+   (define-syntax reify (syntax-rules () ((reify body ...) (reify* (τ body ...)))))
+   (define-syntax amb (syntax-rules () ((amb v ...) (reflect (append (reify v) ...)))))
+
+   (⊦= '(1 2 3) (reify (amb 1 2 3)))
+   (⊦= '((1 3 4) (1 3 5) (2 3 4) (2 3 5)) (reify (list (amb 1 2) 3 (amb 4 5))))
+   (⊦= '((1 10 3) (1 10 1 4)) (reify (cons 1 (letcc k (cons 10 (amb '(3) (k '(4))))))))
+
+   (define (www)
+     (define (f x) (append x (list (amb 6 4 2 8) (amb 2 4 5 4 1))))
+     (reify (f (f (amb '(0) '(2) '(3) '(4) '(5) '(32))))))
+
+   (⊦= www-expected (www))
+   (⊦= 2400 (length www-expected))
 
    (define (wwww)
      (define (f x) (+ x (amb 6 4 2 8) (amb 2 4 5 4 1)))

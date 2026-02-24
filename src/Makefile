@@ -15,6 +15,7 @@ test: test-microkanren
 	cd test && ${CSI} -s fds.queue.scm
 	cd test && ${CSI} -s fds.sbral.scm
 	cd test && ${CSI} -s judy.scm
+	cd test && ${CSI} -s dmatch.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm

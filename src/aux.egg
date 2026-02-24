@@ -17,6 +17,7 @@
   (extension aux.sxml)
   (extension aux.unittest)
   (extension aux.base)
+  (extension aux.match)
   (extension aux.libc)
   (extension aux.judy 
     (modules (aux judy) (aux judyL))

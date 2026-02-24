@@ -5,6 +5,12 @@
 
 (define-suite auxtest
 
+  ((test/define-many _)
+    (define-many (a b c) (1 2 3))
+    (⊦= 1 a)
+    (⊦= 2 b)
+    (⊦= 3 c))
+
   ((test/let1 _)
    (let1 (a 1) (⊦= a 1)))
 
