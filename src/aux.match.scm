@@ -1,8 +1,4 @@
 
-; ------------------------------------------------------------------------------------------------
-; dmatch: pattern matching with dajkstra's algorithm for efficient matching.
-; ------------------------------------------------------------------------------------------------
-
 (module (aux match) *
 
   (import scheme 
@@ -11,16 +7,13 @@
           (chicken memory representation)
           (aux base))
 
-  (define-syntax match/guarded
+  (define-syntax match/non-overlapping
     (syntax-rules ()
-      ((match/guarded v (e ...) ...) (match/guarded v "" (e ...) ...))
-      ((match/guarded v name (e ...) ...) (dmatch-run-a-thunk (quote v) v 
-                                            (string-append " for " (->string name)) 
-                                            (dmatch-remexp v (e ...) ...)))))
+      ((match/non-overlapping v (e ...) ...) (match/non-overlapping v "" (e ...) ...))
+      ((match/non-overlapping v name (e ...) ...) (dmatch-run-a-thunk (quote v) v name (dmatch-remexp v (e ...) ...)))))
 
-  (define-syntax-rule (dmatch-pkg pat g e0 e ...) (cons (quote (pat g e0 e ...)) (τ e0 e ...)))
-  (define dmatch-pkg-clause car)
-  (define dmatch-pkg-thunk cdr)
+  (define-record dmatch-pkg clause thunk)
+  (define-syntax-rule (dmatch-pkg pat g e ...) (make-dmatch-pkg (quote (pat g e ...)) (τ e ...)))
 
   (define-syntax dmatch-remexp
     (syntax-rules ()
@@ -45,8 +38,8 @@
 
   (define-syntax dmatch-ppat
     (syntax-rules (unquote)
-      ((dmatch-ppat v (unquote var) kt kf) (let1 (var v) kt))
       ((dmatch-ppat vv () kt kf) (let1 (v vv) (if (or (null? v) (and (vector? v) (zero? (vector-length v)))) kt kf)))
+      ((dmatch-ppat vv (unquote v) kt kf) (let1 (v vv) kt))
       ((dmatch-ppat vv (x . y) kt kf)
         (let1 (v vv)
           (cond
@@ -65,11 +58,15 @@
 
   (define (dmatch-run-a-thunk v-expr v name pkg∗)
     (cond
-      ((null? pkg∗) (error 'match/guarded
-                      (string-append "no match found" name) 
-                      `((expr ,v-expr) (eval ,v))))
+      ((null? pkg∗) (error 'match/non-overlapping `((message ,name) 
+                                                    (reason "no match found") 
+                                                    (expr ,v-expr) 
+                                                    (value ,v))))
       ((null? (cdr pkg∗)) ((dmatch-pkg-thunk (car pkg∗))))
-      (else (error 'match/guarded
-              (string-append "overlapping match" name) 
-              `((expr ,v-expr) (eval ,v) (ambiguities ,(map dmatch-pkg-clause pkg∗)))))))
-  )
+      (else (error 'match/non-overlapping `((expr ,v-expr) 
+                                            (value ,v) 
+                                            (message ,name) 
+                                            (reason "overlapping match") 
+                                            (ambiguities ,(map dmatch-pkg-clause pkg∗)))))))
+
+)
