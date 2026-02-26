@@ -20,10 +20,10 @@
   (define-syntax dmatch-aux
     (syntax-rules (⇒)
       ((dmatch-aux v) '())
-      ((dmatch-aux v (pat (g ⇒ e ...)) cls ...)
+      ((dmatch-aux v (pat g ⇒ e ...) cls ...)
         (let1 (fk (dmatch-aux v cls ...))
-          (dmatch-ppat v pat (if g (cons (make-dmatch-pkg (quote (pat (g ⇒ e ...))) (τ e ...)) fk) fk) fk)))
-      ((dmatch-aux v (pat e ...) cls ...) (dmatch-aux v (pat (#t ⇒ e ...)) cls ...))))
+          (dmatch-ppat v pat (if g (cons (make-dmatch-pkg (quote (pat g ⇒ e ...)) (τ e ...)) fk) fk) fk)))
+      ((dmatch-aux v (pat e ...) cls ...) (dmatch-aux v (pat #t ⇒ e ...) cls ...))))
 
   (define-syntax dmatch-ppat
     (syntax-rules (unquote)
