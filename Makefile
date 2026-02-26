@@ -1,3 +1,3 @@
 
 docker-build:
-	docker build -t ghcr.io/massimo-nocentini/aux.scm:master .
+	docker build --no-cache -t ghcr.io/massimo-nocentini/aux.scm:master .

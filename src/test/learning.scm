@@ -122,9 +122,16 @@ END
    (⊦ equal? 'a (var-last 'a))
    (⊦ equal? 7 (var-last 'a (+ 3 4))))
 
+  ((test-syntax-with-literal _) 
+    (define where +)
+    (define-syntax-rule (literal where) (my-macro a where b) (quote (a b where)))
+    (⊦ equal? '(c d where) (my-macro c where d))
+  )
+
   ((test-vec-syntax _) 
-   (define-syntax-rule (v-aux (v #(x ...)) body ...) (let1 (v (list x ...)) body ...))
-   (⊦ equal? '(0 1 2 3) (v-aux (v #(1 2 3)) (cons 0 v))))
+   (define-syntax-rule (v-aux (v #(x z ...)) body ...) (let1 (v (list z ...)) body ...))
+   (⊦ equal? '(0 2 3) (v-aux (v #(1 2 3)) (cons 0 v)))
+   )
   
 )
 
