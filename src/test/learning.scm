@@ -128,6 +128,11 @@ END
     (⊦ equal? '(c d where) (my-macro c where d))
   )
 
+  ((test-syntax-with-literal-and-ellipses _) 
+    (define-syntax-rule (literal :) (my-macro a ... : b ...) (quote ((a ...) (b ...))))
+    (⊦ equal? '((a b c) (d e)) (my-macro a b c : d e))
+  )
+
   ((test-vec-syntax _) 
    (define-syntax-rule (v-aux (v #(x z ...)) body ...) (let1 (v (list z ...)) body ...))
    (⊦ equal? '(0 2 3) (v-aux (v #(1 2 3)) (cons 0 v)))

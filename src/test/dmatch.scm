@@ -3,7 +3,7 @@
 
 (define-suite dmatch-suite
 
-  #;((doc r) `((structure/section "Implementation")
+  ((doc r) `((structure/section "Implementation")
                (code/scheme/file "../aux.match.scm")))
 
   ((test/base-non-overlapping _)
@@ -21,13 +21,13 @@
       (⊦= 3 (match/non-overlapping #(3 2) ((,r ,e) r)))
       (⊦= 3 (match/non-overlapping (make-record-instance 'hello 3 2) ((hello ,r ,e) r)))
   )
-  
+
   ((test/h-non-overlapping _)
 
     (define (h x y)
       (match/non-overlapping (cons x y)
-        ((,a . ,b)  (: (number? a) (number? b)) (* a b))
-        ((,a ,b ,c) (: (number? a) (number? b) (number? c)) (+ a b c))))
+        ((,a . ,b)  ((and (number? a) (number? b)) ⇒ (* a b)))
+        ((,a ,b ,c) ((and (number? a) (number? b) (number? c)) ⇒ (+ a b c)))))
 
     (⊦= '(12 8) (list (h 3 4) (apply h '(1 (3 4)))))
   )
@@ -36,9 +36,9 @@
 
     (define (w x y)
       (match/non-overlapping (cons x y)
-        ((,a . ,b) (: (number? a) (number? b)) (* a b))
+        ((,a . ,b) ((and (number? a) (number? b)) ⇒ (* a b)))
         ((,a . ,b) (+ a b))
-        ((,a ,b ,c) (: (number? a) (number? b) (number? c)) (+ a b c))))
+        ((,a ,b ,c) ((and (number? a) (number? b) (number? c)) ⇒ (+ a b c)))))
 
     (⊦⧳ ((exn)) (list (w 3 4) (apply w '(1 (3 4)))))
   )
