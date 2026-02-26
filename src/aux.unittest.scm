@@ -109,7 +109,7 @@
                     (else (equal=? a b))))))
       ?))
 
-  (define (⊦ pred? a b) (unless (pred? a b) (signal (unittest/condition-expected-actual a b))))
+  (define (⊦ pred? . args) (unless (apply pred? args) (signal (apply unittest/condition-expected-actual args))))
   (define (⊦= a b) (⊦ (equal-approx? 0.000001) a b))
   (define (⊦≠ a b) (⊦ (complement equal?) a b))
   (define (⊨ a) (⊦= #t a))

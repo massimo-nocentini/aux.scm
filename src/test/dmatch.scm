@@ -43,6 +43,44 @@
     (⊦⧳ ((exn)) (list (w 3 4) (apply w '(1 (3 4)))))
   )
 
+  ((test/meta-circular-interpreter _)
+
+    (define (lookup x env)
+      (cond
+        ((assq x env) => cdr)
+        (else (error "Can't find " x))))
+
+    (define (int code env)
+      (match/non-overlapping code
+        ((quote ,x) x)
+        ((let (,x ,e) ,body) ((symbol? x) ⇒ (let ((xv (int e env))) (int body (cons (cons x xv) env)))))
+        ((τ ,body) (τ (int body env)))
+        ((λ ,argl ,body) ((symbol? argl) ⇒ (λ arglv (int body (cons (cons argl arglv) env)))))
+        ((λ (,x) ,body) ((symbol? x) ⇒ (λ (xv) (int body (cons (cons x xv) env)))))
+        ((,op . ,args) ((not (or (eq? op 'quote) (eq? op 'let) (eq? op 'τ) (eq? op 'λ)))
+                        ⇒ (let ((opv (int op env))
+                                (argvs (map (λ (c) (int c env)) args)))
+                            (apply opv argvs))))
+        (,x ((symbol? x) ⇒ (lookup x env)))
+        (,x ((or (number? x) (string? x)) ⇒ x))))
+
+    (define env0 (map (λ (x) (cons x (eval x (interaction-environment)))) '(+ - display identity)))
+
+    (define-syntax-rule (dint body) (int (quote body) env0))
+
+    (⊦ equal? 1 (dint 1))
+    (⊦ equal? 'x (dint 'x))
+    (⊦ void? (dint (display 'x)))
+    (⊦ equal? 'x (dint (identity 'x)))
+    (⊦⧳ ((exn)) (dint (display x))) ; error: unbound x
+    (⊦ equal? 6 (dint (let (x (+ 1 2 3)) x)))
+    (⊦ equal? 1 (let1 (t (dint (τ 1))) (t)))
+    (⊦ equal? 1 ((dint (λ (x) x)) 1))
+    (⊦ equal? '(1 2 3) ((dint (λ x x)) 1 2 3))
+    (⊦ equal? 5 (((dint (λ (x) (λ (y) (+ x y)))) 2) 3))
+    
+  )
+
 )
 
 (unittest/✓ dmatch-suite)
