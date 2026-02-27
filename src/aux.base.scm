@@ -71,6 +71,10 @@
   (define-syntax-rule (letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))
   (define-syntax-rule (letport/output-string p body ...) (call-with-output-string (λ (p) body ...)))
 
+  (define (interaction-environment/symbols syms) 
+    (let1 (env0 (interaction-environment))
+      (map (λ (s) (cons s (eval s env0))) syms)))
+
   (define-syntax letcar&cdr
     (syntax-rules ()
       ((letcar&cdr () body ...) (begin body ...))        

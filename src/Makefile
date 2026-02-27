@@ -2,7 +2,7 @@
 CSI=csi
 CSC=csc
 
-test: test-microkanren
+test:
 	cd test && ${CSI} -s test.scm
 	cd test && ${CSI} -s stream.scm
 	cd test && ${CSI} -s letcc.scm
@@ -16,6 +16,8 @@ test: test-microkanren
 	cd test && ${CSI} -s fds.sbral.scm
 	cd test && ${CSI} -s judy.scm
 	cd test && ${CSI} -s dmatch.scm
+	cd test && ${CSI} -s microkanren.scm
+	cd test && ${CSI} -s microkanren-untagged.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm

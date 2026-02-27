@@ -64,7 +64,7 @@
         (,x (symbol? x) ⇒ (lookup x env))
         (,x (or (number? x) (string? x)) ⇒ x)))
 
-    (define env0 (map (λ (x) (cons x (eval x (interaction-environment)))) '(+ - display identity)))
+    (define env0 (interaction-environment/symbols '(+ - display identity)))
 
     (define-syntax-rule (dint body) (int (quote body) env0))
 

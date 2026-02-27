@@ -28,6 +28,11 @@
   (define-syntax dmatch-ppat
     (syntax-rules (unquote)
       ((dmatch-ppat vv () kt kf) (let1 (v vv) (if (or (null? v) (and (vector? v) (zero? (vector-length v)))) kt kf)))
+      ((dmatch-ppat vv (unquote (unquote (unquote v))) kt kf) (if (eq? v vv) kf kt))
+      ((dmatch-ppat vv (unquote (unquote v)) kt kf) (let ((vv* vv) (v* v))
+                                                      (cond 
+                                                        ((procedure? v*) (if (v* vv*) kt kf))
+                                                        (else (if (eq? v* vv*) kt kf)))))
       ((dmatch-ppat vv (unquote v) kt kf) (let1 (v vv) kt))
       ((dmatch-ppat vv (x . y) kt kf)
         (let1 (v vv)
