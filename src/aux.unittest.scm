@@ -65,11 +65,12 @@
                (errstr (third pair))
                (hasdoc (and (pair? v) (eq? (car v) 'doc))))
           (when teardown (apply (car teardown) testcase args))
-          `((h2 (code ,testcase-name)
-                               ": " 
-                               ,(if (eq? v witness) 
-                                    '(span (@ (class "w3-text-red")) fail) 
-                                    '(span (@ (class "w3-text-green")) pass)))
+          `((h2 (@ (id ,testcase-name))
+              (code ,testcase-name)
+              ": " 
+              ,(if (eq? v witness) 
+                  '(span (@ (class "w3-text-red")) fail) 
+                  '(span (@ (class "w3-text-green")) pass)))
             ,@(if hasdoc (cdr v) '())
             (code/scheme ,(if hasdoc (butlast code) code))
             (code/scheme ((eta ,(exact->inexact (/ eta-time 1000)))
