@@ -11,8 +11,8 @@
     (define (lookup x env)
       (match/non-overlapping env
         (() (error 'lookup "unbound variable" x))
-        (((,y . ,v) . ,rest) (eq? y x) ⇒ v)
-        (((,y . ,v) . ,rest) (not (eq? y x)) ⇒ (lookup x rest))))
+        (((,,x . ,v) . ,rest) v)
+        (((,,,x . ,v) . ,rest) (lookup x rest))))
 
     (define (not-in-env? x env)
       (match/non-overlapping env
@@ -36,9 +36,7 @@
         ((list . ,a∗) (not-in-env? 'list env) ⇒ (map (λ (e) (eval-exp e env)) a∗))
         (,x (symbol? x) ⇒ (lookup x env))))
 
-    (define env0 (interaction-environment/symbols '()))
-
-    (define-syntax-rule (eval/env0 body) (eval-exp (quote body) env0))
+    (define-syntax-rule (eval/env0 body) (eval-exp (quote body) (interaction-environment/symbols '())))
 
     (⊦ equal? `(closure z z ()) (eval/env0 (((λ (x) (λ (y) x)) (λ (z) z)) (λ (a) a))))
     (⊦ equal? `(closure y x ((x . (closure z z ())))) (eval/env0 ((λ (x) (λ (y) x)) (λ (z) z))))
