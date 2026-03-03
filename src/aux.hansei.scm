@@ -109,7 +109,6 @@
   (define (probcc-coin p) (probcc-bernoulli #t #f p))
   (define (probcc-uniform n)
     (cond
-      ; ((equal? n 1) 0)
       ((> n 0) (letrec ((p (/ 1 n))
                         (plus (op/plus))
                         (subtract (op/subtract))
@@ -118,10 +117,12 @@
                                       (probcc-distribution (cons `(,i ,(subtract 1 pacc)) acc))
                                       (loop (plus pacc p) (cons `(,i ,p) acc) (sub1 i))))))
                  (loop 0 '() (sub1 n))))
-      (else (error `(non-positive count ,n)))))
+      (else (probcc-impossible))))
 
   (define (probcc-uniform/range low high)
     (+ low (probcc-uniform (add1 (- high low)))))
+  
+  (define (probcc-uniform/either lst) (list-ref lst (probcc-uniform (length lst))))
 
   (define (probcc-geometric p s f)
     (letrec ((subtract (op/subtract))
