@@ -14,25 +14,36 @@
 
   (define-record µkanren-var index)
   (define µkanren-var-unbound (gensym 'µkanren-void-))
-  (define (µkanren-unbound? v) (eq? v µkanren-var-unbound))
-  (define (µkanren-working-var? v) (and (µkanren-var? v) (<= 0 (µkanren-var-index v))))
-  (define (µkanren-var->symbol v) 
-    (let* ((i (µkanren-var-index v))
-           (i* (if (µkanren-working-var? v) (error "just for reified variables") (abs (add1 i)))))
-      (string->symbol (string-append "_" (number->string i*)))))
+  (define (µkanren-unbound? α) (eq? α µkanren-var-unbound))
+  (define (µkanren-working-var? α) (and (µkanren-var? α) (<= 0 (µkanren-var-index α))))
+  (define (µkanren-var->symbol α) 
+    (cond
+      ((µkanren-working-var? α) (error 'µkanren-var->symbol "just for reified variables" α))
+      (else (let1 (i (abs (add1 (µkanren-var-index α))))
+              (string->symbol (string-append "_" (number->string i)))))))
 
   ; state ------------------------------------------------------------------------
 
-  (define-record µkanren-state substitution counter)
-  (define µkanren-state-empty (make-µkanren-state empty/sbral 0))
-  (define (µkanren-var-index/state v s) (- (µkanren-state-counter s) 1 (µkanren-var-index v)))
+  (define-record µkanren-state S D A T)
+  (define µkanren-state-empty (make-µkanren-state empty/sbral empty/sbral empty/sbral empty/sbral))
+  (define (µkanren-var-index/state α s) (- (length/sbral (µkanren-state-S s)) 1 (µkanren-var-index α)))
   
-  (define (µkanren-state-update s k v)
-    (let* ((c (µkanren-state-counter s))          
-           (k* (µkanren-var-index/state k s))
-           (r (µkanren-state-substitution s))
-           (r* (update/sbral k* v r)))
-      (make-µkanren-state r* c)))
+  (define-syntax λ°
+    (syntax-rules (:)
+      ((λ° (s : S D A T) body ...)  (λ (s)
+                                      (let ((S (µkanren-state-S s))
+                                            (D (µkanren-state-D s))
+                                            (A (µkanren-state-A s))
+                                            (T (µkanren-state-T s)))
+                                        body ...)))
+      ((λ° (s) body ...) (λ° s body ...))
+      ((λ° s body ...) (λ° (s : S D A T) body ...))))
+
+  (define (µkanren-state-update α v)
+    (λ° (s : S D A T)
+      (let* ((i   (µkanren-var-index/state α s))
+             (S*  (update/sbral i v S)))
+        (make-µkanren-state S* D A T))))
   
   (define (µkanren-state-update/occur? w v s)
     (define (occur? w*)
@@ -42,17 +53,17 @@
         ((vector? w*) (vector-fold (λ (found e) (or found (occur? (µkanren-state-find e s)))) #f w*))
         ((record-instance? w*) (occur? (record->vector w*)))
         (else #f)))
-    (and (not (occur? v)) (µkanren-state-update s w v)))
+    (and (not (occur? v)) ((µkanren-state-update w v) s)))
 
-  (define (µkanren-state-find v s)
-    (let1 (r (µkanren-state-substitution s))
-      (let F ((p v) (w v))
+  (define (µkanren-state-find α s)
+    (let1 (S (µkanren-state-S s))
+      (let F ((β0 α) (β α))
         (cond
-          ((µkanren-working-var? w) (let* ((i (µkanren-var-index/state w s))
-                                           (w* (sbral-ref r i)))
-                                      (F w w*)))
-          ((µkanren-unbound? w) p)
-          (else w)))))
+          ((µkanren-working-var? β) (let* ((i   (µkanren-var-index/state β s))
+                                           (β*  (sbral-ref S i)))
+                                      (F β β*)))
+          ((µkanren-unbound? β) β0)
+          (else β)))))
 
   (define (µkanren-state-unify u v s)
     (let ((u* (µkanren-state-find u s))
@@ -104,7 +115,8 @@
       (let1 (w* (µkanren-state-find w r))
             (cond
               ((µkanren-working-var? w*) (let* ((new-var (make-µkanren-var c))
-                                                (r* (µkanren-state-update r w* new-var))
+                                                (U (µkanren-state-update w* new-var))
+                                                (r* (U r))
                                                 (c* (sub1 c))
                                                 (vars* (cons new-var vars)))
                                            (values r* c* vars*)))
@@ -119,7 +131,7 @@
 
   (define ((µkanren-project w) s)
     (let1 (w* (cond 
-                ((< 0 (µkanren-state-counter s)) (µkanren-state-find* w s))
+                ((< 0 (length/sbral (µkanren-state-S s))) (µkanren-state-find* w s))
                 (else #t) ; for tautology when there is no variable
                 ))
       (let-values (((s* _ vars-reversed) (µkanren-state-reify w* s)))
@@ -130,57 +142,64 @@
 
   ; goals --------------------------------------------------------------------------
 
-  (define (✓° s) (cons§ s '()))
+  (define (✓° s) (list s))
   (define (✗° s) '())
 
-  (define ((µkanren-goal/fresh° f) s)
-    (let* ((i (µkanren-state-counter s))
-           (subst (cons/sbral µkanren-var-unbound (µkanren-state-substitution s)))
-           (s* (make-µkanren-state subst (add1 i)))
-           (g (f (make-µkanren-var i))))
-      (delay (g s*))))
+  (define (freshª f) ; ª means "applicative", so `freshª` is a *function* that consumes a function and returns a goal.
+    (λ° (s : S D A T)
+      (let* ((S* (cons/sbral µkanren-var-unbound S))
+             (s* (make-µkanren-state S* D A T))
+             (g  (f (make-µkanren-var (sub1 (length/sbral S*))))))
+        (delay (g s*)))))
 
   (define ((=° u v) s)
     (let* ((s* (µkanren-state-unify u v s))
-           (g (cond ((µkanren-state? s*) ✓°) (else ✗°))))
+           (g (if (µkanren-state? s*) ✓° ✗°)))
       (delay (g s*))))
 
-  (define ((µkanren-goal/or° f g) s) (append§/interleaved/2 (delay (f s)) (delay (g s))))
-  (define ((µkanren-goal/and° f g) s) (append-map§ g (delay (f s))))
+  (define ((orª f g) s) (append§/interleaved/2 (delay (f s)) (delay (g s))))
+  (define ((andª f g) s) (append-map§ g (delay (f s))))
 
   (define-syntax fresh°
     (syntax-rules ()
       ((fresh° () body ...) (and° body ...))
-      ((fresh° (v w ...) body ...) (µkanren-goal/fresh° (λ (v) (fresh° (w ...) body ...))))
-      ((fresh° r (v ...) body ...) (fresh° (r) (fresh° (v ...) (=° r (list v ...)) body ...)))))
+      ((fresh° (α β ...) body ...) (freshª (λ (α) (fresh° (β ...) body ...))))
+      ((fresh° α (β ...) body ...) (fresh° (α) (fresh° (β ...) (=° α (list β ...)) body ...)))))
 
-  (define-syntax-rule (fresh°/record r (t v ...) body ...)
-    (fresh° (r v ...) (=° (make-record-instance t v ...) r) body ...))
+  (define-syntax-rule (fresh°/record α (t β ...) body ...)
+    (fresh° (α β ...) (=° (make-record-instance t β ...) α) body ...))
 
   (define-syntax and°
     (syntax-rules ()
       ((and°) ✓°)
       ((and° g) g)
-      ((and° g1 g2 g* ...) (and° (µkanren-goal/and° g1 g2) g* ...))))
+      ((and° g1 g2 g* ...) (and° (andª g1 g2) g* ...))))
 
   (define-syntax or°
     (syntax-rules ()
       ((or°) ✗°)
       ((or° g) g)
-      ((or° g1 g2 g* ...) (µkanren-goal/or° g1 (or° g2 g* ...)))))
+      ((or° g1 g2 g* ...) (orª g1 (or° g2 g* ...)))))
 
   (define ((if° g? gt gf) s)
-    (let L ((§ (g? s)))
+    (define (L §)
       (cond
         ((null? §) (delay (gf s)))
         ((promise? §) (delay (L (force §))))
-        (else (append-map§ gt §)))))
+        (else (append-map§ gt §))))
+    (delay (L (g? s))))
 
   (define (take° n g) (λ (s) (take§ n (delay (g s)))))
 
   (define (null° l) (=° l '()))
+  (define (boolean° v) (or° (=° v #t) (=° v #f)))
   (define (cons° a d c) (=° c (cons a d)))
-  (define-syntax-rule (project° ((v* v) ...) g ...) (λ (s) (let ((v* (µkanren-state-find* v s)) ...) (delay ((and° g ...) s)))))
+
+  (define-syntax-rule (project° ((v α) ...) g ...) 
+    (λ (s) 
+      (let ((v (µkanren-state-find* α s)) ...)
+        (delay ((and° g ...) s)))))
+  
   (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
