@@ -26,17 +26,17 @@
 (pp (probcc-normalize (probcc-reify/exact (V-for-trajectory 5 V '()))))
 
 (define (lmerge l0 l1)
-    (let L ((l l0) (out '()))
-        (cond
-          ((null? l) (reverse out))
-          (else (match/non-overlapping l
-                    (((,u 0) . ,ll) (L ll out))
-                    (((,u ,up) . ,ll) (> up 0) 
-                        ⇒ (let1 (vv (probcc-uniform/either l1))
-                            (match/non-overlapping vv
-                                ((,v ,vp) (let1 (w (probcc-uniform/range 1 (min up vp)))
-                                            (L  (cons `(,u ,(- up w)) ll) 
-                                                (cons `(,u (→ ,w) ,v) out))))))))))))
+    (let L ((l0 l0) (l1 l1) (out '()))
+        (match/non-overlapping l0
+            (() (reverse out))
+            (((,u 0) . ,ll) (L ll l1 out))
+            (((,u ,up) . ,ll)
+                (> up 0) ⇒ (match/non-overlapping (car l1)
+                                ((,v ,vp) (let* ((m (min up vp))
+                                                 (w (probcc-uniform/range (if (and (eq? u v) (> m 0)) m 1) m)))
+                                            (L  (cons `(,u ,(- up w)) ll)
+                                                (if (equal? w vp) (cdr l1) l1)
+                                                (cons `(,u ,w ,v) out)))))))))
 
 (define (layer r n V l lst)
     (cond
@@ -46,17 +46,34 @@
                      (lst* (cons ll* lst))) 
                 (layer (sub1 r) n V l* lst*)))))
 
+(define *people* 2)
+(define *layers* 4)
+
+;(: L [edge] -> [[edge]] -> [[edge]])
+(define (L l0 ll)
+    (cond
+        ((null? ll) (map list l0))
+        (else (let1 (paths (L (car ll) (cdr ll)))
+                (append-map (λ (x) (let1 (ps (filter (λ (p) (and (eq? (third x) (caar p)) (<= (second x) (cadar p)))) paths))
+                                            (map (λ (p) (cons x p)) ps)))
+                    l0))
+                )))
 
 (pp 
 (probcc-normalize (probcc-reify/exact
-    ; ((probcc-reify 5)
-        (let* ((l (V-for-trajectory 5 V '()))
-            (lst (layer 2 5 V l '())))
-            lst
-        )
-        ; )
-))
+    
+        (let* ((l (V-for-trajectory *people* V '()))
+               (list-of-edges (layer *layers* *people* V l '())))
+            ; list-of-edges
+            (L (car list-of-edges) (cdr list-of-edges))
+            )))
 )
+
+'(((a 2 a)) ((a 1 a) (a 1 b)) ((a 1 a) (b 1 b)))
+; I expect the following from the recursive call:
+'(((a 1 a) (a 1 a)) ((a 1 b) (b 1 b)))
+; and the final call should produce:
+'(((a 2 a) (a 1 a) (a 1 a)) ((a 2 a) (a 1 b) (b 1 b)))
 
 (define (travel t remaining path)
     (if (or (zero? remaining) (>= t max-τ))
@@ -72,9 +89,8 @@
     (probcc-normalize (probcc-reify/exact (travel -1 5 (list (list -1 (gensym))))))
 )
 
-
 (pp
-    (probcc-normalize (probcc-reify/exact (probcc-uniform/range 0 4)))
+    (probcc-normalize (probcc-reify/exact (probcc-uniform/range 4 4)))
 )
 
 (foldr (λ (v lst) (cons v lst)) '() '(1 2 3))
