@@ -4,6 +4,8 @@
 (set-pseudo-random-seed! "561")
 
 (define max-τ 10)
+(define *people* 3)
+(define *layers* 3)
 (define V '(a b c))
 
 (define (travel t remaining path)
@@ -23,7 +25,7 @@
                  (lst* (cons `(,(car V) ,n*) lst)))
             (V-for-trajectory (- n n*) (cdr V) lst*)))))
 
-(pp (probcc-normalize (probcc-reify/exact (V-for-trajectory 5 V '()))))
+(pp (probcc-normalize (probcc-reify/exact (V-for-trajectory *people* V '()))))
 
 (define (lmerge l0 l1)
     (let L ((l0 l0) (l1 l1) (out '()))
@@ -46,26 +48,42 @@
                      (lst* (cons ll* lst))) 
                 (layer (sub1 r) n V l* lst*)))))
 
-(define *people* 2)
-(define *layers* 4)
+(define (cons/λ x) (λ (y) (cons x y)))
+(define (snoc/λ y) (λ (x) (cons x y)))
+
+(define (splash tup multi) (match/non-overlapping tup ((,s ,n ,d) (let1 (p (list s d)) (map (λ_ p) (iota (if multi n 1)))))))
+(define (⊗ r1 r2)
+    (append-map (λ (re)
+                    (match/non-overlapping re 
+                        ((,s ,d) (map (cons/λ s) (filter (λ (se) (eq? d (car se))) r2))))) 
+                r1))
+
+
+(splash '(a 3 b) #t)
+
+(⊗ (splash '(a 1 b) #f) (splash '(b 2 c) #t))
+(append-map (λ (l) (splash l #t)) '((a 2 b) (b 1 b)))
+(⊗ (append-map (λ (l) (splash l #f)) '((a 1 b) (b 1 b))) (splash '(b 2 c) #t))
 
 ;(: L [edge] -> [[edge]] -> [[edge]])
 (define (L l0 ll)
     (cond
-        ((null? ll) (map list l0))
-        (else (let1 (paths (L (car ll) (cdr ll)))
-                (append-map (λ (x) (let1 (ps (filter (λ (p) (and (eq? (third x) (caar p)) (<= (second x) (cadar p)))) paths))
-                                            (map (λ (p) (cons x p)) ps)))
-                    l0))
-                )))
+        ((null? ll) (list (append-map (λ (l) (splash l #t)) l0)))
+        (else (let* ((paths (L (car ll) (cdr ll)))
+                     (p (probcc-uniform/either paths))
+                     (paths* (map (λ (l) (⊗ (splash l #f) p)) l0))
+                     #;(paths* (map (λ (e) (⊗ (splash e #f) p)) l0)))
+                #;(list l0 p)
+                (let1 (lst (probcc-uniform/either paths*))
+                    (probcc-when (= *people* (length lst)) lst))))))
 
 (pp 
 (probcc-normalize (probcc-reify/exact
     
         (let* ((l (V-for-trajectory *people* V '()))
                (list-of-edges (layer *layers* *people* V l '())))
-            ; list-of-edges
-            (L (car list-of-edges) (cdr list-of-edges))
+             ;list-of-edges
+           (L (car list-of-edges) (cdr list-of-edges))
             )))
 )
 
@@ -74,6 +92,14 @@
 '(((a 1 a) (a 1 a)) ((a 1 b) (b 1 b)))
 ; and the final call should produce:
 '(((a 2 a) (a 1 a) (a 1 a)) ((a 2 a) (a 1 b) (b 1 b)))
+
+'(((a 2 a) (b 1 a)) ((a 1 a) (a 2 b))) ||| il caso base (quello piu' a destra) produce '((a a) (a b) (a b))
+; --------------------------
+'((a a) (b b) (a b))
+'((a a) (a b) (b a))
+'(((a a a) (a a b) (b a b))
+  ((a a b) (a a b) (b a a)))
+
 
 (define (travel t remaining path)
     (if (or (zero? remaining) (>= t max-τ))
