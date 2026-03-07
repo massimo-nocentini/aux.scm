@@ -7,6 +7,7 @@
           (chicken memory representation)
           srfi-1 srfi-69 srfi-133
           (aux base)
+          (aux match)
           (aux stream)
           (aux fds sbral))
 
@@ -16,7 +17,7 @@
   (define µkanren-var-unbound (gensym 'µkanren-void-))
   (define (µkanren-unbound? α) (eq? α µkanren-var-unbound))
   (define (µkanren-var-working? α) (and (µkanren-var? α) (<= 0 (µkanren-var-index α))))
-  (define (µkanren-var-index/✓ α) (if (µkanren-var-working? α) (µkanren-var-index α) (- (add1 (µkanren-var-index α)))))
+  (define (µkanren-var-index/✓ α) (let1 (i (µkanren-var-index α)) (if (µkanren-var-working? α) i (- (add1 i)))))
   (define (µkanren-var->symbol α) 
     (cond
       ((µkanren-var-working? α) (error 'µkanren-var->symbol "just for reified variables" α))
@@ -27,17 +28,17 @@
   (define-record µkanren-state vars-count S D A T)
   (define µkanren-state-empty (make-µkanren-state 0 empty/sbral empty/sbral empty/sbral empty/sbral))
   (define (µkanren-var-index/sbral α sbral) (- (length/sbral sbral) 1 (µkanren-var-index/✓ α)))
-  (define (µkanren-var-ref/sbral α sbral) (sbral-ref sbral (µkanren-var-index/sbral α sbral)))
-  (define (µkanren-var-deferred? α s) (and (µkanren-var? α) (<= (length/sbral s) (µkanren-var-index/✓ α))))
+  (define (µkanren-sbral-ref/var α sbral) (sbral-ref sbral (µkanren-var-index/sbral α sbral)))
+  (define (µkanren-var-deferred? α sbral) (and (µkanren-var? α) (<= (length/sbral sbral) (µkanren-var-index/✓ α))))
 
   (define (µkanren-var-extend/sbral α S default)
     (let ((i (µkanren-var-index/✓ α))
           (l (length/sbral S)))
-        (let U ((l* l) (S* S))
-          (cond
-            ((<= l* i) (U (add1 l*) (cons/sbral default S*)))
-            (else S*)))))
-  
+      (let U ((l* l) (S* S))
+        (cond
+          ((<= l* i) (U (add1 l*) (cons/sbral default S*)))
+          (else S*)))))
+
   (define-syntax λ°
     (syntax-rules (:)
       ((λ° (s : vc S D A T) body ...) (λ (s)
@@ -49,29 +50,31 @@
                                           body ...)))
       ((λ° (s) body ...) (λ° (s : vc S D A T) body ...))))
 
-  (define (µkanren-state-update α v)
-    (λ° (s : vc S D A T)
-      (let* ((S* (µkanren-var-extend/sbral α S µkanren-var-unbound))
-             (i (µkanren-var-index/sbral α S*))
-             (S** (update/sbral i v S*)))
-        (make-µkanren-state vc S** D A T))))
+  (define (µkanren-state-update α v s)
+    (match/non-overlapping s
+      ((aux.kanren.micro#µkanren-state ,vc ,S ,D ,A ,T)
+        (let* ((S*  (µkanren-var-extend/sbral α S µkanren-var-unbound))
+               (i   (µkanren-var-index/sbral α S*))
+               (S** (update/sbral i v S*)))
+          (make-µkanren-state vc S** D A T)))))
   
-  (define (µkanren-state-update/occur? w v s)
-    (define (occur? w*)
+  (define (µkanren-state-occur? w v s)
+    (let occur? ((v* v))
       (cond
-        ((µkanren-var? w*) (equal? w w*))
-        ((pair? w*) (or (occur? (µkanren-state-find (car w*) s)) (occur? (µkanren-state-find (cdr w*) s))))
-        ((vector? w*) (vector-fold (λ (found e) (or found (occur? (µkanren-state-find e s)))) #f w*))
-        ((record-instance? w*) (occur? (record->vector w*)))
-        (else #f)))
-    (and (not (occur? v)) ((µkanren-state-update w v) s)))
+        ((µkanren-var? v*) (equal? w v*))
+        ((pair? v*) (or (occur? (µkanren-state-find (car v*) s)) (occur? (µkanren-state-find (cdr v*) s))))
+        ((vector? v*) (vector-fold (λ (found e) (or found (occur? (µkanren-state-find e s)))) #f v*))
+        ((record-instance? v*) (occur? (record->vector v*)))
+        (else #f))))
+
+  (define (µkanren-state-update/✓ α β s) (and (not (µkanren-state-occur? α β s)) (µkanren-state-update α β s)))
 
   (define (µkanren-state-find α s)
     (let1 (S (µkanren-state-S s))
       (let F ((β0 α) (β α))
         (cond
           ((µkanren-var-deferred? β S) β)
-          ((µkanren-var-working? β) (F β (µkanren-var-ref/sbral β S)))
+          ((µkanren-var-working? β) (F β (µkanren-sbral-ref/var β S)))
           ((µkanren-unbound? β) β0)
           (else β)))))
 
@@ -82,10 +85,10 @@
         ((eq? u* v*) s)
         ((and (µkanren-var? u*) (µkanren-var? v*)) 
           (if (< (µkanren-var-index u*) (µkanren-var-index v*))
-            (µkanren-state-update/occur? u* v* s)
-            (µkanren-state-update/occur? v* u* s)))
-        ((µkanren-var? u*) (µkanren-state-update/occur? u* v* s))
-        ((µkanren-var? v*) (µkanren-state-update/occur? v* u* s))
+            (µkanren-state-update/✓ u* v* s)
+            (µkanren-state-update/✓ v* u* s)))
+        ((µkanren-var? u*) (µkanren-state-update/✓ u* v* s))
+        ((µkanren-var? v*) (µkanren-state-update/✓ v* u* s))
         ((and (string? u*) (string? v*) (string=? u* v*)) s)
         ((and (number? u*) (number? v*) (= u* v*)) s)
         ((and (vector? u*) (vector? v*) (= (vector-length u*) (vector-length v*)))
@@ -95,7 +98,8 @@
         ((and (vector? u*) (record-instance? v*)) (µkanren-state-unify u* (record->vector v*) s))
         ((and (record-instance? u*) (vector? v*)) (µkanren-state-unify (record->vector u*) v* s))
         ((and (pair? u*) (pair? v*)) 
-          (let1 (s* (µkanren-state-unify (car u*) (car v*) s)) (and (µkanren-state? s*) (µkanren-state-unify (cdr u*) (cdr v*) s*))))
+          (let1 (s* (µkanren-state-unify (car u*) (car v*) s)) 
+            (and (µkanren-state? s*) (µkanren-state-unify (cdr u*) (cdr v*) s*))))
         (else #f))))
 
   (define (µkanren-state-find* v s)
@@ -128,8 +132,7 @@
       (let1 (w* (µkanren-state-find w r))
             (cond
               ((µkanren-var-working? w*) (let* ((new-var (make-µkanren-var c))
-                                                (U (µkanren-state-update w* new-var))
-                                                (r* (U r))
+                                                (r* (µkanren-state-update w* new-var r))
                                                 (c* (sub1 c))
                                                 (vars* (cons new-var vars)))
                                            (values r* c* vars*)))
@@ -143,10 +146,7 @@
               (else (values r c vars))))))
 
   (define ((µkanren-project w) s)
-    (let1 (w* (cond 
-                ((< 0 (length/sbral (µkanren-state-S s))) (µkanren-state-find* w s))
-                (else #t) ; for tautology when there is no variable
-                ))
+    (let1 (w* (if (null? (µkanren-state-S s)) #t (µkanren-state-find* w s))) ; for tautology when there is no variable
       (let-values (((s* _ vars-reversed) (µkanren-state-reify w* s)))
         (let* ((vars (reverse vars-reversed))
                (vars* (map µkanren-var->symbol vars))
