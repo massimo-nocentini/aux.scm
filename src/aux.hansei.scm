@@ -1,6 +1,4 @@
 
-; use parameters to generalize constants and arithmetic operations
-
 (module (aux hansei) *
 
   (import scheme 
@@ -11,6 +9,7 @@
           (chicken sort) 
           srfi-69
           (aux base)
+          (aux match)
           (aux continuation)
           (aux continuation delimited))
 
@@ -20,47 +19,26 @@
   (define op/divide (make-parameter (λ (m n) (exact->inexact (/ m n)))))
   (define op/greater (make-parameter >))
 
-  (define-syntax probcc-τ (syntax-rules () ((_ p body ...) `((C ,(τ body ...)) ,p))))
-  (define (probcc-value p v) `((V ,v) ,p))
-
-  (define-syntax let1/probccpair
-    (syntax-rules () 
-      ((_ ((slot p) probpairexpr) body ...) (let* ((probpair probpairexpr)
-                                                   (slot (car probpair))
-                                                   (p (cadr probpair)))
-                                              body ...))))
-
-  (define-syntax cond/probccslot
-    (syntax-rules (V C)
-      ((_ slotexpr 
-          ((V v) vbody ...)
-          ((C t) cbody ...))
-       (let* ((slot slotexpr)
-              (flag (car slot))
-              (payload (cadr slot)))
-         (cond
-           ((equal? flag 'V) (let1 (v payload) vbody ...))
-           ((equal? flag 'C) (let1 (t payload) cbody ...))
-           (else (error `(not a probability slot ,slot))))))))
+  (define-syntax-rule (probcc-τ p body ...) `((C ,(τ body ...)) ,p))
+  (define-syntax-rule (probcc-value p body ...) `((V ,(begin body ...)) ,p))
 
   (define (probcc-explore maxdepth choices)
     (letrec ((times (op/times))
              (plus (op/plus))
              (loop (λ (p depth down choices ans susp)
-                       (cond
-                         ((null? choices) susp)
-                         (else (let1/probccpair ((slot pt) (car choices)) 
-                                                (let* ((p*pt (times p pt))
-                                                       (A (λ (w) (plus w p*pt)))
-                                                       (rest (cdr choices)))
-                                                  (cond/probccslot slot
-                                                                   ((V v) (hash-table-update!/default ans v A 0)
-                                                                    (loop p depth down rest ans susp))
-                                                                   ((C t) (cond
-                                                                            (down (loop p depth down rest ans
-                                                                                        (loop p*pt (add1 depth) (< depth maxdepth) (t) ans susp)))
-                                                                            (else (let1 (s (cons (probcc-τ p*pt (t)) susp))
-                                                                                        (loop p depth down rest ans s)))))))))))))
+                       (match/non-overlapping choices
+                         (() susp)
+                         (((,slot ,pt) . ,rest)
+                            (let* ((p*pt (times p pt))
+                                   (A (λ (w) (plus w p*pt))))
+                              (match/non-overlapping slot
+                                ((V ,v) (hash-table-update!/default ans v A 0)
+                                        (loop p depth down rest ans susp))
+                                ((C ,t) (cond
+                                          (down (loop p depth down rest ans
+                                                  (loop p*pt (add1 depth) (< depth maxdepth) (t) ans susp)))
+                                          (else (let1 (s (cons (probcc-τ p*pt (t)) susp))
+                                                  (loop p depth down rest ans s))))))))))))
       (let* ((ans (make-hash-table))
              (susp (loop 1 0 #t choices ans '()))
              (f (λ (v p l) (cons (probcc-value p v) l)))
@@ -68,18 +46,29 @@
              (greater (op/greater)))
         (sort folded (λ (a b) (greater (cadr a) (cadr b)))))))
 
+  #;(define (probcc-next-value choices)
+    (match/non-overlapping choices
+      (() '())
+      ((((V ,v) ,pt) . ,rest) choices)
+      ((((C ,t) ,pt) . ,rest) (let1 (times (op/times))
+                                (probcc-next-value
+                                  (append rest (letmap ((pair (t)))
+                                                  (match1/non-overlapping ((,slot ,p) pair)
+                                                    `(,slot ,(times p pt))))))))))
+
   (define (probcc-next-value choices)
     (cond
       ((null? choices) '())
-      (else (let1/probccpair ((slot pt) (car choices)) 
-                             (cond/probccslot slot
-                                              ((V v) choices)
-                                              ((C t) (let1 (times (op/times))
+      (else (match1/non-overlapping ((,slot ,pt) (car choices)) 
+                             (match/non-overlapping slot
+                                              ((V ,v) choices)
+                                              ((C ,t) (let1 (times (op/times))
                                                            (probcc-next-value
                                                              (append (cdr choices)
                                                                      (letmap ((pair (t)))
-                                                                             (let1/probccpair ((slot p) pair)
+                                                                             (match1/non-overlapping ((,slot ,p) pair)
                                                                                               `(,slot ,(times p pt)))))))))))))
+
 
   (define (probcc-normalize choices)
     (let* ((divide (op/divide))
@@ -89,18 +78,17 @@
       (map N choices)))
 
   (define (probcc-distribution distribution)
-    (letcc/shift k (letmap ((pair distribution))
-                           (letcar&cdr (((v p) pair))
-                                       (probcc-τ (car p) (k v))))))
+    (letcc/shift k 
+      (letmap ((pair distribution))
+        (match1/non-overlapping ((,v ,p) pair) (probcc-τ p (k v))))))
 
   (define (probcc-reflect choices)
-    (letcc/shift k (letrec ((make-choices (λ (pv) (map f pv)))
-                            (f (λ (probpair)
-                                   (let1/probccpair ((slot p) probpair)
-                                                    (cond/probccslot slot
-                                                                     ((V v) (probcc-τ p (k v)))
-                                                                     ((C t) (probcc-τ p (make-choices (t)))))))))
-                     (make-choices choices))))
+    (letcc/shift k 
+      (letrec ((make-choices (λ (pv) (map f pv)))
+               (f (λ/non-overlapping
+                    (((V ,v) ,p) (probcc-τ p (k v)))
+                    (((C ,t) ,p) (probcc-τ p (make-choices (t)))))))
+        (make-choices choices))))
 
   ; Events and random variables.
   (define (probcc-impossible) (probcc-distribution '()))
@@ -155,45 +143,21 @@
                            (o probcc-reflect bucket)))))
 
   (define (probcc-leaves choices)
-    (letrec ((L (λ (choices count)
-                    (let1 (F (λ (probpair acc) 
-                                 (let1/probccpair ((slot p) probpair)
-                                                  (cond/probccslot slot
-                                                                   ((V v) (add1 acc))
-                                                                   ((C t) (L (t) acc))))))
-                          (foldr F count choices)))))
-      (L choices 0)))
+    (let L ((choices* choices) 
+            (count 0))
+      (let1 (F (λ (probpair acc) 
+                  (match/non-overlapping probpair
+                    (((V ,v) ,p) (add1 acc))
+                    (((C ,t) ,p) (L (t) acc)))))
+        (foldr F count choices*))))
 
   (define (probcc-dfs choices)
     (letmap ((probpair choices))
-            (let1/probccpair ((slot p) probpair)
-                             (cond/probccslot slot
-                                              ((V v) (list probpair))
-                                              ((C t) (apply append (probcc-dfs (letmap ((inner (t)))
-                                                                                       (let1/probccpair ((slot pi) inner)
-                                                                                                        (list slot ((op/times) p pi)))))))))))
+      (match/non-overlapping probpair
+        (((V ,v) ,p) (list probpair))
+        (((C ,t) ,p) (apply append (probcc-dfs (letmap ((inner (t)))
+                                                (match1/non-overlapping ((,slot ,pi) inner)
+                                                  (list slot ((op/times) p pi))))))))))
 
 
   )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

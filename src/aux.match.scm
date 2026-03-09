@@ -10,6 +10,12 @@
   (define-syntax-rule (match/non-overlapping v (e ...) ...) 
     (dmatch-run-a-thunk (quote v) v (dmatch-remexp v (e ...) ...)))
 
+  (define-syntax-rule (match1/non-overlapping (pat p ... v) body ...) (match/non-overlapping v (pat p ... body ...)))
+
+  (define-syntax-rule (λ/non-overlapping (e ...) ...) (λ (arg) (match/non-overlapping arg (e ...) ...)))
+
+  (define-syntax-rule (λ1/non-overlapping (e ...) body ...) (λ/non-overlapping (e ... body ...)))
+
   (define-record dmatch-pkg clause thunk)
 
   (define-syntax dmatch-remexp
