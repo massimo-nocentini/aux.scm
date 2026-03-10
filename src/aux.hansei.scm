@@ -49,16 +49,15 @@
   #;(define (probcc-next-value choices)
     (match/non-overlapping choices
       (() '())
-      ((((V ,v) ,pt) . ,rest) choices)
-      ((((C ,t) ,pt) . ,rest) (let1 (times (op/times))
-                                (probcc-next-value
-                                  (append rest (letmap ((pair (t)))
-                                                  (match1/non-overlapping ((,slot ,p) pair)
-                                                    `(,slot ,(times p pt))))))))))
-
-  (define (probcc-next-value choices)
-    (cond
-      ((null? choices) '())
+      ((((V ,v) ,pt) . _) choices)
+      ((((C ,t) ,pt) . ,d) (let* ((times (op/times))
+                                         (F (λ1/non-overlapping (,slot ,p) `(,slot ,(times p pt))))
+                                         (choices** (map F (t))))
+                                    (probcc-next-value (append d choices**))))))
+                                
+  #;(define (probcc-next-value choices)
+    (match/non-overlapping choices
+      (() '())
       (else (match1/non-overlapping ((,slot ,pt) (car choices)) 
                              (match/non-overlapping slot
                                               ((V ,v) choices)
@@ -69,7 +68,6 @@
                                                                              (match1/non-overlapping ((,slot ,p) pair)
                                                                                               `(,slot ,(times p pt)))))))))))))
 
-
   (define (probcc-normalize choices)
     (let* ((divide (op/divide))
            (plus (op/plus))
@@ -77,15 +75,13 @@
            (N (λ (each) (list (car each) (divide (cadr each) tot)))))
       (map N choices)))
 
-  (define (probcc-distribution distribution)
-    (letcc/shift k 
-      (letmap ((pair distribution))
-        (match1/non-overlapping ((,v ,p) pair) (probcc-τ p (k v))))))
+  (define (probcc-distribution pairs) 
+    (letcc/shift k (map (λ1/non-overlapping (,v ,p) (probcc-τ p (k v))) pairs)))
 
   (define (probcc-reflect choices)
     (letcc/shift k 
-      (letrec ((make-choices (λ (pv) (map f pv)))
-               (f (λ/non-overlapping
+      (letrec ((make-choices (λ (pv) (map F pv)))
+               (F (λ/non-overlapping
                     (((V ,v) ,p) (probcc-τ p (k v)))
                     (((C ,t) ,p) (probcc-τ p (make-choices (t)))))))
         (make-choices choices))))
@@ -108,22 +104,21 @@
       (else (probcc-impossible))))
 
   (define (probcc-uniform/range low high)
-    (+ low (probcc-uniform (add1 (- high low)))))
+    (+ low (probcc-uniform (- high low))))
   
   (define (probcc-uniform/either lst) (list-ref lst (probcc-uniform (length lst))))
 
   (define (probcc-geometric p s f)
     (letrec ((subtract (op/subtract))
              (loop (λ (n)
-                       (list (probcc-τ p (list (probcc-value 1 (cons s n))))
+                       (list (probcc-τ p (probcc-unit (cons s n)))
                              (probcc-τ (subtract 1 p) (loop (cons f n)))))))
       (probcc-reflect (loop '()))))
 
-  (define-syntax probcc-when
-    (syntax-rules ()
-      ((_ test body ...) (cond
-                           (test body ...) 
-                           (else (probcc-impossible))))))
+  (define-syntax-rule (probcc-when test body ...) 
+    (cond
+      (test body ...) 
+      (else (probcc-impossible))))
 
   (define (probcc-reify/0 model) (resetcc (probcc-unit (model))))
   (define ((probcc-reify depth) model) (probcc-explore depth (probcc-reify/0 model)))
