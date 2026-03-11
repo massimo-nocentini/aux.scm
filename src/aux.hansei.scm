@@ -26,12 +26,12 @@
     (letrec ((times (op/times))
              (plus (op/plus))
              (loop (λ (p depth down choices ans susp)
-                       (match/non-overlapping choices
+                       (match/first choices
                          (() susp)
                          (((,slot ,pt) . ,rest)
                             (let* ((p*pt (times p pt))
                                    (A (λ (w) (plus w p*pt))))
-                              (match/non-overlapping slot
+                              (match/first slot
                                 ((V ,v) (hash-table-update!/default ans v A 0)
                                         (loop p depth down rest ans susp))
                                 ((C ,t) (cond
@@ -141,17 +141,17 @@
     (let L ((choices* choices) 
             (count 0))
       (let1 (F (λ (probpair acc) 
-                  (match/non-overlapping probpair
+                  (match/first probpair
                     (((V ,v) ,p) (add1 acc))
                     (((C ,t) ,p) (L (t) acc)))))
         (foldr F count choices*))))
 
   (define (probcc-dfs choices)
     (letmap ((probpair choices))
-      (match/non-overlapping probpair
+      (match/first probpair
         (((V ,v) ,p) (list probpair))
         (((C ,t) ,p) (apply append (probcc-dfs (letmap ((inner (t)))
-                                                (match1/non-overlapping ((,slot ,pi) inner)
+                                                (match1/first ((,slot ,pi) inner)
                                                   (list slot ((op/times) p pi))))))))))
 
 
