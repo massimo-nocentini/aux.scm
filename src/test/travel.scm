@@ -19,12 +19,13 @@
         )))
 
 (define (V-for-trajectory n V lst)
-  (match/non-overlapping V
-    (() (zero? n) ⇒ (reverse lst))
-    ((,v) (V-for-trajectory 0 '() (cons (list v n) lst)))
-    ((,v . ,v*) (not (null? v*)) ⇒ (let* ((n* (probcc-uniform (add1 n)))
-                                          (lst* (cons `(,v ,n*) lst)))
-                                        (V-for-trajectory (- n n*) v* lst*)))))
+  (match/first (cons n V)
+    ((0) (reverse lst))
+    ((0 ,v . ,V*) (V-for-trajectory 0 V* (cons (list v 0) lst)))
+    ((_ ,v) (V-for-trajectory 0 '() (cons (list v n) lst)))
+    ((_ ,v . ,V*) (let* ((n* (probcc-uniform/range 0 (add1 n)))
+                         (lst* (cons `(,v ,n*) lst)))
+                    (V-for-trajectory (- n n*) V* lst*)))))
 
 (pp (probcc-normalize (probcc-reify/exact (V-for-trajectory *people* V '()))))
 
@@ -43,30 +44,50 @@
                                                         (cons `(,v ,(- vp w)) (cdr l1))
                                                         (cons `(,u ,w ,v) out)))))))))
 
-(define (lmerge l0 l1)
+#;(define (lmerge l0 l1)
     (let L ((l0 l0) (l1 l1) (out '()))
         (match/non-overlapping l0
             (() (reverse out))
             (((_ 0) . ,ll) (L ll l1 out))
             (((,u ,up) . ,ll)
-                (> up 0) ⇒ (let* ((w (probcc-uniform (length l1)))
-                                  (prefix (take l1 w)))
-                                (match1/non-overlapping (((,v ,vp) . ,suffix) (drop l1 w))
-                                    (let1 (m (probcc-uniform/range (if (eq? u v) up 1) (add1 up)))
-                                        (let1 (edge `(,u ,m ,v))
-                                            (probcc-when (and (or (null? out) (not (equal? edge (car out)))) (<= m vp))
-                                                (L  (cons `(,u ,(- up m)) ll)
-                                                    (append prefix (cons `(,v ,(- vp m)) suffix))
-                                                    (cons edge out)))))))))))
+                (> up 0) ⇒ (let1 (w (probcc-uniform (length l1)))
+                                (match/non-overlapping (drop l1 w)
+                                    (((_ 0) . ,suffix) (L l0 suffix out))
+                                    (((,v ,vp) . ,suffix) 
+                                        (> vp 0) ⇒ (let* ((m* (min up vp))
+                                                          (m (probcc-uniform/range (if (eq? u v) m* 1) (add1 m*)))
+                                                          (edge `(,u ,m ,v)))
+                                                    (probcc-when (or (null? out) (not (equal? edge (car out))))
+                                                        (L  (cons `(,u ,(- up m)) ll)
+                                                            (append (take l1 w) (cons `(,v ,(- vp m)) suffix))
+                                                            (cons edge out)))))))))))
 
-(define (layer r n V l lst lkeep?)
-    (probcc-when (lkeep? (- *τ* r) l)
-        (cond
-            ((one? r) (reverse lst))
-            (else (let* ((l* (V-for-trajectory n V '()))
-                        (ll* (lmerge l l*))
-                        (lst* (cons ll* lst))) 
-                    (layer (sub1 r) n V l* lst* lkeep?))))))
+
+(define (lmerge l0 l1)
+    (let L ((l0 l0) (l1 l1) (out '()))
+        (match/first l0
+            (() (reverse out))
+            (((_ 0) . ,ll) (L ll l1 out))
+            (((,u ,up) . ,ll) (let1 (w (probcc-uniform (length l1)))
+                                (match1/first (((,v ,vp) . ,suffix) (drop l1 w))
+                                    (let* ((m (probcc-uniform/range (if (eq? u v) up 1) (add1 up)))
+                                           (edge `(,u ,m ,v)))
+                                        (probcc-when (and (<= m vp) (or (null? out) (not (equal? edge (car out)))))
+                                            (L  (cons `(,u ,(- up m)) ll)
+                                                (append (take l1 w) (cons `(,v ,(- vp m)) suffix))
+                                                (cons edge out))))))))))
+
+
+(define (layer r n V l lst lkeep? ekeep?)
+    (let1 (r* (- *τ* r))
+        (probcc-when (lkeep? r* l)
+            (cond
+                ((one? r) (reverse lst))
+                (else (let* ((l* (V-for-trajectory n V '()))
+                            (ll* (lmerge l l*))
+                            (lst* (cons ll* lst))) 
+                        (probcc-when (ekeep? r* ll*)
+                            (layer (sub1 r) n V l* lst* lkeep? ekeep?))))))))
 
 (define (cons/λ x) (λ (y) (cons x y)))
 (define (snoc/λ y) (λ (x) (cons x y)))
@@ -87,17 +108,30 @@
 (append-map (λ (l) (splash l #t)) '((a 2 b) (b 1 b)))
 (⊗ (append-map (λ (l) (splash l #f)) '((a 1 b) (b 1 b))) (splash '(b 2 c) #t))
 
-;(: L [edge] -> [[edge]] -> [[edge]])
-(define (L l0 ll)
+(define (M edge edges out)
+    (match/first (list edge edges)
+        (((_ 0 _) _) (cons out edges))
+        ((_ ((_ 0 _) . ,edges*)) (M edge edges* out))
+        (((,s ,n ,d) ((,ss ,nn ,dd) . ,edges*))
+            (equal? d ss) ⇒ (M `(,s ,(sub1 n) ,d) (cons `(,ss ,(sub1 nn) ,dd) edges*) (cons `(,s ,d ,dd) out)))
+        ((_ (,edge* . ,edges*)) (M edge (append edges* (list edge*)) out))))
+
+(M '(a 1 c) '((b 2 a) (c 1 b)) '())
+(match1/non-overlapping ((((,a . ,a*))) '(((b c)))) a*)
+
+#|
+(((V (((a 1 c) (b 2 b)) ((b 2 a) (c 1 b)))) 0.642857142857143)
+ ((V (((a 1 c) (b 2 b)) ((b 1 a) (b 1 b) (c 1 a)))) 0.214285714285714)
+ ((V (((a 1 b) (b 1 c) (b 1 b)) ((b 2 a) (c 1 b)))) 0.107142857142857)
+ ((V (((a 1 b) (b 1 c) (b 1 b)) ((b 1 a) (b 1 b) (c 1 a))))
+|#
+
+(define (L l0 ll bin)
     (cond
-        ((null? ll) (list (append-map (λ (l) (splash l #t)) l0)))
-        (else (let* ((paths (L (car ll) (cdr ll)))
-                     (p (probcc-uniform/either paths))
-                     (paths* (map (λ (l) (⊗ (splash l #f) p)) l0))
-                     #;(paths* (map (λ (e) (⊗ (splash e #f) p)) l0)))
-                #;(list l0 p)
-                (let1 (lst (probcc-uniform/either paths*))
-                    (probcc-when (= *people* (length lst)) lst))))))
+        ((null? ll) l0)
+        (else (let1 (edges (L (car ll) (cdr ll) bin))
+            (foldr  (λ (edge edges*) (match1/first ((,out . ,edges**) (M edge edges* '())) (push! out bin) edges**))
+                    edges l0)))))
 
  (define (lkeep? r l)
             (let1 (l* (cons r l))
@@ -107,50 +141,49 @@
                 ((equal? l* '(2 (a 2) (b 1) (c 0))) #t)
                 (else #f))))
 
+ (define (ekeep? r edges) #t)
+
 (match/non-overlapping '(0 a b d)
     ((0 a b c) #t)
     (,,pair? #f))
 
+(define (back-home? l0 l1) (equal? (map (λ (l) (take l 2)) l0) (map (o reverse cdr) l1)))
+
 (pp (probcc-normalize (probcc-reify/exact
 
         (let* ((l (V-for-trajectory *people* V '()))
-               (list-of-edges (layer *τ* *people* V l '() lkeep?)))
-             list-of-edges
-        ;    (L (car list-of-edges) (cdr list-of-edges))
+               (list-of-edges (layer *τ* *people* V l '() lkeep? ekeep?))
+               (bin '()))
+               list-of-edges
+            #;(probcc-when #t #;(back-home? (first list-of-edges) (last list-of-edges))
+                list-of-edges)
+        ;    (L (car list-of-edges) (cdr list-of-edges) bin)
+        ;    bin
             ))
-
 ))
 
-'(((a 2 a)) ((a 1 a) (a 1 b)) ((a 1 a) (b 1 b)))
-; I expect the following from the recursive call:
-'(((a 1 a) (a 1 a)) ((a 1 b) (b 1 b)))
-; and the final call should produce:
-'(((a 2 a) (a 1 a) (a 1 a)) ((a 2 a) (a 1 b) (b 1 b)))
+#|
 
-'(((a 2 a) (b 1 a)) ((a 1 a) (a 2 b))) ||| il caso base (quello piu' a destra) produce '((a a) (a b) (a b))
-; --------------------------
-'((a a) (b b) (a b))
-'((a a) (a b) (b a))
-'(((a a a) (a a b) (b a b))
-  ((a a b) (a a b) (b a a)))
+(((V ((a c b) (b b a) (b b a))) 0.642857142857143)
+ ((V ((a c a) (b b b) (b b a))) 0.214285714285714)
+ ((V ((a b a) (b c b) (b b a))) 0.107142857142857)
+ ((V ((a b a) (b c a) (b b a))) 0.0357142857142857))
+
+|#
+
+(match/first '(0 a b d)
+    ((let all (0 a b . ,c)) (append c all))
+    (else #f))
+
+(match/first '(0 a b d)
+    ((let all ,c) (cons c all))
+    (else #f))
+
+(match/first #(0 a b d)
+    ((let all #(0 a b ,c)) (list c all))
+    (else #f))
 
 
-(define (travel t remaining path)
-    (if (or (zero? remaining) (>= t max-τ))
-        (reverse path)
-        (let* (#;(t* (probcc-uniform/range (add1 t) max-τ))
-               (t* (add1 t))
-               (vi (probcc-uniform (length V)))
-               (v (list-ref V vi)))
-            (probcc-when (not (eq? v (second (car path)))) (travel t* (sub1 remaining) (cons (list t* v) path)))
-        )))
-
-(pp
-    (probcc-normalize (probcc-reify/exact (travel -1 5 (list (list -1 (gensym))))))
-)
-
-(pp
-    (probcc-normalize (probcc-reify/exact (probcc-uniform/range 4 5)))
-)
-
-(foldr (λ (v lst) (cons v lst)) '() '(1 2 3))
+(match/first #(0 a b d)
+    ((let all #(0 a c ,c)) (list c all))
+    )

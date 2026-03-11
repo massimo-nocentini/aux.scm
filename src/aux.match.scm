@@ -64,4 +64,46 @@
                                              (value ,v) 
                                              (ambiguities ,(map dmatch-pkg-clause pkgs)))))))))
 
+  ; simple --------------------------------------------------------------------------
+
+  (define-syntax-rule (match/first exp clause ...) 
+    (let1 (val-to-match exp) (match-case-simple* val-to-match clause ...)))
+
+  (define-syntax-rule (match1/first (pat v) body ...) (match/first v (pat body ...)))
+
+  (define-syntax-rule (λ-match/first e ...) (λ (arg) (match/first arg e ...)))
+
+  (define-syntax-rule (λ-match1/first pat body ...) (λ-match/first (pat body ...)))
+
+  (define-syntax match-case-simple*
+    (syntax-rules (else ⇒)
+      ((match-case-simple* val (else exp ...)) (begin exp ...))
+      ((match-case-simple* val) (match-case-simple* val (else (error (string-append "match/first\n\n" (->string/pretty-print val))))))
+      ((match-case-simple* val (pattern guard ⇒ exp ...) clause ...)
+        (let1 (fk (τ (match-case-simple* val clause ...)))
+          (match-pattern val pattern (if guard (begin exp ...) (fk)) (fk))))
+      ((match-case-simple* val (pattern exp ...) clause ...) (match-case-simple* val (pattern #t ⇒ exp ...) clause ...))))
+
+  (define-syntax match-pattern
+    (syntax-rules (_ __ unquote let)
+      ((match-pattern val _ kt kf) kt)
+      ((match-pattern val __ kt kf) kf)
+      ((match-pattern val () kt kf) (if (null? val) kt kf))
+      ((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
+      ((match-pattern val (let var e) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
+      ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
+      ((match-pattern val (x . y) kt kf) 
+        (cond
+          ((pair? val) (let ((valx (car val)) (valy (cdr val)))
+                          (match-pattern valx x 
+                            (match-pattern valy y kt kf) kf)))
+          (else kf)))
+      ((match-pattern val #(x x* ...) kt kf) 
+        (cond
+          ((and (vector? val) (> (vector-length val) 0))
+            (match-pattern (vector-ref val 0) x
+              (match-pattern (subvector val 1) #(x* ...) kt kf) kf))
+          (else kf)))
+      ((match-pattern val lit kt kf) (if (equal? val (quote lit)) kt kf))))
+
 )

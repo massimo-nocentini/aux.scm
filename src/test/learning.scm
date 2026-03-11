@@ -134,8 +134,8 @@ END
   )
 
   ((test-vec-syntax _) 
-   (define-syntax-rule (v-aux (v #(x z ...)) body ...) (let1 (v (list z ...)) body ...))
-   (⊦ equal? '(0 2 3) (v-aux (v #(1 2 3)) (cons 0 v)))
+   (define-syntax-rule (v-aux (v #(x z ... y)) body ...) (let1 (v (list z ...)) body ...))
+   (⊦ equal? '(0 2) (v-aux (v #(1 2 3)) (cons 0 v)))
    )
   
 )
