@@ -51,12 +51,11 @@
       ((λ° (s) body ...) (λ° (s : vc S D A T) body ...))))
 
   (define (µkanren-state-update α v s)
-    (match/non-overlapping s
-      ((aux.kanren.micro#µkanren-state ,vc ,S ,D ,A ,T)
-        (let* ((S*  (µkanren-var-extend/sbral α S µkanren-var-unbound))
-               (i   (µkanren-var-index/sbral α S*))
-               (S** (update/sbral i v S*)))
-          (make-µkanren-state vc S** D A T)))))
+    (match1/first ((aux.kanren.micro#µkanren-state ,vc ,S ,D ,A ,T) s)
+      (let* ((S*  (µkanren-var-extend/sbral α S µkanren-var-unbound))
+             (i   (µkanren-var-index/sbral α S*))
+             (S** (update/sbral i v S*)))
+        (make-µkanren-state vc S** D A T))))
   
   (define (µkanren-state-occur? w v s)
     (let occur? ((v* v))

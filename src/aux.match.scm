@@ -58,31 +58,23 @@
   (define-syntax match-case-simple*
     (syntax-rules (else ⇒)
       ((match-case-simple* val (else exp ...)) (begin exp ...))
-      ((match-case-simple* val) (match-case-simple* val (else (error (string-append "match/first: uncaught value.\n\n" (->string/pretty-print val))))))
+      ((match-case-simple* val) (match-case-simple* val
+                                  (else (error (string-append "match/first: uncaught value.\n\n" 
+                                                              (->string/pretty-print val))))))
       ((match-case-simple* val (pattern guard ⇒ exp ...) clause ...)
         (let1 (fk (τ (match-case-simple* val clause ...)))
           (match-pattern val pattern (if guard (begin exp ...) (fk)) (fk))))
-      ((match-case-simple* val (pattern exp ...) clause ...) (match-case-simple* val (pattern #t ⇒ exp ...) clause ...))))
+      ((match-case-simple* val (pattern exp ...) clause ...) 
+        (match-case-simple* val (pattern #t ⇒ exp ...) clause ...))))
 
   (define-syntax match-pattern
     (syntax-rules (_ __ unquote as)
       ((match-pattern val _ kt kf) kt)
       ((match-pattern val __ kt kf) kf)
+      #;((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
       ((match-pattern val () kt kf) (if (or (null? val) (and (vector? val) (zero? (vector-length val)))) kt kf))
       ((match-pattern val (e as var) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
       ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
-      ((match-pattern val (x . y) kt kf)
-        (cond
-          ((pair? val) 
-            (let ((valx (car val)) (valy (cdr val)))
-              (match-pattern valx x (match-pattern valy y kt kf) kf)))
-          ((and (vector? val) (> (vector-length val) 0))
-            (let ((valx (vector-ref val 0)) (valy (subvector val 1)))
-              (match-pattern valx x (match-pattern valy y kt kf) kf)))
-          ((record-instance? val)
-            (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
-              (match-pattern valx x (match-pattern valy y kt kf) kf)))
-          (else kf)))
       #;((match-pattern val #(x x* ...) kt kf)
         (cond
           ((pair? val) 
@@ -94,6 +86,18 @@
           ((record-instance? val)
             (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
               (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
+          (else kf)))
+      ((match-pattern val (x . y) kt kf)
+        (cond
+          ((pair? val) 
+            (let ((valx (car val)) (valy (cdr val)))
+              (match-pattern valx x (match-pattern valy y kt kf) kf)))
+          ((and (vector? val) (> (vector-length val) 0))
+            (let ((valx (vector-ref val 0)) (valy (subvector val 1)))
+              (match-pattern valx x (match-pattern valy y kt kf) kf)))
+          ((record-instance? val)
+            (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
+              (match-pattern valx x (match-pattern valy y kt kf) kf)))
           (else kf)))
       ((match-pattern val lit kt kf) (if (equal? val (quote lit)) kt kf))))
 
