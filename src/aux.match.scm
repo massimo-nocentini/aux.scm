@@ -7,6 +7,8 @@
           (chicken memory representation)
           (aux base))
 
+  ; match/non-overlapping --------------------------------------------------------------------------
+
   (define-syntax-rule (match/non-overlapping v (e ...) ...) 
     (dmatch-run-a-thunk (quote v) v (dmatch-remexp v (e ...) ...)))
 
@@ -28,29 +30,8 @@
       ((dmatch-aux v) '())
       ((dmatch-aux v (pat g ⇒ e ...) cls ...)
         (let1 (fk (τ (dmatch-aux v cls ...)))
-          (dmatch-ppat v pat (if g (cons (make-dmatch-pkg (quote (pat g ⇒ e ...)) (τ e ...)) (fk)) (fk)) (fk))))
+          (match-pattern v pat (if g (cons (make-dmatch-pkg (quote (pat g ⇒ e ...)) (τ e ...)) (fk)) (fk)) (fk))))
       ((dmatch-aux v (pat e ...) cls ...) (dmatch-aux v (pat #t ⇒ e ...) cls ...))))
-
-  (define-syntax dmatch-ppat
-    (syntax-rules (unquote _ __ let)
-      ((dmatch-ppat vv _ kt kf) kt)
-      ((dmatch-ppat vv __ kt kf) kf)
-      ((dmatch-ppat vv () kt kf) (if (or (null? vv) (and (vector? vv) (zero? (vector-length vv)))) kt kf))
-      ((dmatch-ppat vv (let var e) kt kf) (dmatch-ppat vv e (let1 (var (quasiquote e)) kt) kf))
-      ((dmatch-ppat vv (unquote v) kt kf) (let1 (v vv) kt))
-      ((dmatch-ppat vv (x . y) kt kf)
-        (cond
-          ((pair? vv) 
-            (let ((valx (car vv)) (valy (cdr vv)))
-              (dmatch-ppat valx x (dmatch-ppat valy y kt kf) kf)))
-          ((and (vector? vv) (> (vector-length vv) 0))
-            (let ((valx (vector-ref vv 0)) (valy (subvector vv 1)))
-              (dmatch-ppat valx x (dmatch-ppat valy y kt kf) kf)))
-          ((record-instance? vv)
-            (let* ((vv* (record->vector vv)) (valx (vector-ref vv* 0)) (valy (subvector vv* 1)))
-              (dmatch-ppat valx x (dmatch-ppat valy y kt kf) kf)))
-          (else kf)))
-      ((dmatch-ppat v lit kt kf) (if (equal? v (quote lit)) kt kf))))
 
   (define (dmatch-run-a-thunk v-expr v pkgs)
     (cond
@@ -63,7 +44,7 @@
                                              (value ,v) 
                                              (ambiguities ,(map dmatch-pkg-clause pkgs)))))))))
 
-  ; simple --------------------------------------------------------------------------
+  ; match/first --------------------------------------------------------------------------
 
   (define-syntax-rule (match/first exp clause ...) 
     (let1 (val-to-match exp) (match-case-simple* val-to-match clause ...)))
@@ -84,11 +65,11 @@
       ((match-case-simple* val (pattern exp ...) clause ...) (match-case-simple* val (pattern #t ⇒ exp ...) clause ...))))
 
   (define-syntax match-pattern
-    (syntax-rules (_ __ unquote let)
+    (syntax-rules (_ __ unquote as)
       ((match-pattern val _ kt kf) kt)
       ((match-pattern val __ kt kf) kf)
       ((match-pattern val () kt kf) (if (or (null? val) (and (vector? val) (zero? (vector-length val)))) kt kf))
-      ((match-pattern val (let var e) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
+      ((match-pattern val (e as var) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
       ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
       ((match-pattern val (x . y) kt kf)
         (cond

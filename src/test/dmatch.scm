@@ -30,6 +30,7 @@
         ((,a ,b ,c) (and (number? a) (number? b) (number? c)) ⇒ (+ a b c))))
 
     (⊦= '(12 8) (list (h 3 4) (apply h '(1 (3 4)))))
+
   )
 
   ((test/h-overlapping _)
@@ -41,6 +42,7 @@
         ((,a ,b ,c) (and (number? a) (number? b) (number? c)) ⇒ (+ a b c))))
 
     (⊦⧳ ((exn)) (list (w 3 4) (apply w '(1 (3 4)))))
+    
   )
 
   ((test/meta-circular-interpreter _)

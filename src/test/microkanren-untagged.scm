@@ -11,14 +11,14 @@
     (define (lookup x env)
       (match/non-overlapping env
         (() (error 'lookup "unbound variable" x))
-        (((,,x . ,v) . ,rest) v)
-        (((,,,x . ,v) . ,rest) (lookup x rest))))
+        (((,y . ,v) . ,rest) (equal? x y) ⇒ v)
+        (((,y . ,v) . ,rest) (not (equal? x y)) ⇒ (lookup x rest))))
 
     (define (not-in-env? x env)
       (match/non-overlapping env
         (() #t)
-        (((,,x . ,v) . ,rest) #f)
-        (((,,,x . ,v) . ,rest) (not-in-env? x rest))))
+        (((,y . ,v) . ,rest) (equal? x y) ⇒ #f)
+        (((,y . ,v) . ,rest) (not (equal? x y)) ⇒ (not-in-env? x rest))))
 
     (define rator?
       (let1 (op-names '(lambda quote list))

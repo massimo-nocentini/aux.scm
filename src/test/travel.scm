@@ -172,24 +172,24 @@
 |#
 
 (match/first '(0 a b d)
-    ((let all (0 a b . ,c)) (append c all))
+    (((0 a b . ,c) as all) (append c all))
     (else #f))
 
 (match/first '(0 a b d)
-    ((let all ,c) (cons c all))
+    ((,c as all) (cons c all))
     (else #f))
 
 (match/first #(0 a b d)
-    ((let all (0 a b ,c)) (list c all))
+    (((0 a b ,c) as all) (list c all))
     (else #f))
 
 
 (match/first '(0 a b d)
-    ((let all #(0 a b ,c)) (list c all))
+    ((#(0 a b ,c) as all) (list c all))
     (else #f))
 
 (match/first #(0 a b d)
-    ((let all (0 a b . ,c)) (list c all))
+    (((0 a b . ,c) as all) (list c all))
     (else #f))
 
 (define-record re a b c)
@@ -199,7 +199,7 @@
     (else #f))
 
 (match/first #(0 a b d)
-    ((let all #(0 a c ,c)) (list c all))
+    ((#(0 a c ,c)) (list c all))
     )
 
 '#,(re 0 1 2)
