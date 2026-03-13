@@ -66,7 +66,12 @@
   (define-syntax-rule (sub1! var) (begin (set! var (sub1 var)) (void)))
   (define-syntax-rule (λ formals body ...) (lambda formals body ...))
   (define-syntax-rule (λ_ body ...) (λ useless body ...))
-  (define-syntax-rule (μ v body ...) (λ (v) body ...))
+  (define-syntax μ
+    (syntax-rules ()
+      ((μ () body ...) (λ (v) body ...))
+      ((μ (v) body ...) (λ (v) body ...))
+      ((μ (v v* ...) body ...) (λ (v) (μ (v* ...) body ...)))
+      ((μ v body ...) (μ (v) body ...))))
   (define-syntax-rule (τ body ...) (λ () body ...))
   (define-syntax-rule (define-τ name body ...) (define name (τ body ...)))
   (define-syntax-rule (letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))

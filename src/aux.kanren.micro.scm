@@ -151,23 +151,24 @@
     (let R ((w v) (r s) (c -1) (vars '()))
       (let1 (w* (µkanren-state-find w r))
             (cond
-              ((µkanren-var-working? w*) (let* ((new-var (make-µkanren-var c))
-                                                (r* (µkanren-state-update w* new-var r))
+              ((µkanren-var-working? w*) (let* ((v* (make-µkanren-var c))
+                                                (r* (µkanren-state-update w* v* r))
                                                 (c* (sub1 c))
-                                                (vars* (cons new-var vars)))
-                                           (values r* c* vars*)))
-              ((pair? w*) (let-values (((r* c* vars*) (R (car w*) r c vars))) (R (cdr w*) r* c* vars*)))
+                                                (vars* (cons v* vars)))
+                                           (R (void) r* c* vars*)))
+              ((pair? w*) (match1/first ((,r* ,c* ,vars*) (R (car w*) r c vars))
+                            (R (cdr w*) r* c* vars*)))
               ((vector? w*) (let loop ((i 0) (r* r) (c* c) (vars* vars))
                               (cond
-                                ((= i (vector-length w*)) (values r* c* vars*))
-                                (else (let-values (((r** c** vars**) (R (vector-ref w* i) r* c* vars*)))
+                                ((= i (vector-length w*)) (list r* c* vars*))
+                                (else (match1/first ((,r** ,c** ,vars**) (R (vector-ref w* i) r* c* vars*))
                                         (loop (add1 i) r** c** vars**))))))
               ((record-instance? w*) (R (record->vector w*) r c vars))
-              (else (values r c vars))))))
+              (else (list r c vars))))))
 
   (define ((µkanren-project w) s)
-    (let1 (w* (if (null? (µkanren-state-S s)) #t (µkanren-state-find* w s))) ; for tautology when there is no variable
-      (let-values (((s* _ vars-reversed) (µkanren-state-reify w* s)))
+    (let1 (w* (if (null? (µkanren-state-S s)) #t (µkanren-state-find* w s))) ; for tautology when there is no variable in the substitution.
+      (match1/first ((,s* _ ,vars-reversed) (µkanren-state-reify w* s))
         (let* ((vars (reverse vars-reversed))
                (vars* (map µkanren-var->symbol vars))
                (repr (µkanren-state-find*/repr w* s*)))
@@ -250,7 +251,7 @@
         (else (append-map§ gt §))))
     (delay (L (g? s))))
 
-  (define (take° n g) (λ (s) (take§ n (delay (g s)))))
+  (define (take° n g) (μ s (take§ n (delay (g s)))))
 
   (define (null° l) (=° l '()))
   (define (boolean° v) (or° (=° v #t) (=° v #f)))
@@ -259,9 +260,7 @@
   #;(define number° (µkanren-make-tag-A 'num number?))
 
   (define-syntax-rule (project° ((v α) ...) g ...) 
-    (λ (s) 
-      (let ((v (µkanren-state-find* α s)) ...)
-        (delay ((and° g ...) s)))))
+    (μ s (let* ((v (µkanren-state-find* α s)) ...) (delay ((and° g ...) s)))))
   
   (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
 
@@ -322,10 +321,9 @@
                (v (reverse (foldr§ F '() §))))
            (delay ((and° f ...) s)))))
 
-
   ; API ------------------------------------------------------------------------
 
-  (define-syntax-rule (define-relation (name arg ...) g ...) (define ((name arg ...) s) (delay ((and° g ...) s))))
+  (define-syntax-rule (define-relation (name arg ...) g ...) (define (name arg ...) (and° g ...)))
 
   (define (°->§ g)
     (let* ((§ (delay (g µkanren-state-empty)))
