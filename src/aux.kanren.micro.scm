@@ -10,26 +10,44 @@
           (aux match)
           (aux stream)
           (aux fds sbral))
+  
+  (define-record µkanren-unbound)
+
+  (define *µkanren-unbound* (make-µkanren-unbound))
 
   ; variables --------------------------------------------------------------------
 
   (define-record µkanren-var index)
-  (define µkanren-var-unbound (gensym 'µkanren-void-))
-  (define (µkanren-unbound? α) (eq? α µkanren-var-unbound))
+
   (define (µkanren-var-working? α) (and (µkanren-var? α) (<= 0 (µkanren-var-index α))))
-  (define (µkanren-var-index/✓ α) (let1 (i (µkanren-var-index α)) (if (µkanren-var-working? α) i (- (add1 i)))))
-  (define (µkanren-var->symbol α) 
-    (cond
-      ((µkanren-var-working? α) (error 'µkanren-var->symbol "just for reified variables" α))
-      (else (string->symbol (string-append "_" (number->string (µkanren-var-index/✓ α)))))))
+
+  (define (µkanren-var-index/✓ α) 
+    (let1 (i (µkanren-var-index α))
+      (if (µkanren-var-working? α) i (- (add1 i)))))
+
+  (define (µkanren-var->symbol α)
+    (string->symbol 
+      (string-append
+        (if (µkanren-var-working? α) "▢" "_")
+        (number->string (µkanren-var-index/✓ α)))))
 
   ; state ------------------------------------------------------------------------
 
   (define-record µkanren-state vars-count S D A T)
+
   (define µkanren-state-empty (make-µkanren-state 0 empty/sbral empty/sbral empty/sbral empty/sbral))
-  (define (µkanren-var-index/sbral α sbral) (- (length/sbral sbral) 1 (µkanren-var-index/✓ α)))
-  (define (µkanren-sbral-ref/var α sbral) (sbral-ref sbral (µkanren-var-index/sbral α sbral)))
-  (define (µkanren-var-deferred? α sbral) (and (µkanren-var? α) (<= (length/sbral sbral) (µkanren-var-index/✓ α))))
+
+  (define (µkanren-var-index/sbral sbral)
+    (let1 (l (length/sbral sbral))
+      (μ α (- l 1 (µkanren-var-index/✓ α)))))
+
+  (define (µkanren-var-deferred? sbral)
+    (let1 (l (length/sbral sbral))
+      (μ α (and (µkanren-var? α) (<= l (µkanren-var-index/✓ α))))))
+
+  (define (µkanren-sbral-ref/var sbral) 
+    (let1 (var-index (µkanren-var-index/sbral sbral))
+      (μ α (sbral-ref sbral (var-index α)))))
 
   (define (µkanren-var-extend/sbral α S default)
     (let ((i (µkanren-var-index/✓ α))
@@ -52,11 +70,12 @@
 
   (define (µkanren-state-update α v s)
     (match1/first ((aux.kanren.micro#µkanren-state ,vc ,S ,D ,A ,T) s)
-      (let* ((S*  (µkanren-var-extend/sbral α S µkanren-var-unbound))
-             (i   (µkanren-var-index/sbral α S*))
+      (let* ((S*  (µkanren-var-extend/sbral α S *µkanren-unbound*))
+             (var-index (µkanren-var-index/sbral S*))
+             (i   (var-index α))
              (S** (update/sbral i v S*)))
         (make-µkanren-state vc S** D A T))))
-  
+
   (define (µkanren-state-occur? w v s)
     (let occur? ((v* v))
       (cond
@@ -69,11 +88,13 @@
   (define (µkanren-state-update/✓ α β s) (and (not (µkanren-state-occur? α β s)) (µkanren-state-update α β s)))
 
   (define (µkanren-state-find α s)
-    (let1 (S (µkanren-state-S s))
+    (let* ((S (µkanren-state-S s))
+           (deferred? (µkanren-var-deferred? S))
+           (ref-var (µkanren-sbral-ref/var S)))
       (let F ((β0 α) (β α))
         (cond
-          ((µkanren-var-deferred? β S) β)
-          ((µkanren-var-working? β) (F β (µkanren-sbral-ref/var β S)))
+          ((deferred? β) β)
+          ((µkanren-var-working? β) (F β (ref-var β)))
           ((µkanren-unbound? β) β0)
           (else β)))))
 
@@ -83,7 +104,7 @@
       (cond
         ((eq? u* v*) s)
         ((and (µkanren-var? u*) (µkanren-var? v*)) 
-          (if (< (µkanren-var-index u*) (µkanren-var-index v*))
+          (if (< (µkanren-var-index/✓ u*) (µkanren-var-index/✓ v*))
             (µkanren-state-update/✓ u* v* s)
             (µkanren-state-update/✓ v* u* s)))
         ((µkanren-var? u*) (µkanren-state-update/✓ u* v* s))
