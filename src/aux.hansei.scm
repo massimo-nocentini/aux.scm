@@ -9,7 +9,6 @@
           (chicken sort) 
           srfi-69
           (aux base)
-          (aux match)
           (aux continuation)
           (aux continuation delimited))
 
@@ -103,8 +102,7 @@
                  (loop 0 '() (sub1 n))))
       (else (probcc-impossible))))
 
-  (define (probcc-uniform/range low high)
-    (+ low (probcc-uniform (- high low))))
+  (define (probcc-uniform/range low high) (+ low (probcc-uniform (- high low))))
   
   (define (probcc-uniform/either lst) (list-ref lst (probcc-uniform (length lst))))
 
@@ -115,27 +113,21 @@
                              (probcc-τ (subtract 1 p) (loop (cons f n)))))))
       (probcc-reflect (loop '()))))
 
-  (define-syntax-rule (probcc-when test body ...) 
-    (cond
-      (test body ...) 
-      (else (probcc-impossible))))
+  (define-syntax-rule (probcc-when test body ...) (cond (test body ...) (else (probcc-impossible))))
 
   (define (probcc-reify/0 model) (resetcc (probcc-unit (model))))
   (define ((probcc-reify depth) model) (probcc-explore depth (probcc-reify/0 model)))
   (define probcc-reify/exact/a (probcc-reify +inf.0))
 
-  (define-syntax probcc-reify/exact
-    (syntax-rules ()
-      ((_ body ...) (probcc-reify/exact/a (τ body ...)))))
+  (define-syntax-rule (probcc-reify/exact body ...) (probcc-reify/exact/a (τ body ...)))
 
   (define (probcc-variable-elimination f)
     (λ args (probcc-reflect (probcc-reify/exact (apply f args)))))
 
-  (define-syntax λ-probcc-bucket
-    (syntax-rules ()
-      ((_ args body ...) (letrec ((f (λ args body ...))
-                                  (bucket (λ-memo bargs (probcc-reify/exact (apply f bargs)))))
-                           (o probcc-reflect bucket)))))
+  (define-syntax-rule (λ-probcc-bucket args body ...) 
+    (letrec ((F (λ args body ...))
+             (B (λ-memo bargs (probcc-reify/exact (apply F bargs)))))
+      (o probcc-reflect B)))
 
   (define (probcc-leaves choices)
     (let L ((choices* choices) 
@@ -147,12 +139,9 @@
         (foldr F count choices*))))
 
   (define (probcc-dfs choices)
-    (letmap ((probpair choices))
-      (match/first probpair
-        (((V ,v) ,p) (list probpair))
-        (((C ,t) ,p) (apply append (probcc-dfs (letmap ((inner (t)))
-                                                (match1/first ((,slot ,pi) inner)
-                                                  (list slot ((op/times) p pi))))))))))
-
+    (map (λ-match/first
+          ((((V ,v) ,p) as probpair) (list probpair))
+          (((C ,t) ,p) (apply append (probcc-dfs (map (λ-match1/first (,slot ,pi) `(,slot ,((op/times) p pi))) (t))))))
+        choices))
 
   )

@@ -17,8 +17,6 @@
           srfi-69
           vector-lib)
 
-  (reexport matchable)
-
   (define-syntax let1 
     (syntax-rules () 
       ((let1 (var val) body ...) (let ((var val)) body ...))
@@ -35,17 +33,114 @@
   (define-syntax-rule (define-macro-er (name expr rename compare) body ...)
     (define-syntax name (er-macro-transformer (λ (expr rename compare) body ...))))
 
-  (define-syntax-rule (define-macro (name (inject (bi i) ...) (compare (bl l) ...)) ((pattern ...) body ...) ...)
+  (define-syntax-rule (define-macro (name (inject (bi i) ...) (compare (bl l) ...)) (pattern body ...) ...)
     (define-macro-ir (name expr inject* compare)
       (let* ((inject (λ symbols (inject* (apply symbols->symbol/stripped-syntax symbols))))
              (bi (inject i)) ...
              (bl (λ (x) (compare x l))) ...)
-        (match expr ((pattern ...) body ...) ...))))
+        (match/first expr (pattern body ...) ...))))
 
   (define (symbols->symbol/stripped-syntax . symbols) (apply symbol-append (map strip-syntax symbols)))
 
   (define-syntax-rule (begin1 expr body ...) (let1 (v expr) (begin body ... v)))
   (define-syntax-rule (define-many (name ...) (value ...)) (begin (define name value) ... (void)))
+
+
+  ; match/non-overlapping --------------------------------------------------------------------------
+
+  (define-syntax-rule (match/non-overlapping v (e ...) ...) 
+    (dmatch-run-a-thunk (quote v) v (dmatch-remexp v (e ...) ...)))
+
+  (define-syntax-rule (match1/non-overlapping (pat v) body ...) (match/non-overlapping v (pat body ...)))
+
+  (define-syntax-rule (λ/non-overlapping (e ...) ...) (λ (arg) (match/non-overlapping arg (e ...) ...)))
+
+  (define-syntax-rule (λ1/non-overlapping pat body ...) (λ/non-overlapping (pat body ...)))
+
+  (define-record dmatch-pkg clause thunk)
+
+  (define-syntax dmatch-remexp
+    (syntax-rules ()
+      ((dmatch-remexp (rator rand ...) cls ...) (let1 (v (rator rand ...)) (dmatch-aux v cls ...)))
+      ((dmatch-remexp v cls ...) (dmatch-aux v cls ...))))
+
+  (define-syntax dmatch-aux
+    (syntax-rules (⇒)
+      ((dmatch-aux v) '())
+      ((dmatch-aux v (pat g ⇒ e ...) cls ...)
+        (let1 (fk (τ (dmatch-aux v cls ...)))
+          (match-pattern v pat (if g (cons (make-dmatch-pkg (quote (pat g ⇒ e ...)) (τ e ...)) (fk)) (fk)) (fk))))
+      ((dmatch-aux v (pat e ...) cls ...) (dmatch-aux v (pat #t ⇒ e ...) cls ...))))
+
+  (define (dmatch-run-a-thunk v-expr v pkgs)
+    (cond
+      ((null? pkgs) (error (string-append "match/non-overlapping\n\n" 
+                            (->string/pretty-print `((reason "no match found") (expr ,v-expr) (value ,v))))))
+      ((null? (cdr pkgs)) (let1 (t (dmatch-pkg-thunk (car pkgs))) (t)))
+      (else (error (string-append "match/non-overlapping\n\n" 
+                    (->string/pretty-print `((reason "overlapping match")
+                                             (expr ,v-expr) 
+                                             (value ,v) 
+                                             (ambiguities ,(map dmatch-pkg-clause pkgs)))))))))
+
+  ; match/first --------------------------------------------------------------------------
+
+  (define-syntax-rule (match/first exp clause ...) 
+    (let1 (val-to-match exp) (match-case-simple* val-to-match clause ...)))
+
+  (define-syntax-rule (match1/first (pat v) body ...) (match/first v (pat body ...)))
+
+  (define-syntax-rule (λ-match/first e ...) (λ (arg) (match/first arg e ...)))
+
+  (define-syntax-rule (λ-match1/first pat body ...) (λ-match/first (pat body ...)))
+
+  (define-syntax match-case-simple*
+    (syntax-rules (else ⇒)
+      ((match-case-simple* val (else exp ...)) (begin exp ...))
+      ((match-case-simple* val) (match-case-simple* val
+                                  (else (error (string-append "match/first: uncaught value.\n\n" 
+                                                              (->string/pretty-print val))))))
+      ((match-case-simple* val (pattern guard ⇒ exp ...) clause ...)
+        (let1 (fk (τ (match-case-simple* val clause ...)))
+          (match-pattern val pattern (if guard (begin exp ...) (fk)) (fk))))
+      ((match-case-simple* val (pattern exp ...) clause ...) 
+        (match-case-simple* val (pattern #t ⇒ exp ...) clause ...))))
+
+  (define-syntax match-pattern
+    (syntax-rules (_ __ unquote as)
+      ((match-pattern val _ kt kf) kt)
+      ((match-pattern val __ kt kf) kf)
+      #;((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
+      ((match-pattern val () kt kf) (if (or (null? val) (and (vector? val) (zero? (vector-length val)))) kt kf))
+      ((match-pattern val (e as var) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
+      ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
+      #;((match-pattern val #(x x* ...) kt kf)
+        (cond
+          ((pair? val) 
+            (let ((valx (car val)) (valy (cdr val)))
+              (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
+          ((and (vector? val) (> (vector-length val) 0))
+            (let ((valx (vector-ref val 0)) (valy (subvector val 1)))
+              (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
+          ((record-instance? val)
+            (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
+              (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
+          (else kf)))
+      ((match-pattern val (x . y) kt kf)
+        (cond
+          ((pair? val) 
+            (let ((valx (car val)) (valy (cdr val)))
+              (match-pattern valx x (match-pattern valy y kt kf) kf)))
+          ((and (vector? val) (> (vector-length val) 0))
+            (let ((valx (vector-ref val 0)) (valy (subvector val 1)))
+              (match-pattern valx x (match-pattern valy y kt kf) kf)))
+          ((record-instance? val)
+            (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
+              (match-pattern valx x (match-pattern valy y kt kf) kf)))
+          (else kf)))
+      ((match-pattern val lit kt kf) (if (equal? val (quote lit)) kt kf))))
+
+  ; -------------------------------------------------------------------------------------------------
 
   (define-syntax letport/string 
     (syntax-rules (out else) 
@@ -132,24 +227,21 @@
   (define-syntax lettensor
     (syntax-rules ()
       ((lettensor f () body ...) (begin body ...))
-      ((lettensor f ((x expr) (xx exprr) ...) body ...) 
-       (f (lambda (x) (lettensor f ((xx exprr) ...) body ...)) expr))))
+      ((lettensor f ((x expr) e ...) body ...) (f (μ x (lettensor f (e ...) body ...)) expr))))
 
   (define-syntax-rule (letmaptensor ((x expr) ...) body ...) (lettensor map ((x expr) ...) body ...))
 
   (define-syntax letmap
     (syntax-rules ()
       ((letmap () body ...) (list (begin body ...)))
-      ((letmap ((x expr) (xx exprr) ...) body ...) 
-       (apply append (map (lambda (x) (letmap ((xx exprr) ...) body ...)) expr)))))
+      ((letmap ((x expr) e ...) body ...) (append-map (μ x (letmap (e ...) body ...)) expr))))
 
   (define (member? v lst) (pair? (member v lst)))
 
   (define-syntax letassoc 
     (syntax-rules (else) 
       ((letassoc (searchexpr lstexpr) (else body ...))
-       (let1 (p (assoc searchexpr lstexpr))
-             (if (pair? p) (cadr p) (begin body ...))))))
+       (let1 (p (assoc searchexpr lstexpr)) (if (pair? p) (cadr p) (begin body ...))))))
 
   (define-syntax letassoc/cdr
     (syntax-rules (else) 
@@ -163,7 +255,6 @@
       (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
 
   (define (curry f g) (λ args (apply f (cons g args)))) 
-
 
   (define (foldr/yielded f t init)
     (cond
@@ -220,6 +311,8 @@
   (define Y (λ (f) (Φ (λ (g) (f (λ args (apply (Φ g) args)))))))
 
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
+
+  (define (map/curry f) (μ lst (map f lst)))
 
   (define-syntax λ-curry
     (syntax-rules ()

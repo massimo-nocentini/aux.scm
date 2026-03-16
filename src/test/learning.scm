@@ -109,8 +109,6 @@ END
             (cite/a "https://wiki.call-cc.org/man/5/C%20interface#an-example-for-simple-calls-to-foreign-code-involving-callbacks"
                     "An example for simple calls to foreign code involving callbacks, Chicken Scheme manual.") ".")))
 
-  ((test/matchable/? _) (⊦= '(a) (match '(1 a) (((? odd?) a) (list a)))))
-
   ((test/string/ref _) (⊦ equal? #\o (string-ref "hello" 4)))
   ((test/string/last _) (⊦ equal? #\o (string-last "hello")))
   ((test/string/take-right _) (⊦ equal? "o" (string-take-right "hello" 1)))

@@ -1,10 +1,10 @@
 
-(import scheme (chicken base) (chicken memory representation) (aux base) (aux unittest) (aux match))
+(import scheme (chicken base) (chicken memory representation) (aux base) (aux unittest))
 
 (define-suite dmatch-suite
 
   ((doc r) `((structure/section "Implementation")
-             (code/scheme/file "../aux.match.scm")))
+             #;(code/scheme/file "../aux.match.scm")))
 
   ((test/base-non-overlapping _)
       (⊦= 'empty (match/non-overlapping '() (() 'empty)))

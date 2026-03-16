@@ -21,10 +21,7 @@
     spiffy-request-vars
     intarweb 
     uri-common
-    matchable
     )
-
-  (reexport matchable)
 
   (define highlight-version "11.11.1")
   (define highlight-languages '(scheme lisp python mathematica javascript htmlxml css bash c cpp java ruby go rust ocaml pgsql))
@@ -204,7 +201,7 @@
                 (m (request-method request))
                 ($ (request-vars)))
            (cond
-             ((equal? (quote method) m) (match (uri-path uri) (('/ p ...) b ...) ...)) ...
+             ((equal? (quote method) m) (match/first (uri-path uri) (('/ p ...) b ...) ...)) ...
              (else (continue))))))))
 
   (define-syntax define-vhost-map 

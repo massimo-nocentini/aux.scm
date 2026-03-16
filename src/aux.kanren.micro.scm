@@ -7,7 +7,6 @@
           (chicken memory representation)
           srfi-1 srfi-69 srfi-133
           (aux base)
-          (aux match)
           (aux stream)
           (aux fds sbral))
   

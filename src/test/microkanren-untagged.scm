@@ -1,10 +1,7 @@
 
-(import scheme (chicken base) (chicken memory representation) (aux base) (aux unittest) (aux match))
+(import scheme (chicken base) (chicken memory representation) (aux base) (aux unittest))
 
 (define-suite untagged-suite
-
-  #;((doc r) `((structure/section "Implementation")
-             (code/scheme/file "../aux.match.scm")))
 
   ((test-λ-calculus-interpreter _)
 

@@ -1,6 +1,6 @@
 
 (import scheme (chicken base) (chicken sort) (chicken random) (chicken pretty-print) (chicken string) (chicken sort) 
-    srfi-1 srfi-69 (aux base) (aux unittest) (aux hansei) (aux match))
+    srfi-1 srfi-69 (aux base) (aux unittest) (aux hansei))
 
 (set-pseudo-random-seed! "561")
 
