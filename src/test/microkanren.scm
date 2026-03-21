@@ -24,8 +24,8 @@
    (let* ((v1 (make-µkanren-var 0))
           (v2 (make-µkanren-var 1))
           (s0 µkanren-state-empty)
-          (s1 (make-µkanren-state 1 (cons/sbral 'a (µkanren-state-S s0)) empty/sbral empty/sbral empty/sbral))
-          (s2 (make-µkanren-state 2 (cons/sbral v1 (µkanren-state-S s1)) empty/sbral empty/sbral empty/sbral)))
+          (s1 (make-µkanren-state 1 (cons/sbral 'a (µkanren-state-S s0)) empty/sbral empty/sbral empty/sbral '()))
+          (s2 (make-µkanren-state 2 (cons/sbral v1 (µkanren-state-S s1)) empty/sbral empty/sbral empty/sbral '())))
      (⊦= 5 (µkanren-state-find 5 s2))
      (⊦= 'a (µkanren-state-find v1 s2))
      (⊦= 'a (µkanren-state-find v2 s2))))
@@ -182,23 +182,10 @@ END
     (⊦= #(person alice 30) (record->vector p))
     (⊦= '((person alice 30)) (°->list/ground (fresh° r (t n a) (=° `#(,t ,n ,a) p)))))
 
+  ((test/symbol° _)
+    (⊦= '(#t) (°->list/ground (fresh° (s) (symbol° s))))
+    )
+
   )
 
 (unittest/✓ microkanren-suite)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
