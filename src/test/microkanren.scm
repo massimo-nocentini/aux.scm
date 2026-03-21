@@ -21,14 +21,14 @@
 (define-suite microkanren-suite
 
   ((test/find _)
-   (let* ((v1 (make-µkanren-var 0))
-          (v2 (make-µkanren-var 1))
-          (s0 µkanren-state-empty)
-          (s1 (make-µkanren-state 1 (cons/sbral 'a (µkanren-state-S s0)) empty/sbral empty/sbral empty/sbral '()))
-          (s2 (make-µkanren-state 2 (cons/sbral v1 (µkanren-state-S s1)) empty/sbral empty/sbral empty/sbral '())))
-     (⊦= 5 (µkanren-state-find 5 s2))
-     (⊦= 'a (µkanren-state-find v1 s2))
-     (⊦= 'a (µkanren-state-find v2 s2))))
+   (let* ((v1 (make-μkanren-var 0))
+          (v2 (make-μkanren-var 1))
+          (s0 μkanren-state-empty)
+          (s1 (make-μkanren-state 1 (cons/sbral 'a (μkanren-state-S s0)) empty/sbral empty/sbral empty/sbral '()))
+          (s2 (make-μkanren-state 2 (cons/sbral v1 (μkanren-state-S s1)) empty/sbral empty/sbral empty/sbral '())))
+     (⊦= 5 (μkanren-state-find 5 s2))
+     (⊦= 'a (μkanren-state-find v1 s2))
+     (⊦= 'a (μkanren-state-find v2 s2))))
 
   ((test/=° _) (⊦= '(#t) (°->list/ground (=° 'z 'z))))
 
@@ -82,7 +82,7 @@
         '(_0 _1 _2 _3 _4 _5 _6 . _7)
         '(_0 _1 _2 _3 _4 _5 _6 _7 . _8)
         '(_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
-      (µkanren-run (l 10 #t) (fresh° (a d) (append° a d l)))))
+      (μkanren-run (l 10 #t) (fresh° (a d) (append° a d l)))))
 
   ((test/project° _)
     (⊦= '(4700 6500 5000 5700 5700 4400 4000 5500 5300 5300)
