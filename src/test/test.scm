@@ -82,7 +82,7 @@
    `(doc))
 
   ((test/simdjson/version _)
-   (⊦= "4.3.1" (simdjson-get-version))
+   (⊦= "4.4.2" (simdjson-get-version))
    `(doc (p "The current version of " (code/inline "simdjson") " is " (code/inline ,(simdjson-get-version)) ".")))
 
   ((test/simdjson/load-twitter _)
