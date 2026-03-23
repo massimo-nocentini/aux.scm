@@ -227,8 +227,12 @@
       (not/✓ (foldr/sbral f #f (μkanren-state-A state)))))
 
   (define (μkanren-subsume α A/T D)
-    #;(remp (λ (d) (exists (subsumed-pr? A/T ) d)) D)
-    D)
+    (let1 (f  (λ (i each sbral)
+                (let1 (α* (make-μkanren-var i))
+                  (cond
+                    ((equal? α α*) sbral)
+                    (else (μkanren-update/sbral α* each sbral))))))
+      (foldr/sbral f empty/sbral D)))
 
   (define (μkanren-subsume-A α tag D A state)
     (match1/first ((,D* ,T*) (μkanren-update-D/T α D A state))
@@ -286,9 +290,25 @@
         (delay (g s*)))))
 
   (define ((=° u v) s)
-    (let* ((s* (μkanren-state-unify u v s))
-           (g (if (μkanren-state? s*) ✓° ✗°)))
-      (delay (g s*))))
+    (cond 
+      ((μkanren-state-unify u v s) => (μkanren-post-=° s))
+      (else (✗° s))))
+
+  (define ((μkanren-post-=° s) s*) (✓° s*))
+    ; (cond
+    ;   ((eq? s s*) (✓° s))
+    ;   ((μkanren-verify-D s s*) => (μ D (cond
+    ;                                     ((μkanren-post-verify-D D s s*) => ✓°)
+    ;                                     (else (✗° s)))))
+    ;   (else (✗° s))))
+
+  #;(define (μkanren-verify-D s s*)
+    (let1 (F  (λ (i each D*)
+                (and D*
+                  (cond
+                    ((μkanren-unify* i each s*) => (λ (s**) (if (eq? s* s**) #f (cons ...))))
+                    (else D*)))))
+      (foldr/sbral F empty/sbral (μkanren-state-D s))))
 
   (define ((orª f g) s) (append§/interleaved/2 (delay (f s)) (delay (g s))))
   (define ((andª f g) s) (append-map§ g (delay (f s))))

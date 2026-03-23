@@ -168,6 +168,7 @@
       ((μ (v v* ...) body ...) (λ (v) (μ (v* ...) body ...)))
       ((μ v body ...) (μ (v) body ...))))
   (define-syntax-rule (τ body ...) (λ () body ...))
+  (define-syntax-rule (δ body ...) (delay (begin body ...)))
   (define-syntax-rule (define-τ name body ...) (define name (τ body ...)))
   (define-syntax-rule (letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))
   (define-syntax-rule (letport/output-string p body ...) (call-with-output-string (λ (p) body ...)))
@@ -298,7 +299,7 @@
       (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
 
   (define one? (λ (n) (equal? n 1)))
-  (define void? (λ (v) (eq? v (void))))
+  (define void? (let1 (v (void)) (μ v* (eq? v v*))))
 
   ; the SKI combinators.
   (define K (λ (x) (λ_ x)))
@@ -343,5 +344,8 @@
   (define (foldr/or lst) (foldr (λ (a b) (or a b)) #f lst))
 
   (define (not/✓ v) (match/first v (#t #f) (#f #t) (else v)))
+  
+  (define lhs car)
+  (define rhs cdr)
 
   )

@@ -120,6 +120,10 @@ END
    (⊦ equal? 'a (var-last 'a))
    (⊦ equal? 7 (var-last 'a (+ 3 4))))
 
+  ((test-syntax-with-_ _) 
+    (define-syntax with-underscore (syntax-rules () ((_ body ...) (list '_ body ...))))
+    (⊦ equal? '(_ a) (with-underscore 'a)))
+
   ((test-syntax-with-literal _) 
     (define where +)
     (define-syntax-rule (literal where) (my-macro a where b) (quote (a b where)))
