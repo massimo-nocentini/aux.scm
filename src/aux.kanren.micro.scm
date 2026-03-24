@@ -208,31 +208,35 @@
         (else (✗° state)))))
 
   (define (μkanren-make-tag-A+ α tag state)
-    (match/non-overlapping (ext-A α tag state)
+    (match/first (μkanren-ext-A? α tag state)
+      (#f #f)
       (() state)
-      (#t (let* ((A   (μkanren-state-A state))
-                 (D   (μkanren-state-D state))
-                 (A*  (μkanren-update/sbral α tag A))
-                 (D*  (μkanren-subsume α A* D)))
-            (μkanren-subsume-A α tag D* A* state)))
-      (#f #f)))
+      (,A* (let* ((A   (μkanren-state-A state))
+                  (D   (μkanren-state-D state))
+                  (D*  (μkanren-subsume α A* D)))
+            (μkanren-subsume-A α tag D* (append A* A) state)))))
 
-  (define (ext-A α tag state)
-    (let1 (f  (λ (i tag* failed)
-                (or failed
-                  (let1 (α* (make-μkanren-var i))
-                    (cond
-                      ((equal? α (μkanren-state-find α* state)) (if (μkanren-tag-equal? tag* tag) '() #t))
-                      (else failed))))))
-      (not/✓ (foldr/sbral f #f (μkanren-state-A state)))))
+  (define (μkanren-ext-A? α tag state)
+    (let L ((A (μkanren-state-A state)))
+      (match/first A
+        (() (list (cons α tag)))
+        (((,α* . ,tag*) . _) (equal? α (μkanren-state-find α* state)) ⇒ (if (μkanren-tag-equal? tag tag*) '() #f))
+        ((_ . ,A*) (L A*)))))
 
-  (define (μkanren-subsume α A/T D)
-    (let1 (f  (λ (i each sbral)
-                (let1 (α* (make-μkanren-var i))
-                  (cond
-                    ((equal? α α*) sbral)
-                    (else (μkanren-update/sbral α* each sbral))))))
-      (foldr/sbral f empty/sbral D)))
+  (define (μkanren-subsume α A/T D state) (remove (exists (μkanren-subsumed-pr? A/T)) D))
+
+  (define ((μkanren-subsumed-pr? A/T) pr-d)
+    (let1 (u (rhs pr-d))
+      (cond 
+        ((μkanren-var? u) #f)
+        (else
+          (let1 (pr (assoc (lhs pr-d) A/T))
+            (and pr
+              (let1 (tag (rhs pr))
+                (cond 
+                  ((and (μkanren-tag? tag) (μkanren-tag? u)) (μkanren-tag-equal? u tag))
+                  ((and (μkanren-tag? tag) (let1 (pred? (μkanren-tag-pred tag)) (pred? u))) #f)
+                  (else #t)))))))))
 
   (define (μkanren-subsume-A α tag D A state)
     (match1/first ((,D* ,T*) (μkanren-update-D/T α D A state))
@@ -242,52 +246,42 @@
         (cons tag (μkanren-state-tags state)))))
 
   (define (μkanren-update-D/T α D A state)
-    (let* ((tags (μkanren-state-tags state))
-           (done? (λ (i tag done)
-                    (or done
-                      (let1 (α* (make-μkanren-var i))
-                        (cond
-                          ((and (equal? α α*) (member? tag tags)) #t)
-                          (else done))))))
-           (F (λ (i each sbral)
-                (let1 (α* (make-μkanren-var i))
-                  (cond
-                    ((equal? α α*) sbral)
-                    (else (μkanren-update/sbral α* each sbral)))))))
-      (if (foldr/sbral done? #f A)
-        (μkanren-update-D/T+ α D empty/sbral state)
-        (let* ((T (μkanren-state-T state))
-               (T* (foldr/sbral F empty/sbral T)))
-              (list D T*)))))
+    (let ((T (μkanren-state-T state))
+          (tags (μkanren-state-tags state)))
+      (match/first A
+        (() (let1 (T* (remove (μ t (equal? (lhs t) α)) T)) (list D T*)))
+        (((,α* . ,tag) . ,A*) (and (equal? α* α) (member? tag tags))
+          ⇒ (μkanren-update-D/T+ α '() D (μkanren-state-T state) state))
+        ((_ . ,A*) (μkanren-update-D/T α D A* state)))))
 
-  (define (μkanren-update-D/T+ α D T state)
-    (let1 (F  (λ (i each D&T)
-                (let ((α* (make-μkanren-var i))
-                      (D (car D&T))
-                      (T (cadr D&T)))
-                  (if (equal? α α*)
-                    (let1 (D* (ext-D α each D state)) (list D* T))
-                    (let1 (T* (μkanren-update/sbral α* each T)) (list D T*))))))
-      (foldr/sbral F (list D T) (μkanren-state-T state))))
+  (define (μkanren-update-D/T+ α T+ D T state)
+    (match/first T
+      (() (list D T+))
+      (((,α* . ,tag) . ,T*) (equal? α* α) 
+        ⇒ (let1 (D* (μkanren-ext-D α tag D state))
+            (μkanren-update-D/T+ α T+ D* T* state)))
+      ((,t . ,T*) (let1 (T+* (cons t T+)) (μkanren-update-D/T+ α T+* D T* state)))))
 
-  (define (ext-D α tag D state)
-    (let1 (exists?  (λ (i d) 
-                      (let1 (α* (make-μkanren-var i))
-                        (match/first d
-                          (((,tag*)) (and (equal? α α*) (μkanren-tag? tag*) (μkanren-tag-equal? tag tag*)))
-                          (else #f)))))
-      (if (exists?/sbral exists? D) D (μkanren-update/sbral α (list tag) D))))
+  (define (μkanren-ext-D α tag D state)
+    (let1 (exists? (exists (μ d (and  (null? (cdr d))
+                                      (let ((α* (lhs (car d))) (u (rhs (car d))))
+                                        (and  (equal? (μkanren-state-find α* state) α)
+                                              (μkanren-tag? u)
+                                              (μkanren-tag-equal? u tag)))))))
+      (cond
+        ((exists? D) D)
+        (else (cons (list (cons α tag)) D)))))
 
   ; goals --------------------------------------------------------------------------
 
   (define ✓° list)
-  (define (✗° s) '())
+  (define ✗° (K '()))
 
   (define (freshª f) ; ª means "applicative", so `freshª` is a *function* that consumes a function and returns a goal.
     (λ° (s : vc S D A T tags)
       (let* ((g  (f (make-μkanren-var vc)))
              (s* (make-μkanren-state (add1 vc) S D A T tags)))
-        (delay (g s*)))))
+        (δ (g s*)))))
 
   (define ((=° u v) s)
     (cond 
@@ -295,23 +289,31 @@
       (else (✗° s))))
 
   (define ((μkanren-post-=° s) s*) (✓° s*))
-    ; (cond
-    ;   ((eq? s s*) (✓° s))
-    ;   ((μkanren-verify-D s s*) => (μ D (cond
-    ;                                     ((μkanren-post-verify-D D s s*) => ✓°)
-    ;                                     (else (✗° s)))))
-    ;   (else (✗° s))))
+  
+  (define ((≠° u v) s)
+    (cond
+      ((μkanren-state-unify u v s) => (μkanren-post-≠° s))
+      (else (✓° s))))
 
-  #;(define (μkanren-verify-D s s*)
-    (let1 (F  (λ (i each D*)
-                (and D*
-                  (cond
-                    ((μkanren-unify* i each s*) => (λ (s**) (if (eq? s* s**) #f (cons ...))))
-                    (else D*)))))
-      (foldr/sbral F empty/sbral (μkanren-state-D s))))
+  (define (μkanren-post-≠° s)
+    (μkanren-state-match ((vc S D A T tags) s)
+      (μ s*
+        (cond
+          ((eq? s s*) (✗° s))
+          (else (let* ((S* (μkanren-state-S s*))
+                       (S*-length (length/sbral S*))
+                       (S*-S (prefix/sbral S* S))
+                       (M (λ (i each) (let1 (α (make-μkanren-var (- S*-length i 1))) (cons α each))))
+                       (mapped (sbral->list (map/sbral M S*-S)))
+                       (D* (filter (μ each (not (μkanren-unbound? (cdr each)))) mapped))
+                       (D* (list D*))
+                       (D* (μkanren-subsume (void) A D* s*))
+                       (D* (μkanren-subsume (void) T D* s*))
+                       (D* (append D* D)))
+                (make-μkanren-state (μkanren-state-vars-count s*) S D* A T tags)))))))
 
-  (define ((orª f g) s) (append§/interleaved/2 (delay (f s)) (delay (g s))))
-  (define ((andª f g) s) (append-map§ g (delay (f s))))
+  (define ((orª f g) s) (append§/interleaved/2 (δ (f s)) (δ (g s))))
+  (define ((andª f g) s) (append-map§ g (δ (f s))))
 
   (define-syntax fresh°
     (syntax-rules ()
@@ -336,12 +338,12 @@
   (define ((if° g? gt gf) s)
     (define (L §)
       (cond
-        ((null? §) (delay (gf s)))
-        ((promise? §) (delay (L (force §))))
+        ((null? §) (δ (gf s)))
+        ((promise? §) (δ (L (force §))))
         (else (append-map§ gt §))))
-    (delay (L (g? s))))
+    (δ (L (g? s))))
 
-  (define (take° n g) (μ s (take§ n (delay (g s)))))
+  (define (take° n g) (μ s (take§ n (δ (g s)))))
 
   (define (null° l) (=° l '()))
   (define (boolean° v) (or° (=° v #t) (=° v #f)))
@@ -354,13 +356,13 @@
   (define number° (μkanren-make-tag-A tag:num))
 
   (define-syntax-rule (project° ((v α) ...) g ...) 
-    (μ s (let* ((v (μkanren-state-find* α s)) ...) (delay ((and° g ...) s)))))
+    (μ s (let* ((v (μkanren-state-find* α s)) ...) (δ ((and° g ...) s)))))
   
   (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
-        (let* ((§ (delay (g s))) ; the stream to fold over
+        (let* ((§ (δ (g s))) ; the stream to fold over
                (F (λ (s* H)
                       (hash-table-update!/default H  
                                                   (list (μkanren-state-find* k s*) ...) ; key
@@ -370,11 +372,11 @@
                (ht (foldr§ F (make-hash-table) §))
                (G (λ (key group folded) (or° (let ((v* (aggr (hash-table-ref group v))) ...) (receive (k ...) (apply values key) (and° f ...))) folded)))
                (g* (hash-table-fold ht G ✗°)))
-          (delay (g* s)))))
+          (δ (g* s)))))
 
   (define-syntax-rule (literal over from =>) (window° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
-        (let* ((§ (delay (g s))) ; the stream to fold over
+        (let* ((§ (δ (g s))) ; the stream to fold over
                (F (λ (s* H)
                       (hash-table-update!/default H  
                                                   (list (μkanren-state-find* k s*) ...) ; key
@@ -390,7 +392,7 @@
   (define-syntax-rule (literal over from =>) 
     (set° (v aggr init₀) over ((k* k) ...) from g => f ...)
       (λ (s)
-        (let* ((§ (delay (g s))) ; the stream to fold over
+        (let* ((§ (δ (g s))) ; the stream to fold over
               (A aggr) ; to evaluate `aggr` only once
               (init init₀) ; to evaluate `init` only once
               (F (λ (s* H)
@@ -400,12 +402,12 @@
               (ht (foldr§ F (make-hash-table) §))
               (G (λ (key v folded) (or° (receive (k* ...) (apply values key) (and° f ...)) folded)))
               (g* (hash-table-fold ht G ✗°)))
-          (delay (g* s)))))
+          (δ (g* s)))))
 
   (define-syntax-rule (literal over from =>) 
     (enumerate° (v aggr) over (k ...) from g => f ...)
       (λ (s)
-        (let* ((§ (delay (g s))) ; the stream to fold over
+        (let* ((§ (δ (g s))) ; the stream to fold over
                (A aggr) ; to evaluate `aggr` only once
                (i 0)
                (F (λ (s* H)
@@ -413,14 +415,14 @@
                      (add1! i)
                      (cons (apply A key) H))))
                (v (reverse (foldr§ F '() §))))
-           (delay ((and° f ...) s)))))
+           (δ ((and° f ...) s)))))
 
   ; API ------------------------------------------------------------------------
 
   (define-syntax-rule (define-relation (name arg ...) g ...) (define (name arg ...) (and° g ...)))
 
   (define (°->§ g)
-    (let* ((§ (delay (g μkanren-state-empty)))
+    (let* ((§ (δ (g μkanren-state-empty)))
            (P (μkanren-project (make-μkanren-var 0))))
       (map§ P §)))
 

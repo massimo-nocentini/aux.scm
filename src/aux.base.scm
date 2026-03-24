@@ -344,8 +344,19 @@
   (define (foldr/or lst) (foldr (λ (a b) (or a b)) #f lst))
 
   (define (not/✓ v) (match/first v (#t #f) (#f #t) (else v)))
-  
+
   (define lhs car)
   (define rhs cdr)
+
+  (define ((exists pred?) lst)
+    (let1 (M (λ (each folded) (or folded (pred? each))))
+      (foldr M #f lst)))
+
+  (define (prefix-with-respect-to s)
+    (letrec ((P (μ s*
+                  (cond
+                    ((eq? s* s) '())
+                    (else (cons (car s*) (P (cdr s*))))))))
+      P))
 
   )

@@ -8,7 +8,7 @@
           (aux continuation delimited)
   )
 
-  (define-syntax cons§ (syntax-rules () ((_ a d) (delay (cons a d)))))
+  (define-syntax cons§ (syntax-rules () ((_ a d) (δ (cons a d)))))
   (define-syntax yield§ (syntax-rules () ((yield§ body) (letcc/shift k (cons§ body (k (void)))))))
   (define (yield§ª v) (yield§ v))
 
@@ -37,27 +37,27 @@
   (define (take§ n s)
     (cond
       ((zero? n) '())
-      ((promise? s) (delay (take§ n (force s))))
+      ((promise? s) (δ (take§ n (force s))))
       ((pair? s) (cons§ (car s) (take§ (sub1 n) (cdr s))))
       (else s)))
 
   (define (map§ f s)
     (cond
-      ((promise? s) (delay (map§ f (force s))))
+      ((promise? s) (δ (map§ f (force s))))
       ((pair? s) (cons§ (f (car s)) (map§ f (cdr s))))
       (else s)))
 
   (define (filter§ p s)
     (cond
-      ((promise? s) (delay (filter§ p (force s))))
-      ((pair? s) (letcar&cdr (((a d) s)) (if (p a) (cons§ a (filter§ p d)) (delay (filter§ p d)))))
+      ((promise? s) (δ (filter§ p (force s))))
+      ((pair? s) (letcar&cdr (((a d) s)) (if (p a) (cons§ a (filter§ p d)) (δ (filter§ p d)))))
       (else s)))
 
   (define (zip§ f r s)
     (cond
-      ((and (promise? r) (promise? s)) (delay (zip§ f (force r) (force s))))
-      ((promise? r) (delay (zip§ f (force r) s)))
-      ((promise? s) (delay (zip§ f r (force s))))
+      ((and (promise? r) (promise? s)) (δ (zip§ f (force r) (force s))))
+      ((promise? r) (δ (zip§ f (force r) s)))
+      ((promise? s) (δ (zip§ f r (force s))))
       ((and (pair? r) (pair? s)) (cons§ (f (car r) (car s)) (zip§ f (cdr r) (cdr s))))
       (else '())))
 
@@ -69,7 +69,7 @@
 
   (define (cdr§ s)
     (cond
-      ((promise? s) (delay (cdr§ (force s))))
+      ((promise? s) (δ (cdr§ (force s))))
       (else (cdr s))))
 
   (define (car§ s)
@@ -81,7 +81,7 @@
     (λ (s1 s2)
         (cond
           ((null? s1) s2)
-          ((promise? s1) (delay (append§/interleaved/2 s2 (force s1))))
+          ((promise? s1) (δ (append§/interleaved/2 s2 (force s1))))
           (else (cons§ (car s1) (append§/interleaved/2 (cdr s1) s2))))))
 
   (define append§/interleaved
@@ -91,15 +91,15 @@
         (else (letcar&cdr (((choices rest-of-choices) list-of-choices))
                           (cond
                             ((null? choices) (apply append§/interleaved rest-of-choices))
-                            ((promise? choices) (delay (apply append§/interleaved (append rest-of-choices (list (force choices))))))
+                            ((promise? choices) (δ (apply append§/interleaved (append rest-of-choices (list (force choices))))))
                             ((pair? choices) (cons§ (car choices) (apply append§/interleaved (append rest-of-choices (list (cdr choices))))))
                             (else '())))))))
 
   (define (append-map§ f $)
     (cond
       ((null? $) '())
-      ((promise? $) (delay (append-map§ f (force $))))
-      (else (append§/interleaved/2 (delay (f (car $))) (append-map§ f (cdr $))))))
+      ((promise? $) (δ (append-map§ f (force $))))
+      (else (append§/interleaved/2 (δ (f (car $))) (append-map§ f (cdr $))))))
 
   (define (const§ s) (rec N (cons§ s N)))
   (define (nats§ s) (rec N (cons§ s (map§ add1 N))))
@@ -118,7 +118,7 @@
 
   (define (stop§ pred? §)
     (cond
-      ((promise? §) (delay (stop§ pred? (force §))))
+      ((promise? §) (δ (stop§ pred? (force §))))
       ((or (null? §) (pred? (car §))) '())
       (else (cons§ (car §) (stop§ pred? (cdr§ §))))))
 
