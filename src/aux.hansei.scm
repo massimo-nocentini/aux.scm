@@ -139,9 +139,9 @@
         (foldr F count choices*))))
 
   (define (probcc-dfs choices)
-    (map (λ-match/first
-          ((((V ,v) ,p) as ,probpair) (list probpair))
-          (((C ,t) ,p) (apply append (probcc-dfs (map (λ-match1/first (,slot ,pi) `(,slot ,((op/times) p pi))) (t))))))
-        choices))
+    (let1 (M  (λ-match/first
+                (((C ,t) ,p) (apply append (probcc-dfs (map (λ-match1/first (,slot ,pi) `(,slot ,((op/times) p pi))) (t)))))
+                (,probpair (list probpair))))
+      (map M choices)))
 
   )

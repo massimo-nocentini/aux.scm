@@ -169,10 +169,9 @@
  ((V ((a b a) (b c b) (b b a))) 0.107142857142857)
  ((V ((a b a) (b c a) (b b a))) 0.0357142857142857))
 
-|#
 
 (match/first '(0 a b d)
-    (((0 a b . ,c) as ,all) (append c all))
+    (((0 a (b as ,r) . ,c) as ,all) (append c all))
     (else #f))
 
 (match/first '(0 a b d)
@@ -191,6 +190,8 @@
 (match/first #(0 a b d)
     (((0 a b . ,c) as ,all) (list c all))
     (else #f))
+    
+|#
 
 (define-record re a b c)
 

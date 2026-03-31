@@ -191,7 +191,7 @@
 
   (define ((μkanren-project w) s)
     (let1 (w* (if (null? (μkanren-state-S s)) #t (μkanren-state-find* w s))) ; for tautology when there is no variable in the substitution.
-      (match1/first ((,s* _ ,vars-reversed) (μkanren-state-reify w* s))
+      (match1/first ((,s* ,c ,vars-reversed) (μkanren-state-reify w* s))
         (let* ((vars (reverse vars-reversed))
                (vars* (map μkanren-var->symbol vars))
                (repr (μkanren-state-find*/repr w* s*)))
@@ -201,8 +201,11 @@
 
   (define (μkanren-ext-D α tag D s) ; ✓
     (let1 (exists? (exists (λ-match/first
-                          (((,α* . ,tag*)) (and (equal? (μkanren-state-find α* s) α) (μkanren-tag? tag*) (μkanren-tag-equal? tag tag*)))
-                          (else #f))))
+                            (((,α* . ,tag*))  (and 
+                                                (equal? (μkanren-state-find α* s) α) 
+                                                (μkanren-tag? tag*) 
+                                                (μkanren-tag-equal? tag tag*)))
+                            (else #f))))
       (cond
         ((exists? D) D)
         (else (cons `((,α . ,tag)) D)))))
@@ -255,7 +258,7 @@
       ((_ . ,T*) (μkanren-ext-T+ α tag T* s))))
 
   (define (μkanren-verify-T+ u T s) ; ✓
-    (match1/first ((_ . ((_ _ _ ,pred?) as ,tag)) (car T))
+    (match1/first ((_ . ,tag) (car T))
       (match/first (μkanren-state-find u s)
         ((,α* ⊣ (μkanren-var? α*))  (μ T₀
                                       (cond
@@ -266,7 +269,7 @@
                           (((μkanren-verify-T+ au T S) T₀) => (μkanren-verify-T+ du T S))
                           (else #f))))
         ; perhaps we should also handle vectors and record-instances here, but for now we only support tags on variables and conses.
-        (,u* (μ T₀ (and (pred? u*) T₀))))))
+        (,u* (μ T₀ (and (μkanren-tag-pred? tag u*) T₀))))))
 
   (define (μkanren-verify-T T s) ; ✓
     (match/first T
@@ -291,13 +294,13 @@
   (define (μkanren-verify-A A s) ; ✓
     (match/first A
       (() '())
-      ((((,α . ((_ _ _ ,pred?) as ,tag)) . ,A*) ⊣ (μkanren-verify-A A* s)) =>
+      ((((,α . ,tag) . ,A*) ⊣ (μkanren-verify-A A* s)) =>
           (μ A0
             (match/first (μkanren-state-find α s)
               ((,α* ⊣ (μkanren-var? α*))  (cond
                                             ((μkanren-ext-A α* tag A0 s) => (μ A+ (append A+ A0)))
                                             (else #f)))
-              (,u (and (pred? u) A0)))))
+              (,u (and (μkanren-tag-pred? tag u) A0)))))
       (else #f)))
 
   (define (μkanren-verify-D/post D A T s) ; ✓
