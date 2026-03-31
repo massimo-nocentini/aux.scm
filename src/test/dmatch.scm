@@ -26,8 +26,8 @@
 
     (define (h x y)
       (match/non-overlapping (cons x y)
-        ((,a . ,b)  (and (number? a) (number? b)) ⇒ (* a b))
-        ((,a ,b ,c) (and (number? a) (number? b) (number? c)) ⇒ (+ a b c))))
+        (((,a . ,b) ⊣ (and (number? a) (number? b))) (* a b))
+        (((,a ,b ,c) ⊣ (and (number? a) (number? b) (number? c))) (+ a b c))))
 
     (⊦= '(12 8) (list (h 3 4) (apply h '(1 (3 4)))))
 
@@ -37,9 +37,9 @@
 
     (define (w x y)
       (match/non-overlapping (cons x y)
-        ((,a . ,b) (and (number? a) (number? b)) ⇒ (* a b))
+        (((,a . ,b) ⊣ (and (number? a) (number? b))) (* a b))
         ((,a . ,b) (+ a b))
-        ((,a ,b ,c) (and (number? a) (number? b) (number? c)) ⇒ (+ a b c))))
+        (((,a ,b ,c) ⊣ (and (number? a) (number? b) (number? c))) (+ a b c))))
 
     (⊦⧳ ((exn)) (list (w 3 4) (apply w '(1 (3 4)))))
     
@@ -55,16 +55,16 @@
     (define (int code env)
       (match/non-overlapping code
         ((quote ,x) x)
-        ((let (,x ,e) ,body) (symbol? x) ⇒ (let ((xv (int e env))) (int body (cons (cons x xv) env))))
+        (((let (,x ,e) ,body) ⊣ (symbol? x)) (let ((xv (int e env))) (int body (cons (cons x xv) env))))
         ((τ ,body) (τ (int body env)))
-        ((λ ,argl ,body) (symbol? argl) ⇒ (λ arglv (int body (cons (cons argl arglv) env))))
-        ((λ (,x) ,body) (symbol? x) ⇒ (λ (xv) (int body (cons (cons x xv) env))))
-        ((,op . ,args) (not (or (eq? op 'quote) (eq? op 'let) (eq? op 'τ) (eq? op 'λ)))
-                          ⇒ (let ((opv (int op env))
-                                  (argvs (map (λ (c) (int c env)) args)))
-                              (apply opv argvs)))
-        (,x (symbol? x) ⇒ (lookup x env))
-        (,x (or (number? x) (string? x)) ⇒ x)))
+        (((λ ,argl ,body) ⊣ (symbol? argl)) (λ arglv (int body (cons (cons argl arglv) env))))
+        (((λ (,x) ,body) ⊣ (symbol? x)) (λ (xv) (int body (cons (cons x xv) env))))
+        (((,op . ,args) ⊣ (not (or (eq? op 'quote) (eq? op 'let) (eq? op 'τ) (eq? op 'λ))))
+          (let ((opv (int op env))
+                (argvs (map (λ (c) (int c env)) args)))
+            (apply opv argvs)))
+        ((,x ⊣ (symbol? x)) (lookup x env))
+        ((,x ⊣ (or (number? x) (string? x))) x)))
 
     (define env0 (interaction-environment/symbols '(+ - display identity)))
 

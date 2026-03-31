@@ -112,8 +112,8 @@
     (match/first (list edge edges)
         (((_ 0 _) _) (cons out edges))
         ((_ ((_ 0 _) . ,edges*)) (M edge edges* out))
-        (((,s ,n ,d) ((,ss ,nn ,dd) . ,edges*))
-            (equal? d ss) ⇒ (M `(,s ,(sub1 n) ,d) (cons `(,ss ,(sub1 nn) ,dd) edges*) (cons `(,s ,d ,dd) out)))
+        ((((,s ,n ,d) ((,ss ,nn ,dd) . ,edges*)) ⊣ (equal? d ss))
+            (M `(,s ,(sub1 n) ,d) (cons `(,ss ,(sub1 nn) ,dd) edges*) (cons `(,s ,d ,dd) out)))
         ((_ (,edge* . ,edges*)) (M edge (append edges* (list edge*)) out))))
 
 (M '(a 1 c) '((b 2 a) (c 1 b)) '())
@@ -172,24 +172,24 @@
 |#
 
 (match/first '(0 a b d)
-    (((0 a b . ,c) as all) (append c all))
+    (((0 a b . ,c) as ,all) (append c all))
     (else #f))
 
 (match/first '(0 a b d)
-    ((,c as all) (cons c all))
+    ((,c as ,all) (cons c all))
     (else #f))
 
 (match/first #(0 a b d)
-    (((0 a b ,c) as all) (list c all))
+    (((0 a b ,c) as ,all) (list c all))
     (else #f))
 
 
 (match/first '(0 a b d)
-    ((#(0 a b ,c) as all) (list c all))
+    ((#(0 a b ,c) as ,all) (list c all))
     (else #f))
 
 (match/first #(0 a b d)
-    (((0 a b . ,c) as all) (list c all))
+    (((0 a b . ,c) as ,all) (list c all))
     (else #f))
 
 (define-record re a b c)

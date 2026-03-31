@@ -140,7 +140,7 @@
 
   (define (probcc-dfs choices)
     (map (λ-match/first
-          ((((V ,v) ,p) as probpair) (list probpair))
+          ((((V ,v) ,p) as ,probpair) (list probpair))
           (((C ,t) ,p) (apply append (probcc-dfs (map (λ-match1/first (,slot ,pi) `(,slot ,((op/times) p pi))) (t))))))
         choices))
 

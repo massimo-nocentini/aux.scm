@@ -8,14 +8,14 @@
     (define (lookup x env)
       (match/non-overlapping env
         (() (error 'lookup "unbound variable" x))
-        (((,y . ,v) . ,rest) (equal? x y) ⇒ v)
-        (((,y . ,v) . ,rest) (not (equal? x y)) ⇒ (lookup x rest))))
+        ((((,y . ,v) . ,rest) ⊣ (equal? x y)) v)
+        ((((,y . ,v) . ,rest) ⊣ (not (equal? x y))) (lookup x rest))))
 
     (define (not-in-env? x env)
       (match/non-overlapping env
         (() #t)
-        (((,y . ,v) . ,rest) (equal? x y) ⇒ #f)
-        (((,y . ,v) . ,rest) (not (equal? x y)) ⇒ (not-in-env? x rest))))
+        ((((,y . ,v) . ,rest) ⊣ (equal? x y)) #f)
+        ((((,y . ,v) . ,rest) ⊣ (not (equal? x y))) (not-in-env? x rest))))
 
     (define rator?
       (let1 (op-names '(lambda quote list))
@@ -24,14 +24,14 @@
 
     (define (eval-exp exp env)
       (match/non-overlapping exp
-        ((,rator ,rand) (rator? rator env) ⇒ (let ((proc (eval-exp rator env))
-                                                   (arg (eval-exp rand env)))
-                                               (match/non-overlapping proc
-                                                ((closure ,x ,body ,env2) (eval-exp body `((,x . ,arg) . ,env2))))))
-        ((λ (,x) ,body) (and (symbol? x) (not-in-env? 'λ env)) ⇒ `(closure ,x ,body ,env))
-        ((quote ,v) (not-in-env? 'quote env) ⇒ v)
-        ((list . ,a∗) (not-in-env? 'list env) ⇒ (map (λ (e) (eval-exp e env)) a∗))
-        (,x (symbol? x) ⇒ (lookup x env))))
+        (((,rator ,rand) ⊣ (rator? rator env))  (let ((proc (eval-exp rator env))
+                                                      (arg (eval-exp rand env)))
+                                                  (match/non-overlapping proc
+                                                    ((closure ,x ,body ,env2) (eval-exp body `((,x . ,arg) . ,env2))))))
+        (((λ (,x) ,body) ⊣ (and (symbol? x) (not-in-env? 'λ env))) `(closure ,x ,body ,env))
+        (((quote ,v) ⊣ (not-in-env? 'quote env)) v)
+        (((list . ,a∗) ⊣ (not-in-env? 'list env)) (map (λ (e) (eval-exp e env)) a∗))
+        ((,x ⊣ (symbol? x)) (lookup x env))))
 
     (define-syntax-rule (eval/env0 body) (eval-exp (quote body) (interaction-environment/symbols '())))
 

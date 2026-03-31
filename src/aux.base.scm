@@ -65,12 +65,15 @@
       ((dmatch-remexp v cls ...) (dmatch-aux v cls ...))))
 
   (define-syntax dmatch-aux
-    (syntax-rules (⇒)
+    (syntax-rules (⊣ =>)
       ((dmatch-aux v) '())
-      ((dmatch-aux v (pat g ⇒ e ...) cls ...)
-        (let1 (fk (τ (dmatch-aux v cls ...)))
-          (match-pattern v pat (if g (cons (make-dmatch-pkg (quote (pat g ⇒ e ...)) (τ e ...)) (fk)) (fk)) (fk))))
-      ((dmatch-aux v (pat e ...) cls ...) (dmatch-aux v (pat #t ⇒ e ...) cls ...))))
+      ((dmatch-aux v ((pat ⊣ guard) => λexpr) clause ...) 
+        (let1 (fk (τ (dmatch-aux v clause ...)))
+          (match-pattern v pat (let1 (g guard) (cond (g (cons (make-dmatch-pkg (quote ((pat ⊣ guard) => λexpr)) (τ (λexpr g))) (fk))) (else (fk)))) (fk))))
+      ((dmatch-aux v ((pat ⊣ g) e ...) clause ...)
+        (let1 (fk (τ (dmatch-aux v clause ...)))
+          (match-pattern v pat (if g (cons (make-dmatch-pkg (quote ((pat ⊣ g) e ...)) (τ e ...)) (fk)) (fk)) (fk))))
+      ((dmatch-aux v (pat e ...) clause ...) (dmatch-aux v ((pat ⊣ #t) e ...) clause ...))))
 
   (define (dmatch-run-a-thunk v-expr v pkgs)
     (cond
@@ -95,16 +98,17 @@
   (define-syntax-rule (λ-match1/first pat body ...) (λ-match/first (pat body ...)))
 
   (define-syntax match-case-simple*
-    (syntax-rules (else ⇒)
-      ((match-case-simple* val (else exp ...)) (begin exp ...))
+    (syntax-rules (else ⊣)
       ((match-case-simple* val) (match-case-simple* val
                                   (else (error (string-append "match/first: uncaught value.\n\n" 
                                                               (->string/pretty-print val))))))
-      ((match-case-simple* val (pattern guard ⇒ exp ...) clause ...)
+      ((match-case-simple* val (else expr ...)) (begin expr ...))
+      ((match-case-simple* val ((pattern ⊣ guard) exp ...) clause ...)
         (let1 (fk (τ (match-case-simple* val clause ...)))
-          (match-pattern val pattern (if guard (begin exp ...) (fk)) (fk))))
-      ((match-case-simple* val (pattern exp ...) clause ...) 
-        (match-case-simple* val (pattern #t ⇒ exp ...) clause ...))))
+          (match-pattern val pattern (cond (guard exp ...) (else (fk))) (fk))))
+      ((match-case-simple* val (pattern expr ...) clause ...)
+        (let1 (fk (τ (match-case-simple* val clause ...)))
+          (match-pattern val pattern (begin expr ...) (fk))))))
 
   (define-syntax match-pattern
     (syntax-rules (_ __ unquote as)
@@ -112,7 +116,7 @@
       ((match-pattern val __ kt kf) kf)
       #;((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
       ((match-pattern val () kt kf) (if (or (null? val) (and (vector? val) (zero? (vector-length val)))) kt kf))
-      ((match-pattern val (e as var) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
+      ((match-pattern val (e as (unquote var)) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
       ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
       #;((match-pattern val #(x x* ...) kt kf)
         (cond
@@ -128,7 +132,7 @@
           (else kf)))
       ((match-pattern val (x . y) kt kf)
         (cond
-          ((pair? val) 
+          ((pair? val)
             (let ((valx (car val)) (valy (cdr val)))
               (match-pattern valx x (match-pattern valy y kt kf) kf)))
           ((and (vector? val) (> (vector-length val) 0))
@@ -348,9 +352,9 @@
   (define lhs car)
   (define rhs cdr)
 
-  (define ((exists pred?) lst)
+  (define (exists pred?)
     (let1 (M (λ (each folded) (or folded (pred? each))))
-      (foldr M #f lst)))
+      (μ lst (foldr M #f lst))))
 
   (define (prefix-with-respect-to s)
     (letrec ((P (μ s*
@@ -358,5 +362,11 @@
                     ((eq? s* s) '())
                     (else (cons (car s*) (P (cdr s*))))))))
       P))
+
+  (define (remove-duplicates lst)
+    (foldr (λ (each seen) (if (member? each seen) seen (cons each seen))) '() lst))
+
+  (define-syntax-rule (appender˱ l ...) (μ lst (append lst l ...)))
+  (define-syntax-rule (appender˲ l ...) (μ lst (append l ... lst)))
 
   )

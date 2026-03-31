@@ -19,7 +19,7 @@
       ((_ (name s) body) (define name (make-μkanren-tag (gensym 'name) '(μ s body) (μ s body))))
       ((_ (name s) body ...) (define-μkanren-tag (name s) (begin body ...)))))
   
-  (define (μkanren-tag-hold? tag v) (let1 (pred? (μkanren-tag-pred tag)) (pred? v)))
+  (define (μkanren-tag-pred? tag v) (let1 (pred? (μkanren-tag-pred tag)) (pred? v)))
   (define (μkanren-tag-equal? tag1 tag2) (equal? (μkanren-tag-name tag1) (μkanren-tag-name tag2)))
 
   (define *μkanren-unbound* (make-μkanren-unbound))
@@ -197,86 +197,175 @@
                (repr (μkanren-state-find*/repr w* s*)))
           `(λ ,vars* ,repr)))))
 
-  (define (((μkanren-make-tag-A tag) u) state)
-    (let1 (u* (μkanren-state-find u state))
+  ; constraints -------------------------------------------------------------------
+
+  (define (μkanren-ext-D α tag D s) ; ✓
+    (let1 (exists? (exists (λ-match/first
+                          (((,α* . ,tag*)) (and (equal? (μkanren-state-find α* s) α) (μkanren-tag? tag*) (μkanren-tag-equal? tag tag*)))
+                          (else #f))))
       (cond
-        ((μkanren-var? u*) (cond
-                              ((μkanren-make-tag-A+ u* tag state) => ✓°)
-                              (else (✗° state))))
-        #;((pair? u*) (✗° state))
-        ((μkanren-tag-hold? tag u*) (✓° state))
-        (else (✗° state)))))
+        ((exists? D) D)
+        (else (cons `((,α . ,tag)) D)))))
 
-  (define (μkanren-make-tag-A+ α tag state)
-    (match/first (μkanren-ext-A? α tag state)
-      (#f #f)
-      (() state)
-      (,A (let* ((D   (μkanren-state-D state))
-                 (D*  (μkanren-subsume A D))
-                 (A*  (append A (μkanren-state-A state))))
-            (μkanren-subsume-A D* A* state)))))
+  (define (μkanren-update-D/T+ α T+ D T s) ; ✓
+    (match/first T
+      (() (cons D T+))
+      ((((,α* . ,tag) . ,T*) ⊣ (equal? α* α)) (let1 (D* (μkanren-ext-D α tag D s)) (μkanren-update-D/T+ α T+ D* T* s)))
+      ((,t . ,T*) (let1 (T+* (cons t T+)) (μkanren-update-D/T+ α T+* D T* s)))))
 
-  (define (μkanren-ext-A? α tag state)
-    (let L ((A (μkanren-state-A state)))
+  (define (μkanren-update-D/T α D A T s) ; ✓
+    (let ((is-α? (μ t (equal? (lhs t) α)))
+          (tags (μkanren-state-tags s)))
       (match/first A
-        (() (list (cons α tag)))
-        (((,α* . ,tag*) . _) (equal? α (μkanren-state-find α* state)) ⇒ (if (μkanren-tag-equal? tag tag*) '() #f))
+        (() (let1 (T* (remove is-α? T)) (cons D T*)))
+        ((((,α* . ,tag) . _) ⊣ (and (equal? α* α) (member? tag tags))) (μkanren-update-D/T+ α '() D T s))
+        ((_ . ,A*) (μkanren-update-D/T α D A* T s)))))
+
+  (define (μkanren-subsume-T vars T+ D A T s) ; ✓
+    (match/first vars
+      (() (let* ((T* (append T+ T))
+                 (vc (μkanren-state-vars-count s))
+                 (S (μkanren-state-S s))
+                 (tags (μkanren-state-tags s)))
+            (make-μkanren-state vc S D A T* tags)))
+      ((,α . ,vars*)  (match/first (μkanren-update-D/T α D A T+ s)
+                        ((,D* . ,T*) (μkanren-subsume-T vars* T* D* A T s))))))
+
+  (define (μkanren-subsumed-pr? A/T) ; ✓
+    (λ-match/first
+      (((_ . ,α) ⊣ (μkanren-var? α)) #f)
+      ((,α . ,u)  (match/first (assoc α A/T)
+                    ((_ . ,u*)  (cond
+                                  ((and (μkanren-tag? u*) (μkanren-tag? u)) (μkanren-tag-equal? u u*))
+                                  ((and (μkanren-tag? u*) (μkanren-tag-pred? u* u)) #f)
+                                  (else #t)))
+                    (else #f)))))
+
+  (define (μkanren-subsume A-or-T D) ; ✓
+    (remove (exists (μkanren-subsumed-pr? A-or-T)) D))
+
+  (define (μkanren-verify-T/post D A s) ; ✓
+    (let1 (vars (remove-duplicates (map lhs A)))
+      (μ T (μkanren-subsume-T vars T (μkanren-subsume T D) A '() s))))
+  
+  (define (μkanren-ext-T+ α tag T s) ; ✓
+    (match/first T
+      (() `((,α . ,tag)))
+      ((((,α* . ,tag*) . _) ⊣ (and (equal? (μkanren-state-find α* s) α) (μkanren-tag-equal? tag tag*))) '())
+      ((_ . ,T*) (μkanren-ext-T+ α tag T* s))))
+
+  (define (μkanren-verify-T+ u T s) ; ✓
+    (match1/first ((_ . ((_ _ _ ,pred?) as ,tag)) (car T))
+      (match/first (μkanren-state-find u s)
+        ((,α* ⊣ (μkanren-var? α*))  (μ T₀
+                                      (cond
+                                        ((μkanren-ext-T+ α* tag T₀ s) => (μ T+ (append T+ T₀)))
+                                        (else #f))))
+        ((,au . ,du)  (μ T₀
+                        (cond
+                          (((μkanren-verify-T+ au T S) T₀) => (μkanren-verify-T+ du T S))
+                          (else #f))))
+        ; perhaps we should also handle vectors and record-instances here, but for now we only support tags on variables and conses.
+        (,u* (μ T₀ (and (pred? u*) T₀))))))
+
+  (define (μkanren-verify-T T s) ; ✓
+    (match/first T
+      (() '())
+      (((,α . ,T*) ⊣ (μkanren-verify-T T* s)) => (μkanren-verify-T+ α T s))
+      (else #f)))
+
+  (define (μkanren-verify-A/post D T s) ; ✓
+    (λ (A)
+      (let1 (D* (μkanren-subsume A D))
+        (cond 
+          ((μkanren-verify-T T s) => (μkanren-verify-T/post D* A s))
+          (else #f)))))
+
+  (define (μkanren-ext-A α tag A0 s) ; ✓
+    (let L ((A A0))
+      (match/first A
+        (() `((,α . ,tag)))
+        ((((,α* . ,tag*) . _) ⊣ (equal? (μkanren-state-find α* s) α)) (if (μkanren-tag-equal? tag tag*) '() #f))
         ((_ . ,A*) (L A*)))))
 
-  (define (μkanren-subsume A-or-T D) (remove (exists (μkanren-subsumed-pr? A-or-T)) D))
+  (define (μkanren-verify-A A s) ; ✓
+    (match/first A
+      (() '())
+      ((((,α . ((_ _ _ ,pred?) as ,tag)) . ,A*) ⊣ (μkanren-verify-A A* s)) =>
+          (μ A0
+            (match/first (μkanren-state-find α s)
+              ((,α* ⊣ (μkanren-var? α*))  (cond
+                                            ((μkanren-ext-A α* tag A0 s) => (μ A+ (append A+ A0)))
+                                            (else #f)))
+              (,u (and (pred? u) A0)))))
+      (else #f)))
 
-  (define ((μkanren-subsumed-pr? A/T) pr-d)
-    (let1 (u (rhs pr-d))
-      (cond
-        ((μkanren-var? u) #f)
-        (else
-          (let1 (pr (assoc (lhs pr-d) A/T))
-            (and pr
-              (let1 (tag (rhs pr))
-                (cond
-                  ((and (μkanren-tag? tag) (μkanren-tag? u)) (μkanren-tag-equal? u tag))
-                  ((and (μkanren-tag? tag) (let1 (pred? (μkanren-tag-pred tag)) (pred? u))) #f)
-                  (else #t)))))))))
+  (define (μkanren-verify-D/post D A T s) ; ✓
+    (cond
+      ((μkanren-verify-A A s) => (μkanren-verify-A/post D T s))
+      (else #f)))
 
-  (define (μkanren-subsume-A D A state)
+  (define (μkanren-state-unify∗ associations s) ; ✓
+    (μkanren-state-unify (map lhs associations) (map rhs associations) s))
+    
+  (define (μkanren-prefix-sbral S* S)
+    (let* ((S*-length (length/sbral S*))
+           (S*-S (prefix/sbral S* S))
+           (M (λ (i each) (let1 (α (make-μkanren-var (- S*-length i 1))) `(,α . ,each))))
+           (mapped (sbral->list (map/sbral M S*-S)))
+           (D* (filter (μ each (not (μkanren-unbound? (cdr each)))) mapped))
+           #;(D* (list D*)))
+      D*))
+
+  (define (μkanren-verify-D+ d D s) ; ✓
+    (cond
+      ((μkanren-state-unify∗ d s) =>  (μ s* 
+                                            (cond 
+                                              ((eq? s* s) #f)
+                                              (else (let* ((S (μkanren-state-S s))
+                                                           (S* (μkanren-state-S s*))
+                                                           (d* (μkanren-prefix-sbral S* S)))
+                                                      (cons d* D))))))
+      (else D)))
+
+  (define (μkanren-verify-D D s) ; ✓
+    (match/first D
+      (() '())
+      (((,d . ,D*) ⊣ (μkanren-verify-D D* s)) => (μ D** (μkanren-verify-D+ d D** s)))
+      (else #f)))
+
+  (define (μkanren-subsume-A D A s) ; ✓
     (let* ((α&tag (car A))
            (α (car α&tag))
            (tag (cdr α&tag))
-           (D&T (μkanren-update-D/T α D A state))
+           (T (μkanren-state-T s))
+           (D&T (μkanren-update-D/T α D A T s))
            (D* (car D&T))
-           (T (cadr D&T))
-           (vc (μkanren-state-vars-count state))
-           (S (μkanren-state-S state))
-           (tags (μkanren-state-tags state)))
+           (T (cdr D&T))
+           (vc (μkanren-state-vars-count s))
+           (S (μkanren-state-S s))
+           (tags (μkanren-state-tags s)))
       (make-μkanren-state vc S D* A T (cons tag tags))))
 
-  (define (μkanren-update-D/T α D A state)
-    (let ((T (μkanren-state-T state))
-          (tags (μkanren-state-tags state)))
-      (match/first A
-        (() (let1 (T* (remove (μ t (equal? (lhs t) α)) T)) (list D T*)))
-        (((,α* . ,tag) . _) (and (equal? α* α) (member? tag tags))
-          ⇒ (μkanren-update-D/T+ α '() D T state))
-        ((_ . ,A*) (μkanren-update-D/T α D A* state)))))
+  (define (μkanren-make-tag-A+ α tag s) ; ✓
+    (let1 (A (μkanren-state-A s))
+      (match/first (μkanren-ext-A α tag A s)
+        (#f #f)
+        (() s)
+        (,A*  (let* ((D   (μkanren-state-D s))
+                     (D*  (μkanren-subsume A* D))
+                     (A*  (append A* A)))
+                (μkanren-subsume-A D* A* s))))))
 
-  (define (μkanren-update-D/T+ α T+ D T state)
-    (match/first T
-      (() (list D T+))
-      (((,α* . ,tag) . ,T*) (equal? α* α) 
-        ⇒ (let1 (D* (μkanren-ext-D α tag D state))
-            (μkanren-update-D/T+ α T+ D* T* state)))
-      ((,t . ,T*) (let1 (T+* (cons t T+))
-                    (μkanren-update-D/T+ α T+* D T* state)))))
-
-  (define (μkanren-ext-D α tag D state)
-    (let1 (ok? (exists (λ-match/first
-                          (((,α* . ,u)) (and  (equal? (μkanren-state-find α* state) α)
-                                              (μkanren-tag? u)
-                                              (μkanren-tag-equal? u tag)))
-                          (else #f))))
+  (define (((μkanren-make-tag-A tag) u) s) ; ✓
+    (let1 (u* (μkanren-state-find u s))
       (cond
-        ((ok? D) D)
-        (else (cons (list (cons α tag)) D)))))
+        ((μkanren-var? u*) (cond
+                              ((μkanren-make-tag-A+ u* tag s) => ✓°)
+                              (else (✗° s))))
+        #;((pair? u*) (✗° state))
+        ((μkanren-tag-pred? tag u*) (✓° s))
+        (else (✗° s)))))
 
   ; goals --------------------------------------------------------------------------
 
@@ -294,7 +383,16 @@
       ((μkanren-state-unify u v s) => (μkanren-post-=° s))
       (else (✗° s))))
 
-  (define ((μkanren-post-=° s) s*) (✓° s*))
+  (define (μkanren-post-=° s)
+    (μkanren-state-match ((vc S D A T tags) s)
+      (μ s*
+        (cond
+          ((eq? s s*) (✓° s))
+          ((μkanren-verify-D D s*) => (μ D* 
+                                        (cond
+                                          ((μkanren-verify-D/post D* A T s*) => ✓°)
+                                          (else (✗° s*)))))
+          (else (✗° s))))))
   
   (define ((≠° u v) s)
     (cond
@@ -307,11 +405,7 @@
         (cond
           ((eq? s s*) (✗° s))
           (else (let* ((S* (μkanren-state-S s*))
-                       (S*-length (length/sbral S*))
-                       (S*-S (prefix/sbral S* S))
-                       (M (λ (i each) (let1 (α (make-μkanren-var (- S*-length i 1))) (cons α each))))
-                       (mapped (sbral->list (map/sbral M S*-S)))
-                       (D* (filter (μ each (not (μkanren-unbound? (cdr each)))) mapped))
+                       (D* (μkanren-prefix-sbral S* S))
                        (D* (list D*))
                        (D* (μkanren-subsume A D*))
                        (D* (μkanren-subsume T D*))
