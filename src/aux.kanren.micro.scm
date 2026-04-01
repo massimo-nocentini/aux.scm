@@ -5,7 +5,7 @@
   (import scheme 
           (chicken base)
           (chicken memory representation)
-          srfi-1 srfi-69 srfi-133
+          srfi-1 srfi-69 vector-lib
           (aux base)
           (aux stream)
           (aux fds sbral))
@@ -103,7 +103,7 @@
       (cond
         ((μkanren-var? v*) (equal? w v*))
         ((pair? v*) (or (occur? (μkanren-state-find (car v*) s)) (occur? (μkanren-state-find (cdr v*) s))))
-        ((vector? v*) (vector-fold (λ (found e) (or found (occur? (μkanren-state-find e s)))) #f v*))
+        ((vector? v*) (vector-fold (λ (_ found e) (or found (occur? (μkanren-state-find e s)))) #f v*))
         ((record-instance? v*) (occur? (record->vector v*)))
         (else #f))))
 
@@ -152,7 +152,7 @@
           ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
           ((vector? w*) (vector-map A w*))
           ((record-instance? w*) (let* ((vec (record->vector w*))
-                                        (F (λ (lst e) (cons (A e) lst)))
+                                        (F (λ (_ lst e) (cons (A e) lst)))
                                         (type+args (vector-fold-right F '() vec)))
                                   (apply make-record-instance type+args)))
           (else w*)))))
@@ -167,7 +167,7 @@
           ((pair? w*) (list 'cons (A (car w*)) (A (cdr w*))))
           ((vector? w*) (cons 'vector (map A (vector->list w*))))
           ((record-instance? w*) (cons  'make-record-instance 
-                                        (vector-fold-right (λ (lst e) (cons (A e) lst)) '() (record->vector w*))))
+                                        (vector-fold-right (λ (_ lst e) (cons (A e) lst)) '() (record->vector w*))))
           (else w*)))))
 
   (define (μkanren-state-reify v s)
@@ -310,7 +310,7 @@
 
   (define (μkanren-state-unify∗ associations s) ; ✓
     (μkanren-state-unify (map lhs associations) (map rhs associations) s))
-    
+
   (define (μkanren-prefix-sbral S* S)
     (let* ((S*-length (length/sbral S*))
            (S*-S (prefix/sbral S* S))
@@ -323,12 +323,12 @@
   (define (μkanren-verify-D+ d D s) ; ✓
     (cond
       ((μkanren-state-unify∗ d s) =>  (μ s* 
-                                            (cond 
-                                              ((eq? s* s) #f)
-                                              (else (let* ((S (μkanren-state-S s))
-                                                           (S* (μkanren-state-S s*))
-                                                           (d* (μkanren-prefix-sbral S* S)))
-                                                      (cons d* D))))))
+                                        (cond 
+                                          ((eq? s* s) #f)
+                                          (else (let* ((S (μkanren-state-S s))
+                                                       (S* (μkanren-state-S s*))
+                                                       (d* (μkanren-prefix-sbral S* S)))
+                                                  (cons d* D))))))
       (else D)))
 
   (define (μkanren-verify-D D s) ; ✓
@@ -452,11 +452,11 @@
   (define (boolean° v) (or° (=° v #t) (=° v #f)))
   (define (cons° a d c) (=° c (cons a d)))
 
-  (define-μkanren-tag (tag:sym s) (symbol? s))
-  (define-μkanren-tag (tag:num s) (number? s))
+  (define-μkanren-tag (μkanren-tag/sym v) (symbol? v))
+  (define-μkanren-tag (μkanren-tag/num v) (number? v))
   
-  (define symbol° (μkanren-make-tag-A tag:sym))
-  (define number° (μkanren-make-tag-A tag:num))
+  (define symbol° (μkanren-make-tag-A μkanren-tag/sym))
+  (define number° (μkanren-make-tag-A μkanren-tag/num))
 
   (define-syntax-rule (project° ((v α) ...) g ...) 
     (μ s (let* ((v (μkanren-state-find* α s)) ...) (δ ((and° g ...) s)))))
