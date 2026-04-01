@@ -75,12 +75,12 @@
       (map N choices)))
 
   (define (probcc-distribution pairs) 
-    (letcc/shift k (map (λ1/non-overlapping (,v ,p) (probcc-τ p (k v))) pairs)))
+    (letcc/shift k (map (λ1-match/non-overlapping ((,v ,p) (probcc-τ p (k v)))) pairs)))
 
   (define (probcc-reflect choices)
     (letcc/shift k 
       (letrec ((make-choices (λ (pv) (map F pv)))
-               (F (λ/non-overlapping
+               (F (λ1-match/non-overlapping
                     (((V ,v) ,p) (probcc-τ p (k v)))
                     (((C ,t) ,p) (probcc-τ p (make-choices (t)))))))
         (make-choices choices))))
@@ -139,8 +139,8 @@
         (foldr F count choices*))))
 
   (define (probcc-dfs choices)
-    (let1 (M  (λ-match/first
-                (((C ,t) ,p) (apply append (probcc-dfs (map (λ-match1/first (,slot ,pi) `(,slot ,((op/times) p pi))) (t)))))
+    (let1 (M  (λ1-match/first
+                (((C ,t) ,p) (apply append (probcc-dfs (map (λ1-match/first ((,slot ,pi) `(,slot ,((op/times) p pi)))) (t)))))
                 (,probpair (list probpair))))
       (map M choices)))
 

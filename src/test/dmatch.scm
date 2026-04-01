@@ -8,18 +8,18 @@
 
   ((test/base-non-overlapping _)
       (⊦= 'empty (match/non-overlapping '() (() 'empty)))
-      (⊦= 'empty (match/non-overlapping #() (() 'empty)))
+      (⊦= 'empty (match/non-overlapping #() (#() 'empty)))
       (⊦= '() (match/non-overlapping '() (,r r)))
       (⊦= #() (match/non-overlapping #() (,r r)))
       (⊦= 'p (match/non-overlapping '(p) ((,r) r)))
-      (⊦= #t (match/non-overlapping #(p) ((p) #t)))
-      (⊦= 'p (match/non-overlapping #(p) ((,r) r)))
-      (⊦= 3 (match/non-overlapping #(3 2) ((,r 2) r)))
-      (⊦= '(3 #(2)) (match/non-overlapping #(3 2) ((,r . ,s) (list r s))))
-      (⊦= '(3 2 #()) (match/non-overlapping #(3 2) ((,r ,s . ,t) (list r s t))))
+      (⊦= #t (match/non-overlapping #(p) (#(p) #t)))
+      (⊦= 'p (match/non-overlapping #(p) (#(,r) r)))
+      (⊦= 3 (match/non-overlapping #(3 2) (#(,r 2) r)))
+      (⊦= '(3 2) (match/non-overlapping #(3 2) (#(,r ,s) (list r s))))
+      (⊦= '(3 2 ()) (match/non-overlapping (vector->list #(3 2)) ((,r ,s . ,t) (list r s t))))
       (⊦⧳ ((exn)) (match/non-overlapping #(3 2) ((,r 2 ,t) r)))
-      (⊦= 3 (match/non-overlapping #(3 2) ((,r ,e) r)))
-      (⊦= 3 (match/non-overlapping (make-record-instance 'hello 3 2) ((hello ,r ,e) r)))
+      (⊦= 3 (match/non-overlapping #(3 2) (#(,r ,e) r)))
+      (⊦= 3 (match/non-overlapping (make-record-instance 'hello 3 2) (#(hello ,r ,e) r)))
   )
 
   ((test/h-non-overlapping _)
@@ -81,6 +81,17 @@
     (⊦ equal? '(1 2 3) ((dint (λ x x)) 1 2 3))
     (⊦ equal? 5 (((dint (λ (x) (λ (y) (+ x y)))) 2) 3))
     
+  )
+
+  ((test/λ-match/first _)
+
+    (define h
+      (λ-match/first
+        (((,a ,b) ⊣ (and (number? a) (number? b))) (* a b))
+        (((,a (,b ,c)) ⊣ (and (number? a) (number? b) (number? c))) (+ a b c))))
+
+    (⊦= '(12 8) (list (h 3 4) (apply h '(1 (3 4)))))
+
   )
 
 )

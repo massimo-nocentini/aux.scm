@@ -45,17 +45,10 @@
   (define-syntax-rule (begin1 expr body ...) (let1 (v expr) (begin body ... v)))
   (define-syntax-rule (define-many (name ...) (value ...)) (begin (define name value) ... (void)))
 
-
   ; match/non-overlapping --------------------------------------------------------------------------
 
   (define-syntax-rule (match/non-overlapping v (e ...) ...) 
     (dmatch-run-a-thunk (quote v) v (dmatch-remexp v (e ...) ...)))
-
-  (define-syntax-rule (match1/non-overlapping (pat v) body ...) (match/non-overlapping v (pat body ...)))
-
-  (define-syntax-rule (λ/non-overlapping (e ...) ...) (λ (arg) (match/non-overlapping arg (e ...) ...)))
-
-  (define-syntax-rule (λ1/non-overlapping pat body ...) (λ/non-overlapping (pat body ...)))
 
   (define-record dmatch-pkg clause thunk)
 
@@ -69,7 +62,11 @@
       ((dmatch-aux v) '())
       ((dmatch-aux v ((pat ⊣ guard) => λexpr) clause ...) 
         (let1 (fk (τ (dmatch-aux v clause ...)))
-          (match-pattern v pat (let1 (g guard) (cond (g (cons (make-dmatch-pkg (quote ((pat ⊣ guard) => λexpr)) (τ (λexpr g))) (fk))) (else (fk)))) (fk))))
+          (match-pattern v pat  (let1 (g guard) 
+                                  (if g 
+                                    (cons (make-dmatch-pkg (quote ((pat ⊣ guard) => λexpr)) (τ (λexpr g))) (fk))
+                                    (fk))) 
+                                (fk))))
       ((dmatch-aux v ((pat ⊣ g) e ...) clause ...)
         (let1 (fk (τ (dmatch-aux v clause ...)))
           (match-pattern v pat (if g (cons (make-dmatch-pkg (quote ((pat ⊣ g) e ...)) (τ e ...)) (fk)) (fk)) (fk))))
@@ -86,16 +83,13 @@
                                              (value ,v) 
                                              (ambiguities ,(map dmatch-pkg-clause pkgs)))))))))
 
+  (define-syntax-rule (match1/non-overlapping (pat v) body ...) (match/non-overlapping v (pat body ...)))
+  (define-syntax-rule (λ-match/non-overlapping e ...) (λ args (match/non-overlapping args e ...)))
+  (define-syntax-rule (λ1-match/non-overlapping e ...) (μ arg (match/non-overlapping arg e ...)))
+
   ; match/first --------------------------------------------------------------------------
 
-  (define-syntax-rule (match/first exp clause ...) 
-    (let1 (val-to-match exp) (match-case-simple* val-to-match clause ...)))
-
-  (define-syntax-rule (match1/first (pat v) body ...) (match/first v (pat body ...)))
-
-  (define-syntax-rule (λ-match/first e ...) (λ (arg) (match/first arg e ...)))
-
-  (define-syntax-rule (λ-match1/first pat body ...) (λ-match/first (pat body ...)))
+  (define-syntax-rule (match/first exp clause ...) (let1 (val exp) (match-case-simple* val clause ...)))
 
   (define-syntax match-case-simple*
     (syntax-rules (else ⊣)
@@ -113,13 +107,13 @@
   (define-syntax match-pattern
     (syntax-rules (unquote)
       #;((match-pattern val __ kt kf) kt)
-      #;((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
-      ((match-pattern val () kt kf) (if (or (null? val) (and (vector? val) (zero? (vector-length val)))) kt kf))
+      ((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
+      ((match-pattern val () kt kf) (if (null? val) kt kf))
       #;((match-pattern val (e as (unquote var)) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
       ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
-      #;((match-pattern val #(x x* ...) kt kf)
+      ((match-pattern val #(x x* ...) kt kf)
         (cond
-          ((pair? val) 
+          #;((pair? val)
             (let ((valx (car val)) (valy (cdr val)))
               (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
           ((and (vector? val) (> (vector-length val) 0))
@@ -134,15 +128,19 @@
           ((pair? val)
             (let ((valx (car val)) (valy (cdr val)))
               (match-pattern valx x (match-pattern valy y kt kf) kf)))
-          ((vector? val) (if (< 0 (vector-length val))
+          #;((vector? val) (if (< 0 (vector-length val))
                             (let ((valx (vector-ref val 0)) (valy (subvector val 1)))
                               (match-pattern valx x (match-pattern valy y kt kf) kf))
                             kf))
-          ((record-instance? val)
+          #;((record-instance? val)
             (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
               (match-pattern valx x (match-pattern valy y kt kf) kf)))
           (else kf)))
       ((match-pattern val lit kt kf) (if (equal? val (quote lit)) kt kf))))
+
+  (define-syntax-rule (match1/first (pat v) body ...) (match/first v (pat body ...)))
+  (define-syntax-rule (λ-match/first e ...) (λ args (match/first args e ...)))
+  (define-syntax-rule (λ1-match/first e ...) (μ arg (match/first arg e ...)))
 
   ; -------------------------------------------------------------------------------------------------
 

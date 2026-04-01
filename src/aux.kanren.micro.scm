@@ -200,7 +200,7 @@
   ; constraints -------------------------------------------------------------------
 
   (define (μkanren-ext-D α tag D s) ; ✓
-    (let1 (exists? (exists (λ-match/first
+    (let1 (exists? (exists (λ1-match/first
                             (((,α* . ,tag*))  (and 
                                                 (equal? (μkanren-state-find α* s) α) 
                                                 (μkanren-tag? tag*) 
@@ -235,7 +235,7 @@
                         ((,D* . ,T*) (μkanren-subsume-T vars* T* D* A T s))))))
 
   (define (μkanren-subsumed-pr? A/T) ; ✓
-    (λ-match/first
+    (λ1-match/first
       (((_ . ,α) ⊣ (μkanren-var? α)) #f)
       ((,α . ,u)  (match/first (assoc α A/T)
                     ((_ . ,u*)  (cond
