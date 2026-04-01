@@ -191,7 +191,7 @@
 
   (define ((μkanren-project w) s)
     (let1 (w* (if (null? (μkanren-state-S s)) #t (μkanren-state-find* w s))) ; for tautology when there is no variable in the substitution.
-      (match1/first ((,s* ,c ,vars-reversed) (μkanren-state-reify w* s))
+      (match1/first ((,s* _ ,vars-reversed) (μkanren-state-reify w* s))
         (let* ((vars (reverse vars-reversed))
                (vars* (map μkanren-var->symbol vars))
                (repr (μkanren-state-find*/repr w* s*)))
@@ -258,7 +258,7 @@
       ((_ . ,T*) (μkanren-ext-T+ α tag T* s))))
 
   (define (μkanren-verify-T+ u T s) ; ✓
-    (match1/first ((_ . ,tag) (car T))
+    (let* ((t (car T)) (tag (cdr t)))
       (match/first (μkanren-state-find u s)
         ((,α* ⊣ (μkanren-var? α*))  (μ T₀
                                       (cond

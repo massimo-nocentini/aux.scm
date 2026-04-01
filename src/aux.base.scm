@@ -105,8 +105,8 @@
           (match-pattern val pattern (begin expr ...) (fk))))))
 
   (define-syntax match-pattern
-    (syntax-rules (unquote)
-      #;((match-pattern val __ kt kf) kt)
+    (syntax-rules (unquote _)
+      ((match-pattern val _ kt kf) kt)
       ((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
       ((match-pattern val () kt kf) (if (null? val) kt kf))
       #;((match-pattern val (e as (unquote var)) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
