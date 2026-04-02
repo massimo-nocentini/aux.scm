@@ -248,7 +248,7 @@
                       ((,α ⊣ (μkanren-var? α)) (μkanren-var? (μkanren-state-find α s)))
                       ((,a . ,d) (or (anyvar? a) (anyvar? d)))
                       ((,v ⊣ (vector? v)) (vector-fold (λ (_ found e) (or found (anyvar? e))) #f v))
-                      ((,r ⊣ (record-instance? r)) (anyvar? s (record->vector r)))
+                      ((,r ⊣ (record-instance? r)) (anyvar? (record->vector r)))
                       (else #f)))
     anyvar?)
 
