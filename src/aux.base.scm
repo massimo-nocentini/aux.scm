@@ -304,7 +304,7 @@
   (define void? (let1 (v (void)) (μ v* (eq? v v*))))
 
   ; the SKI combinators.
-  (define K (λ (x) (λ_ x)))
+  (define (K x) (λ_ x))
   (define K* (λ keeps (λ_ (apply values keeps))))
   (define (((S x) y) z) (x z (y z)))
   (define (((S* x) y) . zs) (apply x (append zs (list (apply y zs)))))
@@ -366,5 +366,7 @@
 
   (define-syntax-rule (appender˱ l ...) (μ lst (append lst l ...)))
   (define-syntax-rule (appender˲ l ...) (μ lst (append l ... lst)))
+
+  (define (lex<=? x y) (string<=? (->string x) (->string y)))
 
   )

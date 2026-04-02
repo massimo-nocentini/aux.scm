@@ -4,6 +4,7 @@
 
   (import scheme 
           (chicken base)
+          (chicken sort)
           (chicken memory representation)
           srfi-1 srfi-69 vector-lib
           (aux base)
@@ -189,13 +190,92 @@
               ((record-instance? w*) (R (record->vector w*) r c vars))
               (else (list r c vars))))))
 
+  (define (μkanren-sorter ls) (sort ls lex<=?))
+  (define (μkanren-drop-dot-D D) (map (λ (d) (map (λ1-match/first ((,x . ,u) `(,x ,u))) d)) D))
+  (define (μkanren-drop-dot-T T) (map (λ1-match/first ((,x . ,tag) `(absent ,tag ,x))) T))
+
+  (define μkanren-sort-part (λ1-match/first ((,tag . ,x) (let1 (x* (μkanren-sorter x)) `(,tag . ,x*)))))
+
+  (define (μkanren-part tag A x* y*)
+    (match/first A
+      (() (cons `(,tag . ,x*) (μkanren-partition* y*)))
+      ((((,α . ,tag*) . ,A*) ⊣ (μkanren-tag-equal? tag tag*)) 
+        (let1 (x** (if (member? α x*) x* (cons α x*)))
+          (μkanren-part tag A* x** y*)))
+      ((,a . ,A*) (let1 (y** (cons a y*)) (μkanren-part tag A* x* y**)))))
+
+  (define μkanren-partition*
+    (λ1-match/first
+      (() '())
+      (((_ . ,tag) . ,A) (μkanren-part tag A '() '()))))
+
+  (define (μkanren-form v D A T s)
+    (let ((fd (μkanren-drop-dot-D (μkanren-sorter (map μkanren-sorter D))))
+          (fa (μkanren-sorter (map μkanren-sort-part (μkanren-partition* A))))
+          (ft (μkanren-drop-dot-T (μkanren-sorter T))))
+      (let ((fb (append ft fa)))
+        (cond ((and (null? fd) (null? fb)) `(,v))
+              ((null? fd) `(,v . ,fb))
+              ((null? fb) `(,v (≠ . ,fd)))
+              (else `(,v (≠ . ,fd) . ,fb))))))
+
+  (define (μkanren-subsumed-T? x tag1 T)
+    (match/first T
+      (() #f)
+      (((,y . ,tag2) . ,T*) (or (and (equal? x y) (μkanren-tag-equal? tag1 tag2)) (μkanren-subsumed-T? x tag1 T*)))))
+
+  (define (μkanren-rem-subsumed-T T0)
+      (let loop ((T T0) (Tˆ '()))
+        (match/first T
+          (() Tˆ)
+          ((((,x . ,tag) . ,T*) ⊣ (or (μkanren-subsumed-T? x tag T*) (μkanren-subsumed-T? x tag Tˆ))) (loop T* Tˆ))
+          ((,t . ,T*) (loop T* (cons t Tˆ))))))
+
+  (define (μkanren-reify+ vars v D A T s)
+    (let* ((M (λ1-match/first ((,α . ,tag) `(,α . ,(μkanren-tag-name tag)))))
+           (D* (μkanren-subsume A D))
+           (A* (map M A))
+           (T* (map M T))
+           (v* (μkanren-state-find*/repr v s))
+           (D** (μkanren-state-find* D* s))
+           (A** (μkanren-state-find* A* s))
+           (T** (μkanren-state-find* T* s))
+           (T*** (μkanren-rem-subsumed-T T**)))
+      `(λ ,vars . ,(μkanren-form v* D** A** T*** s))))
+
+  (define (μkanren-anyvar? s)
+    (define anyvar? (λ1-match/first
+                      ((,α ⊣ (μkanren-var? α)) (μkanren-var? (μkanren-state-find α s)))
+                      ((,a . ,d) (or (anyvar? a) (anyvar? d)))
+                      ((,v ⊣ (vector? v)) (vector-fold (λ (_ found e) (or found (anyvar? e))) #f v))
+                      ((,r ⊣ (record-instance? r)) (anyvar? s (record->vector r)))
+                      (else #f)))
+    anyvar?)
+
+  (define (μkanren-subsumed? d D)
+    (match/first D
+      (() #f)
+      ((,d* . ,D*)  (let1 (d** (μkanren-state-unify* d* d))
+                      (or (and d** (equal? d** d)) (μkanren-subsumed? d D*))))))
+
+  (define (μkanren-rem-subsumed D0)
+    (let loop ((D D0) (D+ '()))
+      (match/first D 
+        (() D+)
+        (((,d . ,D*) ⊣ (or (μkanren-subsumed? d D*) (μkanren-subsumed? d D+))) (loop D* D+))
+        ((,d . ,D*) (loop D* (cons d D+))))))
+
   (define ((μkanren-project w) s)
-    (let1 (w* (if (null? (μkanren-state-S s)) #t (μkanren-state-find* w s))) ; for tautology when there is no variable in the substitution.
-      (match1/first ((,s* _ ,vars-reversed) (μkanren-state-reify w* s))
-        (let* ((vars (reverse vars-reversed))
-               (vars* (map μkanren-var->symbol vars))
-               (repr (μkanren-state-find*/repr w* s*)))
-          `(λ ,vars* ,repr)))))
+    (μkanren-state-match ((vc S D A T tags) s)
+      (let1 (w* (if (null? S) #t (μkanren-state-find* w s))) ; for tautology when there is no variable in the substitution.
+        (match1/first ((,s* _ ,vars-reversed) (μkanren-state-reify w* s))
+          (let* ((vars (reverse vars-reversed))
+                 (vars* (map μkanren-var->symbol vars))
+                 (R (μ p (μkanren-var? (μkanren-state-find (lhs p) s*))))
+                 (D* (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D)))
+                 (A* (remove R A))
+                 (T* (remove R T)))
+            (μkanren-reify+ vars* w* D* A* T* s*))))))
 
   ; constraints -------------------------------------------------------------------
 
@@ -308,7 +388,7 @@
       ((μkanren-verify-A A s) => (μkanren-verify-A/post D T s))
       (else #f)))
 
-  (define (μkanren-state-unify∗ associations s) ; ✓
+  (define (μkanren-state-unify* associations s) ; ✓
     (μkanren-state-unify (map lhs associations) (map rhs associations) s))
 
   (define (μkanren-prefix-sbral S* S)
@@ -322,7 +402,7 @@
 
   (define (μkanren-verify-D+ d D s) ; ✓
     (cond
-      ((μkanren-state-unify∗ d s) =>  (μ s* 
+      ((μkanren-state-unify* d s) =>  (μ s* 
                                         (cond 
                                           ((eq? s* s) #f)
                                           (else (let* ((S (μkanren-state-S s))

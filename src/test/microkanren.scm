@@ -184,6 +184,7 @@ END
 
   ((test/symbol° _)
     (⊦= '(#t) (°->list/ground (fresh° (s) (symbol° s))))
+    ;(⊦= '(#t) (°->list/ground (fresh° (s) (symbol° s) (≠° s 'a))))
     )
 
   )
