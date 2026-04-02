@@ -393,7 +393,8 @@
 
   (define (μkanren-prefix-sbral S* S)
     (let* ((S*-length (length/sbral S*))
-           (S*-S (prefix/sbral S* S))
+           (prefix-wrt-S (prefix/sbral S))
+           (S*-S (prefix-wrt-S S*))
            (M (λ (i each) (let1 (α (make-μkanren-var (- S*-length i 1))) `(,α . ,each))))
            (mapped (sbral->list (map/sbral M S*-S)))
            (D* (filter (μ each (not (μkanren-unbound? (cdr each)))) mapped))

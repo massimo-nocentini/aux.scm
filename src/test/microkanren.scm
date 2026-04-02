@@ -184,9 +184,9 @@ END
 
   ((test/symbol° _)
     (⊦= '(#t) (°->list/ground (fresh° (s) (symbol° s))))
-    ;(⊦= '(#t) (°->list/ground (fresh° (s) (symbol° s) (≠° s 'a))))
-    )
-
+    (⊦= '(#t) (°->list/ground (fresh° (r s) (symbol° s) (≠° s 'a) (=° r `(3 ,s)))))
   )
+
+)
 
 (unittest/✓ microkanren-suite)
