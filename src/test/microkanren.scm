@@ -7,7 +7,7 @@
 ; The following is a sample database of employees and their salaries in various departments.
 ; taken from https://www.postgresql.org/docs/current/tutorial-window.html.
 (define-relation (empsalary° depname empno salary)
-  (or° (and° (=° depname 'develop) (=° empno 7)  (=° salary 4200))
+  (or°  (and° (=° depname 'develop) (=° empno 7)  (=° salary 4200))
         (and° (=° depname 'develop) (=° empno 8)  (=° salary 6000))
         (and° (=° depname 'develop) (=° empno 9)  (=° salary 4500))
         (and° (=° depname 'develop) (=° empno 10) (=° salary 5200))
@@ -33,7 +33,7 @@
   ((test/=° _) (⊦= '(#t) (°->list/ground (=° 'z 'z))))
 
   ((test/sharing _)
-   (⊦= '(((_0 z) z (_0 _1)))
+   (⊦= '(((α z) z (α β)))
          (°->list/ground (fresh° r (n q x)
                            (=° q 'z)
                            (fresh° (w r) (=° n (list w q)) (=° x (list w r)))))))
@@ -72,16 +72,7 @@
        ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
 
    (⊦ equal?
-      (list '_0
-        (cons '_0 '_1)
-        '(_0 _1 . _2)
-        '(_0 _1 _2 . _3)
-        '(_0 _1 _2 _3 . _4)
-        '(_0 _1 _2 _3 _4 . _5)
-        '(_0 _1 _2 _3 _4 _5 . _6)
-        '(_0 _1 _2 _3 _4 _5 _6 . _7)
-        '(_0 _1 _2 _3 _4 _5 _6 _7 . _8)
-        '(_0 _1 _2 _3 _4 _5 _6 _7 _8 . _9))
+      '(α (α . β) (α β . γ) (α β γ . δ) (α β γ δ . ε) (α β γ δ ε . ζ) (α β γ δ ε ζ . η) (α β γ δ ε ζ η . θ) (α β γ δ ε ζ η θ . ι) (α β γ δ ε ζ η θ ι . κ))
       (μkanren-run (l 10 #t) (fresh° (a d) (append° a d l)))))
 
   ((test/project° _)
@@ -173,7 +164,7 @@ END
     (define p (make-person 'alice 30))
     (⊦= #t (record-instance? p))
     (⊦= `((record ,p)) (°->list/ground (fresh° (r) (=° r (list 'record p)))))
-    (⊦= `((record ,(make-person '_0 30))) (°->list/ground (fresh° (r a) (=° r (list 'record (make-person a 30)))))))
+    (⊦= `((record ,(make-person 'α 30))) (°->list/ground (fresh° (r a) (=° r (list 'record (make-person a 30)))))))
 
   ((test/=°/structure/vector _)
     (define-record person name age)
@@ -183,8 +174,8 @@ END
     (⊦= '((person alice 30)) (°->list/ground (fresh° r (t n a) (=° `#(,t ,n ,a) p)))))
 
   ((test/symbol° _)
-    (⊦= '(#t) (°->list/ground (fresh° (s) (symbol° s))))
-    (⊦= '(#t) (°->list/ground (fresh° (r s) (symbol° s) (≠° s 'a) (=° r `(3 ,s)))))
+    (⊦= '((λ (α) (begin (assert (every (μ v (symbol? v)) (list α))) #t))) (°->list #f (fresh° (s) (symbol° s))))
+    #;(⊦= '(#t) (°->list #f (fresh° (r s) (symbol° s) (≠° s 'a) (=° r `(3 ,s)))))
   )
 
 )

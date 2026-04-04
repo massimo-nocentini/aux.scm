@@ -327,6 +327,7 @@
   (define (load/string str) (read (open-input-string str)))
   (define (->string/pretty-print v) (call-with-output-string (λ (p) (pretty-print v p))))
   (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))
+  (define (display/pp . args) (for-each (μ v (display (->string/pretty-print v))) args))
 
   (define (string-last s) (string-ref s (sub1 (string-length s))))
 
@@ -368,5 +369,26 @@
   (define-syntax-rule (appender˲ l ...) (μ lst (append l ... lst)))
 
   (define (lex<=? x y) (string<=? (->string x) (->string y)))
+
+  (define (->subscript s)
+    (match/first (->string s)
+      ("0" "₀")
+      ("1" "₁")
+      ("2" "₂")
+      ("3" "₃")
+      ("4" "₄")
+      ("5" "₅")
+      ("6" "₆")
+      ("7" "₇")
+      ("8" "₈")
+      ("9" "₉")
+      (else s)))
+
+  (define ∞ +inf.0)
+  (define -∞ -inf.0)
+  (define english-alphabet/lowercase  #(a b c d e f g h i j k l m n o p q r s t u v w x y z))
+  (define english-alphabet/uppercase  #(A B C D E F G H I J K L M N O P Q R S T U V W X Y Z))
+  (define greek-alphabet/lowercase    #(α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω))
+  (define greek-alphabet/uppercase    #(Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω))
 
   )
