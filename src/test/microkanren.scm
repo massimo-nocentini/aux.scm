@@ -30,7 +30,7 @@
      (⊦= 'a (μkanren-state-find v1 s2))
      (⊦= 'a (μkanren-state-find v2 s2))))
 
-  ((test/=° _) (⊦= '(#t) (°->list/ground (=° 'z 'z))))
+  ((test/=° _) (⊦= '(α) (°->list/ground (=° 'z 'z))))
 
   ((test/sharing _)
    (⊦= '(((α z) z (α β)))
@@ -174,7 +174,7 @@ END
     (⊦= '((person alice 30)) (°->list/ground (fresh° r (t n a) (=° `#(,t ,n ,a) p)))))
 
   ((test/symbol° _)
-    (⊦= '((λ (α) (begin (assert (every (μ v (symbol? v)) (list α))) #t))) (°->list #f (fresh° (s) (symbol° s))))
+    (⊦= '((λ (α) (begin (assert (every (μ v (symbol? v)) (list α))) α))) (°->list #f (fresh° (s) (symbol° s))))
     #;(⊦= '(#t) (°->list #f (fresh° (r s) (symbol° s) (≠° s 'a) (=° r `(3 ,s)))))
   )
 
