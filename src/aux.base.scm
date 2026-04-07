@@ -329,7 +329,7 @@
   (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))
   (define (display/pp . args) (for-each (μ v (display (->string/pretty-print v))) args))
 
-  (define (string-last s) (string-ref s (sub1 (string-length s))))
+  (define (string-last s) (let1 (l (string-length s)) (and (< 0 l) (string-ref s (sub1 l)))))
 
   (define (foldr/add lst) (foldr + 0 lst))
   (define (foldr/times lst) (foldr * 1 lst))
@@ -366,8 +366,13 @@
                     (else (cons (car s*) (P (cdr s*))))))))
       P))
 
+  ; Returns a new list with duplicate elements removed, preserving the order
+  ; of first occurrence. Uses foldl for tail-recursive traversal and member?
+  ; (equal?-based) for membership testing. O(n²) time due to linear scan of
+  ; `seen` on each step; suitable for small lists.
   (define (remove-duplicates lst)
-    (foldr (λ (each seen) (if (member? each seen) seen (cons each seen))) '() lst))
+    (let1 (F (λ (seen each) (if (member? each seen) seen (cons each seen))))
+      (reverse (foldl F '() lst))))
 
   (define (map/dotted f pair)
     (match/first pair
