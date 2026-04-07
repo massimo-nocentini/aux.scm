@@ -34,14 +34,13 @@
   (define (μkanren-var-working? α) (and (μkanren-var? α) (<= 0 (μkanren-var-index α))))
   (define (μkanren-var-reified? α) (and (μkanren-var? α) (> 0 (μkanren-var-index α))))
 
-  (define (μkanren-var-index/✓ α) 
-    (let1 (i (μkanren-var-index α))
-      (if (μkanren-var-working? α) i (- (add1 i)))))
+  (define (μkanren-var-index>=0 α) (let1 (i (μkanren-var-index α)) (if (μkanren-var-working? α) i (- (add1 i)))))
 
   (define (μkanren-var->symbol α)
-    (cond 
-      ((μkanren-var-working? α) (string->symbol (string-append "▢" (number->string (μkanren-var-index/✓ α)))))
-      (else (vector-ref greek-alphabet/lowercase (μkanren-var-index/✓ α)))))
+    (let1 (i (μkanren-var-index>=0 α))
+      (cond 
+        ((μkanren-var-working? α) (string->symbol (string-append "_" (number->string i))))
+        (else (vector-ref greek-alphabet/lowercase i)))))
 
   ; state ------------------------------------------------------------------------
 
@@ -51,35 +50,23 @@
 
   (define (μkanren-var-index/sbral sbral)
     (let1 (l (length/sbral sbral))
-      (μ α (- l 1 (μkanren-var-index/✓ α)))))
+      (μ α (- l 1 (μkanren-var-index>=0 α)))))
 
   (define (μkanren-var-deferred? sbral)
     (let1 (l (length/sbral sbral))
-      (μ α (and (μkanren-var? α) (<= l (μkanren-var-index/✓ α))))))
+      (μ α (and (μkanren-var? α) (<= l (μkanren-var-index>=0 α))))))
 
   (define (μkanren-sbral-ref/var sbral)
     (let1 (index-of-var (μkanren-var-index/sbral sbral))
       (μ α (sbral-ref sbral (index-of-var α)))))
 
   (define (μkanren-var-extend/sbral α S default)
-    (let ((i (μkanren-var-index/✓ α))
+    (let ((i (μkanren-var-index>=0 α))
           (l (length/sbral S)))
       (let U ((l* l) (S* S))
         (cond
           ((<= l* i) (U (add1 l*) (cons/sbral default S*)))
           (else S*)))))
-
-  (define-syntax λ°
-    (syntax-rules (:)
-      ((λ° (s : vc S D A T tags) body ...) (λ (s)
-                                            (let ((vc (μkanren-state-vars-count s))
-                                                  (S (μkanren-state-S s))
-                                                  (D (μkanren-state-D s))
-                                                  (A (μkanren-state-A s))
-                                                  (T (μkanren-state-T s))
-                                                  (tags (μkanren-state-tags s)))
-                                              body ...)))
-      ((λ° (s) body ...) (λ° (s : vc S D A T tags) body ...))))
 
   (define-syntax-rule (μkanren-state-match ((vc S D A T tags) s) body ...)
     (let ((vc (μkanren-state-vars-count s))
@@ -129,7 +116,7 @@
       (cond
         ((eq? u* v*) s)
         ((and (μkanren-var? u*) (μkanren-var? v*)) 
-          (if (< (μkanren-var-index/✓ u*) (μkanren-var-index/✓ v*))
+          (if (< (μkanren-var-index>=0 u*) (μkanren-var-index>=0 v*))
             (μkanren-state-update/✓ u* v* s)
             (μkanren-state-update/✓ v* u* s)))
         ((μkanren-var? u*) (μkanren-state-update/✓ u* v* s))
@@ -169,8 +156,7 @@
           ((null? w*) (list 'quote '()))
           ((pair? w*) (list 'cons (A (car w*)) (A (cdr w*))))
           ((vector? w*) (cons 'vector (map A (vector->list w*))))
-          ((record-instance? w*) (cons  'make-record-instance 
-                                        (vector-fold-right (λ (_ lst e) (cons (A e) lst)) '() (record->vector w*))))
+          ((record-instance? w*) (cons 'make-record-instance (vector-fold-right (λ (_ lst e) (cons (A e) lst)) '() (record->vector w*))))
           (else w*)))))
 
   (define (μkanren-state-reify/helper w r c vars)
@@ -251,27 +237,26 @@
                       (else #f)))
     anyvar?)
 
-  (define (μkanren-subsumed? d D* s)
-    (μkanren-state-match ((vc S D A T tags) s)
-      (let* ((S* (foldr (λ (p s) (match/first p ((,α . ,u) (μkanren-update/sbral α u s)))) empty/sbral d))
-             (s (make-μkanren-state vc S* D A T tags)))
-        (match/first D*
-          (() #f)
-          ((,d* . ,D**)  (let1 (d** (μkanren-state-unify* d* s))
-                          (or (and d** (equal? d** d)) (μkanren-subsumed? d D**))))))))
+  (define (μkanren-subsumed? d D)
+    (let* ((f (λ (p s) (match/first p ((,α . ,u) (μkanren-state-update α u s)))))
+           (s (foldr f μkanren-state-empty d)))
+      (match/first D
+        (() #f)
+        ((,d* . ,D*)  (let1 (d** (μkanren-state-unify* d* s))
+                        (or (and d** (equal? d** d)) (μkanren-subsumed? d D*)))))))
 
-  (define (μkanren-rem-subsumed D0 s)
+  (define (μkanren-rem-subsumed D0)
     (let loop ((D D0) (D+ '()))
       (match/first D 
         (() D+)
-        (((,d . ,D*) ⊣ (or (μkanren-subsumed? d D* s) (μkanren-subsumed? d D+ s))) (loop D* D+))
+        (((,d . ,D*) ⊣ (or (μkanren-subsumed? d D*) (μkanren-subsumed? d D+))) (loop D* D+))
         ((,d . ,D*) (loop D* (cons d D+))))))
 
   (define ((μkanren-project w) s)
     (μkanren-state-match ((vc S D A T tags) s)
       (let1 (w* (μkanren-state-find* w s)) ; for tautology when there is no variable in the substitution.
         (match1/first ((,s* ,c ,vars-reversed) (μkanren-state-reify w* s))
-          (let* ((D* (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D) s*))
+          (let* ((D* (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D)))
                  (vars (reverse vars-reversed))
                  (vars* (map μkanren-var->symbol vars))
                  (body (μkanren-reify+ w* D* A T s*)))
@@ -456,8 +441,8 @@
   (define ✓° list)
   (define ✗° (K '()))
 
-  (define (freshª f) ; ª means "applicative", so `freshª` is a *function* that consumes a function and returns a goal.
-    (λ° (s : vc S D A T tags)
+  (define ((freshª f) s) ; ª means "applicative", so `freshª` is a *function* that consumes a function and returns a goal.
+    (μkanren-state-match ((vc S D A T tags) s)
       (let* ((g  (f (make-μkanren-var vc)))
              (s* (make-μkanren-state (add1 vc) S D A T tags)))
         (δ (g s*)))))
