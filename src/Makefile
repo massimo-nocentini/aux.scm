@@ -16,7 +16,7 @@ test:
 	cd test && ${CSI} -s fds.sbral.scm
 	cd test && ${CSI} -s judy.scm
 	cd test && ${CSI} -s dmatch.scm
-# 	cd test && ${CSI} -s microkanren.scm
+	cd test && ${CSI} -s microkanren.scm
 	cd test && ${CSI} -s microkanren-untagged.scm
 
 test-microkanren:

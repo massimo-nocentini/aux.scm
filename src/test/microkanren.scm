@@ -32,6 +32,7 @@
 
   ((test/=° _) (⊦= '(α) (°->list/ground (=° 'z 'z))))
 
+
   ((test/sharing _)
    (⊦= '(((α z) z (α β)))
          (°->list/ground (fresh° r (n q x)
@@ -70,11 +71,12 @@
      (cond°
        ((null° r) (=° s rs))
        ((fresh° (a d c) (cons° a d r) (append° d s c) (cons° a c rs)))))
-
+  
    (⊦ equal?
-      '(α (α . β) (α β . γ) (α β γ . δ) (α β γ δ . ε) (α β γ δ ε . ζ) (α β γ δ ε ζ . η) (α β γ δ ε ζ η . θ) (α β γ δ ε ζ η θ . ι) (α β γ δ ε ζ η θ ι . κ))
-      (μkanren-run (l 10 #t) (fresh° (a d) (append° a d l)))))
-
+      '((λ (α) α) (λ (α β) (cons α β)) (λ (α β γ) (cons α (cons β γ))) (λ (α β γ δ) (cons α (cons β (cons γ δ)))) (λ (α β γ δ ε) (cons α (cons β (cons γ (cons δ ε))))) (λ (α β γ δ ε ζ) (cons α (cons β (cons γ (cons δ (cons ε ζ)))))) (λ (α β γ δ ε ζ η) (cons α (cons β (cons γ (cons δ (cons ε (cons ζ η))))))) (λ (α β γ δ ε ζ η θ) (cons α (cons β (cons γ (cons δ (cons ε (cons ζ (cons η θ)))))))) (λ (α β γ δ ε ζ η θ ι) (cons α (cons β (cons γ (cons δ (cons ε (cons ζ (cons η (cons θ ι))))))))) (λ (α β γ δ ε ζ η θ ι κ) (cons α (cons β (cons γ (cons δ (cons ε (cons ζ (cons η (cons θ (cons ι κ)))))))))))
+      (μkanren-run (l 10 #f) (fresh° (a d) (append° a d l))))
+  )
+  
   ((test/project° _)
     (⊦= '(4700 6500 5000 5700 5700 4400 4000 5500 5300 5300)
         (°->list/ground (fresh° (r) (fresh° (d e s) (empsalary° d e s) (project° ((s* s)) (=° r (+ s* 500))))))))
@@ -175,7 +177,7 @@ END
 
   ((test/symbol° _)
     (⊦= '((λ (α) (begin (assert (every (μ v (symbol? v)) (list α))) α))) (°->list #f (fresh° (s) (symbol° s))))
-    #;(⊦= '(#t) (°->list #f (fresh° (r s) (symbol° s) (≠° s 'a) (=° r `(3 ,s)))))
+    
   )
 
 )
