@@ -352,37 +352,33 @@
   (define rhs cdr)
 
   (define (exists pred?)
-    (let1 (M (λ (each folded) (or folded (pred? each))))
-      (μ lst (foldr M #f lst))))
+    (letrec ((E (λ (lst)
+                  (cond
+                    ((null? lst) #f)
+                    ((pred? (car lst)) #t)
+                    (else (E (cdr lst)))))))
+      E))
 
   (define (prefix-with-respect-to s)
     (letrec ((P (μ s*
                   (cond
-                    ((eq? s* s) '())
+                    ((or (null? s*) (eq? s* s)) '())
                     (else (cons (car s*) (P (cdr s*))))))))
       P))
 
   (define (remove-duplicates lst)
     (foldr (λ (each seen) (if (member? each seen) seen (cons each seen))) '() lst))
 
+  (define (map/dotted f pair)
+    (match/first pair
+      (() '())
+      ((,p . ,pair*) (cons (f p) (map/dotted f pair*)))
+      (,p (f p))))
+
   (define-syntax-rule (appender˱ l ...) (μ lst (append lst l ...)))
   (define-syntax-rule (appender˲ l ...) (μ lst (append l ... lst)))
 
   (define (lex<=? x y) (string<=? (->string x) (->string y)))
-
-  (define (->subscript s)
-    (match/first (->string s)
-      ("0" "₀")
-      ("1" "₁")
-      ("2" "₂")
-      ("3" "₃")
-      ("4" "₄")
-      ("5" "₅")
-      ("6" "₆")
-      ("7" "₇")
-      ("8" "₈")
-      ("9" "₉")
-      (else s)))
 
   (define ∞ +inf.0)
   (define -∞ -inf.0)
