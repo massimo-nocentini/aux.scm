@@ -77,34 +77,24 @@
                   ((< i size) (cons (cons size (sbral-tree-update size i y tree)) (cdr sbral)))
                   (else (cons (car sbral) (update/sbral (- i size) y (cdr sbral)))))))
 
-  (define (list->sbral lst) (foldr cons/sbral empty/sbral lst))
-
-  (define (sbral->list sbral)
-    (cond
-      ((null? sbral) '())
-      (else (cons (car/sbral sbral) (sbral->list (cdr/sbral sbral))))))
-
-  (define (length/sbral sbral) (foldr (λ (each acc) (+ (car each) acc)) 0 sbral))
-
   (define (foldr/sbral f init sbral)
-    (let1 (l (length/sbral sbral))
-      (let loop ((l* (sub1 l)) (out init))
-        (cond
-          ((< l* 0) out)
-          (else (let1 (out* (f l* (sbral-ref sbral l*) out))
-                  (loop (sub1 l*) out*)))))))
+    (let loop ((l (sub1 (length/sbral sbral))) (out init))
+      (cond
+        ((< l 0) out)
+        (else (loop (sub1 l) (f l (sbral-ref sbral l) out))))))
 
+  (define (length/sbral sbral) (foldr (λ (each l) (+ (car each) l)) 0 sbral))
+  (define (list->sbral lst) (foldr cons/sbral empty/sbral lst))
+  (define (sbral->list sbral) (foldr/sbral (λ (i each lst) (cons each lst)) '() sbral))
+  
   (define (map/sbral f sbral)
-    (let1 (M (λ (i each acc) (cons/sbral (f i each) acc)))
-      (foldr/sbral M empty/sbral sbral)))
-
+    (foldr/sbral (λ (i each sbral*) (cons/sbral (f i each) sbral*)) empty/sbral sbral))
+  
   (define (filter/sbral pred? sbral)
-    (let1 (M (λ (i each acc) (if (pred? i each) (cons/sbral each acc) acc)))
-      (foldr/sbral M empty/sbral sbral)))
-
+    (foldr/sbral (λ (i each sbral*) (if (pred? i each) (cons/sbral each sbral*) sbral*)) empty/sbral sbral))
+  
   (define (exists?/sbral pred? sbral)
-    (let1 (M (λ (i each exists) (or exists (pred? i each))))
-      (foldr/sbral M #f sbral)))
+    (foldr/sbral (λ (i each exists) (or exists (pred? i each))) #f sbral))
 
   (define (prefix/sbral s)
     (letrec ((P (μ s*
@@ -113,4 +103,4 @@
                     (else (cons/sbral (car/sbral s*) (P (cdr/sbral s*))))))))
       P))
 
-  )
+)
