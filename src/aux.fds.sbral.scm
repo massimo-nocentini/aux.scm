@@ -109,7 +109,7 @@
   (define (prefix/sbral s)
     (letrec ((P (μ s*
                   (cond
-                    ((eq? s* s) empty/sbral)
+                    ((or (null? s*) (eq? s* s)) empty/sbral)
                     (else (cons/sbral (car/sbral s*) (P (cdr/sbral s*))))))))
       P))
 

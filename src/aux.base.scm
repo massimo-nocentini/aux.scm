@@ -156,6 +156,7 @@
                                 (s (with-error-output-to-string (τ (set! v (begin body ...))))))
                            (values v s)))))
 
+  (define-syntax-rule (deny expr obj ...) (assert (not (expr)) obj ...))
   (define-syntax-rule (push! val var) (begin (set! var (cons val var)) (void)))
   (define-syntax-rule (pop! var) (let ((a (car var))) (set! var (cdr var)) a))
   (define-syntax-rule (append-right! lst another ... var) (begin (set! var (append var lst another ...)) (void)))

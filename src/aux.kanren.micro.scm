@@ -180,7 +180,7 @@
   (define (μkanren-state-reify v s) (μkanren-state-reify/helper v s -1 '()))
 
   (define (μkanren-sorter ls) (sort ls lex<=?))
-  (define (μkanren-drop-dot-D D) (map (λ (d) (map (λ1-match/first ((,α . ,u) `(,α ,u))) d)) D))
+  (define (μkanren-drop-dot-D D) (append-map (λ (d) (map (λ1-match/first ((,α . ,u) `(deny (equal? ,α ,u)))) d)) D))
   (define (μkanren-drop-dot-T T) (map (λ1-match/first ((,α . ,tag) `(absent ,tag ,α))) T))
 
   (define μkanren-sort-part (λ1-match/first ((,tag . ,vars) (let1 (vars* (μkanren-sorter vars)) `(,tag . ,vars*)))))
@@ -204,9 +204,9 @@
            (fa (map FA (μkanren-sorter (map μkanren-sort-part (μkanren-partition* A)))))
            (ft (μkanren-drop-dot-T (μkanren-sorter T)))
            (fb (append ft fa)))
-        (cond ((and (null? fd) (null? fb)) v)
-              ((null? fd) `(begin ,@fb ,v))
-              ((null? fb) `(,v (≠ . ,fd)))
+        (cond ((and (null? fd) (null? fb)) `(,v))
+              ((null? fd) `(,@fb ,v))
+              ((null? fb) `(,@fd ,v))
               (else `(,v (≠ . ,fd) . ,fb)))))
 
   (define (μkanren-subsumed-T? x tag1 T)
@@ -221,16 +221,9 @@
           ((((,x . ,tag) . ,T*) ⊣ (or (μkanren-subsumed-T? x tag T*) (μkanren-subsumed-T? x tag Tˆ))) (loop T* Tˆ))
           ((,t . ,T*) (loop T* (cons t Tˆ))))))
 
-  (define (μkanren-reify+ v D A T s)
-    (let* ((v* (μkanren-state-find*/repr v s))
-           (D* (μkanren-state-find* (μkanren-subsume A D) s))
-           (A* (μkanren-state-find* A s))
-           (T* (μkanren-rem-subsumed-T (μkanren-state-find* T s))))
-      (μkanren-form v* D* A* T* s)))
-
   (define (μkanren-anyvar? s)
     (define anyvar? (λ1-match/first
-                      ((,α ⊣ (μkanren-var? α)) (μkanren-var-reified? (μkanren-state-find α s)))
+                      ((,α ⊣ (μkanren-var? α)) (μkanren-var-working? (μkanren-state-find α s)))
                       ((,a . ,d) (or (anyvar? a) (anyvar? d)))
                       ((,v ⊣ (vector? v)) (vector-fold (λ (_ found e) (or found (anyvar? e))) #f v))
                       ((,r ⊣ (record-instance? r)) (anyvar? (record->vector r)))
@@ -254,13 +247,20 @@
 
   (define ((μkanren-project w) s)
     (μkanren-state-match ((vc S D A T tags) s)
-      (let1 (w* (μkanren-state-find* w s)) ; for tautology when there is no variable in the substitution.
-        (match1/first ((,s* ,c ,vars-reversed) (μkanren-state-reify w* s))
-          (let* ((D* (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D)))
-                 (vars (reverse vars-reversed))
+      (let1 (w* (μkanren-state-find* w s))
+        (match1/first ((,s* _ ,vars-reversed) (μkanren-state-reify w* s))
+          (let* ((R     (λ1-match/first ((,α . _) (μkanren-var-working? (μkanren-state-find α s*)))))
+                 (vars  (reverse vars-reversed))
                  (vars* (map μkanren-var->symbol vars))
-                 (body (μkanren-reify+ w* D* A T s*)))
-            `(λ ,vars* ,body))))))
+                 (D*    (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D)))
+                 (A*    (remove R A))
+                 (T*    (remove R T))
+                 (w**   (μkanren-state-find*/repr w* s*))
+                 (D**   (μkanren-state-find* (μkanren-subsume A* D*) s*))
+                 (A**   (μkanren-state-find* A* s*))
+                 (T**   (μkanren-rem-subsumed-T (μkanren-state-find* T* s*)))
+                 (body  (μkanren-form w** D** A** T** s*)))
+            `(λ ,vars* ,@body))))))
 
   ; constraints -------------------------------------------------------------------
 

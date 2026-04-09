@@ -176,8 +176,14 @@ END
     (⊦= '((person alice 30)) (°->list/ground (fresh° r (t n a) (=° `#(,t ,n ,a) p)))))
 
   ((test/symbol° _)
-    (⊦= '((λ (α) (begin (assert (every (μ v (symbol? v)) (list α))) α))) (°->list #f (fresh° (s) (symbol° s))))
-    
+    (⊦= '((λ (α) (assert (every (μ v (symbol? v)) (list α))) α)) (°->list #f (fresh° (s) (symbol° s))))
+    (°->list #f (fresh° (s r) (symbol° r)))
+    (°->list #f (fresh° (s) (≠° s 1)))
+    (°->list #f (fresh° (s) (≠° s 1) (=° s 1)))
+    (°->list #f (fresh° (s) (≠° s '(a b))))
+    (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° q (list p r))))
+    (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° q (list p r))))
+    (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° r 2) (=° q (list p r))))
   )
 
 )
