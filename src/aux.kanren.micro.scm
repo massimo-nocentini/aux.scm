@@ -226,7 +226,7 @@
 
   (define (μkanren-anyvar? s)
     (define anyvar? (λ1-match/first
-                      ((,α ⊣ (μkanren-var? α)) (μkanren-var-working? (μkanren-state-find α s)))
+                      ((,α ⊣ (μkanren-var-working? α)) (μkanren-var-working? (μkanren-state-find α s)))
                       ((,a . ,d) (or (anyvar? a) (anyvar? d)))
                       ((,v ⊣ (vector? v)) (vector-fold (λ (_ found e) (or found (anyvar? e))) #f v))
                       ((,r ⊣ (record-instance? r)) (anyvar? (record->vector r)))
@@ -382,11 +382,11 @@
   (define (μkanren-state-unify* associations s) ; ✓
     (μkanren-state-unify (map lhs associations) (map rhs associations) s))
 
-  (define (μkanren-prefix-sbral S* S) ; ✓
-    (let* ((S*-length (length/sbral S*))
+  (define (μkanren-prefix-sbral->list S* S) ; ✓
+    (let* ((l (length/sbral S*))
            (prefix-wrt-S (prefix/sbral S))
            (S*-S (prefix-wrt-S S*))
-           (M (λ (i each) (let1 (α (make-μkanren-var (- S*-length i 1))) `(,α . ,each))))
+           (M (λ (i each) (let1 (α (make-μkanren-var (- l i 1))) `(,α . ,each))))
            (S** (map/sbral M S*-S))
            (D (sbral->list S**))
            (D* (filter (λ1-match/first ((_ . ,v) (not (μkanren-unbound? v)))) D)))
@@ -399,7 +399,7 @@
                                           ((eq? s* s) #f)
                                           (else (let* ((S (μkanren-state-S s))
                                                        (S* (μkanren-state-S s*))
-                                                       (d* (μkanren-prefix-sbral S* S)))
+                                                       (d* (μkanren-prefix-sbral->list S* S)))
                                                   (cons d* D))))))
       (else D)))
 
@@ -473,8 +473,8 @@
         (cond
           ((eq? s s*) (✗° s*))
           (else (let* ((S* (μkanren-state-S s*))
-                       (D* (μkanren-prefix-sbral S* S))
-                       (D* (list D*))
+                       (d (μkanren-prefix-sbral->list S* S))
+                       (D* (list d))
                        (D* (μkanren-subsume A D*))
                        (D* (μkanren-subsume T D*))
                        (D* (append D* D))
