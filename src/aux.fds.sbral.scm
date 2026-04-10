@@ -74,7 +74,7 @@
       (else (error "sbral-tree-update: not a valid sbral"))))
 
   (define (sbral-ref sbral i)
-    (λ-match/non-overlapping sbral
+    (match/non-overlapping sbral
       ((((,size . ,tree) . _) ⊣ (< -1 i size)) (sbral-tree-lookup size i tree))
       ((((,size . _) . ,sbral*) ⊣ (<= size i)) (sbral-ref sbral* (- i size)))))
 
