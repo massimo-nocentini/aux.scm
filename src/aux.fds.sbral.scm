@@ -23,12 +23,8 @@
   (define empty/sbral '())
 
   (define (cons/sbral v sbral)
-    (cond
-      ((and (not (null? sbral)) (not (null? (cdr sbral))))
-        (match1/first (((,x . ,xtree) (,y . ,ytree) . ,sbral*) sbral)
-          (cond
-            ((= x y) `((,(+ 1 x y) ,v ,xtree ,ytree) . ,sbral*))
-            (else `((1 ,v) . ,sbral)))))
+    (match/first sbral
+      ((((,x . ,xtree) (,y . ,ytree) . ,sbral*) ⊣ (= x y)) `((,(+ 1 x y) ,v ,xtree ,ytree) . ,sbral*))
       (else `((1 ,v) . ,sbral))))
 
   (define (sbral-tree-leaf? tree) (null? (cdr tree)))
@@ -77,10 +73,10 @@
                                                    (sbral-tree-update whalf (- i 1 whalf) y (sbral-tree-right tree)))))))
       (else (error "sbral-tree-update: not a valid sbral"))))
 
-  (define sbral-ref
-    (λ-match/non-overlapping
-      (((((,size . ,tree) . _) ,i) ⊣ (< -1 i size)) (sbral-tree-lookup size i tree))
-      (((((,size . _) . ,sbral*) ,i) ⊣ (<= size i)) (sbral-ref sbral* (- i size)))))
+  (define (sbral-ref sbral i)
+    (λ-match/non-overlapping sbral
+      ((((,size . ,tree) . _) ⊣ (< -1 i size)) (sbral-tree-lookup size i tree))
+      ((((,size . _) . ,sbral*) ⊣ (<= size i)) (sbral-ref sbral* (- i size)))))
 
   (define (update/sbral i y sbral)
     (match1/first (((,size . ,tree) . ,sbral*) sbral)
