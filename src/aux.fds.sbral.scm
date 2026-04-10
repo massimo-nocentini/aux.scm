@@ -1,4 +1,21 @@
 
+;; Skew binary random-access list.
+;;
+;; The structure is stored as a list of weighted trees. Each element of the
+;; outer list has shape `(size root-subtree)`, where `size` is the number of
+;; values stored in the tree and the tree is either a leaf `(value)` or a node
+;; `(value left right)`. The front of the sequence is always at the root of the
+;; first tree, which gives constant-time `cons/sbral`, `car/sbral`, and
+;; `cdr/sbral`, while indexed access and updates walk a tree by weight.
+;;
+;; Public API:
+;; - `empty/sbral` creates an empty sequence.
+;; - `cons/sbral`, `car/sbral`, and `cdr/sbral` behave like their list
+;;   counterparts on the front of the sequence.
+;; - `sbral-ref` and `update/sbral` provide positional lookup and replacement.
+;; - `list->sbral` and `sbral->list` convert to and from ordinary lists.
+;; - `length/sbral`, `map/sbral`, `filter/sbral`, `exists?/sbral`, and
+;;   `prefix/sbral` provide common traversal helpers.
 (module (aux fds sbral) *
 
   (import scheme (chicken base) (chicken fixnum) (aux base))
@@ -65,23 +82,20 @@
                                                    (sbral-tree-update whalf (- i 1 whalf) y (sbral-tree-right tree)))))))
       (else (error "sbral-tree-update: not a valid sbral"))))
 
-  (define (sbral-ref sbral i) ; according to `list-ref`, zero-based.
-    (letcar&cdr (((size tree) (car sbral)))
-                (cond
-                  ((< i size) (sbral-tree-lookup size i tree))
-                  (else (sbral-ref (cdr sbral) (- i size))))))
+  (define sbral-ref
+    (λ-match/non-overlapping
+      (((((,size . ,tree) . _) ,i) ⊣ (< -1 i size)) (sbral-tree-lookup size i tree))
+      (((((,size . _) . ,sbral*) ,i) ⊣ (<= size i)) (sbral-ref sbral* (- i size)))))
 
   (define (update/sbral i y sbral)
-    (letcar&cdr (((size tree) (car sbral)))
-                (cond
-                  ((< i size) (cons (cons size (sbral-tree-update size i y tree)) (cdr sbral)))
-                  (else (cons (car sbral) (update/sbral (- i size) y (cdr sbral)))))))
+    (match1/first (((,size . ,tree) . ,sbral*) sbral)
+      (cond
+        ((< -1 i size) `((,size . ,(sbral-tree-update size i y tree)) . ,sbral*))
+        (else `(,(car sbral) . ,(update/sbral (- i size) y sbral*))))))
 
   (define (foldr/sbral f init sbral)
     (let loop ((l (sub1 (length/sbral sbral))) (out init))
-      (cond
-        ((< l 0) out)
-        (else (loop (sub1 l) (f l (sbral-ref sbral l) out))))))
+      (if (< l 0) out (loop (sub1 l) (f l (sbral-ref sbral l) out)))))
 
   (define (length/sbral sbral) (foldr (λ (each l) (+ (car each) l)) 0 sbral))
   (define (list->sbral lst) (foldr cons/sbral empty/sbral lst))
@@ -96,10 +110,10 @@
   (define (exists?/sbral pred? sbral)
     (foldr/sbral (λ (i each exists) (or exists (pred? i each))) #f sbral))
 
-  (define (prefix/sbral s)
+  (define (prefix/sbral s #!key (same? equal?))
     (letrec ((P (μ s*
                   (cond
-                    ((or (null? s*) (equal? s* s)) empty/sbral)
+                    ((or (null? s*) (same? s* s)) empty/sbral)
                     (else (cons/sbral (car/sbral s*) (P (cdr/sbral s*))))))))
       P))
 
