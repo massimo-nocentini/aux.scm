@@ -25,15 +25,11 @@
   (define (cons/sbral v sbral)
     (cond
       ((and (not (null? sbral)) (not (null? (cdr sbral))))
-       (let ((fst (car sbral))
-             (snd (cadr sbral))
-             (rest (cddr sbral)))
-         (letcar&cdr (((x xtree) fst)
-                      ((y ytree) snd))
-                     (cond
-                       ((= x y) (cons (list (+ 1 x y) v xtree ytree) rest))
-                       (else (cons (list 1 v) sbral))))))
-      (else (cons (list 1 v) sbral))))
+        (match1/first (((,x . ,xtree) (,y . ,ytree) . ,sbral*) sbral)
+          (cond
+            ((= x y) `((,(+ 1 x y) ,v ,xtree ,ytree) . ,sbral*))
+            (else `((1 ,v) . ,sbral)))))
+      (else `((1 ,v) . ,sbral))))
 
   (define (sbral-tree-leaf? tree) (null? (cdr tree)))
   (define (sbral-tree-node? tree) (pair? (cdr tree)))
@@ -42,21 +38,20 @@
   (define (sbral-tree-right tree) (caddr tree))
 
   (define (car/sbral sbral)
-    (letcar&cdr (((size tree) (car sbral)))
-                (cond
-                  ((or (and (= size 1) (sbral-tree-leaf? tree))
-                       (sbral-tree-node? tree)) (sbral-tree-value tree))
-                  (else (error "car/sbral: not a valid sbral")))))
+    (match1/first ((,size . ,tree) (car sbral))
+      (cond
+        ((or (and (= size 1) (sbral-tree-leaf? tree)) (sbral-tree-node? tree)) (sbral-tree-value tree))
+        (else (error "car/sbral: not a valid sbral")))))
 
   (define (cdr/sbral sbral)
-    (letcar&cdr (((size tree) (car sbral)))
-                (cond
-                  ((and (= size 1) (sbral-tree-leaf? tree)) (cdr sbral))
-                  ((sbral-tree-node? tree) (let* ((w (quotient size 2))
-                                                  (f (cons w (sbral-tree-left tree)))
-                                                  (s (cons w (sbral-tree-right tree))))
-                                             (cons f (cons s (cdr sbral)))))
-                  (else (error "cdr/sbral: not a valid sbral")))))
+    (match1/first (((,size . ,tree) . ,sbral*) sbral)
+      (cond
+        ((and (= size 1) (sbral-tree-leaf? tree)) sbral*)
+        ((sbral-tree-node? tree) (let* ((w (quotient size 2))
+                                        (f (cons w (sbral-tree-left tree)))
+                                        (s (cons w (sbral-tree-right tree))))
+                                    `(,f ,s . ,sbral*)))
+        (else (error "cdr/sbral: not a valid sbral")))))
 
   (define (sbral-tree-lookup w i tree)
     (cond
