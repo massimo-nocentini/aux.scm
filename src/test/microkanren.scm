@@ -191,6 +191,12 @@ END
     (⊦= '() (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° r 2) (=° q (list p r)))))
   )
 
+  ((test/absent° _)
+    (⊦= '((λ (α β) (assert (absent (quote panda) β)) (assert (absent (quote panda) α)) (cons (quote jackal) (cons (cons α (cons (quote leopard) (cons β (quote ())))) (quote ())))))
+        (°->list #f (fresh° (q x y) (=° `(jackal (,y leopard ,x)) q) (absent° 'panda q))))
+    
+  )
+
 )
 
 (unittest/✓ microkanren-suite)

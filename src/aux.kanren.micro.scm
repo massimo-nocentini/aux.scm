@@ -188,7 +188,7 @@
            (group->deny-list (λ (d) (map pair->deny d))))
       (append-map group->deny-list D)))
   
-  (define (μkanren-drop-dot-T T) (map (λ1-match/first ((,α . ,tag) `(absent ,tag ,α))) T))
+  (define μkanren-drop-dot-T (map/curry (λ1-match/first ((,α . ,tag) `(,tag ,α)))))
 
   (define μkanren-sort-part (λ1-match/first ((,tag . ,vars) `(,tag . ,(μkanren-sorter vars)))))
 
@@ -209,7 +209,8 @@
     (let* ((fd (μkanren-drop-dot-D (μkanren-sorter (map μkanren-sorter D))))
            (FA (λ1-match/first ((,tag . ,vars) `(assert (every ,(μkanren-tag-def tag) (list ,@(map μkanren-var->symbol vars)))))))
            (fa (map FA (μkanren-sorter (map μkanren-sort-part (μkanren-partition* A)))))
-           (ft (μkanren-drop-dot-T (μkanren-sorter T))))
+           (FT (λ1-match/first ((,tag ,var) `(assert (absent (quote ,(μkanren-tag-name tag)) ,(μkanren-var->symbol var))))))
+           (ft (map FT (μkanren-drop-dot-T (μkanren-sorter T)))))
         `(,@fd ,@fa ,@ft ,v)))
 
   (define (μkanren-subsumed-T? x tag1 T)
@@ -336,7 +337,7 @@
                                         (else #f))))
         ((,au . ,du)  (μ T₀
                         (cond
-                          (((μkanren-verify-T+ au T S) T₀) => (μkanren-verify-T+ du T S))
+                          (((μkanren-verify-T+ au T s) T₀) => (μkanren-verify-T+ du T s))
                           (else #f))))
         ; perhaps we should also handle vectors and record-instances here, but for now we only support tags on variables and conses.
         (,u (μ T₀ (and (μkanren-tag-pred? tag u) T₀))))))
@@ -444,7 +445,7 @@
 
   (define (μkanren-ext-T α tag T s)
     (match/first T
-      (() `(,α . ,tag))
+      (() `((,α . ,tag)))
       ((((,α* . ,tag*) . ,T*) ⊣ (equal? (μkanren-state-find α* s) α))
         (if (μkanren-tag-equal? tag tag*) '() (μkanren-ext-T α tag T* s)))
       ((((_ . ,tag*) . ,T*) ⊣ (μkanren-tag-equal? tag tag*)) (μkanren-ext-T+ α tag T* s))
