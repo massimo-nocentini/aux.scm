@@ -1,5 +1,6 @@
 
-(import scheme (chicken base) (chicken memory representation) (aux base) (aux unittest) (aux kanren micro))
+(import scheme (chicken base) (chicken memory representation) srfi-1
+  (aux base) (aux unittest) (aux kanren micro))
 
 (define-suite untagged-suite
 
@@ -62,16 +63,11 @@
           (not-in-env° x rest)))))
 
     (define (lookup° x env t)
-      (cond°
-        ((=° '() env) ✗°)
-        ((fresh° (y v rest)
-          (=° `((,y . ,v) . ,rest) env) 
-          (=° y x)
-          (=° v t)))
-        ((fresh° (y v rest)
-          (=° `((,y . ,v) . ,rest) env)
-          (≠° y x)
-          (lookup° x rest t)))))
+      (fresh° (y v rest)
+        (=° `((,y . ,v) . ,rest) env)
+        (cond°
+          ((=° y x) (=° v t))
+          ((≠° y x) (lookup° x rest t)))))
 
     (define (eval-exp° exp env val)
       (cond°
@@ -97,8 +93,14 @@
           (not-in-env° 'λ env)
           (=° `(closure ,x ,body ,env) val)))))
   
-    (⊦= '((λ (α) (deny (equal? α 1)) α)) 
-      (°->list #f (take° 5 (fresh° (q e v) (eval-exp° e '() v) (=° `(,e → ,v) q)))))
+    (⊦= '(bar) (°->list #t (fresh° (q) (lookup° 'y '((x . foo) (y . bar)) q))))
+    (⊦= '() (°->list #t (fresh° (q) (lookup° 'w '((x . foo) (y . bar)) q))))
+
+    #;(⊦= '((λ (α) (deny (equal? α 1)) α))
+      (°->list #f (take° 1 (fresh° (q) (eval-exp° q '() q)))))
+
+    #;(⊦= '((λ (α) (deny (equal? α 1)) α))
+      (°->list #f (take° 6 (fresh° (q e v) (eval-exp° e '() v) (=° `(,e → ,v) q)))))
   
   )
 

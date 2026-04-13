@@ -393,4 +393,16 @@
   (define greek-alphabet/lowercase    #(α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω))
   (define greek-alphabet/uppercase    #(Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω))
 
-  )
+  (define (absent? v obj)
+    (cond
+      ((null? obj) #t)
+      ((pair? obj) (and (absent? v (car obj)) (absent? v (cdr obj))))
+      ((vector? obj) (let loop ((i 0))
+                       (cond
+                         ((= i (vector-length obj)) #t)
+                         ((absent? v (vector-ref obj i)) (loop (add1 i)))
+                         (else #f))))
+      ((record-instance? obj) (absent? v (record->vector obj)))
+      (else (not (equal? v obj)))))
+
+)

@@ -184,8 +184,8 @@
   (define (μkanren-drop-dot-D D)
     ; Convert each disequality pair (α . u) to a deny form: (deny (equal? <symbol-of-α> u))
     ; Then flatten all groups in D into a single list.
-    (let* ((pair->deny (λ1-match/first ((,α . ,u) `(deny (equal? ,(μkanren-var->symbol α) ,u)))))
-           (group->deny-list (λ (d) (map pair->deny d))))
+    (let* ((pair->deny (λ1-match/first ((,α . ,u) (display/pp `(error ,α)) `(deny (equal? ,(μkanren-var->symbol α) ,u)))))
+           (group->deny-list (map/curry pair->deny)))
       (append-map group->deny-list D)))
   
   (define μkanren-drop-dot-T (map/curry (λ1-match/first ((,α . ,tag) `(,tag ,α)))))
@@ -209,14 +209,16 @@
     (let* ((fd (μkanren-drop-dot-D (μkanren-sorter (map μkanren-sorter D))))
            (FA (λ1-match/first ((,tag . ,vars) `(assert (every ,(μkanren-tag-def tag) (list ,@(map μkanren-var->symbol vars)))))))
            (fa (map FA (μkanren-sorter (map μkanren-sort-part (μkanren-partition* A)))))
-           (FT (λ1-match/first ((,tag ,var) `(assert (absent (quote ,(μkanren-tag-name tag)) ,(μkanren-var->symbol var))))))
+           (FT (λ1-match/first ((,tag ,var) `(assert (absent? (quote ,(μkanren-tag-name tag)) ,(μkanren-var->symbol var))))))
            (ft (map FT (μkanren-drop-dot-T (μkanren-sorter T)))))
         `(,@fd ,@fa ,@ft ,v)))
 
-  (define (μkanren-subsumed-T? x tag1 T)
+  (define (μkanren-subsumed-T? x tag T)
     (match/first T
       (() #f)
-      (((,y . ,tag2) . ,T*) (or (and (equal? x y) (μkanren-tag-equal? tag1 tag2)) (μkanren-subsumed-T? x tag1 T*)))))
+      (((,y . ,tag*) . ,T*) (or 
+                              (and (equal? x y) (μkanren-tag-equal? tag tag*))
+                              (μkanren-subsumed-T? x tag T*)))))
 
   (define (μkanren-rem-subsumed-T T0)
       (let loop ((T T0) (Tˆ '()))
@@ -458,7 +460,7 @@
                                                                    (vars (remove-duplicates (map lhs A))))
                                                               (μkanren-subsume-T vars T+ D* A T s)))))
         ((,au . ,du) (let1 (s* (μkanren-absento+ au tag D A T s))
-                        (and s* (μkanren-state-match ((vc* S* D* A* T* tags) s*)
+                        (and s* (μkanren-state-match ((vc* S* D* A* T* tags*) s*)
                                   (μkanren-absento+ du tag D* A* T* s*)))))
         (,u* (if (and (symbol? u*) (equal? u* (μkanren-tag-name tag))) #f s))))
   
@@ -469,7 +471,8 @@
 
   (define ((freshª f) s) ; ª means "applicative", so `freshª` is a *function* that consumes a function and returns a goal.
     (μkanren-state-match ((vc S D A T tags) s)
-      (let* ((g  (f (make-μkanren-var vc)))
+      (let* ((α (make-μkanren-var vc))
+             (g  (f α))
              (s* (make-μkanren-state (add1 vc) S D A T tags)))
         (δ (g s*)))))
 
