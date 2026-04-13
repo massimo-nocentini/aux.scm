@@ -442,6 +442,25 @@
         ((μkanren-tag-pred? tag u*) (✓° s))
         (else (✗° s)))))
 
+  (define (μkanren-ext-T α tag T s)
+    (match/first T
+      (() `(,α . ,tag))
+      ((((,α* . ,tag*) . ,T*) ⊣ (equal? (μkanren-state-find α* s) α))
+        (if (μkanren-tag-equal? tag tag*) '() (μkanren-ext-T α tag T* s)))
+      ((((_ . ,tag*) . ,T*) ⊣ (μkanren-tag-equal? tag tag*)) (μkanren-ext-T+ α tag T* s))
+      ((_ . ,T*) (μkanren-ext-T α tag T* s))))
+
+  (define (μkanren-absento+ u tag D A T s)
+      (match/first (μkanren-state-find u s)
+        ((,α ⊣ (μkanren-var-working? α)) (let1 (T+ (μkanren-ext-T α tag T s))
+                                            (if (null? T+) s (let ((D* (μkanren-subsume T+ D))
+                                                                   (vars (remove-duplicates (map lhs A))))
+                                                              (μkanren-subsume-T vars T+ D* A T s)))))
+        ((,au . ,du) (let1 (s* (μkanren-absento+ au tag D A T s))
+                        (and s* (μkanren-state-match ((vc* S* D* A* T* tags) s*)
+                                  (μkanren-absento+ du tag D* A* T* s*)))))
+        (,u* (if (and (symbol? u*) (equal? u* (μkanren-tag-name tag))) #f s))))
+  
   ; goals --------------------------------------------------------------------------
 
   (define ✓° list)
@@ -527,7 +546,18 @@
   (define symbol° (μkanren-make-tag-A μkanren-tag/sym))
   (define number° (μkanren-make-tag-A μkanren-tag/num))
 
-  (define-syntax-rule (project° ((v α) ...) g ...) 
+  (define (absent° tag u)
+    (cond
+      ((not (symbol? tag)) ✗°)
+      (else (λ (s)
+              (μkanren-state-match ((vc S D A T tags) s)
+                (let* ((pred? (λ (v) (not (equal? tag v))))
+                       (tag* (make-μkanren-tag tag 'no-def pred?)))
+                  (cond
+                    ((μkanren-absento+ u tag* D A T s) => ✓°)
+                    (else (✗° s)))))))))
+
+  (define-syntax-rule (project° ((v α) ...) g ...)
     (μ s (let* ((v (μkanren-state-find* α s)) ...) (δ ((and° g ...) s)))))
   
   (define-syntax-rule (cond° (g ...) ...) (or° (and° g ...) ...))
