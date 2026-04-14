@@ -93,8 +93,8 @@
           (not-in-env° 'λ env)
           (=° `(closure ,x ,body ,env) val)))))
   
-    (⊦= '(bar) (°->list #t (fresh° (q) (lookup° 'y '((x . foo) (y . bar)) q))))
-    (⊦= '() (°->list #t (fresh° (q) (lookup° 'w '((x . foo) (y . bar)) q))))
+    (⊦= '(bar) (°->list #t (fresh° (q) (lookup° 'y (list (cons 'x  'foo) (cons 'y  'bar)) q))))
+    (⊦= '() (°->list #t (fresh° (q) (lookup° 'w (list (cons 'x 'foo) (cons 'y 'bar)) q))))
 
     #;(⊦= '((λ (α) (deny (equal? α 1)) α))
       (°->list #f (take° 1 (fresh° (q) (eval-exp° q '() q)))))
