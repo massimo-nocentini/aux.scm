@@ -192,7 +192,7 @@ END
   )
 
   ((test/absent° _)
-    (⊦= '((λ (α β) (assert (absent? (quote panda) β)) (assert (absent? (quote panda) α)) (cons (quote jackal) (cons (cons α (cons (quote leopard) (cons β (quote ())))) (quote ())))))
+    (⊦= '((λ (α β) (assert (absent? (quote panda) α)) (assert (absent? (quote panda) β)) (cons (quote jackal) (cons (cons α (cons (quote leopard) (cons β (quote ())))) (quote ())))))
         (°->list #f (fresh° (q x y) (=° `(jackal (,y leopard ,x)) q) (absent° 'panda q))))
     
   )
