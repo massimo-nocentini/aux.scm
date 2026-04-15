@@ -15,7 +15,6 @@
 ;; - `sbral-ref` and `update/sbral` provide positional lookup and replacement.
 ;; - `list->sbral` and `sbral->list` convert to and from ordinary lists.
 ;; - `length/sbral`, `map/sbral`, `filter/sbral`, `exists?/sbral`, and
-;;   `prefix/sbral` provide common traversal helpers.
 (module (aux fds sbral) *
 
   (import scheme (chicken base) (chicken fixnum) (aux base))
@@ -100,14 +99,5 @@
   
   (define (exists?/sbral pred? sbral)
     (foldr/sbral (λ (i each exists) (or exists (pred? i each))) #f sbral))
-
-  (define (prefix/sbral s)
-    (let* ((l (sbral->list s)) (a (if (null? l) (gensym) (car l))))
-      (letrec ((P (μ s*
-                    (let L ((l* (sbral->list s*)))
-                      (cond
-                        ((or (null? l*) (eq? (car l*) a)) empty/sbral)
-                        (else (cons/sbral (car l*) (L (cdr l*)))))))))
-        P)))
 
 )

@@ -230,7 +230,11 @@ END
 
     (⊦= '((a c b d)) (μkanren-run (q -1 #t) (rember° 'b '(a b c b d) q)))
     (⊦= '() (μkanren-run (q -1 #t) (rember° 'b '(b) '(b))))
-    (⊦= '((λ () (cons 'a (cons (cons 'b (cons 'c '())) '())))) (°->list #f (fresh° (q x out) (rember° x '(a b c) out) (=° (list x out) q))))
+    (⊦= '(  (λ () (cons (quote a) (cons (cons (quote b) (cons (quote c) (quote ()))) (quote ()))))
+            (λ () (cons (quote b) (cons (cons (quote a) (cons (quote c) (quote ()))) (quote ())))) 
+            (λ () (cons (quote c) (cons (cons (quote a) (cons (quote b) (quote ()))) (quote ())))) 
+            (λ (α) (begin (deny (equal? α (quote a)))) (begin (deny (equal? α (quote b)))) (begin (deny (equal? α (quote c)))) (cons α (cons (cons (quote a) (cons (quote b) (cons (quote c) (quote ())))) (quote ()))))) 
+      (°->list #f (fresh° (q x out) (rember° x '(a b c) out) (=° (list x out) q))))
   )
 
   ((test/absent° _)

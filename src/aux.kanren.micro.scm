@@ -46,12 +46,14 @@
 
   (define-record μkanren-state vars-count S D A T tags)
 
+  ; (set-record-printer! μkanren-state (λ (s port) (display (->string/pretty-print `((vars count ,(μkanren-state-vars-count s)) (S ,(sbral->list (μkanren-state-S s))) (D ,(μkanren-state-D s)))) port)))
+
   (define μkanren-state-empty (make-μkanren-state 0 empty/sbral empty/sbral empty/sbral empty/sbral '()))
 
   (define (μkanren-state-equal-S? s s*)
     (let ((S (μkanren-state-S s))
           (S* (μkanren-state-S s*)))
-      (or (eq? S S*) (equal? S S*))))
+      (equal? S S*)))
 
   (define (μkanren-var-index/sbral sbral)
     (let1 (l (length/sbral sbral))
@@ -168,7 +170,7 @@
     (let1 (w* (μkanren-state-find w r))
           (cond
             ((μkanren-var-working? w*) (let* ((v* (make-μkanren-var c))
-                                              (r* (μkanren-state-update w* v* r))
+                                              (r* (μkanren-state-update/✓ w* v* r))
                                               (c* (sub1 c))
                                               (vars* (cons v* vars)))
                                           (μkanren-state-reify/helper (void) r* c* vars*)))
@@ -390,13 +392,13 @@
     (μkanren-state-unify (map lhs associations) (map rhs associations) s))
 
   (define (μkanren-prefix-sbral->list S* S) ; ✓
-    (let* ((l (length/sbral S*))
-           (prefix-wrt-S (prefix/sbral S))
-           (S*-S (prefix-wrt-S S*))
-           (M (λ (i each lst) (if (μkanren-unbound? each) lst
-                                (let1 (α (make-μkanren-var (- l i 1)))
-                                  (cons `(,α . ,each) lst))))))
-      (foldr/sbral M '() S*-S)))
+    (let* ((l (length/sbral S))
+           (l* (length/sbral S*))
+           (M (λ (i each lst) 
+                (cond
+                  ((and (< i l) (eq? each (sbral-ref S i))) lst)
+                  (else (let1 (α (make-μkanren-var (- l* i 1))) (cons `(,α . ,each) lst)))))))
+      (remove (μ e (μkanren-unbound? (cdr e))) (foldr/sbral M '() S*))))
 
   (define (μkanren-verify-D+ d D s) ; ✓
     (cond
@@ -497,6 +499,7 @@
           ((μkanren-state-equal-S? s s*) (✗° s*))
           (else (let* ((S*  (μkanren-state-S s*))
                        (d   (μkanren-prefix-sbral->list S* S))
+                       (_ (display/pp d))
                        (D*  (list d))
                        (D*  (μkanren-subsume A D*))
                        (D*  (μkanren-subsume T D*))

@@ -27,7 +27,7 @@ Exported entry points include:
 - `sbral-ref`, `update/sbral`
 - `length/sbral`
 - `list->sbral`, `sbral->list`
-- `map/sbral`, `filter/sbral`, `exists?/sbral`, `prefix/sbral`
+- `map/sbral`, `filter/sbral`, `exists?/sbral`
 
 Example:
 
