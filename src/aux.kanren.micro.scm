@@ -393,7 +393,7 @@
     (let* ((l (length/sbral S*))
            (prefix-wrt-S (prefix/sbral S))
            (S*-S (prefix-wrt-S S*))
-           (M (λ (i each lst) (if (or (null? each) (μkanren-unbound? each)) lst
+           (M (λ (i each lst) (if (μkanren-unbound? each) lst
                                 (let1 (α (make-μkanren-var (- l i 1)))
                                   (cons `(,α . ,each) lst))))))
       (foldr/sbral M '() S*-S)))
@@ -401,7 +401,7 @@
   (define (μkanren-verify-D+ d D s) ; ✓
     (cond
       ((μkanren-state-unify/assoc d s) => (μ s*
-                                            (cond 
+                                            (cond
                                               ((μkanren-state-equal-S? s s*) #f)
                                               (else (let* ((S (μkanren-state-S s))
                                                            (S* (μkanren-state-S s*))

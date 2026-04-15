@@ -101,11 +101,13 @@
   (define (exists?/sbral pred? sbral)
     (foldr/sbral (λ (i each exists) (or exists (pred? i each))) #f sbral))
 
-  (define (prefix/sbral s #!key (same? equal?))
-    (letrec ((P (μ s*
-                  (cond
-                    ((or (null? s*) (eq? s s*) (same? s s*)) empty/sbral)
-                    (else (cons/sbral (car/sbral s*) (P (cdr/sbral s*))))))))
-      P))
+  (define (prefix/sbral s)
+    (let* ((l (sbral->list s)) (a (if (null? l) (gensym) (car l))))
+      (letrec ((P (μ s*
+                    (let L ((l* (sbral->list s*)))
+                      (cond
+                        ((or (null? l*) (eq? (car l*) a)) empty/sbral)
+                        (else (cons/sbral (car l*) (L (cdr l*)))))))))
+        P)))
 
 )

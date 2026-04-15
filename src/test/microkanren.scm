@@ -230,7 +230,7 @@ END
 
     (⊦= '((a c b d)) (μkanren-run (q -1 #t) (rember° 'b '(a b c b d) q)))
     (⊦= '() (μkanren-run (q -1 #t) (rember° 'b '(b) '(b))))
-    (⊦= '((a b c)) (μkanren-run (q -1 #t) (fresh° (x out) (rember° x '(a b c) out) (=° (list x out) q))))
+    (⊦= '((λ () (cons 'a (cons (cons 'b (cons 'c '())) '())))) (°->list #f (fresh° (q x out) (rember° x '(a b c) out) (=° (list x out) q))))
   )
 
   ((test/absent° _)
