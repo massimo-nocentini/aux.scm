@@ -97,7 +97,7 @@
     (⊦= '() (°->list #t (fresh° (q) (lookup° 'w (list (cons 'x 'foo) (cons 'y 'bar)) q))))
 
     #;(⊦= '((λ (α) (deny (equal? α 1)) α))
-      (°->list #f (take° 1 (fresh° (q) (eval-exp° q '() q)))))
+      (°->list #t (take° 2 (fresh° (q) (eval-exp° q '() q)))))
 
     #;(⊦= '((λ (α) (deny (equal? α 1)) α))
       (°->list #f (take° 6 (fresh° (q e v) (eval-exp° e '() v) (=° `(,e → ,v) q)))))

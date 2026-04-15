@@ -104,7 +104,7 @@
   (define (prefix/sbral s #!key (same? equal?))
     (letrec ((P (μ s*
                   (cond
-                    ((or (null? s*) (same? s* s)) empty/sbral)
+                    ((or (null? s*) (eq? s s*) (same? s s*)) empty/sbral)
                     (else (cons/sbral (car/sbral s*) (P (cdr/sbral s*))))))))
       P))
 

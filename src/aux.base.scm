@@ -353,11 +353,10 @@
   (define rhs cdr)
 
   (define (exists pred?)
-    (letrec ((E (λ (lst)
-                  (cond
-                    ((null? lst) #f)
-                    ((pred? (car lst)) #t)
-                    (else (E (cdr lst)))))))
+    (letrec ((E (λ1-match/first
+                  (() #f)
+                  (((,l . _) ⊣ (pred? l)) #t)
+                  ((_ . ,lst*) (E lst*)))))
       E))
 
   (define (prefix-with-respect-to s)
