@@ -33,20 +33,15 @@
   (define (sbral-tree-right tree) (caddr tree))
 
   (define (car/sbral sbral)
-    (match1/first ((,size . ,tree) (car sbral))
-      (cond
-        ((or (and (= size 1) (sbral-tree-leaf? tree)) (sbral-tree-node? tree)) (sbral-tree-value tree))
-        (else (error "car/sbral: not a valid sbral")))))
-
+    (match/first sbral
+      (((_ ,v . _) . _) v)
+      (else (error "car/sbral: not a valid sbral"))))
+      
   (define (cdr/sbral sbral)
-    (match1/first (((,size . ,tree) . ,sbral*) sbral)
-      (cond
-        ((and (= size 1) (sbral-tree-leaf? tree)) sbral*)
-        ((sbral-tree-node? tree) (let* ((w (quotient size 2))
-                                        (f (cons w (sbral-tree-left tree)))
-                                        (s (cons w (sbral-tree-right tree))))
-                                    `(,f ,s . ,sbral*)))
-        (else (error "cdr/sbral: not a valid sbral")))))
+    (match/first sbral
+      (((1 _) . ,sbral*) sbral*)
+      (((,s _ ,α ,β) . ,sbral*) (let1 (w (quotient s 2)) `((,w . ,α) (,w . ,β) . ,sbral*)))
+      (error "cdr/sbral: not a valid sbral")))
 
   (define (sbral-tree-lookup w i tree)
     (cond

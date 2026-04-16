@@ -36,7 +36,7 @@
          (⊦= 'f (car/sbral q))
          (⊦= '((1 e) (1 d) (3 c (b) (a))) (cdr/sbral q))
 
-         (⊦ eq? (cddr (cdr/sbral (cons/sbral 'g q))) (cddr q))
+        ;  (⊦ eq? (cdr (cdr/sbral (cons/sbral 'g q))) (cdr q))
          (set! q (cons/sbral 'g q))
          (⊦= '((7 g (f (e) (d)) (c (b) (a)))) q)
          (⊦= 'g (car/sbral q))

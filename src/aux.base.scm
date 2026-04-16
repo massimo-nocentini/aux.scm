@@ -110,6 +110,7 @@
       ((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
       ((match-pattern val () kt kf) (if (null? val) kt kf))
       #;((match-pattern val (e as (unquote var)) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
+      ((match-pattern val (unquote (unquote var)) kt kf) (if (eq? var val) kt kf))
       ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
       ((match-pattern val #(x x* ...) kt kf)
         (cond
