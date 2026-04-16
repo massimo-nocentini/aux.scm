@@ -73,9 +73,10 @@
       (else (error "sbral-tree-update: not a valid sbral"))))
 
   (define (sbral-ref sbral i)
-    (match/non-overlapping sbral
+    (match/first sbral
       ((((,size . ,tree) . _) ⊣ (< -1 i size)) (sbral-tree-lookup size i tree))
-      ((((,size . _) . ,sbral*) ⊣ (<= size i)) (sbral-ref sbral* (- i size)))))
+      ((((,size . _) . ,sbral*) ⊣ (<= size i)) (sbral-ref sbral* (- i size)))
+      (else (error "sbral-ref: index out of bounds" i))))
 
   (define (update/sbral i y sbral)
     (match1/first (((,size . ,tree) . ,sbral*) sbral)

@@ -384,6 +384,7 @@
   (define-syntax-rule (appender˲ l ...) (μ lst (append l ... lst)))
 
   (define (lex<=? x y) (string<=? (->string x) (->string y)))
+  (define (sort/lex<=? ls) (sort ls lex<=?))
 
   (define ∞ +inf.0)
   (define -∞ -inf.0)
