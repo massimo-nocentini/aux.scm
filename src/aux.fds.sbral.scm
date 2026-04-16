@@ -26,46 +26,34 @@
       ((((,x . ,xtree) (,y . ,ytree) . ,sbral*) ⊣ (= x y)) `((,(+ 1 x y) ,v ,xtree ,ytree) . ,sbral*))
       (else `((1 ,v) . ,sbral))))
 
-  (define (sbral-tree-leaf? tree) (null? (cdr tree)))
-  (define (sbral-tree-node? tree) (pair? (cdr tree)))
-  (define (sbral-tree-value tree) (car tree))
-  (define (sbral-tree-left tree) (cadr tree))
-  (define (sbral-tree-right tree) (caddr tree))
-
-  (define (car/sbral sbral)
-    (match/first sbral
+  (define (car/sbral sbral) 
+    (match/first sbral 
       (((_ ,v . _) . _) v)
       (else (error "car/sbral: not a valid sbral"))))
-      
+
   (define (cdr/sbral sbral)
     (match/first sbral
       (((1 _) . ,sbral*) sbral*)
       (((,s _ ,α ,β) . ,sbral*) (let1 (w (quotient s 2)) `((,w . ,α) (,w . ,β) . ,sbral*)))
-      (error "cdr/sbral: not a valid sbral")))
+      (else error "cdr/sbral: not a valid sbral")))
 
-  (define (sbral-tree-lookup w i tree)
-    (cond
-      ((and (= w 1) (= i 0) (sbral-tree-leaf? tree)) (sbral-tree-value tree))
-      ((and (= i 0) (sbral-tree-node? tree)) (sbral-tree-value tree))
-      ((sbral-tree-node? tree) (let1 (whalf (quotient w 2))
-                                     (cond
-                                       ((<= i whalf) (sbral-tree-lookup whalf (- i 1) (sbral-tree-left tree)))
-                                       (else (sbral-tree-lookup whalf (- i 1 whalf) (sbral-tree-right tree))))))
+  (define sbral-tree-lookup
+    (λ-match/first
+      ((_   0 (,v . _)) v)
+      ((,w ,i (,v ,α ,β)) (let1 (w/2 (quotient w 2))
+                            (cond
+                              ((<= i w/2) (sbral-tree-lookup w/2 (- i 1) α))
+                              (else (sbral-tree-lookup w/2 (- i 1 w/2) β)))))
       (else (error "sbral-tree-lookup: not a valid sbral"))))
 
-  (define (sbral-tree-update w i y tree)
-    (cond
-      ((and (= w 1) (= i 0) (sbral-tree-leaf? tree)) (list y))
-      ((and (= i 0) (sbral-tree-node? tree)) (list y (sbral-tree-left tree) (sbral-tree-right tree)))
-      ((sbral-tree-node? tree) (let1 (whalf (quotient w 2))
-                                     (cond
-                                       ((<= i whalf) (list (sbral-tree-value tree)
-                                                           (sbral-tree-update whalf (- i 1) y (sbral-tree-left tree))
-                                                           (sbral-tree-right tree)))
-                                       (else (list (sbral-tree-value tree)
-                                                   (sbral-tree-left tree)
-                                                   (sbral-tree-update whalf (- i 1 whalf) y (sbral-tree-right tree)))))))
-      (else (error "sbral-tree-update: not a valid sbral"))))
+  (define sbral-tree-update
+    (λ-match/first
+      ((_   0 ,y (_ . ,αβ)) `(,y . ,αβ))
+      ((,w ,i ,y (,v ,α ,β))  (let1 (w/2 (quotient w 2))
+                                (cond
+                                  ((<= i w/2) `(,v ,(sbral-tree-update w/2 (- i 1) y α) ,β))
+                                  (else `(,v ,α ,(sbral-tree-update w/2 (- i 1 w/2) y β))))))
+      (else (error "sbral-tree-update: not a valid sbral"))))    
 
   (define (sbral-ref sbral i)
     (match/first sbral
