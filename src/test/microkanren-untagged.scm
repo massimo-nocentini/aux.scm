@@ -97,7 +97,7 @@
     (⊦= '() (°->list #t (fresh° (q) (lookup° 'w (list (cons 'x 'foo) (cons 'y 'bar)) q))))
 
     #;(⊦= '((λ (α) (deny (equal? α 1)) α))
-      (°->list #t (take° 1 (fresh° (q) (eval-exp° q '() q)))))
+      (°->list #f (take° 1 (fresh° (q) (eval-exp° q '() q)))))
 
     #;(⊦= '((λ (α) (deny (equal? α 1)) α))
       (°->list #f (take° 6 (fresh° (q e v) (eval-exp° e '() v) (=° `(,e → ,v) q)))))
@@ -107,3 +107,8 @@
 )
 
 (unittest/✓ untagged-suite)
+
+#|
+(define Q '(λ (α) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
+(equal? ((eval Q ) 'α) Q)
+|#

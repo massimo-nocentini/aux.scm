@@ -83,7 +83,7 @@
            (i             (index-of-var α)))
       (update/sbral i v sbral*)))
 
-  (define (μkanren-state-update α v s #!key (unsafe #f))
+  (define (μkanren-state-update α v s assocs #!key (unsafe #f))
     
     (define (occur? v*)
       (cond
@@ -96,8 +96,10 @@
     (and
       (or unsafe (not (occur? v)))
       (μkanren-state-match ((vc S D A T tags) s)
-        (let1 (S* (μkanren-update/sbral α v S))
-          (make-μkanren-state vc S* D A T tags)))))
+        (let* ((S* (μkanren-update/sbral α v S))
+               (s* (make-μkanren-state vc S* D A T tags))
+               (assocs* (cons `(,α . ,v) assocs)))
+          `(,s* ,assocs*)))))
 
   (define (μkanren-state-find α s)
     (let* ((S (μkanren-state-S s))
@@ -111,27 +113,29 @@
           ((μkanren-unbound? β) β0)
           (else β)))))
 
-  (define (μkanren-state-unify u v s)
-    (let ((u* (μkanren-state-find u s)) (v* (μkanren-state-find v s)))
+  (define (μkanren-state-unify u v s assocs)
+    (let ((return (τ `(,s ,assocs)))
+          (u* (μkanren-state-find u s))
+          (v* (μkanren-state-find v s)))
       (cond
-        ((eq? u* v*) s)
-        ((and (string? u*) (string? v*) (string=? u* v*)) s)
-        ((and (number? u*) (number? v*) (= u* v*)) s)
+        ((eq? u* v*) (return))
+        ((and (string? u*) (string? v*) (string=? u* v*)) (return))
+        ((and (number? u*) (number? v*) (= u* v*)) (return))
         ((and (μkanren-var-working? u*) (μkanren-var-working? v*))
           (let ((i (μkanren-var-index>=0 u*)) (j (μkanren-var-index>=0 v*)))
             (cond
-              ((= i j) s)
-              ((< i j) (μkanren-state-update u* v* s))
-              (else (μkanren-state-update v* u* s)))))
-        ((μkanren-var-working? u*) (μkanren-state-update u* v* s))
-        ((μkanren-var-working? v*) (μkanren-state-update v* u* s))
-        ((and (vector? u*) (vector? v*)) (μkanren-state-unify (vector->list u*) (vector->list v*) s))
-        ((and (record-instance? u*) (record-instance? v*)) (μkanren-state-unify (record->vector u*) (record->vector v*) s))
-        ((and (vector? u*) (record-instance? v*)) (μkanren-state-unify u* (record->vector v*) s))
-        ((and (record-instance? u*) (vector? v*)) (μkanren-state-unify (record->vector u*) v* s))
-        ((and (pair? u*) (pair? v*)) 
-          (let1 (s* (μkanren-state-unify (car u*) (car v*) s)) 
-            (and (μkanren-state? s*) (μkanren-state-unify (cdr u*) (cdr v*) s*))))
+              ((= i j) (return))
+              ((< i j) (μkanren-state-update u* v* s assocs))
+              (else (μkanren-state-update v* u* s assocs)))))
+        ((μkanren-var-working? u*) (μkanren-state-update u* v* s assocs))
+        ((μkanren-var-working? v*) (μkanren-state-update v* u* s assocs))
+        ((and (vector? u*) (vector? v*)) (μkanren-state-unify (vector->list u*) (vector->list v*) s assocs))
+        ((and (record-instance? u*) (record-instance? v*)) (μkanren-state-unify (record->vector u*) (record->vector v*) s assocs))
+        ((and (vector? u*) (record-instance? v*)) (μkanren-state-unify u* (record->vector v*) s assocs))
+        ((and (record-instance? u*) (vector? v*)) (μkanren-state-unify (record->vector u*) v* s assocs))
+        ((and (pair? u*) (pair? v*))  (match/non-overlapping (μkanren-state-unify (car u*) (car v*) s assocs)
+                                        ((,s* ,assocs*) (μkanren-state-unify (cdr u*) (cdr v*) s* assocs*))
+                                        (#f #f)))
         (else #f))))
 
   (define (μkanren-state-find/value v s)
@@ -158,18 +162,20 @@
           (else w*)))))
 
   (define (μkanren-state-reify v s)
-    (let R ((w v) (r s) (c -1) (vars '()))
+    (let R ((w v) (r s) (c -1) (vars '()) (assocs '()))
       (let1 (w* (μkanren-state-find w r))
         (cond
           ((μkanren-var-working? w*)  (let* ((v* (make-μkanren-var c))
-                                             (r* (μkanren-state-update w* v* r))
+                                             (r*+assocs* (μkanren-state-update w* v* r assocs))
+                                             (r* (car r*+assocs*))
+                                             (assocs* (cadr r*+assocs*))
                                              (c* (sub1 c))
                                              (vars* (cons v* vars)))
-                                        (R (void) r* c* vars*))) ; `(void)` will stop the recursion in the next call.
-          ((pair? w*) (match1/first ((,r* ,c* ,vars*) (R (car w*) r c vars)) (R (cdr w*) r* c* vars*)))
-          ((vector? w*) (R (vector->list w*) r c vars))
-          ((record-instance? w*) (R (record->vector w*) r c vars))
-          (else (list r c vars))))))
+                                        (R (void) r* c* vars* assocs*))) ; `(void)` will stop the recursion in the next call.
+          ((pair? w*) (match1/first ((,r* ,c* ,vars* ,assocs*) (R (car w*) r c vars assocs)) (R (cdr w*) r* c* vars* assocs*)))
+          ((vector? w*) (R (vector->list w*) r c vars assocs))
+          ((record-instance? w*) (R (record->vector w*) r c vars assocs))
+          (else (list r c vars assocs))))))
 
   (define (μkanren-drop-dot-D D s)
     (let* ((pair->deny (λ1-match/first ((,α . ,u) `(deny (equal? ,(μkanren-var->symbol α) ,(μkanren-state-find/repr u s))))))
@@ -226,11 +232,11 @@
     anyvar?)
 
   (define (μkanren-subsumed? d D)
-    (let* ((f (λ (p s) (match/first p ((,α . ,u) (μkanren-state-update α u s)))))
+    (let* ((f (λ (p s) (match/first p ((,α . ,u) (μkanren-state-update α u s '())))))
            (s (foldr f μkanren-state-empty d)))
       (match/first D
         (() #f)
-        ((,d* . ,D*)  (let1 (d** (μkanren-state-unify/assoc d* s))
+        ((,d* . ,D*)  (let1 (d** (μkanren-state-unify/assoc d* s '()))
                         (or (and d** (equal? d** d)) (μkanren-subsumed? d D*)))))))
 
   (define (μkanren-rem-subsumed D0)
@@ -242,7 +248,7 @@
 
   (define ((μkanren-project w) s)
     (let1 (w* (μkanren-state-find/value w s))
-      (match1/first ((,s* _ ,vars-reversed) (μkanren-state-reify w* s))
+      (match1/first ((,s* ,c ,vars-reversed ,assocs) (μkanren-state-reify w* s))
         (let* ((R     (λ1-match/first ((,α . _) (μkanren-var-working? (μkanren-state-find α s*)))))
                (vars  (reverse vars-reversed))
                (vars* (map μkanren-var->symbol vars))
@@ -370,27 +376,12 @@
       ((μkanren-verify-A A s) => (μkanren-verify-A/post D T s))
       (else #f)))
 
-  (define (μkanren-state-unify/assoc associations s) ; ✓
-    (μkanren-state-unify (map lhs associations) (map rhs associations) s))
-
-  (define (μkanren-prefix-sbral->list S* S scope) ; ✓
-    (let* ((l (length/sbral S))
-           (l* (length/sbral S*))
-           (M (λ (i each lst)
-                (cond
-                  ((and (< i l) (eq? each (sbral-ref S i))) lst)
-                  (else (let1 (α (make-μkanren-var (- l* i 1))) (cons `(,α . ,each) lst)))))))
-      (remove (o μkanren-unbound? cdr) (foldr/sbral M '() S*))))
+  (define (μkanren-state-unify/assoc associations s assocs) ; ✓
+    (μkanren-state-unify (map lhs associations) (map rhs associations) s assocs))
 
   (define (μkanren-verify-D+ d D s) ; ✓
     (cond
-      ((μkanren-state-unify/assoc d s) => (μ s*
-                                            (cond
-                                              ((μkanren-state-equal? s s*) #f)
-                                              (else (let* ((S (μkanren-state-S s))
-                                                           (S* (μkanren-state-S s*))
-                                                           (d* (μkanren-prefix-sbral->list S* S 'verify-D+)))
-                                                      (cons d* D))))))
+      ((μkanren-state-unify/assoc d s '()) => (λ1-match/first ((,s* ,d*) (if (μkanren-state-equal? s s*) #f (cons d* D)))))
       (else D)))
 
   (define (μkanren-verify-D D s) ; ✓
@@ -462,33 +453,33 @@
 
   (define ((=° u v) s)
     (μkanren-state-match ((vc S D A T tags) s)
-      (define (post° s*)
-        (cond
-          ((μkanren-state-equal? s s*) (✓° s*))
-          ((μkanren-verify-D D s*) => (μ D*
-                                        (cond
-                                          ((μkanren-verify-D/post D* A T s*) => ✓°)
-                                          (else (✗° s*)))))
-          (else (✗° s*))))
+      (define post°
+        (λ1-match/first
+          ((,s* _)  (cond
+                      ((μkanren-state-equal? s s*) (✓° s*))
+                      ((μkanren-verify-D D s*) => (μ D*
+                                                    (cond
+                                                      ((μkanren-verify-D/post D* A T s*) => ✓°)
+                                                      (else (✗° s*)))))
+                      (else (✗° s*))))))
       (cond
-        ((μkanren-state-unify u v s) => post°)
+        ((μkanren-state-unify u v s '()) => post°)
         (else (✗° s)))))
 
   (define ((≠° u v) s)
     (μkanren-state-match ((vc S D A T tags) s)
-      (define (post° s*)
-        (cond
-          ((μkanren-state-equal? s s*) (✗° s*))
-          (else (let* ((S*  (μkanren-state-S s*))
-                       (d   (μkanren-prefix-sbral->list S* S '≠°))
-                       (D*  (list d))
-                       (D*  (μkanren-subsume A D*))
-                       (D*  (μkanren-subsume T D*))
-                       (D*  (append D* D))
-                       (s** (make-μkanren-state vc S D* A T tags)))
-                  (✓° s**)))))
+      (define post°
+        (λ1-match/first
+          ((,s* ,d) (cond
+                      ((μkanren-state-equal? s s*) (✗° s*))
+                      (else (let* ((D*  (list d))
+                                   (D*  (μkanren-subsume A D*))
+                                   (D*  (μkanren-subsume T D*))
+                                   (D*  (append D* D))
+                                   (s** (make-μkanren-state vc S D* A T tags)))
+                              (✓° s**)))))))
       (cond
-        ((μkanren-state-unify u v s) => post°)
+        ((μkanren-state-unify u v s '()) => post°)
         (else (✓° s)))))
 
   (define ((orª f g) s) (append§/interleaved/2 (δ (f s)) (δ (g s))))
