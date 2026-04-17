@@ -23,7 +23,7 @@
 
   (define (cons/sbral v sbral)
     (match/first sbral
-      ((((,x . ,xtree) (,y . ,ytree) . ,sbral*) ⊣ (= x y)) `((,(+ 1 x y) ,v ,xtree ,ytree) . ,sbral*))
+      (((,x . ,xtree) (,,x . ,ytree) . ,sbral*) `((,(+ 1 x x) ,v ,xtree ,ytree) . ,sbral*))
       (else `((1 ,v) . ,sbral))))
 
   (define (car/sbral sbral) 

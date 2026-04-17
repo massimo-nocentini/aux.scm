@@ -83,7 +83,7 @@
     
   )
 
-  ((test/λ-match/first _)
+  ((test/λ-match-first _)
 
     (define h
       (λ-match/first
@@ -93,6 +93,12 @@
     (⊦= '(12 8) (list (h 3 4) (apply h '(1 (3 4)))))
 
   )
+
+  ((test/λ-match-first/unquote-unquote-pattern _)
+    (⊦= 2 (match/first '(1 . ((1))) ((,x . ((,,x))) (add1 x))))
+  )
+
+
 
 )
 
