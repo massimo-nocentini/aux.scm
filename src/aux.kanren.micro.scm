@@ -232,16 +232,20 @@
     anyvar?)
 
   (define (μkanren-subsumed? d D)
-    (let* ((f (λ (p s) (match/first p ((,α . ,u) (μkanren-state-update α u s '())))))
-           (s (foldr f μkanren-state-empty d)))
+    (let* ((f (λ-match/non-overlapping
+                (((,α . ,u) (,s* ,assocs*)) (μkanren-state-update α u s* assocs*))
+                ((_ #f) #f)))
+           (s+assocs (foldr f `(,μkanren-state-empty ()) d))
+           (s (car s+assocs)))
       (match/first D
         (() #f)
-        ((,d* . ,D*)  (let1 (d** (μkanren-state-unify/assoc d* s '()))
-                        (or (and d** (equal? d** d)) (μkanren-subsumed? d D*)))))))
+        ((,d* . ,D*)  (match/non-overlapping (μkanren-state-unify/assoc d* s '())
+                        ((,s* ,d**) (or (μkanren-state-equal? s s*) (μkanren-subsumed? d D*)))
+                        (#f (μkanren-subsumed? d D*)))))))
 
   (define (μkanren-rem-subsumed D0)
     (let loop ((D D0) (D+ '()))
-      (match/first D 
+      (match/first D
         (() D+)
         (((,d . ,D*) ⊣ (or (μkanren-subsumed? d D*) (μkanren-subsumed? d D+))) (loop D* D+))
         ((,d . ,D*) (loop D* (cons d D+))))))
@@ -256,8 +260,8 @@
                (D     (μkanren-state-D s*))
                (A     (μkanren-state-A s*))
                (T     (μkanren-state-T s*))
-               #;(D*    (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D))) ; needs more revision the stuff with T.
-               (D*    (remove (μkanren-anyvar? s*) D))
+               (D*    (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D))) ; needs more revision the stuff with T.
+               ;(D*    (remove (μkanren-anyvar? s*) D))
                (A*    (remove R A))
                (T*    (remove R T))
                (D**   (μkanren-state-find/value (μkanren-subsume A* D*) s*))

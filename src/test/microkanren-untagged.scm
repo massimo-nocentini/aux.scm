@@ -111,4 +111,37 @@
 #|
 (define Q '(λ (α) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
 (equal? ((eval Q ) 'α) Q)
+
+(pp '(λ (α) (begin (deny (equal? α (quote list)))) (begin (deny (equal? α (quote quote)))) (assert (every (μ v (symbol? v)) (list α))) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
+
+(define Q
+  (λ (α)
+    ;(begin (deny (equal? α 'list)))
+    ;(begin (deny (equal? α 'quote)))
+    ;(assert (every (μ v (symbol? v)) (list α)))
+    (cons (cons 'λ
+                (cons (cons α '())
+                      (cons (cons 'list
+                                  (cons α
+                                        (cons (cons 'list
+                                                    (cons (cons 'quote (cons 'quote '()))
+                                                          (cons α '())))
+                                              '())))
+                            '())))
+          (cons (cons 'quote
+                      (cons (cons 'λ
+                                  (cons (cons α '())
+                                        (cons (cons 'list
+                                                    (cons α
+                                                          (cons (cons 'list
+                                                                      (cons (cons 'quote (cons 'quote '()))
+                                                                            (cons α '())))
+                                                                '())))
+                                              '())))
+                            '()))
+                '()))))
+
+(Q 'α) -> ((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α)))))
+       -> ((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α)))))
+
 |#
