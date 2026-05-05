@@ -60,11 +60,11 @@
   (define-syntax dmatch-aux
     (syntax-rules (⊣ =>)
       ((dmatch-aux v) '())
-      ((dmatch-aux v ((pat ⊣ guard) => λexpr) clause ...) 
+      ((dmatch-aux v ((pat ⊣ g) => λexpr) clause ...) 
         (let1 (fk (τ (dmatch-aux v clause ...)))
-          (match-pattern v pat  (let1 (g guard) 
-                                  (if g 
-                                    (cons (make-dmatch-pkg (quote ((pat ⊣ guard) => λexpr)) (τ (λexpr g))) (fk))
+          (match-pattern v pat  (let1 (g* g)
+                                  (if g* 
+                                    (cons (make-dmatch-pkg (quote ((pat ⊣ g) => λexpr)) (τ (λexpr g*))) (fk))
                                     (fk))) 
                                 (fk))))
       ((dmatch-aux v ((pat ⊣ g) e ...) clause ...)
@@ -97,20 +97,27 @@
                                   (else (error (string-append "match/first: uncaught value.\n\n" 
                                                               (->string/pretty-print val))))))
       ((match-case-simple* val (else expr ...)) (begin expr ...))
-      ((match-case-simple* val ((pattern ⊣ guard) exp ...) clause ...)
+      ((match-case-simple* val ((pattern ⊣ g) exp ...) clause ...)
         (let1 (fk (τ (match-case-simple* val clause ...)))
-          (match-pattern val pattern (cond (guard exp ...) (else (fk))) (fk))))
+          (match-pattern val pattern (cond (g exp ...) (else (fk))) (fk))))
       ((match-case-simple* val (pattern expr ...) clause ...)
         (let1 (fk (τ (match-case-simple* val clause ...)))
           (match-pattern val pattern (begin expr ...) (fk))))))
 
+#|
+  (import srfi-1)
+  (match/first '(1 2 3 4) ((1 ,@v 3 4) v))
+  (take '(a b . c) 3)
+|#
+
   (define-syntax match-pattern
-    (syntax-rules (unquote _)
+    (syntax-rules (unquote unquote-splicing _)
       ((match-pattern val _ kt kf) kt)
       ((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
       ((match-pattern val () kt kf) (if (null? val) kt kf))
       #;((match-pattern val (e as (unquote var)) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
       ((match-pattern val (unquote (unquote var)) kt kf) (if (eq? var val) kt kf))
+      ((match-pattern val (unquote-splicing var) kt kf) (match-pattern val (unquote var) kt kf))
       ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
       ((match-pattern val #(x x* ...) kt kf)
         (cond
@@ -173,6 +180,7 @@
       ((μ v body ...) (μ (v) body ...))))
   (define-syntax-rule (τ body ...) (λ () body ...))
   (define-syntax-rule (δ body ...) (delay (begin body ...)))
+  (define-syntax-rule (δ! body ...) (delay-force (begin body ...)))
   (define-syntax-rule (define-τ name body ...) (define name (τ body ...)))
   (define-syntax-rule (letgensym (var ...) body ...) (let ((var (gensym)) ...) body ...))
   (define-syntax-rule (letport/output-string p body ...) (call-with-output-string (λ (p) body ...)))
