@@ -19,7 +19,8 @@
   (define-syntax-rule (τ-shift body ...) (λ-shift () body ...))
 
   (define *meta-continuation* identity) ; or: (λ (v) (error "Missing enclosing resetcc" v)) for a more strict experience.
-  (define (delimcc-abort thunk) (*meta-continuation* (thunk)))
+
+  (define (delimcc-abort thunk) (let1 (v (thunk)) (*meta-continuation* v)))
   
   (define (delimcc-reset thunk)
     (let1 (mc *meta-continuation*)
@@ -47,4 +48,4 @@
              ((eq? r witness) b)
              (else (f (car r) (L (let1 (k (cdr r)) (k (void))))))))
          (L (resetcc body ... witness))))))
-  )
+)
