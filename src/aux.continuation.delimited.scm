@@ -20,15 +20,13 @@
 
   (define *meta-continuation* identity) ; or: (λ (v) (error "Missing enclosing resetcc" v)) for a more strict experience.
 
-  (define (delimcc-abort thunk) (let1 (v (thunk)) (*meta-continuation* v)))
-  
   (define (delimcc-reset thunk)
     (let1 (mc *meta-continuation*)
       (letcc k
         (set! *meta-continuation* (λ (v) (set! *meta-continuation* mc) (k v)))
-        (delimcc-abort thunk))))
+        (let1 (v (thunk)) (*meta-continuation* v)))))
 
-  (define (delimcc-shift f) (letcc k (delimcc-abort (τ (f (λ (v) (resetcc (k v))))))))
+  (define (delimcc-shift f) (letcc k (let1 (v* (f (λ (v) (resetcc (k v))))) (*meta-continuation* v*))))
 
   (define (delimcc-extract) (letcc/shift k k))
   (define (delimcc-discard v) (letcc/shift _ v))
