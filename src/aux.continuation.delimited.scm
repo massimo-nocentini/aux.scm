@@ -1,8 +1,9 @@
 
 (module (aux continuation delimited) *
 
-  (import scheme 
+  (import scheme
           (chicken base)
+          srfi-1
           (aux base)
           (aux continuation))
 
@@ -31,6 +32,9 @@
   (define (delimcc-extract) (letcc/shift k k))
   (define (delimcc-discard v) (letcc/shift _ v))
   (define (delimcc-either lst) (letcc/shift k (map k lst)))
+  (define (delimcc-either/map f lst) (letcc/shift k (map (λ (v) (let1 (v* (f v)) (k v*))) lst)))
+  (define (delimcc-either/append f lst) (letcc/shift k (append-map (λ (v) (let1 (v* (f v)) (k v*))) lst)))
+  (define (delimcc-either/filter pred? lst) (letcc/shift k (filter-map (λ (v) (let1 (v* (pred? v)) (and v* (k v*)))) lst)))
 
   (define (yield v) (letcc/shift k (cons v (k (void)))))
   (define (yield/extract v) (letcc/shift k (cons v k)))
@@ -47,3 +51,8 @@
              (else (f (car r) (L (let1 (k (cdr r)) (k (void))))))))
          (L (resetcc body ... witness))))))
 )
+
+; (import (aux continuation delimited))
+; (resetcc (delimcc-either/filter (lambda (x) (and (number? x) (* x x))) '(a 1 b 3 c 7)))
+; (resetcc (cons 'a (delimcc-either/append (lambda (x) (list x (- x))) '(1 3 8))))
+; (letcc k (map k '(a 1 b 3 c 7)))
