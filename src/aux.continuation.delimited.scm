@@ -18,7 +18,7 @@
   (define-syntax-rule (λ-shift args body ...) (letcc/shift k (λ args (let1 (x (begin body ...)) (k x)))))
   (define-syntax-rule (τ-shift body ...) (λ-shift () body ...))
 
-  (define *meta-continuation* identity) ; or: (λ (v) (error "Missing enclosing resetcc" v)) for a more strict experience.
+  (define *meta-continuation* (λ (v) (warning "Missing enclosing resetcc" v) v))
 
   (define (delimcc-reset thunk)
     (let1 (mc *meta-continuation*)
