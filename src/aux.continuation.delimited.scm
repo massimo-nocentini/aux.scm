@@ -13,7 +13,7 @@
     (syntax-rules ()
       ((define-resetcc (def arg ...) body ...) (define def (λ (arg ...) (resetcc body ...))))
       ((define-resetcc def body ...) (define def (resetcc body ...)))))
-  
+
   (define-syntax-rule (letcc/shift k body ...) (delimcc-shift (λ (k) body ...)))
   (define (callcc/shift f) (letcc/shift k (f k)))
   (define-syntax-rule (λ-shift args body ...) (letcc/shift k (λ args (let1 (x (begin body ...)) (k x)))))

@@ -96,10 +96,64 @@
     (⊦= '(bar) (°->list #t (fresh° (q) (lookup° 'y (list (cons 'x  'foo) (cons 'y  'bar)) q))))
     (⊦= '() (°->list #t (fresh° (q) (lookup° 'w (list (cons 'x 'foo) (cons 'y 'bar)) q))))
 
-    #;(⊦= '((λ (α) (deny (equal? α 1)) α))
-      (°->list #f (take° 1 (fresh° (q) (eval-exp° q '() q)))))
+    (let* ((Q (car (°->list #f (take° 1 (fresh° (q) (eval-exp° q '() q))))))
+           (λQ (eval Q))
+           (quine (λQ 'α)))
+      (⊦= 
+       '(λ (α)
+            (begin (deny (equal? α 'list)))
+            (begin (deny (equal? α 'quote)))
+            (assert (every (μ v (symbol? v)) (list α)))
+            (cons (cons 'λ
+                        (cons (cons α '())
+                              (cons (cons 'list
+                                          (cons α
+                                                (cons (cons 'list
+                                                            (cons (cons 'quote (cons 'quote '()))
+                                                                  (cons α '())))
+                                                      '())))
+                                    '())))
+                  (cons (cons 'quote
+                              (cons (cons 'λ
+                                          (cons (cons α '())
+                                                (cons (cons 'list
+                                                            (cons α
+                                                                  (cons (cons 'list
+                                                                              (cons (cons 'quote (cons 'quote '()))
+                                                                                    (cons α '())))
+                                                                        '())))
+                                                      '())))
+                                    '()))
+                        '())))
+                Q)
+      (⊦= '((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α))))) quine)
+      (⊦= quine (eval quine)))
 
-    #;(⊦= '((λ (α) (deny (equal? α 1)) α))
+    (⊦= 
+     '((λ (α)
+          (assert (absent? 'closure α))
+          (cons (cons 'quote (cons α '())) (cons '→ (cons α '()))))
+      (λ () (cons (cons 'list '()) (cons '→ (cons '() '()))))
+      (λ (α β)
+          (assert (every (μ v (symbol? v)) (list α)))
+          (cons (cons 'λ (cons (cons α '()) (cons β '())))
+                (cons '→
+                      (cons (cons 'closure (cons α (cons β (cons '() '()))))
+                            '()))))
+      (λ (α)
+          (assert (absent? 'closure α))
+          (cons (cons 'list (cons (cons 'quote (cons α '())) '()))
+                (cons '→ (cons (cons α '()) '()))))
+      (λ ()
+          (cons (cons 'list (cons (cons 'list '()) '()))
+                (cons '→ (cons (cons '() '()) '()))))
+      (λ (α β)
+          (assert (absent? 'closure α))
+          (assert (absent? 'closure β))
+          (cons (cons 'list
+                      (cons (cons 'quote (cons α '()))
+                            (cons (cons 'quote (cons β '())) '())))
+                (cons '→ (cons (cons α (cons β '())) '())))))
       (°->list #f (take° 6 (fresh° (q e v) (eval-exp° e '() v) (=° `(,e → ,v) q)))))
   
   )
@@ -109,16 +163,16 @@
 (unittest/✓ untagged-suite)
 
 #|
-(define Q '(λ (α) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
+(define Q '(λ (α) (begin (deny (equal? α (quote list)))) (begin (deny (equal? α (quote quote)))) (assert (every (μ v (symbol? v)) (list α))) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
 (equal? ((eval Q ) 'α) Q)
 
-(pp '(λ (α) (begin (deny (equal? α (quote list)))) (begin (deny (equal? α (quote quote)))) (assert (every (μ v (symbol? v)) (list α))) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
+(pp Q)
 
 (define Q
-  (λ (α)
-    ;(begin (deny (equal? α 'list)))
-    ;(begin (deny (equal? α 'quote)))
-    ;(assert (every (μ v (symbol? v)) (list α)))
+(λ (α)
+    (begin (deny (equal? α 'list)))
+    (begin (deny (equal? α 'quote)))
+    (assert (every (μ v (symbol? v)) (list α)))
     (cons (cons 'λ
                 (cons (cons α '())
                       (cons (cons 'list
@@ -139,7 +193,8 @@
                                                                 '())))
                                               '())))
                             '()))
-                '()))))
+                '())))
+)
 
 (Q 'α) -> ((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α)))))
        -> ((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α)))))
