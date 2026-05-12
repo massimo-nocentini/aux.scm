@@ -19,15 +19,18 @@
   (define-syntax-rule (λ-shift args body ...) (letcc/shift k (λ args (let1 (x (begin body ...)) (k x)))))
   (define-syntax-rule (τ-shift body ...) (λ-shift () body ...))
 
-  (define *meta-continuation* (λ (v) (warning "Missing enclosing resetcc" v) v))
+  (define *meta-continuation* (λ args (warning "Missing enclosing resetcc, called with args" args) (apply values args)))
 
   (define (delimcc-reset thunk)
     (let1 (mc *meta-continuation*)
       (letcc k
-        (set! *meta-continuation* (λ (v) (set! *meta-continuation* mc) (k v)))
-        (let1 (v (thunk)) (*meta-continuation* v)))))
+        (set! *meta-continuation* (λ args (set! *meta-continuation* mc) (apply k args)))
+        (receive args (thunk) (apply *meta-continuation* args)))))
 
-  (define (delimcc-shift f) (letcc k (let1 (v* (f (λ (v) (resetcc (k v))))) (*meta-continuation* v*))))
+  (define (delimcc-shift f)
+    (letcc k
+      (receive args* (f (λ args (resetcc (apply k args))))
+        (apply *meta-continuation* args*))))
 
   (define (delimcc-extract) (letcc/shift k k))
   (define (delimcc-discard v) (letcc/shift _ v))
@@ -35,7 +38,7 @@
   (define (delimcc-either/map f lst) (letcc/shift k (map (λ (v) (let1 (v* (f v)) (k v*))) lst)))
   (define (delimcc-either/append f lst) (letcc/shift k (append-map (λ (v) (let1 (v* (f v)) (k v*))) lst)))
   (define (delimcc-either/filter pred? lst) (letcc/shift k (filter-map (λ (v) (let1 (v* (pred? v)) (and v* (k v*)))) lst)))
-
+  (define (delimcc-o . fns) (letcc/shift k (apply compose (cons k fns))))
   (define (yield v) (letcc/shift k (cons v (k (void)))))
   (define (yield/extract v) (letcc/shift k (cons v k)))
 

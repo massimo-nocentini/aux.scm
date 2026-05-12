@@ -2574,59 +2574,92 @@
 
    )
 
+  ((test/asai-pwl-talk/take _)
+    
+    (define (T lst n)
+      (letrec ((L (λ (lst n)
+                    (match/first lst
+                      (() '())
+                      ((,a . ,d) (cond 
+                                  ((= n 0) (letcc/shift k (cons a (k d)))) 
+                                  (else `(,a . ,(L d (sub1 n))))))))))
+        (resetcc (L lst n))))
+
+    (⊦= '(0 1 2 3 4) (T '(0 1 2 3 4) 0))
+    (⊦= '(0 1 2 3 4) (T '(0 1 2 3 4) 5))
+    (⊦= '(3 0 1 2 4) (T '(0 1 2 3 4) 3))
+    (⊦= '(1 0 2 3 4) (T '(0 1 2 3 4) 1))
+
+    `(doc (p "Given a list " (code "lst") " and a number " (code "n") ", the function " 
+          (code "T") " returns a list that is the same as " (code "lst") " but with the " 
+          (code "n") "-th element moved to the front. The test cases show that if " (code "n") 
+          " is zero or greater than the length of the list, the result is the same as the input list."))
+  )
+
+  ((test/asai-pwl-talk/anf _)
+    
+    (define (anf/let expr v)
+      (letrec ((L (λ (e)
+                    (match/first e
+                      ((,a . ,d) (let ((a* (L a))
+                                       (d* (map L d)))
+                                   (letcc/shift k `(let1 (,v (,a* . ,d*)) ,(k v)))))
+                      (,v v)))))
+        (resetcc (L expr))))
+
+    (define (anf/λ expr v)
+      (letrec ((L (λ (e)
+                    (match/first e
+                      ((λ (,v) . ,d) (let1 (d* (map L d)) (letcc/shift k `(λ (,v) . ,(k d*)))))
+                      ((,a . ,d) (let ((a* (L a))
+                                       (d* (map L d)))
+                                   (letcc/shift k `((λ (,v) ,(k v)) (,a* . ,d*)))))
+                      (,v v)))))
+        (resetcc (L expr))))
+
+    (⊦= '(let1 (α (- b c d)) (let1 (α (- a α)) α)) (anf/let '(- a (- b c d)) 'α))
+    (⊦= '((λ (α) ((λ (α) α) (- a α))) (- b c d)) (anf/λ '(- a (- b c d)) 'α))
+    (⊦= '((λ (α) ((λ (α) ((λ (α) α) (- a α))) (+ b α))) (/ c d)) (anf/λ '(- a (+ b (/ c d))) 'α))
+    (⊦= '((λ (α) ((λ (α) ((λ (α) α) (if α 0 α))) (void))) (null? l)) (anf/λ '(if (null? l) 0 (void)) 'α))
+    (⊦= '((λ (α)
+              ((λ (α)
+                    ((λ (α)
+                        ((λ (α) ((λ (α) ((λ (α) α) (if α 0 α))) (if α 1 α)))
+                          (void)))
+                    (null? α)))
+                (cdr l)))
+          (null? l)) 
+        (anf/λ '(if (null? l) 0 (if (null? (cdr l)) 1 (void))) 'α))
+    (⊦= '((λ (α)
+            ((λ (α)
+                  ((λ (α)
+                      ((λ (α)
+                            ((λ (α)
+                                ((λ (α)
+                                      ((λ (α)
+                                          ((λ (α) ((λ (α) α) (if α 0 α)))
+                                            (if α 1 α)))
+                                      (if α 2 α)))
+                                  (void)))
+                            (null? α)))
+                        (cdr l)))
+                  (null? α)))
+              (cdr l)))
+        (null? l))
+        (anf/λ '(if (null? l) 0 (if (null? (cdr l)) 1 (if (null? (cdr l)) 2 (void)))) 'α))
+    
+    `(doc (p "Given an S-expression " (code "expr") " and a variable name " (code "v") ", the function " 
+          (code "anf/let") " transforms " (code "expr") 
+          " into an A-normal form, where all intermediate results are (uniquely) named by a let-binding. "
+          "The test case shows that the expression "
+          (code '(- a (- b c d))) " is transformed into an A-normal form where the intermediate result of " 
+          (code '(- b c d)) " is named by a let-binding with variable name " (code 'α) "."))
 
   )
 
+)
+
 (unittest/✓ delimcc-suite)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

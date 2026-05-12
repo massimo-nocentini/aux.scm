@@ -10,7 +10,7 @@
 
   (define-syntax-rule (letcc hop body ...)
     (continuation-capture (λ (cont) 
-                            (let1 (hop (λ (arg) (continuation-graft cont (τ arg))))
+                            (let1 (hop (λ args (continuation-graft cont (τ (apply values args)))))
                               body ...))))
 
   (define (callcc f) (letcc k (f k)))
