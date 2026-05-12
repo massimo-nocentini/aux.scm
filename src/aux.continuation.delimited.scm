@@ -27,18 +27,24 @@
         (set! *meta-continuation* (λ args (set! *meta-continuation* mc) (apply k args)))
         (receive args (thunk) (apply *meta-continuation* args)))))
 
-  (define (delimcc-shift f)
+  (define (delimcc-shift f) 
     (letcc k
       (receive args* (f (λ args (resetcc (apply k args))))
         (apply *meta-continuation* args*))))
 
   (define (delimcc-extract) (letcc/shift k k))
-  (define (delimcc-discard v) (letcc/shift _ v))
+  (define (delimcc-discard . args) (letcc/shift _ (apply values args)))
   (define (delimcc-either lst) (letcc/shift k (map k lst)))
   (define (delimcc-either/map f lst) (letcc/shift k (map (λ (v) (let1 (v* (f v)) (k v*))) lst)))
   (define (delimcc-either/append f lst) (letcc/shift k (append-map (λ (v) (let1 (v* (f v)) (k v*))) lst)))
   (define (delimcc-either/filter pred? lst) (letcc/shift k (filter-map (λ (v) (let1 (v* (pred? v)) (and v* (k v*)))) lst)))
-  (define (delimcc-o . fns) (letcc/shift k (apply compose (cons k fns))))
+  (define (delimcc-compose . fns) (letcc/shift k (apply compose (cons k fns))))
+  (define (delimcc-state-get) (letcc/shift k (λ (state) ((k state) state))))
+  (define (delimcc-state-put v) (letcc/shift k (λ (state) ((k state) v))))
+  (define-syntax-rule (delimcc-state-monad init body ...) 
+    (let* ((t (τ body ...))
+           (R (resetcc (let1 (result (t)) (λ (state) result)))))
+      (R init)))
   (define (yield v) (letcc/shift k (cons v (k (void)))))
   (define (yield/extract v) (letcc/shift k (cons v k)))
 
@@ -55,7 +61,30 @@
          (L (resetcc body ... witness))))))
 )
 
-; (import (aux continuation delimited))
-; (resetcc (delimcc-either/filter (lambda (x) (and (number? x) (* x x))) '(a 1 b 3 c 7)))
-; (resetcc (cons 'a (delimcc-either/append (lambda (x) (list x (- x))) '(1 3 8))))
-; (letcc k (map k '(a 1 b 3 c 7)))
+#|
+(import (aux continuation delimited))
+(resetcc (delimcc-either/filter (lambda (x) (and (number? x) (* x x))) '(a 1 b 3 c 7)))
+(resetcc (cons 'a (delimcc-either/append (lambda (x) (list x (- x))) '(1 3 8))))
+(letcc k (map k '(a 1 b 3 c 7)))
+
+(define (tick . ticks) (letcc/shift k (λ (state) ((k state) (apply + state ticks)))))
+
+(delimcc-state-monad 0
+  (tick 1)
+  (tick 1)
+  (let1 (a (delimcc-state-get))
+    (tick 1)
+    (- (delimcc-state-get) a)))
+
+(delimcc-state-monad 0 (- (begin (tick 1) (delimcc-state-get)) (begin (tick 1) (delimcc-state-get))))
+
+(delimcc-state-monad 0
+  (delimcc-state-put 3)
+  (+ (begin
+      (delimcc-state-get)
+      (+ (delimcc-state-get) (delimcc-state-put 4))
+      (delimcc-state-get))
+    (delimcc-state-get)))
+
+  (letcc k (k 1 2))
+|#
