@@ -401,6 +401,7 @@
   (define english-alphabet/uppercase  #(A B C D E F G H I J K L M N O P Q R S T U V W X Y Z))
   (define greek-alphabet/lowercase    #(α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω))
   (define greek-alphabet/uppercase    #(Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω))
+  (define ι iota)
 
   (define (absent? v obj)
     (cond
