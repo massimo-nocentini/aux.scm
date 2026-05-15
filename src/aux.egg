@@ -17,6 +17,16 @@
   (extension aux.sxml)
   (extension aux.unittest)
   (extension aux.base)
+  (extension aux.category.monad)
+  (extension aux.category.writer)
+  (extension aux.category.list
+    (modules 
+      (aux category list) 
+      (aux category monad list)
+      (aux category writer list)
+      (aux category monad writer list)))
+  (extension aux.category.maybe (modules (aux category maybe) (aux category monad maybe)))
+  (extension aux.category)
   (extension aux.libc)
   (extension aux.judy 
     (modules (aux judy) (aux judyL))

@@ -13,7 +13,7 @@
           (chicken syntax)
           (chicken module)
           (chicken string)
-          srfi-1
+          (only srfi-1 append-map iota)
           srfi-69
           vector-lib)
 
