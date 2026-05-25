@@ -1,5 +1,5 @@
 
-(functor ((aux category writer) (M (mappend mempty)))
+(functor ((aux category writer) (M (mappend mempty mlog)))
 
   *
 
@@ -14,26 +14,31 @@
 
   (import scheme (chicken base) (aux base) (prefix M M:))
 
-  (define (return v) `(writer ,M:mempty ,v))
+  (define (return v) `(writer ,(M:mlog v) ,v))
   (define (>>= m f)
     (match/first m
       ((writer ,w ,v) (match/first (f v)
                         ((writer ,w* ,v*) `(writer ,(M:mappend w w*) ,v*))))))
   (define (fail . args) (error "Writer monad does not support failure"))
 
+  (define-syntax-rule (do/monad/writer (bind var expr) ...) (do/monad (bind var (writer-log/list expr)) ...))
 )
 
 #|
 
-(import (aux category))
-
+(import (aux category list))
+(import (aux category monad list))
 (import (aux category monad writer list))
 
 (do/monad
-  (let x (writer-log/list 1))
-  (let y (writer-log/list 2))
-  (let (+ x y)))
+  (let x (writer/log 1))
+  (let y (writer/log 2))
+  ,(+ x y))
 
+(do/monad
+  (let x ,1)
+  (let y ,2)
+  ,(+ x y))
 
 (do/monad/writer
   (let x 1)

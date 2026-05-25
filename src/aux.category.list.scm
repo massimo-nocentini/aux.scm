@@ -13,4 +13,12 @@
   (define mempty '())
   (define (mappend l1 l2) (append l1 l2))
 
+  (define (mlog x) `((got ,x)))
+
 )
+
+(import (aux category monad) (aux category writer))
+
+(module (aux category monad list) = ((aux category monad) (aux category list)))
+(module (aux category writer list) = ((aux category writer) (aux category list)))
+(module (aux category monad writer list) = ((aux category monad) (aux category writer list)))
