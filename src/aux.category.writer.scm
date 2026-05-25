@@ -27,13 +27,17 @@
 
 (import (aux category))
 
-(import (prefix (aux category list) list/) )
-(import (prefix (aux category writer list) writer-list/) )
 (import (aux category monad writer list))
 
 (do/monad
-  (let x (list/writer/log 1))
-  (let y (list/writer/log 2))
-  (writer-list/return (+ x y)))
+  (let x (writer-log/list 1))
+  (let y (writer-log/list 2))
+  (let (+ x y)))
+
+
+(do/monad/writer
+  (let x 1)
+  (let y 2)
+  (let _ (+ x y)))
 
 |#
