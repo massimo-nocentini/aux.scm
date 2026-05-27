@@ -18,7 +18,7 @@
 
   (set-record-printer! category-writer
     (λ (w port)
-      (let1 (expr `((log ,(category-writer-log w)) (value ,(category-writer-value w))))
+      (let1 (expr `(writer (log ,(category-writer-log w)) (value ,(category-writer-value w))))
         (pretty-print expr port))))
 
   (define (return v) (make-category-writer (M:mlog v) v))
@@ -37,6 +37,22 @@
 (import (aux category list))
 (import (aux category monad list))
 (import (aux category monad writer list))
+
+(import (aux category difflist))
+(import (aux category monad difflist))
+(import (aux category monad writer difflist))
+
+(do/monad 
+  (let a (make-category-difflist (λ (xs) (append '(1 2 3) xs))))
+  (let b (make-category-difflist (λ (xs) (append '(4 5 6) xs))))
+  (let c (make-category-difflist (λ (xs) (append '(7 8) xs))))
+  ,(list a b c))
+
+(do/monad
+  (let a (list->difflist '(1 2 3)))
+  (let b (list->difflist '(4 5 6)))
+  (let c (list->difflist '(7 8)))
+  (return (list a b c)))
 
 (do/monad
   (let x (writer/log 1))

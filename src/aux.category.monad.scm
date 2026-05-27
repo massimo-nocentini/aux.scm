@@ -23,6 +23,7 @@
 
   (define-syntax ▷ 
     (syntax-rules ()
+      ((▷ p) (M:>>= p M:return))
       ((▷ p q) (M:>>= p q))
       ((▷ p q r ...) (▷ p (λ (x) (▷ (q x) r ...))))))
 
@@ -54,7 +55,7 @@
       (let x mx)
       ,(f x)))
 
-  (define-syntax-rule (◇ f f* ...) (λ (x) (▷ (f x) f* ...)))
+  (define-syntax-rule (◇ f f* ...) (λ (x) (▷ (f x) f* ...))) ; Kleisli composition
 
   (define (concat mm)
     (do/monad
