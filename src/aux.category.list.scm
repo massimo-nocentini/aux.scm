@@ -15,6 +15,10 @@
 
   (define (mlog x) `((got ,x)))
 
+  (define fmap map)
+
+  (define (<*> flst lst) (append-map (λ (f) (map f lst)) flst))
+
 )
 
 (import (aux category monad) (aux category writer))

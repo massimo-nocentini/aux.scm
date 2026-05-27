@@ -21,29 +21,63 @@
     (aux base)
     (prefix M M:))
 
-  (define-many (return >>= fail) (M:return M:>>= M:fail))
+  (define-syntax ▷ 
+    (syntax-rules ()
+      ((▷ p q) (M:>>= p q))
+      ((▷ p q r ...) (▷ p (λ (x) (▷ (q x) r ...))))))
 
   (define-syntax do/monad
     (syntax-rules (let match unquote)
       ((do/monad (let var (unquote expr)) body body* ...) (do/monad (let var (M:return expr)) body body* ...))
-      ((do/monad (let var expr) body body* ...) (M:>>= expr (λ (var) (do/monad body body* ...))))
+      ((do/monad (let var expr) body body* ...) (▷ expr (λ (var) (do/monad body body* ...))))
       ((do/monad (match pat (unquote expr)) body body* ...) (do/monad (match pat (M:return expr)) body body* ...))
-      ((do/monad (match pat expr) body body* ...) (M:>>= expr (λ1-match/first
-                                                                (pat (do/monad body body* ...))
-                                                                (else (do/monad)))))
-      ((do/monad (unquote expr)) (M:return expr))
+      ((do/monad (match pat expr) body body* ...) (▷ expr
+                                                    (λ1-match/first
+                                                      (pat (do/monad body body* ...))
+                                                      (else (do/monad)))))
+      ((do/monad (unquote expr)) (do/monad (M:return expr)))
+      ((do/monad (unquote expr) body ...) (do/monad (let _ (unquote expr)) body ...))
       ((do/monad expr) expr)
+      ((do/monad expr body ...) (do/monad (let _ expr) body ...))
       ((do/monad) (M:fail (void)))))
 
-  (define (>> m1 m2) (M:>>= m1 (λ (_) m2)))
+  (define (>> m1 m2) (▷ m1 (λ (_) m2)))
+
+  (define (fmap f mx) 
+    (do/monad
+      (let x mx)
+      ,(f x)))
+
+  (define (<*> mf mx)
+    (do/monad
+      (let f mf)
+      (let x mx)
+      ,(f x)))
+
+  (define-syntax-rule (◇ f f* ...) (λ (x) (▷ (f x) f* ...)))
+
+  (define (concat mm)
+    (do/monad
+      (let m mm)
+      m))
 
 )
 
 #|
 
-(import (aux category))
 (import (aux category list))
 (import (aux category monad list))
+
+(<*> (list add1 sub1) (list 1 2 3))
+
+(concat (list (list 1 2) (list 3 4) (list 5)))
+
+(fmap add1 (list 1 2 3))
+
+(do/monad
+  (let x ,1)
+  (let y ,x)
+  ,(+ x y))
 
 (do/monad
   (let x (return 1))
@@ -71,9 +105,9 @@
   (let* (list x y) (list y x) 'separator))
 
 (do/monad
-  (let x (ι 10))
-  (let y (ι 10))
-  (let* (list x y)))
+  (let x ,(ι 10))
+  (let y ,(ι 10))
+  (list x y))
 
 (do/monad
   (let x (ι 10))

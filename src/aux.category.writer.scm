@@ -12,16 +12,24 @@
   
   |#
 
-  (import scheme (chicken base) (aux base) (prefix M M:))
+  (import scheme (chicken base) (chicken pretty-print) (aux base) (prefix M M:))
 
-  (define (return v) `(writer ,(M:mlog v) ,v))
+  (define-record category-writer log value)
+
+  (set-record-printer! category-writer
+    (λ (w port)
+      (let1 (expr `((log ,(category-writer-log w)) (value ,(category-writer-value w))))
+        (pretty-print expr port))))
+
+  (define (return v) `(category-writer ,(M:mlog v) ,v))
+
   (define (>>= m f)
     (match/first m
-      ((writer ,w ,v) (match/first (f v)
-                        ((writer ,w* ,v*) `(writer ,(M:mappend w w*) ,v*))))))
+      ((category-writer ,w ,v) (match/first (f v)
+                                  ((category-writer ,w* ,v*) `(category-writer ,(M:mappend w w*) ,v*))))))
+
   (define (fail . args) (error "Writer monad does not support failure"))
 
-  (define-syntax-rule (do/monad/writer (bind var expr) ...) (do/monad (bind var (writer-log/list expr)) ...))
 )
 
 #|
@@ -40,9 +48,14 @@
   (let y ,2)
   ,(+ x y))
 
-(do/monad/writer
-  (let x 1)
-  (let y 2)
-  (let _ (+ x y)))
+(define (gcd a b)
+  (match/first b
+    (0 (do/monad ,a))
+    (else (do/monad
+            ; (let _ (tell `(Calculating gcd of ,a and ,b)))
+            (unquote `(Calculating gcd of ,a and ,b))
+            (gcd b (modulo a b))))))
+
+(gcd 8 3)
 
 |#
