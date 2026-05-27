@@ -21,12 +21,14 @@
       (let1 (expr `(writer (log ,(category-writer-log w)) (value ,(category-writer-value w))))
         (pretty-print expr port))))
 
-  (define (return v) (make-category-writer (M:mlog v) v))
+  (define (return v) (make-category-writer M:mempty v))
 
   (define (>>= m f)
     (match/first m
       (#(_ ,w ,v) (match/first (f v)
                     (#(_ ,w* ,v*) (make-category-writer (M:mappend w w*) v*))))))
+
+  (define (tell v) (make-category-writer (M:mlog v) v))
 
   (define (fail . args) (error "Writer monad does not support failure"))
 
@@ -36,6 +38,7 @@
 
 (import (aux category list))
 (import (aux category monad list))
+(import (only (aux category writer list) tell))
 (import (aux category monad writer list))
 
 (import (aux category difflist))
@@ -61,6 +64,7 @@
 
 (do/monad
   (let x ,1)
+  (tell `(x ,x))
   (let y ,2)
   ,(+ x y))
 
@@ -69,7 +73,7 @@
     (0 (do/monad ,a))
     (else (do/monad
             ; (let _ (tell `(Calculating gcd of ,a and ,b)))
-            (unquote `(Calculating gcd of ,a and ,b))
+            (tell `(Calculating gcd of ,a and ,b))
             (gcd b (modulo a b))))))
 
 (gcd 8 3)
