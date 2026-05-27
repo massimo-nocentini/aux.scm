@@ -21,12 +21,12 @@
       (let1 (expr `((log ,(category-writer-log w)) (value ,(category-writer-value w))))
         (pretty-print expr port))))
 
-  (define (return v) `(category-writer ,(M:mlog v) ,v))
+  (define (return v) (make-category-writer (M:mlog v) v))
 
   (define (>>= m f)
     (match/first m
-      ((category-writer ,w ,v) (match/first (f v)
-                                  ((category-writer ,w* ,v*) `(category-writer ,(M:mappend w w*) ,v*))))))
+      (#(_ ,w ,v) (match/first (f v)
+                    (#(_ ,w* ,v*) (make-category-writer (M:mappend w w*) v*))))))
 
   (define (fail . args) (error "Writer monad does not support failure"))
 
