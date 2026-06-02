@@ -44,23 +44,62 @@
 
   (define (>> m1 m2) (▷ m1 (λ (_) m2)))
 
-  (define (fmap f mx) 
+  (define (map/monad f mx)
     (do/monad
       (let x mx)
-      ,(f x)))
+      (M:return (f x))))
 
   (define (<*> mf mx)
     (do/monad
       (let f mf)
       (let x mx)
-      ,(f x)))
+      (M:return (f x))))
 
   (define-syntax-rule (◇ f f* ...) (λ (x) (▷ (f x) f* ...))) ; Kleisli composition
 
-  (define (concat mm)
+  ; flatten/monad :: (Monad m) => m (m a) -> m a
+  (define (flatten/monad mm)
     (do/monad
       (let m mm)
       m))
+
+  ; list->monad :: (Monad m) => [a] -> m [a]
+  (define (list->monad lst)
+    (match/first lst
+      (() (M:return '()))
+      ((,x . ,xs) (do/monad 
+                    (let xs* (list->monad xs))
+                    (M:return (cons x xs*))))))
+
+  ; monoids->monad :: (Monoid n), (Monad m) => [n] -> m n
+  (define (monoids->monad mempty mappend)
+    (letrec ((R (λ (lst) 
+                  (match/first lst
+                    (() (M:return mempty))
+                    ((,x . ,xs) (do/monad 
+                                  (let x* (R xs))
+                                  (M:return (mappend x x*))))))))
+      R))
+
+  ; foldM :: (Monad m) => (a -> b -> m a) -> a -> [b] -> m a
+  (define (fold/monad f init lst)
+    (match/first lst
+      (() (M:return init))
+      ((,x . ,xs) (do/monad
+                    (let acc (f init x))
+                    (foldM f acc xs)))))
+
+  ; filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
+  (define (filter/monad f lst)
+    (match/first lst
+      (() (M:return '()))
+      ((,x . ,xs) (do/monad
+                    (let b (f x))
+                    (if b
+                      (do/monad 
+                        (let xs* (filterM f xs))
+                        (M:return (cons x xs*)))
+                      (filterM f xs))))))
 
 )
 
@@ -68,6 +107,13 @@
 
 (import (aux category list))
 (import (aux category monad list))
+
+(foldM (λ (acc x) (list (+ acc x) (- acc x))) 0 '(1 2 3 4 5))
+
+(list->monad '(1 2 3))
+(define (powerset lst) (filterM (λ (_) (list #t #f)) lst))
+
+(powerset '(1 2 3 4 5 6 7 8 9 10))
 
 (<*> (list add1 sub1) (list 1 2 3))
 
@@ -105,10 +151,12 @@
   (let y (list 'a 'b))
   (let* (list x y) (list y x) 'separator))
 
+(callcc
 (do/monad
   (let x ,(ι 10))
   (let y ,(ι 10))
-  (list x y))
+  ,(list x y))
+)
 
 (do/monad
   (let x (ι 10))
