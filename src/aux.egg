@@ -30,7 +30,7 @@
   (extension aux.timsort (objects chicken-timsort) (csc-options  "-I/usr/local/include"))
   (extension aux.simdjson (objects chicken-simdjson) (csc-options  "-I/usr/local/include"))
   #;(extension aux.hwy (objects chicken-hwy) (csc-options  "-I/usr/local/include"))
-  (extension aux.continuation)
+  (extension aux.continuation (modules (aux continuation) (aux category continuation)))
   (extension aux.continuation.delimited)
   (extension aux.stream)
   (extension aux.fds.queue)

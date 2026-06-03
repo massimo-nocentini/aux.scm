@@ -42,7 +42,7 @@
   (define (>>= m f) 
     (make-category-continuation (λ (k) 
                                   (let1 (km (category-continuation-k m))
-                                    (km (λ (v) (let1 (k* (category-continuation-k (f v))) (k* k))))))))
+                                    (km (λ (v) (>>= (f v) (apply-to k))))))))
 
   (define (fail . args) (error "Continuation monad does not support failure"))
 )
@@ -50,6 +50,8 @@
 (import (aux category monad))
 
 (module (aux category monad continuation) = ((aux category monad) (aux category continuation)))
+
+#|
 
 (import (aux continuation))
 (import (aux category continuation))
@@ -60,3 +62,5 @@
          (let y ,2)
          ,3
          ,(+ x x y)))))
+
+|#

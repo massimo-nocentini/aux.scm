@@ -415,4 +415,6 @@
       ((record-instance? obj) (absent? v (record->vector obj)))
       (else (not (equal? v obj)))))
 
+  (define ((apply-to . args) f) (apply f args))
+
 )
