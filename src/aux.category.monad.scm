@@ -87,7 +87,7 @@
       (() (M:return init))
       ((,x . ,xs) (do/monad
                     (let acc (f init x))
-                    (foldM f acc xs)))))
+                    (fold/monad f acc xs)))))
 
   ; filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
   (define (filter/monad f lst)
@@ -96,10 +96,10 @@
       ((,x . ,xs) (do/monad
                     (let b (f x))
                     (if b
-                      (do/monad 
-                        (let xs* (filterM f xs))
+                      (do/monad
+                        (let xs* (filter/monad f xs))
                         (M:return (cons x xs*)))
-                      (filterM f xs))))))
+                      (filter/monad f xs))))))
 
 )
 
