@@ -5,7 +5,7 @@
   (import scheme (chicken base) (only srfi-1 append-map) (aux base))
 
   ; Monad instance
-  (define (return v) (list v))
+  (define return list)
   (define (>>= m f) (append-map f m))
   (define (fail . args) '())
 
@@ -15,9 +15,9 @@
 
   (define (mlog x) (list x))
 
-  (define fmap map)
+  (define map/functor map)
 
-  (define (<*> flst lst) (append-map (λ (f) (map f lst)) flst))
+  (define (map/applicative flst lst) (append-map (λ (f) (map f lst)) flst))
 
 )
 

@@ -54,8 +54,10 @@
       (let f mf)
       (let x mx)
       (M:return (f x))))
+  
+  (define (<$> f m) (<*> (M:return f) m))
 
-  (define-syntax-rule (◇ f f* ...) (λ (x) (▷ (f x) f* ...))) ; Kleisli composition
+  (define (◇ . f*) (λ (x) (foldr (λ (f m) (▷ m f)) (M:return x) f*))) ; Kleisli composition
 
   ; flatten/monad :: (Monad m) => m (m a) -> m a
   (define (flatten/monad mm)
@@ -101,12 +103,24 @@
                         (M:return (cons x xs*)))
                       (filter/monad f xs))))))
 
+  (define (powerset lst) (filter/monad (λ (_) (M:return #t #f)) lst))
+
 )
 
 #|
 
 (import (aux category list))
 (import (aux category monad list))
+`(4 (unquote-splicing 2 4))
+(>>= (return 1) (μ x (return )))
+
+(<*> (list add1 sub1) (list 1 2 3))
+(<$> add1 (list 1 2 3))
+
+(do/monad
+  (let f (list add1 sub1))
+  (let x '(1 2 3))
+  ,(f x))
 
 (foldM (λ (acc x) (list (+ acc x) (- acc x))) 0 '(1 2 3 4 5))
 
