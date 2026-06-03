@@ -42,7 +42,7 @@
   (define (>>= m f) 
     (make-category-continuation (λ (k) 
                                   (let1 (km (category-continuation-k m))
-                                    (km (λ (v) (>>= (f v) (apply-to k))))))))
+                                    (km (λ (v) (let1 (k* (category-continuation-k (f v))) (k* k))))))))
 
   (define (fail . args) (error "Continuation monad does not support failure"))
 )
