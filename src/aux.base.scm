@@ -150,6 +150,8 @@
   (define-syntax-rule (λ-match/first e ...) (λ args (match/first args e ...)))
   (define-syntax-rule (λ1-match/first e ...) (μ arg (match/first arg e ...)))
 
+  (define-syntax-rule (Λ pat body ...) (λ args (match/first args (pat body ...))))
+
   ; -------------------------------------------------------------------------------------------------
 
   (define-syntax letport/string 

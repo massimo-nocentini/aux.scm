@@ -23,6 +23,10 @@
 
   (define (fail . args) (λ (v) (error "Reader monad does not support failure" `((on ,v) (args . ,args)))))
 
+  (define ask (λ (v) v))
+
+  (define (local f m) (λ (v) (m (f v))))
+
 )
 
 (import (aux category monad))
