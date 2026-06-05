@@ -56,10 +56,11 @@
 (import (aux continuation))
 (import (aux category continuation))
 (import (aux category monad continuation))
+(import (aux continuation delimited))
 
-(+ 4 (callcc (category-continuation-k (do/monad
-         (let x ,1)
-         (let y ,2)
+(resetcc (callcc/shift (category-continuation-k (do/monad
+         (let x (make-category-continuation (λ (k) (+ 2 (k 1)))))
+         (let y (make-category-continuation (λ (k) (+ 3 1))))
          ,3
          ,(+ x x y)))))
 

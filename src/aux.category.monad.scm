@@ -18,8 +18,11 @@
   (import
     scheme 
     (chicken base)
+    (chicken module)
     (aux base)
     (prefix M M:))
+
+  (reexport M)
 
   (define-syntax ▷ 
     (syntax-rules ()
@@ -104,13 +107,37 @@
                         (M:return (cons x xs*)))
                       (filter/monad f xs))))))
 
-  (define (powerset lst) (filter/monad (λ (_) (M:return #f #t)) lst))
+)
+
+(functor ((aux category monad plus) (M (return filter/monad zero/monad ⊕/monad)))
+
+  *
+
+  (import
+    scheme 
+    (chicken base)
+    (chicken module)
+    (aux base)
+    (prefix M M:))
+
+  (reexport M)
+
+  (define (return/⊕ . args) (foldr (λ (arg m) (M:⊕/monad (M:return arg) m)) M:zero/monad args))
+
+  ; powerset/monad :: (MonadPlus m) => [a] -> m [a]
+  (define (powerset/monad lst) (M:filter/monad (λ (_) (return/⊕ #f #t)) lst))
 
 )
 
 #|
 
-(import (aux category list) (aux category monad list))
+(import (prefix (aux category list) list:) (aux category monad plus list))
+
+return
+(do/monad ,4)
+
+(pp (powerset/monad '(1 2 3)))
+
 `(4 (unquote-splicing 2 4))
 (>>= (return 1) (μ x (return )))
 

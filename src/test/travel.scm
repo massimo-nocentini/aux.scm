@@ -89,9 +89,6 @@
                         (probcc-when (ekeep? r* ll*)
                             (layer (sub1 r) n V l* lst* lkeep? ekeep?))))))))
 
-(define (cons/λ x) (λ (y) (cons x y)))
-(define (snoc/λ y) (λ (x) (cons x y)))
-
 (define (splash tup multi) 
     (match1/non-overlapping ((,s ,n ,d) tup)
         (let1 (p (list s d)) (map (λ_ p) (iota (if multi n 1))))))

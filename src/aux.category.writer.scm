@@ -28,7 +28,7 @@
       (#(_ ,w ,v) (match/first (f v)
                     (#(_ ,w* ,v*) (make-category-writer (M:mappend w w*) v*))))))
 
-  (define (tell . args) (make-category-writer (foldr (λ (v m) (M:mappend (M:mlog v) m)) M:mempty args) (void)))
+  (define (tell a) (make-category-writer (M:mlog a) (void)))
 
   (define (fail . args) (error "Writer monad does not support failure"))
 
@@ -41,30 +41,35 @@
 (import (only (aux category writer list) tell))
 (import (aux category monad writer list))
 
-(import (aux category difflist))
+(import (prefix (aux category difflist) cat:))
 (import (aux category monad difflist))
-(import (only (aux category writer difflist) tell category-writer-log))
+(import (prefix (aux category writer difflist) cat:writer:))
 (import (aux category monad writer difflist))
+
+(cat:return '(1 2 3))
 
 (map return '(1 2 3))
 
 (define (final-count-down n)
   (match/first n
-    (0 (do/monad (tell 0)))
+    (0 (do/monad (cat:writer:tell 0)))
     (else (do/monad
             (final-count-down (- n 1))
-            (tell n)))))
+            (cat:writer:tell n)))))
 
 (define (final-count-down n)
   (match/first n
-    (0 (do/monad #;(tell 0) ,0))
+    (0 (do/monad (cat:writer:tell 0) ,0))
     (else (do/monad
             (final-count-down (- n 1))
-            #;(tell n)
+            (cat:writer:tell n)
             ,n))))
 
-(callcc (final-count-down 500000))
+(final-count-down 500)
+
+(callcc (final-count-down 500))
 (category-writer-log (final-count-down 500000))
+(category-writer-log (final-count-down 50))
 
 (do/monad 
   (let a ,(make-category-difflist (λ (xs) (append '(1 2 3) xs))))
@@ -72,11 +77,13 @@
   (let c ,(make-category-difflist (λ (xs) (append '(7 8) xs))))
   ,(list a b c))
 
+(pp
 (do/monad
   (let a (list->difflist '(1 2 3)))
-  (let b (list->difflist '(4 5 6)))
+  (let b (list->difflist '(4 5 6 7 8)))
   (let c (list->difflist '(7 8)))
   (return (list a b c)))
+)
 
 (do/monad
   (let x (writer/log 1))

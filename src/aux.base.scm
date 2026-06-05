@@ -327,6 +327,9 @@
 
   (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
 
+  (define (snoc xs x) (cons x xs))
+  (define (cons/λ x) (λ (xs) (cons x xs)))
+  (define (snoc/λ xs) (λ (x) (cons x xs)))
   (define (map/curry f) (μ lst (map f lst)))
 
   (define-syntax λ-curry
@@ -340,6 +343,7 @@
   (define (->string/pretty-print v) (call-with-output-string (λ (p) (pretty-print v p))))
   (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))
   (define (display/pp . args) (for-each (μ v (display (->string/pretty-print v))) args))
+  (define (display/port port) (λ (v) (display v port)))
 
   (define (string-last s) (let1 (l (string-length s)) (and (< 0 l) (string-ref s (sub1 l)))))
 
@@ -417,6 +421,6 @@
       ((record-instance? obj) (absent? v (record->vector obj)))
       (else (not (equal? v obj)))))
 
-  (define ((apply-to . args) f) (apply f args))
+  (define (($ . args) f) (apply f args))
 
 )
