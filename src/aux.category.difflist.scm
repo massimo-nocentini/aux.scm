@@ -32,6 +32,9 @@
   (define (list->difflist l1) (make-category-difflist (λ (l2) (append l1 l2))))
   (define (difflist->list dl) ((category-difflist-f dl) '()))
 
+  (define (reverse/difflist dl)
+    (make-category-difflist (λ (xs) (reverse ((category-difflist-f dl) xs)))))
+
 )
 
 (import (aux category monad) (aux category writer))

@@ -46,7 +46,7 @@
 (import (prefix (aux category writer difflist) cat:writer:))
 (import (aux category monad writer difflist))
 
-(cat:return '(1 2 3))
+(cat:reverse/difflist (cat:list->difflist '(1 2 3)))
 
 (map return '(1 2 3))
 

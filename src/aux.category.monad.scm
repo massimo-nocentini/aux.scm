@@ -107,6 +107,17 @@
                         (M:return (cons x xs*)))
                       (filter/monad f xs))))))
 
+  ; filter1M :: (Monad m) => (a -> m Bool) -> m a -> m (m a)
+  (define (filter1/monad f m)
+    (do/monad
+      (let x m)
+      (let b (f x))
+      (if b
+        (M:return (M:return x))
+        (M:return '()))))
+
+  
+
 )
 
 (functor ((aux category monad plus) (M (return filter/monad zero/monad ⊕/monad)))
@@ -117,15 +128,16 @@
     scheme 
     (chicken base)
     (chicken module)
-    (aux base)
-    (prefix M M:))
+    (aux base))
 
   (reexport M)
 
-  (define (return/⊕ . args) (foldr (λ (arg m) (M:⊕/monad (M:return arg) m)) M:zero/monad args))
+  (define (return/⊕ . args) (foldr (λ (arg m) (⊕/monad (return arg) m)) zero/monad args))
+
+  (define (guard/monad b) (if b (return (void)) zero/monad))
 
   ; powerset/monad :: (MonadPlus m) => [a] -> m [a]
-  (define (powerset/monad lst) (M:filter/monad (λ (_) (return/⊕ #f #t)) lst))
+  (define (powerset/monad lst) (filter/monad (λ (_) (return/⊕ #f #t)) lst))
 
 )
 
@@ -133,8 +145,10 @@
 
 (import (prefix (aux category list) list:) (aux category monad plus list))
 
-return
+M:return
 (do/monad ,4)
+
+(M:filter1/monad (λ (x) (return/⊕ #t #f)) (return/⊕ 1 2 3 4))
 
 (pp (powerset/monad '(1 2 3)))
 
