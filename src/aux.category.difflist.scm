@@ -8,10 +8,10 @@
 
   (set-record-printer! category-difflist
     (λ (d port)
-      (let ((f (category-difflist-f d))
+      (let ((lst (difflist->list d))
             (D (display/port port)))
         (D "⸨")
-        (map (μ v (D " ") (D v)) (f '()))
+        (map (μ v (D " ") (D v)) lst)
         (D " ⸩"))))
 
   ; Monad instance

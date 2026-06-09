@@ -4,6 +4,7 @@ CSC=csc
 
 test:
 	cd test && ${CSI} -s test.scm
+	cd test && ${CSI} -s category-list.scm
 	cd test && ${CSI} -s stream.scm
 	cd test && ${CSI} -s letcc.scm
 	cd test && ${CSI} -s letnondeterministic.scm

@@ -19,13 +19,13 @@
 
   (define (map/applicative flst lst) (append-map (λ (f) (map f lst)) flst))
 
-  (define zero/monad '())
+  (define ⊕₀/monad '())
   (define (⊕/monad m1 m2) (append m1 m2))
 )
 
 (import (aux category monad) (aux category monad plus) (aux category writer))
 
 (module (aux category monad list) = ((aux category monad) (aux category list)))
-(module (aux category monad plus list) = ((aux category monad plus) (aux category monad list)))
+(module (aux category monad plus list) = ((aux category monad plus) (aux category monad list) (aux category list)))
 (module (aux category writer list) = ((aux category writer) (aux category list)))
 (module (aux category monad writer list) = ((aux category monad) (aux category writer list)))

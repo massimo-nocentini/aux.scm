@@ -18,45 +18,51 @@
   (import
     scheme 
     (chicken base)
-    (chicken module)
     (aux base)
     (prefix M M:))
 
-  (reexport M)
+  (import-for-syntax (aux base))
 
   (define-syntax ▷ 
     (syntax-rules ()
-      ((▷ p) (M:>>= p M:return))
+      ((▷ p) (▷ p M:return))
       ((▷ p q) (M:>>= p q))
       ((▷ p q r ...) (▷ p (λ (x) (▷ (q x) r ...))))))
 
   (define-syntax do/monad
-    (syntax-rules (let match unquote)
-      ((do/monad (let var (unquote expr)) body body* ...) (do/monad (let var (M:return expr)) body body* ...))
-      ((do/monad (let var expr) body body* ...) (▷ expr (λ (var) (do/monad body body* ...))))
-      ((do/monad (match pat (unquote expr)) body body* ...) (do/monad (match pat (M:return expr)) body body* ...))
-      ((do/monad (match pat expr) body body* ...) (▷ expr
-                                                    (λ1-match/first
-                                                      (pat (do/monad body body* ...))
-                                                      (else (do/monad)))))
+    (syntax-rules (let ← unquote)
+      ((do/monad (← (pat ...) (unquote expr)) body body* ...) (do/monad (← (pat ...) (M:return expr)) body body* ...))
+      ((do/monad (← (pat ...) expr) body body* ...) (▷ expr (λ1-match/first ((pat ...) (do/monad body body* ...)))))
+      ((do/monad (← var (unquote expr)) body body* ...) (do/monad (← var (M:return expr)) body body* ...))
+      ((do/monad (← var expr) body body* ...) (▷ expr (λ (var) (do/monad body body* ...))))
+      ((do/monad (let (p ...) expr) body body* ...) (match/first (((p ...) expr) (do/monad body body* ...))))
+      ((do/monad (let var expr) body body* ...) (let1 (var expr) (do/monad body body* ...)))
       ((do/monad (unquote expr)) (do/monad (M:return expr)))
-      ((do/monad (unquote expr) body ...) (do/monad (let _ (unquote expr)) body ...))
+      ((do/monad (unquote expr) body ...) (do/monad (← _ (unquote expr)) body ...))
       ((do/monad expr) expr)
-      ((do/monad expr body ...) (do/monad (let _ expr) body ...))
+      ((do/monad expr body ...) (do/monad (← _ expr) body ...))
       ((do/monad) (M:fail (void)))))
 
   (define (>> m1 m2) (▷ m1 (λ (_) m2)))
 
   (define (map/monad f mx)
     (do/monad
-      (let x mx)
-      (M:return (f x))))
+      (← x mx)
+      ,(f x)))
+
+  (define-macro-ir (lift/monad expr inject compare)
+    (let* ((f (cadr expr))
+           (ms (cddr expr))
+           (vars '())
+           (ss (map (lambda (m) (let ((v (gensym))) (set! vars (cons v vars)) `(← ,v ,m))) ms))
+           (f* (list 'unquote (cons f (reverse vars)))))
+      `(do/monad ,@ss ,f*)))
 
   (define (<*> mf mx)
     (do/monad
-      (let f mf)
-      (let x mx)
-      (M:return (f x))))
+      (← f mf)
+      (← x mx)
+      ,(f x)))
   
   (define (<$> f m) (<*> (M:return f) m))
 
@@ -66,7 +72,7 @@
   ; flatten/monad :: (Monad m) => m (m a) -> m a
   (define (flatten/monad mm)
     (do/monad
-      (let m mm)
+      (← m mm)
       m))
 
   ; list->monad :: (Monad m) => [a] -> m [a]
@@ -74,8 +80,8 @@
     (match/first lst
       (() (M:return '()))
       ((,x . ,xs) (do/monad 
-                    (let xs* (list->monad xs))
-                    (M:return (cons x xs*))))))
+                    (← xs* (list->monad xs))
+                    ,(cons x xs*)))))
 
   ; monoids->monad :: (Monoid n), (Monad m) => [n] -> m n
   (define (monoids->monad mempty mappend)
@@ -83,8 +89,8 @@
                   (match/first lst
                     (() (M:return mempty))
                     ((,x . ,xs) (do/monad 
-                                  (let x* (R xs))
-                                  (M:return (mappend x x*))))))))
+                                  (← x* (R xs))
+                                  ,(mappend x x*)))))))
       R))
 
   ; foldM :: (Monad m) => (a -> b -> m a) -> a -> [b] -> m a
@@ -92,7 +98,7 @@
     (match/first lst
       (() (M:return init))
       ((,x . ,xs) (do/monad
-                    (let acc (f init x))
+                    (← acc (f init x))
                     (fold/monad f acc xs)))))
 
   ; filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
@@ -100,129 +106,28 @@
     (match/first lst
       (() (M:return '()))
       ((,x . ,xs) (do/monad
-                    (let b (f x))
+                    (← b (f x))
                     (if b
-                      (do/monad
-                        (let xs* (filter/monad f xs))
-                        (M:return (cons x xs*)))
+                      (do/monad (← xs* (filter/monad f xs)) ,(cons x xs*))
                       (filter/monad f xs))))))
-
-  ; filter1M :: (Monad m) => (a -> m Bool) -> m a -> m (m a)
-  (define (filter1/monad f m)
-    (do/monad
-      (let x m)
-      (let b (f x))
-      (if b
-        (M:return (M:return x))
-        (M:return '()))))
-
-  
-
 )
 
-(functor ((aux category monad plus) (M (return filter/monad zero/monad ⊕/monad)))
+(functor ((aux category monad plus) (M0 (filter/monad)) (M (return ⊕₀/monad ⊕/monad)))
 
   *
 
   (import
     scheme 
     (chicken base)
-    (chicken module)
-    (aux base))
+    (aux base)
+    (prefix M0 M0:)
+    (prefix M M:))
 
-  (reexport M)
+  (define (return/⊕ . args) (foldr (λ (arg m) (M:⊕/monad (M:return arg) m)) M:⊕₀/monad args))
 
-  (define (return/⊕ . args) (foldr (λ (arg m) (⊕/monad (return arg) m)) zero/monad args))
-
-  (define (guard/monad b) (if b (return (void)) zero/monad))
+  (define (guard/monad b) (if b (M:return (void)) M:⊕₀/monad))
 
   ; powerset/monad :: (MonadPlus m) => [a] -> m [a]
-  (define (powerset/monad lst) (filter/monad (λ (_) (return/⊕ #f #t)) lst))
+  (define (powerset/monad lst) (M0:filter/monad (μ _ (return/⊕ #f #t)) lst))
 
 )
-
-#|
-
-(import (prefix (aux category list) list:) (aux category monad plus list))
-
-M:return
-(do/monad ,4)
-
-(M:filter1/monad (λ (x) (return/⊕ #t #f)) (return/⊕ 1 2 3 4))
-
-(pp (powerset/monad '(1 2 3)))
-
-`(4 (unquote-splicing 2 4))
-(>>= (return 1) (μ x (return )))
-
-(<*> (list add1 sub1) (list 1 2 3))
-(<$> add1 (list 1 2 3))
-
-(do/monad
-  (let f (list add1 sub1))
-  (let x '(1 2 3))
-  ,(f x))
-
-(foldM (λ (acc x) (list (+ acc x) (- acc x))) 0 '(1 2 3 4 5))
-
-(list->monad '(1 2 3))
-(define (powerset lst) (filterM (λ (_) (list #f #t)) lst))
-
-(pp (powerset '(1 2 3 4 5)))
-
-(<*> (list add1 sub1) (list 1 2 3))
-
-(concat (list (list 1 2) (list 3 4) (list 5)))
-
-(fmap add1 (list 1 2 3))
-
-(do/monad
-  (let x ,1)
-  (let y ,x)
-  ,(+ x y))
-
-(do/monad
-  (let x (return 1))
-  (let y (return x))
-  (return (+ x y)))
-
-(do/monad
-  (match ,x ,1)
-  (match ,y ,2)
-  ,(list x y))
-
-(do/monad
-  (let x (list 3 4 5))
-  (let y (list x (- x)))
-  ,(+ x y))
-
-(do/monad
-  (let* x 3 4 5)
-  (let* y x (- x))
-  (let* (+ x y) (- x y)))
-
-(do/monad
-  (let x (list 1 2))
-  (let y (list 'a 'b))
-  (let* (list x y) (list y x) 'separator))
-
-(callcc
-(do/monad
-  (let x ,(ι 10))
-  (let y ,(ι 10))
-  ,(list x y))
-)
-
-(do/monad
-  (let x (ι 10))
-  (let y (ι 10))
-  (let* x y))
-
-(import (aux category monad maybe))
-
-(do/monad
-  (let* x 3 4)
-  (let* y (- x))
-  (let* y))
-
-|#
