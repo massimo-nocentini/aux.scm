@@ -110,6 +110,33 @@
                     (if b
                       (do/monad (← xs* (filter/monad f xs)) ,(cons x xs*))
                       (filter/monad f xs))))))
+
+  ; zip :: (Monad m) => m a -> m b -> m (a, b)
+  (define (zip/monad m1 m2) (lift/monad cons m1 m2))
+  (define (zip-with/monad f m1 m2) (lift/monad f m1 m2))
+
+  ; fork :: (a -> m b, a -> m c) -> m a -> m (b, c)
+  (define ((fork/monad f g) m)
+    (do/monad
+      (← x m)
+      (← y (f x))
+      (← z (g x))
+      ,(cons y z)))
+
+  ; cross :: (Monad m) => (a -> m c) -> (b -> m d) -> m (a, b) -> m (c, d)
+  (define ((cross/monad f g) m)
+    (do/monad
+      (← p m)
+      (← x (f (car p)))
+      (← y (g (cdr p)))
+      ,(cons x y)))
+
+  ; ; out :: (Monad m) => m a -> a
+  ; (define (out/monad m)
+  ;   (do/monad
+  ;     (← x m)
+  ;     x))
+
 )
 
 (functor ((aux category monad plus) (M0 (filter/monad)) (M (return ⊕₀/monad ⊕/monad)))
