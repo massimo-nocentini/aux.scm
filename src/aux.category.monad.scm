@@ -131,11 +131,11 @@
       (← y (g (cdr p)))
       ,(cons x y)))
 
-  ; ; out :: (Monad m) => m a -> a
-  ; (define (out/monad m)
-  ;   (do/monad
-  ;     (← x m)
-  ;     x))
+  ; join :: (Monad m) => m (a, b) -> (a -> b -> m c) -> m c
+  (define (join/monad f m)
+    (do/monad
+      (← (,a . ,d) m)
+      (f a d)))
 
 )
 

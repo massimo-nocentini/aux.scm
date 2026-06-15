@@ -13,7 +13,7 @@
           (chicken syntax)
           (chicken module)
           (chicken string)
-          (only srfi-1 append-map iota)
+          (only srfi-1 append-map iota zip)
           srfi-69
           vector-lib)
 
@@ -408,6 +408,15 @@
   (define greek-alphabet/lowercase    #(α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω))
   (define greek-alphabet/uppercase    #(Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω))
   (define ι iota)
+  (define (enumerate lst)
+    (let ((index 0) (result '()))
+      (for-each (λ (v) (push! (list index v) result) (add1! index)) lst)
+      (reverse result)))
+  (define (length/>? lst n)
+    (match/first (cons n lst)
+      ((0 . (,v . _)) v)
+      ((_ . ()) #f)
+      ((_ . (_ . ,lst*)) (length/>? lst* (sub1 n)))))
 
   (define (absent? v obj)
     (cond
