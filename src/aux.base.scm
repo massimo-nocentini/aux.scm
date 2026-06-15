@@ -417,6 +417,13 @@
       ((0 . (,v . _)) v)
       ((_ . ()) #f)
       ((_ . (_ . ,lst*)) (length/>? lst* (sub1 n)))))
+  (define (list/circular . args)
+    (if (null? args) 
+      '()
+      (let L ((args* args))
+        (cond
+          ((null? (cdr args*)) (set-cdr! args* args) args)
+          (else (L (cdr args*)))))))
 
   (define (absent? v obj)
     (cond
