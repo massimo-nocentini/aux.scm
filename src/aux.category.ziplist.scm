@@ -10,10 +10,11 @@
     (match/first m
       ((,l . ,,m) (g l))
       (else (reverse (cdr (foldl  (λ-match/first
-                                    (((,i . ,acc) ,v) (let1 (m* (g v))
+                                    (((,i . ,acc) ,v) (let ((m* (g v))
+                                                            (i* (add1 i)))
                                                         (cond
-                                                          ((length/>? m* i) => (λ (v*) (cons (add1 i) (cons v* acc))))
-                                                          (else (cons (add1 i) acc))))))
+                                                          ((length/>? m* i) => (λ (v*) (cons i* (cons v* acc))))
+                                                          (else (cons i* acc))))))
                     `(0 . ()) m))))))
 
   (define (fail . args) '())
@@ -27,7 +28,13 @@
 
 (import (aux category monad ziplist))
 
-(do/monad)
+(define l (do/monad 
+  (← x ,3)
+  (← y ,4)
+  (← z ,5)
+  ,(+ x y z)))
+
+  l
 
 (do/monad
   (← x '(1 2 3))
@@ -36,6 +43,6 @@
   (← r '(d e f g))
   ,(list x y z r))
 
-(<*> (list add1 sub1 sub1) (list 1 2 3)) ; => (2 3 4)
+(<*> (list add1 sub1 sub1) (list 1 2 3)) ; => (2 1 2)
 
 |#
