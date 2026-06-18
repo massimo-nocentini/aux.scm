@@ -22,6 +22,7 @@
   (extension aux.category.identity (modules (aux category identity) (aux category monad identity)))
   (extension aux.category.list (modules (aux category list) (aux category monad list) (aux category monad plus list) (aux category writer list) (aux category monad writer list)))
   (extension aux.category.difflist (modules (aux category difflist) (aux category monad difflist) (aux category writer difflist) (aux category monad writer difflist)))
+  (extension aux.category.ziplist (modules (aux category ziplist) (aux category monad ziplist)))
   (extension aux.category.reader (modules (aux category reader) (aux category monad reader)))
   (extension aux.category.prob (modules (aux category prob) (aux category monad prob)))
   (extension aux.category.maybe (modules (aux category maybe) (aux category monad maybe)))
