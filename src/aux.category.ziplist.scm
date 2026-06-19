@@ -20,7 +20,6 @@
   (define (fail . args) '())
 )
 
-
 (import (aux category monad))
 
 (module (aux category monad ziplist) = ((aux category monad) (aux category ziplist)))
@@ -28,7 +27,7 @@
 #|
 (import  (aux category ziplist) (aux category monad ziplist))
 
-(define l (do/monad 
+(define l (do/monad
   (← x ,3)
   (← y ,4)
   (← z ,5)

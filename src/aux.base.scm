@@ -13,7 +13,7 @@
           (chicken syntax)
           (chicken module)
           (chicken string)
-          (only srfi-1 append-map iota zip)
+          (only srfi-1 append-map iota)
           srfi-69
           vector-lib)
 
@@ -37,7 +37,7 @@
     (define-macro-ir (name expr inject* compare)
       (let* ((inject (λ symbols (inject* (apply symbols->symbol/stripped-syntax symbols))))
              (bi (inject i)) ...
-             (bl (λ (x) (compare x l))) ...)
+             (bl (let1 (l* l) (λ (x) (compare x l*)))) ...)
         (match/first expr (pattern body ...) ...))))
 
   (define (symbols->symbol/stripped-syntax . symbols) (apply symbol-append (map strip-syntax symbols)))
