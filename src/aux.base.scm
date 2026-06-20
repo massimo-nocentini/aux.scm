@@ -345,7 +345,8 @@
   (define (display/pp . args) (for-each (μ v (display (->string/pretty-print v))) args))
   (define (display/port port) (λ (v) (display v port)))
 
-  (define (string-last s) (let1 (l (string-length s)) (and (< 0 l) (string-ref s (sub1 l)))))
+  (define (first/string s) (let1 (l (string-length s)) (and (< 0 l) (string-ref s 0))))
+  (define (last/string s) (let1 (l (string-length s)) (and (< 0 l) (string-ref s (sub1 l)))))
 
   (define (foldr/add lst) (foldr + 0 lst))
   (define (foldr/times lst) (foldr * 1 lst))

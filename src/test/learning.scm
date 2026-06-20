@@ -110,7 +110,8 @@ END
                     "An example for simple calls to foreign code involving callbacks, Chicken Scheme manual.") ".")))
 
   ((test/string/ref _) (⊦ equal? #\o (string-ref "hello" 4)))
-  ((test/string/last _) (⊦ equal? #\o (string-last "hello")))
+  ((test/string/first _) (⊦ equal? #\h (first/string "hello")))
+  ((test/string/last _) (⊦ equal? #\o (last/string "hello")))
   ((test/string/take-right _) (⊦ equal? "o" (string-take-right "hello" 1)))
 
   ((test-null-eq? _) (⊨ (eq? '() '())))
