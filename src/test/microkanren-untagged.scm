@@ -2,7 +2,7 @@
 (import scheme (chicken base) (chicken memory representation) srfi-1
   (aux base) (aux unittest) (aux kanren micro))
 
-(define-suite untagged-suite
+(define-suite microkanren-untagged-suite
 
   ((test-λ-calculus-interpreter _)
 
@@ -158,9 +158,77 @@
   
   )
 
+  ((test/symbol° _)
+    (⊦= '((λ (α) (assert (every (μ v (symbol? v)) (list α))) α)) (°->list #f (fresh° (s) (symbol° s))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (s r) (symbol° r))))
+  )
+  
+  ((test/≠° _)
+    (⊦= '() (°->list #f (fresh° (s) (≠° (+ 2 3) 5))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (s) (≠° (* 2 3) 5))))
+    (⊦= '((λ (α) (begin (deny (equal? α 5))) (begin (deny (equal? α 6))) α)) (°->list #f (fresh° (q x) (≠° 5 q) (=° x q) (≠° 6 x))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q y z) (≠° (cons y z) q))))
+    (⊦= '((λ (α β γ) (begin (deny (equal? α (cons β γ)))) (cons α (cons β (cons γ '()))))) (°->list #f (fresh° (q x y z) (≠° (cons y z) x) (=° (list x y z) q))))
+    (⊦= '((λ (α) (begin (deny (equal? α 6))) (cons (cons 5 α) (cons 5 (cons α (quote ())))))) (°->list #f (fresh° (q x y z) (=° (cons y z) x) (≠° (cons 5 6) x) (=° 5 y) (=° (list x y z) q))))
+    (⊦= '((λ (α) (cons (cons 6 α) (cons 6 (cons α (quote ())))))) (°->list #f (fresh° (q x y z) (=° (cons y z) x) (≠° (cons 5 6) x) (=° 6 y) (=° (list x y z) q))))
+    (⊦= '((λ (α β γ) (begin (deny (equal? α 5))) (begin (deny (equal? α 6))) (begin (deny (equal? β 2)) (deny (equal? γ 1))) (cons α (cons β (cons γ (quote ())))))) (°->list #f (fresh° (q x y z) (≠° 5 x) (≠° 6 x) (≠° (list y 1) (list 2 z)) (=° (list x y z) q))))
+    (⊦= '((λ (α) (begin (deny (equal? α 1))) α)) (°->list #f (fresh° (s) (≠° s 1))))
+    (⊦= '() (°->list #f (fresh° (s) (≠° s 1) (=° s 1))))
+    (⊦= '((λ (α) (begin (deny (equal? α (cons 'a (cons 'b '()))))) α)) (°->list #f (fresh° (s) (≠° s '(a b)))))
+    (⊦= '((λ (α β) (begin (deny (equal? α 1)) (deny (equal? β 2))) (cons α (cons β (quote ())))))
+        (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° q (list p r)))))
+    (⊦= '((λ (α) (begin (deny (equal? α 2))) (cons 1 (cons α (quote ())))))
+        (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° q (list p r)))))
+    (⊦= '() (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° r 2) (=° q (list p r)))))
+  )
+
+  ((test/rember°/naive _)
+
+    (define-relation (rember° x ls out)
+      (cond° 
+        ((=° '() ls) (=° '() out))
+        ((fresh° (a d) (=° `(,a . ,d) ls) (=° a x) (=° d out)))
+        ((fresh° (a d res)
+                (=° `(,a . ,d) ls)
+                (=° `(,a . ,res) out)
+                (rember° x d res)))))
+
+    (⊦= '((a c b d)) (μkanren-run (q 1 #t) (rember° 'b '(a b c b d) q)))
+    (⊦= '((a b c)) (μkanren-run (q 1 #t) (rember° 'd '(a b c) q)))
+    (⊦= '((a c b d) (a b c d) (a b c b d)) (μkanren-run (q -1 #t) (rember° 'b '(a b c b d) q)))
+    (⊦= '(α) (μkanren-run (q -1 #t) (rember° 'b '(b) '(b))))
+  )
+
+  ((test/rember°/fixed _)
+
+    (define-relation (rember° x ls out)
+      (cond° 
+        ((=° '() ls) (=° '() out))
+        ((fresh° (a d) (=° `(,a . ,d) ls) (=° a x) (=° d out)))
+        ((fresh° (a d res)
+                (=° `(,a . ,d) ls)
+                (≠° a x)
+                (=° `(,a . ,res) out)
+                (rember° x d res)))))
+
+    (⊦= '((a c b d)) (μkanren-run (q -1 #t) (rember° 'b '(a b c b d) q)))
+    (⊦= '() (μkanren-run (q -1 #t) (rember° 'b '(b) '(b))))
+    (⊦= '(  (λ () (cons (quote a) (cons (cons (quote b) (cons (quote c) (quote ()))) (quote ()))))
+            (λ () (cons (quote b) (cons (cons (quote a) (cons (quote c) (quote ()))) (quote ())))) 
+            (λ () (cons (quote c) (cons (cons (quote a) (cons (quote b) (quote ()))) (quote ())))) 
+            (λ (α) (begin (deny (equal? α (quote a)))) (begin (deny (equal? α (quote b)))) (begin (deny (equal? α (quote c)))) (cons α (cons (cons (quote a) (cons (quote b) (cons (quote c) (quote ())))) (quote ()))))) 
+      (°->list #f (fresh° (q x out) (rember° x '(a b c) out) (=° (list x out) q))))
+  )
+
+  ((test/absent° _)
+    (⊦= '((λ (α β) (assert (absent? (quote panda) α)) (assert (absent? (quote panda) β)) (cons (quote jackal) (cons (cons α (cons (quote leopard) (cons β (quote ())))) (quote ())))))
+        (°->list #f (fresh° (q x y) (=° `(jackal (,y leopard ,x)) q) (absent° 'panda q))))
+    
+  )
+
 )
 
-(unittest/✓ untagged-suite)
+(unittest/✓ microkanren-untagged-suite)
 
 #|
 (define Q '(λ (α) (begin (deny (equal? α (quote list)))) (begin (deny (equal? α (quote quote)))) (assert (every (μ v (symbol? v)) (list α))) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
