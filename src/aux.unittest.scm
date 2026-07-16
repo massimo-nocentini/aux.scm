@@ -147,7 +147,7 @@
                                       `(#;(p (b "Tests summary")
                                            (code/scheme ,res))
                                         ,@(if sxml ((car sxml) r) '())
-                                        (structure/section "Tests")
+                                        #;(structure/section "Tests")
                                         ,@docs))
                            (symbol-append 'testsuite- sut-name))
         (pretty-print res)

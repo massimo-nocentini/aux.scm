@@ -2,6 +2,12 @@
 CSI=csi
 CSC=csc
 
+echo:
+	echo "Catch all for the Makefile"
+
+clean:
+	rm -rf *.o *.so *.a *.link *.import.scm aux.install.sh aux.build.sh
+
 test:
 	cd test && ${CSI} -s test.scm
 	cd test && ${CSI} -s category-list.scm
