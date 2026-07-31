@@ -82,8 +82,9 @@
    `(doc))
 
   ((test/simdjson/version _)
-   (⊦= "4.6.4" (simdjson-get-version))
-   `(doc (p "The current version of " (code/inline "simdjson") " is " (code/inline ,(simdjson-get-version)) ".")))
+    (let1 (v (simdjson-get-version))
+      (⊦= "4.6.6" v)
+      `(doc (p "The current version of " (code/inline "simdjson") " is " (code/inline ,v) "."))))
 
   ((test/simdjson/load-twitter _)
    (define twitter-json (simdjson-load/ondemand "twitter.json"))
