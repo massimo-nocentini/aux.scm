@@ -10,3 +10,4 @@ src/*.o
 src/test/*.html
 src/test/learning
 *.swp
+*.DS_Store
