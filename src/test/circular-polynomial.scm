@@ -1,5 +1,5 @@
 
-(import scheme (chicken base) (chicken bitwise) (chicken io) (chicken port) 
+(import scheme (chicken base) (chicken bitwise) (chicken io) (chicken port) (chicken flonum)
     (only srfi-1 last-pair) srfi-13 srfi-69
     (aux base))
 
@@ -57,10 +57,10 @@
     (λ (p)
         (let L ((p* (cdr p)))
             (unless (eq? witness/sentinel (car p*))
-                (unless (= 1 (cdar p*)) (display (cdar p*)))
-                (display "x")
-                (display (number->superscript (caar p*)))
-                (display " ")
+                #;(unless (= 1 (cdar p*)) (display (cdar p*)))
+                (print* (car p*) " ")
+                #;(display (number->superscript (caar p*)))
+                #;(display " ")
                 (L (cdr p*))))))
 
 (define index/var caar)
@@ -103,16 +103,20 @@
             (((_ ,block-id ,tx-id _ _ _ _) ,inputs ,outputs)
                 (let1 (tx-color (cond
                                     ((null? inputs) (make-polynomial `(,block-id . 1)))
-                                    (else (foldr (λ-match/first
+                                    (else   (let1 (total-amount (void) #;(foldr (λ-match/first (((_ ,amount _ _) ,amount*) (+ amount amount*))) 0 inputs))
+                                                (foldr (λ-match/first
                                                     (((_ ,amount ,prev-tx-id _) ,color)
                                                             (let* ( (color-entry (hash-table-ref colors prev-tx-id))
                                                                     (color* (car color-entry))
-                                                                    (outputs-count (cdr color-entry)))
+                                                                    (outputs-count (cdr color-entry))
+                                                                    #;(r (/ amount total-amount))
+                                                                    #;(+* (op/polynomial (λ (p q) (* r (+ p q)))))
+                                                                    (+* ior/polynomial))
                                                                 (if (= 1 outputs-count)
                                                                     (hash-table-delete! colors prev-tx-id)
                                                                     (set-cdr! color-entry (sub1 outputs-count)))
-                                                                (ior/polynomial color* color))))
-                                                0/polynomial inputs))))
+                                                                (+* color* color))))
+                                                    0/polynomial inputs)))))
                     (let1 (l (length outputs)) (when (> l 0) (hash-table-set! colors tx-id (cons tx-color l))))
                     (print/polynomial tx-color)
                     (newline))))
