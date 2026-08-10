@@ -75,3 +75,6 @@ foreigns-fetch: timsort-fetch simdjson-fetch
 json-bench:
 	# first take json files from https://jsoneditoronline.org/indepth/datasets/json-file-example/#a-large-json-document
 	${CSI} -s test/json-bench.scm
+
+bitcoin-colors:
+	cd test && docker run -it --rm -v ./:/home/ubuntu --entrypoint bash ghcr.io/massimo-nocentini/aux.scm:master

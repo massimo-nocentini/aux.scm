@@ -1,13 +1,52 @@
 
-;;; Polynomials as circular linked lists, after Knuth's TAOCP §2.2.4.
+;;; # Polynomials as circular linked lists
 ;;;
-;;; A polynomial is a circular list of nodes.  The head node is a *sentinel*
-;;; carrying the term (-1 . 0); the nodes after it carry the real terms, one
-;;; `(exponent . coefficient)` pair each, sorted by strictly decreasing
-;;; exponent.  Since -1 is smaller than every legal exponent, the sentinel acts
-;;; as a term that compares below all others, and the addition loop needs no
-;;; end-of-list tests at all: meeting the sentinel in *both* operands at the
-;;; same time is what terminates it.
+;;; An exercise from Knuth's *TAOCP* §2.2.4, "Circular Lists".
+;;;
+;;; ## Representation
+;;;
+;;; A polynomial is a **ring** of pairs.  Each node is `(term . next)`, and each
+;;; term is `(exponent . coefficient)`.  Terms are kept sorted by *strictly*
+;;; decreasing exponent, so an exponent occurs at most once.
+;;;
+;;; The node a polynomial is named by is not one of its terms: it is a
+;;; **sentinel** carrying the impossible term `(-1 . 0)`, and the last real term
+;;; points back at it.  So `x^5 - 2x^2 - 1` is
+;;;
+;;; ```
+;;;    ┌─────────────────────────────────────────────┐
+;;;    │                                             │
+;;;    └─> (-1 . 0) ─> (5 . 1) ─> (2 . -2) ─> (0 . -1)
+;;;        sentinel
+;;; ```
+;;;
+;;; and the zero polynomial is a sentinel pointing at itself.
+;;;
+;;; ## Why the sentinel
+;;;
+;;; -1 is smaller than every legal exponent, so the sentinel compares *below*
+;;; every real term.  That single fact removes every end-of-list test from the
+;;; addition loop:
+;;;
+;;; - a walk can never run off the end — it wraps around instead;
+;;; - when one operand is exhausted and the other is not, the exhausted one sits
+;;;   on its sentinel and loses every comparison, so the remaining terms of the
+;;;   other are emitted by the ordinary "smaller exponent" branch;
+;;; - the loop stops on the one situation that cannot arise between two real
+;;;   terms: *equal* exponents that are both -1, i.e. both operands standing on
+;;;   their sentinel at the same time.  Equal exponents otherwise mean "add the
+;;;   two coefficients".
+;;;
+;;; So `+/polynomial` is a bare three-way comparison with no boundary cases.  It
+;;; allocates the result's sentinel up front and closes the ring by returning
+;;; that sentinel from the base case, which is what the last `cons` gets as its
+;;; tail.
+;;;
+;;; ## Caveat
+;;;
+;;; Addition does not prune cancelled terms: `x^5 + (-x^5)` leaves `(5 . 0)` in
+;;; the ring, so the representation is not canonical.  See
+;;; `test-add-cancelling-terms`.
 
 (import scheme (only srfi-1 last-pair) (chicken base) (aux base) (aux unittest))
 
