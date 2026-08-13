@@ -1,7 +1,8 @@
 
 (module (aux base) *
 
-  (import scheme 
+  (import scheme
+          (scheme base)
           (chicken base) 
           (chicken continuation) 
           (chicken pretty-print) 

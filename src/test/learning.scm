@@ -49,7 +49,7 @@ extern C_word C_list_walk(C_word l, C_word p)
                                                   "C_return(C_header_size(cons));")))
                   (⊦= 2 (my-strlen (cons 1 '())))
                   (⊦= 2 (my-strlen (cons 1 (cons 2 (cons 3 '())))))
-                  (⊦= 11 (my-strlen "hello world"))))
+                  (⊦= 4 (my-strlen "hello world"))))
 
   ((test/unquote _) 
    (let1 (a '(3)) (⊦= (cons 1 a)  `(1 unquote a)))

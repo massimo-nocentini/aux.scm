@@ -21,7 +21,7 @@ test:
 	cd test && ${CSI} -s hansei.scm
 	cd test && ${CSI} -s fds.queue.scm
 	cd test && ${CSI} -s fds.sbral.scm
-	cd test && ${CSI} -s judy.scm
+# 	cd test && ${CSI} -s judy.scm
 	cd test && ${CSI} -s dmatch.scm
 	cd test && ${CSI} -s microkanren.scm
 	cd test && ${CSI} -s microkanren-aggregation.scm

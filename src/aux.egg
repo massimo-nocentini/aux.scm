@@ -30,7 +30,7 @@
   (extension aux.lua
     (csc-options  "-I/usr/local/include")
 	  (link-options "-L" "-llua"))
-  (extension aux.judy 
+  #;(extension aux.judy 
     (modules (aux judy) (aux judyL))
 	  (csc-options  "-I/usr/local/include")
 	  (link-options "-L" "-lJudy"))
