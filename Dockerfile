@@ -6,9 +6,9 @@ RUN wget --no-verbose https://www.lua.org/ftp/lua-5.5.0.tar.gz && tar xf lua-5.5
 	&& sudo make CC="clang" MYCFLAGS="-fPIC" linux install \
 	&& cd .. && rm -rf lua-5.5.0*
 
-RUN wget --no-verbose https://www.jjj.de/fxt/fxt-2025.06.26.tar.gz \
-	&& tar xf fxt-2025.06.26.tar.gz && cd fxt \
-	&& CC="clang" CXX="clang++" make && sudo make install && cd .. && rm -rf fxt fxt-2025.06.26.tar.gz
+RUN wget --no-verbose https://www.jjj.de/fxt/fxt-2026.05.19.tar.gz \
+	&& tar xf fxt-2026.05.19.tar.gz && cd fxt \
+	&& CC="clang" CXX="clang++" make && sudo make install && cd .. && rm -rf fxt fxt-2026.05.19.tar.gz
 
 RUN git clone --depth=1 https://github.com/massimo-nocentini/spiffy-request-vars.git \
     && cd spiffy-request-vars && chicken-install -sudo && cd .. && rm -rf spiffy-request-vars
