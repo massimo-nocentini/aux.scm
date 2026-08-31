@@ -99,6 +99,7 @@
 
 (let L ((i 0) (spec (read)))
     (unless (or (eof-object? spec) (> i 1000000))
+        (when (zero? (remainder i 100000)) (display `(iter ,i) (current-error-port)))
         (match/first spec
             (((_ ,block-id ,tx-id _ _ _ _) ,inputs ,outputs)
                 (let1 (tx-color (cond

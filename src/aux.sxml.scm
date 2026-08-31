@@ -24,6 +24,7 @@
     )
 
   (define highlight-version "11.11.1")
+  (define mermaid-version "11")
   (define highlight-languages '(scheme lisp python mathematica javascript htmlxml css bash c cpp java ruby go rust ocaml pgsql))
 
   (define (sxml-tree title body)
@@ -51,6 +52,8 @@
                          `(script (@ (src "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/" ,highlight-version "/languages/" ,lang ".min.js")))) 
                     highlight-languages)
                 (script "hljs.highlightAll();")
+                (script (@ (type "module"))
+                        "import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@" ,mermaid-version "/dist/mermaid.esm.min.mjs'; mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });")
                 #;(title ,maintitle))
               (body #;(@ (class "w3-content") (style "max-width:61.8%"))
                     #;(header (@ (class "w3-container w3-center"))
@@ -82,6 +85,7 @@
                  (citations '())
                  (sxml-handler-container (lambda (tag body) `(div (@ (class "w3-container")) ,@body)))
                  (sxml-handler-code/pre (lambda (tag body) `(pre (code (@ (class "w3-code w3-round")) ,@body))))
+                 (sxml-handler-mermaid (lambda (tag body) `(pre (@ (class "mermaid")) ,@body)))
                  (sxml-handler-code/inline (lambda (tag body) `(code (@ (class "w3-codespan")) ,@body)))
                  (sxml-handler-code/lang (lambda (tag body)
                                            (let ((lang (car body))
@@ -172,9 +176,12 @@
                             (code/inline . ,sxml-handler-code/inline)
                             (code/lang . ,sxml-handler-code/lang)
                             (code/pre . ,sxml-handler-code/pre)
-                            (code/scheme . ,sxml-handler-code/scheme)
-                            (code/scheme/expand . ,sxml-handler-code/scheme/expand)
-                            (code/scheme/file . ,sxml-handler-code/scheme/file)
+                            (mermaid . ,sxml-handler-mermaid)
+                            ; `*preorder*`: the quoted code is *data*, not SXML, so the walker must not
+                            ; descend into it (an improper pair such as `(α . β)` would break it).
+                            (code/scheme *preorder* . ,sxml-handler-code/scheme)
+                            (code/scheme/expand *preorder* . ,sxml-handler-code/scheme/expand)
+                            (code/scheme/file *preorder* . ,sxml-handler-code/scheme/file)
                             (cite/a . ,sxml-handler-cite/a)
                             (cite/quote . ,sxml-handler-cite/quote)
                             (structure/section . ,sxml-handler-structure/section)

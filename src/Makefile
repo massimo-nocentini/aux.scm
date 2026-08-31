@@ -26,9 +26,13 @@ test:
 	cd test && ${CSI} -s microkanren.scm
 	cd test && ${CSI} -s microkanren-aggregation.scm
 	cd test && ${CSI} -s microkanren-untagged.scm
+	cd test && ${CSI} -s microkanren-show.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm
+
+test-microkanren-show:
+	cd test && ${CSI} -s microkanren-show.scm
 
 install:
 	chicken-install -sudo
@@ -59,6 +63,7 @@ format:
 	scheme-indent -T 2 < aux.sxml.scm > aux.sxml.scm.tmp && mv aux.sxml.scm.tmp aux.sxml.scm
 	scheme-indent -T 2 < aux.hansei.scm > aux.hansei.scm.tmp && mv aux.hansei.scm.tmp aux.hansei.scm
 	scheme-indent -T 2 < aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm
+	scheme-indent -T 2 < aux.kanren.micro.show.scm > aux.kanren.micro.show.scm.tmp && mv aux.kanren.micro.show.scm.tmp aux.kanren.micro.show.scm
 
 simdjson-fetch:
 	rm -rf simdjson.cpp simdjson.h #test/twitter.json

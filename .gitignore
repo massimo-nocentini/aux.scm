@@ -8,6 +8,7 @@ src/*.static.o
 src/*.static.a
 src/*.o
 src/test/*.html
+src/test/*.md
 src/test/learning
 *.swp
 *.DS_Store
