@@ -46,4 +46,5 @@
   (extension aux.hansei)
   (extension aux.kanren.micro)
   (extension aux.kanren.micro.show)
+  (extension aux.anthropic)
   ))

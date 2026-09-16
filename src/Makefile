@@ -27,12 +27,19 @@ test:
 	cd test && ${CSI} -s microkanren-aggregation.scm
 	cd test && ${CSI} -s microkanren-untagged.scm
 	cd test && ${CSI} -s microkanren-show.scm
+	cd test && ${CSI} -s anthropic.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm
 
 test-microkanren-show:
 	cd test && ${CSI} -s microkanren-show.scm
+
+test-anthropic:
+	cd test && ${CSI} -s anthropic.scm
+
+test-anthropic-live:
+	cd test && ${CSI} -s anthropic-live.scm
 
 install:
 	chicken-install -sudo
@@ -50,6 +57,8 @@ format:
 	scheme-indent -T 2 < test/microkanren.scm > test/microkanren.scm.tmp && mv test/microkanren.scm.tmp test/microkanren.scm
 	scheme-indent -T 2 < test/fds.queue.scm > test/fds.queue.scm.tmp && mv test/fds.queue.scm.tmp test/fds.queue.scm
 	scheme-indent -T 2 < test/fds.sbral.scm > test/fds.sbral.scm.tmp && mv test/fds.sbral.scm.tmp test/fds.sbral.scm
+	scheme-indent -T 2 < test/anthropic.scm > test/anthropic.scm.tmp && mv test/anthropic.scm.tmp test/anthropic.scm
+	scheme-indent -T 2 < test/anthropic-live.scm > test/anthropic-live.scm.tmp && mv test/anthropic-live.scm.tmp test/anthropic-live.scm
 	scheme-indent -T 2 < aux.base.scm > aux.base.scm.tmp && mv aux.base.scm.tmp aux.base.scm 
 	scheme-indent -T 2 < aux.libc.scm > aux.libc.scm.tmp && mv aux.libc.scm.tmp aux.libc.scm
 	scheme-indent -T 2 < aux.simdjson.scm > aux.simdjson.scm.tmp && mv aux.simdjson.scm.tmp aux.simdjson.scm
@@ -64,6 +73,7 @@ format:
 	scheme-indent -T 2 < aux.hansei.scm > aux.hansei.scm.tmp && mv aux.hansei.scm.tmp aux.hansei.scm
 	scheme-indent -T 2 < aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm
 	scheme-indent -T 2 < aux.kanren.micro.show.scm > aux.kanren.micro.show.scm.tmp && mv aux.kanren.micro.show.scm.tmp aux.kanren.micro.show.scm
+	scheme-indent -T 2 < aux.anthropic.scm > aux.anthropic.scm.tmp && mv aux.anthropic.scm.tmp aux.anthropic.scm
 
 simdjson-fetch:
 	rm -rf simdjson.cpp simdjson.h #test/twitter.json

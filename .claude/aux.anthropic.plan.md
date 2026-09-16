@@ -11,7 +11,7 @@ completeness / test coverage). Claims were checked against the working tree at `
 the JSON validator, the flonum printer and the SSE accumulator were transcribed and **executed**
 on `csi`, so the expected strings in §6 are recorded output rather than predictions.
 
-Ten defects the critics confirmed have already been folded in. They are listed here because each
+Nine defects the critics confirmed have already been folded in. They are listed here because each
 one is a trap worth knowing about, not just a diff:
 
 | # | Defect | Fix, as applied |
@@ -24,12 +24,40 @@ one is a trap worth knowing about, not just a diff:
 | 6 | A vector of tools was silently dropped from the request body | normalized with `vector->list` before the `pair?` test |
 | 7 | §3.6's `anthropic-send` signature omitted `betas` | corrected to match §4.10 |
 | 8 | §3.8's description of `anthropic-tool-result->string` contradicted §4.14 | table now states the `""` / `(void)` substitutions |
-| 9 | Ten behaviours of the API had no test at all — including the `around` hook's documented foot-gun and the streaming/non-streaming `--max-time` arms, where swapping the ternary passed every case | §6.6 adds ten cases and five fixtures |
-| 10 | `process-sleep` is a CHICKEN 4 name | the backoff uses `sleep` from `(chicken base)`, which rejects flonums outright |
+| 9 | Ten behaviours of the API had no test at all — including the `around` hook's documented foot-gun and the streaming/non-streaming `--max-time` arms, where swapping the ternary passed every case | §6.6 adds ten cases, eight fixtures and one tool |
 
-What is **not** yet verified, and why it is step 8 of §8: the curl port directions and `--include`
-behaviour were confirmed on macOS with `curl 8.7.1`, not inside
-`ghcr.io/massimo-nocentini/aux.scm:master` on arm64.
+A second multi-agent pass rechecked the plan against `csi 6.0.1pre1` and against the published
+image's layers. Its findings are folded in too: §6.6 rewritten against bindings that exist (it
+named six that do not, and an unbound identifier exits `csi` with **rc=70**, which fails
+`make test -B` and publishes no report for any of the seventeen suites); the `read-string`
+contract in §2; the kill-before-wait step in §4.8's close thunk; `(scheme base)` in
+`import-for-syntax`; `(scheme file)`, `(chicken port)` and `(chicken bytevector)` in §6.4's
+imports; idempotence moved into `anthropic-wire/close!` itself; the `command` field renamed
+`origin` and the curl vocabulary lifted behind `anthropic-transport/*`.
+
+Two details of the kill-before-wait step were then corrected against a running `csi` rather than
+against the manual, because the obvious spelling of both is wrong. The accessor is `process-id`;
+there is no `process-pid`, so that name is an unbound variable and takes the suite down with rc=70.
+And `(process-wait p #t)` answers `(values 0 #f #f)` for a child that is still running, **not**
+`#f`, so the guard has to be `(eqv? 0 pid)` — `(unless pid …)` never fires, 0 being truthy in
+Scheme, and the stall the step exists to prevent comes straight back. Both measured here; the
+corrected close returns in 21 ms wall clock against a child that would otherwise have held on for
+thirty seconds.
+
+That pass also **withdrew** a claim this table used to carry, which is why row 10 is gone:
+`process-sleep` is not a CHICKEN 4 name. `modules.db` has `(process-sleep value chicken.process)`
+and `csi` confirms it is live. The "fix" would have broken the backoff, because `(chicken base)`'s
+`sleep` rejects flonums. `process-sleep` stands, with the one-second granularity documented in §9.
+
+What is **not** yet verified: the curl port directions and `--include` behaviour were confirmed on
+macOS with `curl 8.7.1`, and §8 step 24 asks for a `linux/arm64` confirmation that **cannot be
+satisfied as written**. `.github/workflows/docker.publish.yml` has no `setup-qemu-action` and
+`Dockerfile:2` is `FROM --platform=$BUILDPLATFORM`, so both matrix legs build on the amd64 runner:
+the published `amd64` and `arm64` manifests of `aux.scm:master` carry byte-identical layer lists
+and identical rootfs diff_ids. The `arm64` tag is the amd64 image relabelled. That is a
+**pre-existing repo bug**, unrelated to this plan, and it deserves its own issue — either add
+`docker/setup-qemu-action` and drop `--platform=$BUILDPLATFORM`, or remove `linux/arm64` from the
+workflow so the tag stops lying. Until then no arm64 verification of anything is possible from CI.
 
 ---
 
@@ -112,9 +140,17 @@ The **transport contract** in full:
   anthropic-wire
     status   exact integer HTTP status (a backend raises rather than returning #f)
     headers  ((lowercase-name value) ...)
-    command  the command that produced it, for error reporting
-    port     an input port positioned at the first byte of the body
-    close    thunk -> (values exit-status diagnostics); idempotent; releases everything
+    origin   a datum identifying what produced this wire, for error reporting
+    port     an input port positioned at the first byte of the body.  It MUST answer
+             read-string correctly: a custom port built with make-input-port MUST be given
+             a read-bytevector: hook, because csi 6.0.1pre1's read-char fallback for
+             read-string returns garbage -- {"ok":true} reads back as "}" plus ten NUL bytes,
+             and read-string! reports a false success count on top of it.
+             anthropic-port->string IS read-string, and every blocking body goes through it
+             (§4.10), so a backend that gets this wrong corrupts silently rather than loudly.
+    close    thunk -> (values exit-status diagnostics); releases everything.  A backend does
+             NOT implement idempotence: anthropic-wire/close! memoises the thunk's values
+             (§4.8), so every backend gets it for free and none may rely on being called once.
 ```
 
 Three curl decisions worth stating because each looks arbitrary until you see what it buys:
@@ -141,9 +177,9 @@ The module is `(module (aux anthropic) * …)`, so everything defined in the bod
 | `anthropic/betas` | `'()` | Beta-id strings; when empty the `anthropic-beta` header is **omitted**, not sent empty. |
 | `anthropic/max-tokens` | `16000` | Default `max_tokens` for a blocking call. |
 | `anthropic/stream-max-tokens` | `64000` | Default `max_tokens` for a streaming call. |
-| `anthropic/connect-timeout` | `10` | curl `--connect-timeout`, seconds. |
-| `anthropic/max-time` | `600` | curl `--max-time` for a blocking call, seconds. |
-| `anthropic/stream-max-time` | `1800` | curl `--max-time` for a streaming call, seconds. |
+| `anthropic/connect-timeout` | `10` | Connect timeout in seconds; the process backend passes `--connect-timeout`, a libcurl backend would pass `CURLOPT_CONNECTTIMEOUT`. |
+| `anthropic/max-time` | `600` | Whole-transfer deadline for a blocking call, seconds; the process backend passes `--max-time`. |
+| `anthropic/stream-max-time` | `1800` | The same deadline for a streaming call. It is also the worst case for abandoning a stream, which is why §4.8's close thunk kills the child before waiting. |
 | `anthropic/retries` | `3` | Extra attempts after the first; 3 means at most 4 round trips. |
 | `anthropic/backoff` | `1.0` | First backoff window in seconds, doubled per attempt. |
 | `anthropic/backoff-cap` | `30.0` | Ceiling on the backoff window **and** on `retry-after`. |
@@ -163,11 +199,11 @@ The module is `(module (aux anthropic) * …)`, so everything defined in the bod
 | `anthropic-raise/config` | `(message detail)` | Signals `anthropic-config-error`. Properties: `detail`. |
 | `anthropic-raise/encode` | `(message value)` | Signals `anthropic-encode-error`. Properties: `value`. |
 | `anthropic-raise/decode` | `(message body)` | Signals `anthropic-decode-error`. Properties: `body`. |
-| `anthropic-raise/transport` | `(message command exit-status diagnostics)` | Signals `anthropic-transport-error`. Properties: `command`, `exit-status`, `diagnostics`. Retryable for transient curl codes. |
+| `anthropic-raise/transport` | `(message origin exit-status diagnostics)` | Signals `anthropic-transport-error`. Properties: `origin`, `exit-status`, `diagnostics`. Retryable exactly when `anthropic-transport/transient?` says so — the conditions layer names no backend. |
 | `anthropic-raise/api` | `(status headers body)` | Signals `anthropic-api-error`. Properties: `status`, `type`, `api-message`, `request-id`, `headers`, `body`. |
 | `anthropic-raise/sse` | `(message raw)` | Signals `anthropic-sse-error`. Properties: `raw`. |
 | `anthropic-raise/tool` | `(message detail)` | Signals `anthropic-tool-error`. Properties: `detail`. |
-| `anthropic-raise/loop` | `(reason message response)` | Signals `anthropic-loop-error`. Properties: `reason`, `response`. |
+| `anthropic-raise/loop` | `(reason message response)` | Signals `anthropic-loop-error`. Properties: `reason`, `response`. `response` is an `anthropic-response` at every call site but one: `max-iterations` fires *before* a request is made, so it passes `#f`. A handler must test the property, never assume a record. |
 | `anthropic-error?` | `(c) -> boolean` | Family predicate over everything this module signals. |
 | `anthropic-api-error?` `anthropic-transport-error?` `anthropic-decode-error?` `anthropic-encode-error?` `anthropic-config-error?` `anthropic-sse-error?` `anthropic-tool-error?` `anthropic-loop-error?` | `(c) -> boolean` | Per-kind predicates. |
 | `anthropic-error-ref` | `(c property #!optional (default #f))` | Reads a property off whichever specific kind the condition carries. |
@@ -178,7 +214,7 @@ The module is `(module (aux anthropic) * …)`, so everything defined in the bod
 
 | Binding | Signature | Purpose |
 |---|---|---|
-| `anthropic-json/utf8-length` | `(s) -> integer` | UTF-8 byte length, pure Scheme (the FFI is unavailable under interpreted `csi -s`). |
+| `anthropic-json/utf8-length` | `(s) -> integer` | UTF-8 byte length, pure Scheme. Not because the FFI is out of reach — `anthropic-json/parse` drives the `simdjson-parse-ondemand-callback` `foreign-lambda` from the same `csi -s` suite — but because that callback wants a **byte** count and `string-length` answers in characters. |
 | `anthropic-json/well-formed?` | `(s) -> boolean` | Complete JSON validator; `#t` only for a well-formed top-level **object or array** with no trailing garbage. Nothing reaches simdjson without it. |
 | `anthropic-json/parse` | `(s) -> decoded` | Validate, then drive the raw simdjson callback with the byte length. Raises `anthropic-decode-error`; never aborts. |
 | `anthropic-json/write` | `(v) -> string` | Strict encoder. Raises `anthropic-encode-error` on anything JSON cannot represent. |
@@ -198,7 +234,8 @@ The module is `(module (aux anthropic) * …)`, so everything defined in the bod
 |---|---|---|
 | `anthropic-string/trim` | `(s) -> string` | Trims leading/trailing whitespace (including `\r`). |
 | `anthropic-port->string` | `(port) -> string` | `(read-string #f port)` answers the **eof object**, not `""`, on an exhausted port; this normalizes it. |
-| `anthropic-header/check!` | `(name value)` | Rejects CR/LF in a header name or value — header-injection guard. |
+| `anthropic-header/check!` | `(name value)` | Rejects CR/LF in a header name or value — header-injection guard. Called from `anthropic-request/headers`, so **every** transport inherits it, and again from `anthropic-curl/headers->file!`, which is public and takes a header list from anywhere. |
+| `anthropic-url/check!` | `(url) -> url` | Rejects anything that is not an `http://` or `https://` URL, and any CR/LF. curl has no `--` end-of-options marker, so an argv element beginning with a dash is an **option** wherever it sits: a base URL of `-K/path` makes curl read an arbitrary config file. Called at the top of `anthropic-transport/curl` — ahead of the header file, so a rejection cannot leave one behind — and again in `anthropic-curl/argv`. |
 | `anthropic-header/parse` | `(line) -> (name value) \| #f` | Splits on the **first** colon; the name is lowercased. |
 | `anthropic-header/ref` | `(headers name #!optional (default #f))` | Case-insensitive lookup. |
 | `anthropic-status/ok?` | `(status) -> boolean` | 200..299. |
@@ -208,25 +245,35 @@ The module is `(module (aux anthropic) * …)`, so everything defined in the bod
 
 | Binding | Signature | Purpose |
 |---|---|---|
-| `make-anthropic-wire` / `anthropic-wire?` | `(status headers command port close)` | Record constructor / predicate. |
-| `anthropic-wire-status` `-headers` `-command` `-port` `-close` | `(w) -> …` | Field accessors. |
-| `anthropic-wire/close!` | `(w) -> (values exit-status diagnostics)` | Idempotent release: closes stdout, drains and closes stderr, deletes the header file, reaps the child. |
+| `make-anthropic-wire` / `anthropic-wire?` | `(status headers origin port close)` | Record constructor / predicate. `origin` is a datum naming what produced the wire — the curl backend puts the command there, the stub puts `` `(stub ,url) ``. |
+| `anthropic-wire-status` `-headers` `-origin` `-port` `-close` | `(w) -> …` | Field accessors. |
+| `anthropic-wire/close!` | `(w) -> (values exit-status diagnostics)` | Release: closes stdout, kills and reaps the child, drains and closes stderr, deletes the header file if it still exists. Idempotence is enforced **here**, by memoising the thunk's values into the `close` field — not by the backend, which may assume it is called exactly once. The discriminant is `procedure?` on the thunk, never `pair?` on the memo: a thunk answering **zero** values memoises `'()`, and the second release would then call `'()`. |
 | `anthropic-wire/drain!` | `(w) -> string` | Slurps the body, closes, and raises `anthropic-transport-error` on a non-zero exit. Does **not** look at the HTTP status. |
 | `anthropic-wire->body!` | `(w) -> string` | `anthropic-wire/drain!`, then raises `anthropic-api-error` on a non-2xx. |
 | `anthropic-transport/curl` | `(url headers body stream?) -> anthropic-wire` | The production backend. |
 | `anthropic-curl/argv` | `(url headers-file stream?) -> (string ...)` | The exact argument list, exposed so a test can assert no secret appears in it. |
-| `anthropic-curl/headers->file!` | `(headers) -> path` | Writes headers one per line to a `0600` temp file created under umask `#o077`. |
+| `anthropic-curl/headers->file!` | `(headers) -> path` | Writes headers one per line to a `0600` file created by `anthropic-temp/open!`. **Not** `create-temporary-file`: that opens without `O_EXCL` after a `file-exists?` test that answers `#f` for a dangling symlink, so the key could be written through a pre-planted link to a path of someone else's choosing. |
+| `anthropic-temp/open!` | `() -> (values path fd)` | Creates a private file with `O_CREAT\|O_EXCL\|O_WRONLY` and mode `#o600`, under a temporarily tightened `file-creation-mode` of `#o077`, at a name carrying 96 bits from `random-bytes`; retries up to `anthropic-temp/attempts` names and then raises `anthropic-config-error`. Registers the path in `anthropic-temp/live`. |
+| `anthropic-temp/delete!` | `(path)` | Unregisters and unlinks. |
+| `anthropic-temp/pending` | `() -> (path ...)` | The files that exist right now — a reader for the registry, so a test can assert a request left nothing behind. |
+| `anthropic-temp/directory` | `() -> string` | `TMPDIR`, `TMP`, `TEMP`, else `/tmp`. |
+| `anthropic-random/bits` | `(n) -> integer` | `n` bytes from `random-bytes`, the OS entropy source, as one integer. **Not** `pseudo-random-integer`: that generator is not seeded per process on this CHICKEN — three independent runs printed the identical jitter sequence `(1.832 0.4 3.488)`. |
+| `anthropic-random/unit` | `() -> flonum` | Uniform in `[0, 1)`, from `anthropic-random/bits`. Used by the retry jitter, which otherwise decorrelates nothing. |
 | `anthropic-curl/read-headers` | `(port) -> (values status headers)` | Consumes the status line and header block, skipping 1xx interim blocks; leaves the port at the first body byte. |
 | `anthropic-curl/status-line` | `(line) -> integer \| #f` | Parses `HTTP/2 429 ` and `HTTP/1.1 200 OK` alike. |
-| `anthropic-curl/diagnosis` | `(exit-status) -> string` | English for a curl exit code. |
-| `anthropic-curl/transient?` | `(exit-status) -> boolean` | Retryable curl exit codes: 7, 18, 28, 52, 55, 56. |
-| `make-anthropic-stub` / `anthropic-stub?` | `(script log)` | The offline test double's state. |
+| `anthropic-transport/diagnosis` | `(exit-status) -> string` | English for a transport exit status. |
+| `anthropic-transport/transient-codes` | list | The retryable statuses: 7, 18, 28, 52, 55, 56. |
+| `anthropic-transport/transient?` | `(exit-status) -> boolean` | Whether a failure is worth retrying. This is the only question the conditions layer asks about a transport failure. |
+| `anthropic-transport/still-running?` | `(pid) -> boolean` | `(eqv? 0 pid)`. The nohang `(process-wait p #t)` answers pid **0**, not `#f`, for a child that is still alive — measured `(0 #f #f)` — so the natural spelling `(not pid)` never fires and the kill-before-wait silently reverts to a full `--max-time` stall. Named so a test can pin the spelling without spawning a process. |
+| `anthropic-curl/diagnosis` `anthropic-curl/transient-codes` `anthropic-curl/transient?` | — | One-line aliases of the three above, kept so existing prose and tests do not rot. New code uses the `anthropic-transport/*` names. |
+| `make-anthropic-stub` / `anthropic-stub?` | `(script log closes)` | The offline test double's state. |
 | `anthropic-stub/canned` | `(body #!key (status 200) (headers '(("content-type" "application/json")))) -> triple` | One scripted response; header names are lowercased so the stub and curl agree. |
 | `anthropic-stub/make` | `(canned ...) -> anthropic-stub` | Builds a stub from an ordered sequence of canned responses. |
 | `anthropic-stub/transport` | `(stub) -> transport` | Records the call, then replays; raises `anthropic-config-error` on an unscripted call. |
 | `anthropic-stub/calls` | `(stub) -> ((url headers body stream?) ...)` | Every call in order, with header **values** passed through `anthropic/redact`. |
 | `anthropic-stub/requests` | `(stub) -> (decoded-body ...)` | Every request body, decoded — assert with `⊦=` over data, never over JSON text. |
 | `anthropic-stub/count` | `(stub) -> integer` | How many requests were actually made. |
+| `anthropic-stub/closes` | `(stub) -> integer` | How many wires were **released**. The streaming `dynamic-wind`'s after-thunk is the only thing that kills the child and deletes the key file, and no returned value can see whether it ran — this can. |
 
 ### 3.6 Send and retry
 
@@ -332,9 +379,9 @@ The module is `(module (aux anthropic) * …)`, so everything defined in the bod
 
 1. **The SSE decoder is not separable.** It needs `anthropic-json/parse` (the byte-length-correct one), `anthropic-json/set`/`merge`, the condition constructors and the wire record. A second module `(aux anthropic sse)` would have to import a third module holding those, turning one file into three, with a `(dependencies …)`-free but listing-order-sensitive `aux.egg` edit for each.
 2. **`code/scheme/file` reads only the first datum** (`src/aux.sxml.scm:106-109` — `(with-input-from-file (car body) (lambda () (read)))`). One file with one top-level `(module …)` form means the whole module renders into the generated HTML report. Two files means the report shows half the module.
-3. **Precedent.** `src/aux.kanren.micro.show.scm` is ~400 lines in one file; `src/aux.hansei.scm` likewise. The repo splits a module only when the halves are independently useful (`aux.kanren.micro` solver vs `aux.kanren.micro.show` renderer). Here they are not.
+3. **Precedent.** `src/aux.kanren.micro.show.scm` is 469 lines in one file; `src/aux.hansei.scm` likewise. The repo splits a module only when the halves are independently useful (`aux.kanren.micro` solver vs `aux.kanren.micro.show` renderer). Here they are not.
 
-The file is roughly 780 lines. That is the largest module in the repo but not by a wide margin.
+§4's code fences total 1543 lines, 1393 of them non-blank. The largest existing module is `src/aux.kanren.micro.scm` at 622 lines, so `src/aux.anthropic.scm` would be the largest module in the repo by more than a factor of two. That is a real cost and it is stated plainly rather than rounded away: the three reasons above are what buys it, and if any of them stops holding — in particular if `code/scheme/file` ever learns to read more than the first datum — the SSE half is the natural seam to cut along.
 
 The other files touched — `src/aux.egg`, `src/Makefile`, `src/test/anthropic.scm`, `src/test/anthropic-live.scm`, `README.md` — are covered in §6 and §7.
 
@@ -407,6 +454,7 @@ The other files touched — `src/aux.egg`, `src/Makefile`, `src/test/anthropic.s
           (chicken keyword)
           (chicken port)
           (chicken process)
+          (chicken process signal)          ; signal/term, for the kill-before-wait in §4.8
           (chicken process-context)
           (chicken random)
           (chicken sort)
@@ -420,6 +468,7 @@ The other files touched — `src/aux.egg`, `src/Makefile`, `src/test/anthropic.s
   ; so it is an ir-macro and needs its helpers available for syntax.  (aux base) is not a prelude:
   ; a module re-exports only what it DEFINES, so every line below is load bearing.
   (import-for-syntax scheme
+                     (scheme base)          ; exact-integer?, called by enum-type at EXPANSION time
                      (chicken base)
                      (chicken string)
                      (chicken syntax)
@@ -427,7 +476,11 @@ The other files touched — `src/aux.egg`, `src/Makefile`, `src/test/anthropic.s
                      (aux base))
 ```
 
-Note on the import list: `make-parameter` and `open-input-string` are in `(scheme base)` and **not** in `(chicken base)`/`(chicken port)`; `string-downcase` is in `(scheme char)` only; `string->keyword` is in `(chicken keyword)`; `write-string` does **not** exist in `(chicken io)` so the module uses `display` throughout. All five verified by probe.
+Note on the import list: `make-parameter` and `open-input-string` are in `(scheme base)` and **not** in `(chicken base)`/`(chicken port)`; `string-downcase` is in `(scheme char)` only; `string->keyword` is in `(chicken keyword)`; `process-signal` comes with `(chicken process)` but `signal/term` needs `(chicken process signal)`. All verified by probe.
+
+`(scheme base)` in the `import-for-syntax` list is load-bearing and easy to lose. `anthropic-define-tool*`'s `enum-type` helper (§4.14) calls `exact-integer?`, which lives only in `scheme.base`, and it calls it *at expansion time*. Today the bug is latent because the `(every string? vs)` clause short-circuits ahead of it and the suite's only `enum` is all strings — so the first integer enum anybody writes fails to expand, with an unbound-identifier error pointing at the macro rather than at their tool. §6.6 pins it with a case.
+
+The module uses `display` rather than `write-string` throughout. The reason is *not* that `write-string` is unavailable — it is in `(scheme base)`, which is imported, and would work. It is that `write-string` is absent from `(chicken io)`, which is where a reader reaching for it will look first; `display` is the one spelling nobody has to check.
 
 ### 4.2 Parameters
 
@@ -455,6 +508,9 @@ Note on the import list: `make-parameter` and `open-input-string` are in `(schem
   (define anthropic/backoff-jitter    (make-parameter #t))
   (define anthropic/curl              (make-parameter "curl"))
 
+  ; `process-sleep` is a live CHICKEN 6 procedure -- modules.db has it as
+  ; (process-sleep value chicken.process) -- and it is deliberately NOT `sleep` from
+  ; (chicken base), which rejects flonums and so cannot take a backoff delay at all.
   ; `process-sleep` takes whole seconds only, so the granularity is one second.  Tests
   ; parameterize this to a recorder, which is why the retry cases cost nothing.
   (define anthropic/sleep
@@ -497,14 +553,19 @@ Note on the import list: `make-parameter` and `open-input-string` are in `(schem
                                  (anthropic-message/error message body)
                                  `(body ,body))))
 
-  (define (anthropic-raise/transport message command exit-status diagnostics)
-    (signal (anthropic-condition 'anthropic-transport-error (anthropic-curl/transient? exit-status)
+  ; `anthropic-transport/transient?`, never `anthropic-curl/transient?`: the conditions layer sits
+  ; UNDER the transport in §2's diagram and must not name a backend.  The two answer identically
+  ; today -- CURLcode and curl(1)'s exit status agree numerically on every code in the table -- but
+  ; that is an accident of curl, not a property of the retry policy.
+  (define (anthropic-raise/transport message origin exit-status diagnostics)
+    (signal (anthropic-condition 'anthropic-transport-error
+                                 (anthropic-transport/transient? exit-status)
                                  (anthropic-message/error
                                    (string-append "transport failure: " message)
-                                   `((command ,(anthropic/redact (->string command)))
+                                   `((origin ,(anthropic/redact (->string origin)))
                                      (exit-status ,exit-status)
                                      (diagnostics ,diagnostics)))
-                                 `(command ,command exit-status ,exit-status
+                                 `(origin ,origin exit-status ,exit-status
                                    diagnostics ,diagnostics))))
 
   (define (anthropic-raise/api status headers body)
@@ -897,28 +958,52 @@ Only one thing stands between a truncated response and SIGABRT, and it is this p
 ```scheme
   ; the wire --------------------------------------------------------------------------------
 
-  (define-record anthropic-wire status headers command port close)
+  ; `origin`, not `command`: the stub already fills this field with `(stub ,url)`, which is not a
+  ; command, and a libcurl backend would put a handle there.  It exists for error messages only.
+  (define-record anthropic-wire status headers origin port close)
 
-  (define (anthropic-wire/close! w) ((anthropic-wire-close w)))
+  ; Idempotence lives HERE, not in any backend.  The curl backend used to carry its own `reaped`
+  ; flag, which made "you may close a wire twice" a property of one transport; the stub's thunk had
+  ; no guard at all.  Memoising the values into the field gives it to every backend for free, so a
+  ; backend's close thunk may assume it runs exactly once.
+  (define (anthropic-wire/close! w)
+    (let1 (c (anthropic-wire-close w))
+      (if (pair? c)
+          (apply values c)
+          (receive vals (c)
+            (anthropic-wire-close-set! w vals)
+            (apply values vals)))))
 
-  ; curl exit codes, from curl's manual -- NOT observed here beyond 6 and 7.  Getting this wrong
-  ; costs a retry that will not help, or a retry that was not attempted.
-  (define anthropic-curl/transient-codes '(7 18 28 52 55 56))
+  ; Transport exit statuses.  The names are backend-neutral on purpose: the numbers below happen to
+  ; be curl(1) exit codes, and libcurl's CURLcode agrees with every one of them, but the retry
+  ; policy is the module's, not curl's.  Getting this table wrong costs a retry that will not help,
+  ; or a retry that was not attempted.  Only 6, 7, 23 and 126 were observed here; the rest are from
+  ; curl's manual.
+  (define anthropic-transport/transient-codes '(7 18 28 52 55 56))
 
-  (define (anthropic-curl/transient? code) (member? code anthropic-curl/transient-codes))
+  (define (anthropic-transport/transient? code) (member? code anthropic-transport/transient-codes))
 
-  (define (anthropic-curl/diagnosis code)
+  (define (anthropic-transport/diagnosis code)
     (match/first code
-      (6  "could not resolve host")
-      (7  "could not connect")
-      (18 "the transfer ended prematurely")
-      (23 "could not write the output (the response was abandoned)")
-      (28 "the operation timed out")
-      (35 "the TLS handshake failed")
-      (52 "empty reply from server")
-      (55 "failure sending network data")
-      (56 "failure receiving network data")
-      (else (conc "curl exited with status " code))))
+      (1   "the transport rejected its own arguments (a bad option, or an unsupported protocol)")
+      (6   "could not resolve host")
+      (7   "could not connect")
+      (18  "the transfer ended prematurely")
+      (23  "could not write the output (the response was abandoned)")
+      (28  "the operation timed out")
+      (35  "the TLS handshake failed")
+      (52  "empty reply from server")
+      (55  "failure sending network data")
+      (56  "failure receiving network data")
+      (126 "the transport program could not be executed (not executable, or not found on PATH)")
+      (127 "the shell could not find the transport program")
+      (else (conc "the transport exited with status " code))))
+
+  ; aliases, so §6's older case names and anyone's existing code keep working.  New code uses the
+  ; anthropic-transport/* names.
+  (define anthropic-curl/transient-codes anthropic-transport/transient-codes)
+  (define anthropic-curl/transient?      anthropic-transport/transient?)
+  (define anthropic-curl/diagnosis       anthropic-transport/diagnosis)
 
   (define (anthropic-curl/argv url headers-file stream?)
     (append
@@ -982,44 +1067,121 @@ Only one thing stands between a truncated response and SIGABRT, and it is this p
   (define (anthropic-transport/curl url headers body stream?)
     (let* ((path (anthropic-curl/headers->file! headers))
            (argv (anthropic-curl/argv url path stream?))
-           (command (cons (anthropic/curl) argv)))
+           (origin (cons (anthropic/curl) argv)))
       ; the OUTER handler covers the window in which `path` exists but `close` does not yet
       (handle-exceptions e (begin (delete-file* path) (signal e))
         (let* ((p (process* (anthropic/curl) argv))
                (stdin  (process-input-port p))   ; an OUTPUT port: curl's stdin.  Not a typo.
                (stdout (process-output-port p))  ; an INPUT port: curl's stdout.  Not a typo.
                (stderr (process-error-port p))   ; an INPUT port, and only process* reifies it
-               (reaped #f)
+               ; no `reaped` flag: anthropic-wire/close! memoises this thunk's values, so it runs
+               ; at most once and may assume so.
                (close
-                 (τ (unless reaped
-                      ; stdout FIRST.  Draining stderr while curl is still writing stdout
-                      ; deadlocks on a full 64K pipe; closing stdout makes curl exit 23 instead.
-                      (close-input-port stdout)
-                      (let1 (diagnostics (anthropic-port->string stderr))
-                        (close-input-port stderr)
-                        (delete-file* path)
-                        ; the exit status is only populated once both ports are closed
-                        (receive (pid ok? status) (process-wait p)
-                          (set! reaped (list (if ok? status 128)
-                                             (anthropic/redact diagnostics))))))
-                    (apply values reaped))))
+                 (τ
+                   ; stdout FIRST.  Draining stderr while curl is still writing stdout
+                   ; deadlocks on a full 64K pipe; closing stdout makes curl exit 23 instead.
+                   (close-input-port stdout)
+                   ; KILL BEFORE WAIT.  Closing stdout is clean only while the server is still
+                   ; SENDING -- curl then gets EPIPE and exits 23.  Against a connection held
+                   ; open but silent, which is what an abandoned SSE stream actually looks like,
+                   ; curl is blocked reading, never writes, never notices, and a bare
+                   ; process-wait blocks for the whole --max-time: 1800 s by default (§3.1).
+                   ; Measured: work finished at 19 ms, the process lived 20.04 s at --max-time 20.
+                   ; So probe with the nohang form and, if the child is still alive, terminate it.
+                   ; process-wait is also a scheduler-wide suspend (§9), which is the second
+                   ; reason not to sit in it.
+                   ;
+                   ; TWO spellings here are easy to get wrong and both were, in an earlier draft.
+                   ; The accessor is `process-id`, NOT `process-pid` -- there is no process-pid in
+                   ; CHICKEN 6 (modules.db lists process-id, and the wrong name is an unbound
+                   ; variable, rc=70).  And the nohang probe answers pid 0 for a child that is
+                   ; still running, NOT #f -- measured `(0 #f #f)` -- so the test must be `eqv? 0`.
+                   ; `(unless pid ...)` never fires, because 0 is truthy in Scheme, and the stall
+                   ; this whole step exists to prevent comes straight back.
+                   (receive (pid ok? status) (process-wait p #t)
+                     (when (eqv? 0 pid)
+                       (handle-exceptions e (void)
+                         (process-signal (process-id p) signal/term))))
+                   (let1 (diagnostics (anthropic-port->string stderr))
+                     (close-input-port stderr)
+                     (delete-file* path)
+                     ; the exit status is only populated once both ports are closed
+                     (receive (pid ok? status) (process-wait p)
+                       (values (if ok? status 128)
+                               (anthropic/redact diagnostics)))))))
           (handle-exceptions e (begin (close) (signal e))
             ; curl buffers the whole of stdin before connecting, in order to compute
-            ; Content-Length, so writing the body from this thread cannot deadlock.  Verified
-            ; at 400 KB, single-threaded, no srfi-18 pump.
+            ; Content-Length, so writing the body from this thread cannot deadlock.  Measured
+            ; against a server that accepts and never reads: `display` of a 16 MB body returned
+            ; in 28 ms, single-threaded, no srfi-18 pump.
             (display body stdin)
             (close-output-port stdin)
             (receive (status response-headers) (anthropic-curl/read-headers stdout)
               (unless (exact-integer? status)
                 (receive (exit-status diagnostics) (close)
-                  (anthropic-raise/transport (anthropic-curl/diagnosis exit-status)
-                                             command exit-status diagnostics)))
-              (make-anthropic-wire status response-headers command stdout close)))))))
+                  (anthropic-raise/transport (anthropic-transport/diagnosis exit-status)
+                                             origin exit-status diagnostics)))
+              (make-anthropic-wire status response-headers origin stdout close)))))))
 
   ; NOTE: this must come AFTER anthropic-transport/curl -- a parameter's initializer is evaluated
   ; at module-load time and would otherwise name an unbound identifier.
   (define anthropic/transport (make-parameter anthropic-transport/curl))
 ```
+
+### 4.8b The libcurl door, deliberately left shut
+
+A second backend was prototyped and rejected, and the reasoning is recorded here so nobody pays for
+it twice. The shape that works is `curl_multi_poll` + `curl_multi_perform` driven from Scheme inside
+a `make-input-port` read thunk. It is **not** `curl_easy_perform`, a blocking push model that cannot
+express the contract in §2 and freezes every srfi-18 thread for the duration of the transfer; and it
+is **not** a `define-external` coroutine bridge, which works mechanically and then silently replays
+chunks at port level. Whatever it is, its port must supply a `read-bytevector:` hook, per §2.
+
+It was rejected on three grounds, each checked rather than assumed. The base image
+`ghcr.io/massimo-nocentini/chicken-scheme.docker:6.0.0-eggs-included` has `usr/bin/curl` but **no
+libcurl headers**: listing every path of all six amd64 layers gives zero hits for `include/curl`,
+`curl.h`, `libcurl.pc`, the link-time `libcurl.so` symlink, and `pkg-config`. A working `curl_multi`
+prototype came to 477 lines, 313 of them C — a growable buffer with compaction, a `memchr` line
+index, a 1xx header state machine, a poll/perform pump and a UTF-8 truncation decoder — which would
+be the repo's largest and only *stateful* C shim, against `aux.lua.scm`'s 47-line handle wrapper.
+And what it buys is about 55 ms per request (10.5 ms spawn plus a 44.6 ms fresh TLS handshake,
+measured against `api.anthropic.com`) on calls that take seconds. `src/aux.egg` components are built
+by one `chicken-install` invocation chained at `Dockerfile:18` as `make install && make test -B &&
+cp test/*.html …`, so a compile or link failure in a new component aborts the image build before any
+of the seventeen existing suites run and publishes no report for any of them.
+
+Two arguments commonly made against the FFI are, honestly, wrong, and are not part of the reasoning
+above. The "green threads freeze" objection is dead for a `curl_multi` pump — two independent
+prototypes kept a ticker running through 1.8–2.0 s streams — and the same objection applies to
+`process-wait`, which is on the winner's hot path (§9). And `anthropic-curl/read-headers` takes a
+*port*, so feeding it `(open-input-string header-block)` keeps it and its two tests verbatim under
+any backend. The real argument is the header blocker plus the size of the artefact.
+
+If it is ever built, it plugs in as a second value for `anthropic/transport` and never replaces the
+default. The stanzas, for the record, go in `src/aux.egg` **before** `(extension aux.anthropic)`,
+because listing order is dependency order:
+
+```scheme
+(c-object chicken-curl (source "chicken-curl.c") (csc-options "-I/usr/local/include"))
+(extension aux.curl (objects chicken-curl) (link-options "-L" "-lcurl"))
+```
+
+The separated `"-L" "-lcurl"` is correct and must not be "fixed": `csc -help:140` reads
+`-L OPTION   pass option to linker`, `src/aux.egg:12` uses the identical shape to link `libstdc++`
+for `aux.simdjson` in CI today, and `csc -lcurl` is rejected outright with rc=64. The `Dockerfile`
+line goes before `:16` (`COPY src src`), matching the non-root `sudo` pattern at `:6`, `:11`, `:14`:
+
+```dockerfile
+RUN sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev \
+    && sudo rm -rf /var/lib/apt/lists/*
+```
+
+`libcurl4-openssl-dev 8.18.0-1ubuntu2` exists in the `resolute` archive and pulls eleven further
+`-dev` packages. **UNVERIFIED:** no `docker build` was ever run — docker, podman and skopeo are all
+absent from the box this was checked on — so that line is untested in the image, and every FFI
+prototype transcript is loopback plaintext HTTP/1.1 plus `file://`. TLS, HTTP/2 and
+`api.anthropic.com` were never exercised, and the prototype's C header callback parses an
+`HTTP/x.y NNN` status line it has never seen libcurl synthesise under h2.
 
 ### 4.9 The stub transport
 
@@ -1077,8 +1239,8 @@ Only one thing stands between a truncated response and SIGABRT, and it is this p
     (let1 (text (anthropic-port->string (anthropic-wire-port w)))
       (receive (exit-status diagnostics) (anthropic-wire/close! w)
         (unless (zero? exit-status)
-          (anthropic-raise/transport (anthropic-curl/diagnosis exit-status)
-                                     (anthropic-wire-command w) exit-status diagnostics))
+          (anthropic-raise/transport (anthropic-transport/diagnosis exit-status)
+                                     (anthropic-wire-origin w) exit-status diagnostics))
         text)))
 
   (define (anthropic-wire->body! w)
@@ -1574,9 +1736,13 @@ The macro. It is an ir-macro because it folds one variable-length spec list into
                (substring v 1)
                v))))
 
+  ; `(or name "message")` is WRONG and was the first draft: an `event:` line with an empty field
+  ; yields the string "", which is truthy in Scheme, so the frame would be named "" instead of
+  ; taking the default.  The SSE specification says an empty event field means the default event
+  ; type, so the test is explicit.
   (define (anthropic-sse/frame name data)
     (let1 (raw (string-intersperse (reverse data) "\n"))
-      (make-anthropic-event (or name "message")
+      (make-anthropic-event (if (and (string? name) (not (string=? name ""))) name "message")
                             (if (anthropic-json/well-formed? raw) (anthropic-json/parse raw) (void))
                             raw)))
 
@@ -1837,8 +2003,8 @@ The streamed message is assembled by **replacing keys in place** in the `message
                (set! exit-status s)
                (set! diagnostics d))))
         (unless (zero? exit-status)
-          (anthropic-raise/transport (anthropic-curl/diagnosis exit-status)
-                                     (anthropic-wire-command w) exit-status diagnostics))
+          (anthropic-raise/transport (anthropic-transport/diagnosis exit-status)
+                                     (anthropic-wire-origin w) exit-status diagnostics))
         (anthropic-response/of-json (anthropic-wire-status w) (anthropic-wire-headers w)
                                     message errors))))
 ```
@@ -1921,8 +2087,12 @@ The streamed message is assembled by **replacing keys in place** in the `message
     (let1 (table (anthropic-tools->table tools))
       (let L ((transcript messages) (request 1) (pauses 0))
         (when (> request max-iterations)
-          (anthropic-raise/loop 'max-iterations "too many requests in one conversation"
-                                `((max_iterations ,max-iterations))))
+          ; #f, not an alist: this fires BEFORE the request, so there is no response to carry.
+          ; Every other call site passes the `r` it just decoded; see §3.2.
+          (anthropic-raise/loop 'max-iterations
+                                (conc "too many requests in one conversation (max-iterations "
+                                      max-iterations ")")
+                                #f))
         (let* ((r (anthropic/messages transcript
                                       model: model max-tokens: max-tokens system: system
                                       tools: (if (pair? tools) tools #f)
@@ -2062,7 +2232,7 @@ Mixing block shapes in one conversation is legal and supported: a user turn may 
 ### 5.3 A tool, defined with the macro and driven through the loop
 
 ```scheme
-(import (aux base) (aux anthropic))
+(import (aux base) (aux anthropic) (chicken string))
 
 (define-tool (get_weather
                (location string "The city and state, e.g. San Francisco, CA")
@@ -2263,11 +2433,14 @@ Every expected string below was computed by executing Part A's encoder, validato
 
 (import
   (scheme base)                       ; open-input-string and parameterize are NOT in (chicken base)
+  (scheme file)                       ; with-input-from-file: NOT in (chicken file)
   (chicken base)
+  (chicken bytevector)                ; bytevector-u8-set!, for the custom-port case
   (chicken condition)
   (chicken file)
   (chicken file posix)
   (chicken io)
+  (chicken port)                      ; make-input-port, for the custom-port case
   (chicken string)
   (aux base)
   (aux unittest)
@@ -3086,15 +3259,23 @@ Every expected string below was computed by executing Part A's encoder, validato
             "clients that were rate-limited together. The parameter exists so that the "
             "schedule above is deterministic under test.")))
 
-  ((test/anthropic/curl/diagnosis-and-transient _)
-   (for-each (λ (c) (⊨ (anthropic-curl/transient? c))) '(7 18 28 52 55 56))
-   (for-each (λ (c) (⊭ (anthropic-curl/transient? c))) '(0 6 22 23 35))
-   (⊦= "could not resolve host" (anthropic-curl/diagnosis 6))
-   (⊦= "could not connect" (anthropic-curl/diagnosis 7))
-   (⊦≠ #f (substring-index "127" (anthropic-curl/diagnosis 127)))
+  ((test/anthropic/transport/diagnosis-and-transient _)
+   (for-each (λ (c) (⊨ (anthropic-transport/transient? c))) '(7 18 28 52 55 56))
+   (for-each (λ (c) (⊭ (anthropic-transport/transient? c))) '(0 1 6 22 23 35 126 127))
+   (⊦= "could not resolve host" (anthropic-transport/diagnosis 6))
+   (⊦= "could not connect" (anthropic-transport/diagnosis 7))
+   (⊦≠ #f (substring-index "could not be executed" (anthropic-transport/diagnosis 126)))
+   (⊦≠ #f (substring-index "999" (anthropic-transport/diagnosis 999)))
+   ; the aliases are the same objects, not copies that can drift
+   (⊨ (eq? anthropic-transport/transient? anthropic-curl/transient?))
+   (⊨ (eq? anthropic-transport/diagnosis anthropic-curl/diagnosis))
    `(doc (p "6 (DNS) and 35 (TLS) are permanent for this request; 7, 18, 28, 52, 55 and 56 "
             "are transient. Getting the split wrong costs a retry that cannot help, or a "
-            "retry that was never attempted.")))
+            "retry that was never attempted. 1, 126 and 127 are local mistakes, never "
+            "transient: a missing " (code/inline "curl") " surfaces as exit 126 with "
+            "CHICKEN's own " (code/inline "cannot execute process") " text on the child's "
+            "stderr -- " (code/inline "process*") " does NOT raise, so nothing else would "
+            "tell you.")))
 
   ; -- the curl transport, without running curl -------------------------------------------------
 
@@ -3158,26 +3339,76 @@ Every expected string below was computed by executing Part A's encoder, validato
             (code/inline "--fail-with-body") " is absent on purpose: with it curl exits 22 "
             "for every HTTP error and a 429 becomes indistinguishable from a 404.")))
 
-  ((test/anthropic/curl/wire-record _)
+  ((test/anthropic/transport/wire-record _)
    (let1 (w (make-anthropic-wire 200 '(("content-type" "application/json"))
-                                 '("curl" "--include")
+                                 '(curl "--include")
                                  (open-input-string fixture/response/text)
                                  (τ (values 0 ""))))
      (⊨ (anthropic-wire? w))
      (⊦= 200 (anthropic-wire-status w))
+     (⊦= '(curl "--include") (anthropic-wire-origin w))
      (⊦= fixture/response/text (anthropic-wire->body! w)))
-   (let1 (w (make-anthropic-wire 500 '() '("curl") (open-input-string fixture/error/529)
+   (let1 (w (make-anthropic-wire 500 '() '(curl) (open-input-string fixture/error/529)
                                  (τ (values 0 ""))))
      (⊦raises/api (500 "overloaded_error") (anthropic-wire->body! w)))
-   (let1 (w (make-anthropic-wire 200 '() '("curl") (open-input-string "")
+   (let1 (w (make-anthropic-wire 200 '() '(stub "https://x/") (open-input-string "")
                                  (τ (values 28 "curl: (28) timed out"))))
      (⊦raises (anthropic-transport-error) (anthropic-wire/drain! w)))
-   `(doc (p (code/inline "anthropic-wire/drain!") " looks only at curl's exit status; "
-            (code/inline "anthropic-wire->body!") " adds the HTTP status check on top. "
-            "Splitting them is what lets the streaming path report a cut connection "
-            "without pretending the HTTP response was an error. Note "
+   `(doc (p (code/inline "anthropic-wire/drain!") " looks only at the transport's exit "
+            "status; " (code/inline "anthropic-wire->body!") " adds the HTTP status check on "
+            "top. Splitting them is what lets the streaming path report a cut connection "
+            "without pretending the HTTP response was an error. The field is called "
+            (code/inline "origin") " and not " (code/inline "command") " because the stub "
+            "puts " (code/inline "(stub URL)") " there, which is not a command. Note "
             (code/inline "(read-string #f port)") " answers the EOF OBJECT, not "
             (code/inline "\"\"") ", on a port that produced nothing.")))
+
+  ((test/anthropic/transport/port->string-over-a-custom-port _)
+   ; THE landmine under any future custom-port transport, and it fails SILENTLY.  Measured on
+   ; csi 6.0.1pre1: over a make-input-port with no read-bytevector: hook, the eleven-character
+   ; payload below comes back from (read-string #f p) as "}" followed by TEN NUL BYTES --
+   ; char codes (125 0 0 0 0 0 0 0 0 0 0), invisible in terminal output, poison to a JSON
+   ; parser -- and read-string! reports a false success count on top of that, so a
+   ; length-checking caller is deceived too.  The hook makes it correct.
+   ;
+   ; The broken half is deliberately NOT asserted: pinning a bug in the host's read-string
+   ; would go red the day it is fixed, which is the wrong signal.  What this case pins is that
+   ; a port built to §2's contract round-trips, so a future backend has a worked example to
+   ; copy and a red case if it drops the hook.
+   (let1 (payload "{\"ok\":true}")
+     (let1 (fixture-port
+             (τ (let1 (i 0)
+                  (make-input-port
+                    (τ (if (< i (string-length payload))
+                           (let1 (c (string-ref payload i)) (set! i (add1 i)) c)
+                           #!eof))
+                    (τ (< i (string-length payload)))
+                    (τ (void))
+                    peek: (τ (if (< i (string-length payload)) (string-ref payload i) #!eof))
+                    read-bytevector:
+                    (λ (bv start n)
+                      (let L ((k 0))
+                        (if (or (>= k n) (>= i (string-length payload)))
+                            k
+                            (begin
+                              (bytevector-u8-set! bv (+ start k)
+                                                  (char->integer (string-ref payload i)))
+                              (set! i (add1 i))
+                              (L (add1 k))))))))))
+       (⊦= payload (anthropic-port->string (fixture-port)))
+       ; the same bytes through a string port, the shape the stub actually hands back
+       (⊦= payload (anthropic-port->string (open-input-string payload)))
+       ; and the eof-object normalization, on a port that produced nothing at all
+       (⊦= "" (anthropic-port->string (open-input-string "")))))
+   `(doc (p "Every blocking body in this module funnels through "
+            (code/inline "anthropic-port->string") ", which is exactly "
+            (code/inline "(read-string #f port)") ". Nothing notices today -- the process "
+            "backend hands back a real file port and the stub hands back a string port, and "
+            "both are correct across multibyte input, 1 MB bodies and a character straddling "
+            "the 4096-byte seam. A hand-built port is the one that lies, and it lies "
+            "quietly: no exception, just NUL padding where the JSON was. So §2 makes "
+            (code/inline "read-bytevector:") " part of the transport contract rather than "
+            "advice.")))
 
   ; -- the blocking call over the stub ----------------------------------------------------------
 
@@ -3887,7 +4118,10 @@ Every expected string below was computed by executing Part A's encoder, validato
     (exit 1)))
 ```
 
-**Case count: 62** (plus the `doc` entry). Note three harness behaviours the file relies on and that a reader should not re-derive: a case aborts at its *first* failed assertion (`src/aux.unittest.scm:49-53` replaces the value with `witness` and returns), so a case reports only its first mismatch; a case's stdout and stderr are captured into the HTML and never reach the terminal (`:40-47`), so `print` cannot be used to signal anything; and `code/scheme` is `*preorder*` at HEAD (`src/aux.sxml.scm:182`), which is why a formal named `m` in a case body is safe here even though it crashed the published `:master` image — build from HEAD, not from a stale image.
+**Case count: 96.** That is the ninety-five cases originally drafted plus
+`test/anthropic/transport/port->string-over-a-custom-port`; the suite-level `doc` entry is not a
+case. §6.5 adds six live cases that are not part of `make test`, and §6.6 splices ten more offline
+cases into this same suite. Three harness behaviours the file relies on and that a reader should not re-derive: a case aborts at its *first* failed assertion (`src/aux.unittest.scm:49-53` replaces the value with `witness` and returns), so a case reports only its first mismatch; a case's stdout and stderr are captured into the HTML and never reach the terminal (`:40-47`), so `print` cannot be used to signal anything; and `code/scheme` is `*preorder*` at HEAD (`src/aux.sxml.scm:182`), which is why a formal named `m` in a case body is safe here even though it crashed the published `:master` image — build from HEAD, not from a stale image.
 
 ### 6.5 `src/test/anthropic-live.scm` — the opt-in live suite
 
@@ -4019,9 +4253,22 @@ Every expected string below was computed by executing Part A's encoder, validato
 
 ### 6.6 Ten more cases the critique found unpinned
 
-The 101 cases above leave ten behaviours of Part A's own API with no assertion. Splice these
-into `anthropic-suite` immediately before its closing paren. Three of them (G1, G4, G9) pin a
-branch whose *absence* passes every existing case, which is the dangerous kind of gap.
+The ninety-six offline cases of §6.4 and the six live cases of §6.5 leave ten behaviours of Part A's
+own API with no assertion. Splice these into `anthropic-suite` immediately before its closing paren.
+Three of them (the `around` hook, the `--max-time` ternary and the integer enum) pin a branch whose
+*absence* passes every existing case, which is the dangerous kind of gap.
+
+Every binding named below exists in §3 and §4 with that name and arity, and the point is worth
+labouring because an earlier draft of this section named six that did not. An unbound identifier in
+`src/test/anthropic.scm` exits `csi` with **rc=70**, which fails `make test -B`, which — because
+`Dockerfile:18` chains `&& cp test/*.html test/*.md ../test-results` — publishes **no** report for
+**any** of the seventeen suites. A failed assertion is loud and local; an unbound identifier takes
+the whole image build down with it. Four traps in particular, recorded so nobody reintroduces them:
+`anthropic-stub/requests` answers a **list** and takes no index; the accessor is
+`anthropic-response-stop-reason`, a plain record field, and there is no `-stop-sequence` beside it;
+`anthropic-sse->message` answers `(values message errors)` where `message` is a decoded **alist**,
+not an `anthropic-response`, so the §3.7 accessors do not apply to it; and `on-response:` is called
+as `(on-response r request)`, with two arguments.
 
 ```scheme
   ; -- gaps closed after the adversarial review --------------------------------------------
@@ -4035,8 +4282,11 @@ branch whose *absence* passes every existing case, which is the dangerous kind o
      (anthropic/converse (list (anthropic-message/user "weather?"))
                          tools: (list get_weather/tool)
                          around: (λ (tool input run) "approved"))
+     ; requests are a LIST, newest last: the second one carries the tool_result turn
      (let1 (blocks (anthropic-json/ref
-                     (vector-ref (anthropic-json/ref (anthropic-stub/request stub 1) 'messages) 2)
+                     (vector-ref (anthropic-json/ref (second (anthropic-stub/requests stub))
+                                                     'messages)
+                                 2)
                      'content))
        (⊦= "approved" (anthropic-json/ref (vector-ref blocks 0) 'content))
        (⊦= (void) (anthropic-json/ref (vector-ref blocks 0) 'is_error))))
@@ -4044,19 +4294,21 @@ branch whose *absence* passes every existing case, which is the dangerous kind o
             "result. Denial is " (code/inline "(anthropic-tool/error ...)") " and nothing "
             "else.")))
 
-  ((test/anthropic/sse/structural-frame-raises _)
-   (⊦raises (anthropic-sse-error)
-            (anthropic-sse/collect (anthropic-sse/of-string fixture/sse/delta-before-start))))
-
-  ((test/anthropic/wire/close-is-idempotent _)
+  ((test/anthropic/transport/close-is-idempotent _)
+   ; Idempotence is a property of anthropic-wire/close!, NOT of a backend: a close thunk with no
+   ; guard of its own must still survive a second release, because anthropic-wire/drain! and the
+   ; streaming dynamic-wind in §4.17 can both reach the same wire.  Asserting it over a hand-made
+   ; wire with a counting thunk tests the right layer; asserting it over the curl backend would
+   ; only have tested that backend's own flag, which is where the guard used to live.
    (let1 (closed 0)
-     (let1 (w (anthropic-stub/wire 200 '() "" (λ () (set! closed (add1 closed)))))
-       (anthropic-wire/close! w)
-       (anthropic-wire/close! w)
+     (let1 (w (make-anthropic-wire 200 '() '(test) (open-input-string "")
+                                   (τ (set! closed (add1 closed)) (values 23 "once"))))
+       (receive (s d) (anthropic-wire/close! w) (⊦= 23 s) (⊦= "once" d))
+       (receive (s d) (anthropic-wire/close! w) (⊦= 23 s) (⊦= "once" d))
        (⊦= 1 closed)))
-   `(doc (p (code/inline "anthropic-wire/drain!") " and the streaming "
-            (code/inline "dynamic-wind") " both close the wire; without the "
-            (code/inline "reaped") " flag one of them reaps a dead pid.")))
+   `(doc (p "The accessor memoises the thunk's values into the record's "
+            (code/inline "close") " field, so a second release answers from the cache rather "
+            "than reaping a pid that is already gone.")))
 
   ((test/anthropic/curl/timeouts-differ-by-mode _)
    ; §4.8 picks --max-time from a ternary on stream?.  Swapping the two arms passes every
@@ -4066,30 +4318,52 @@ branch whose *absence* passes every existing case, which is the dangerous kind o
      (⊭ (member? "--no-buffer" argv)))
    (let1 (argv (anthropic-curl/argv "https://example.invalid" "/tmp/h" #t))
      (⊦= "1800" (list-ref argv (add1 (list-index (λ (a) (equal? a "--max-time")) argv))))
-     (⊨ (member? "--no-buffer" argv))))
+     (⊨ (member? "--no-buffer" argv)))
+   `(doc (p "The streaming arm gets thirty minutes and " (code/inline "--no-buffer")
+            "; the blocking arm gets ten and does not. The streaming figure is also the "
+            "worst case for abandoning a wire, which is why §4.8 kills the child before it "
+            "waits for it.")))
 
   ((test/anthropic/loop/empty-assistant-content-is-not-appended _)
    ; §4.18 promises never to append an empty content array (a 400 on the next request), but
    ; every empty-content fixture so far RAISES first, so the guard was dead code.
    (letstub (stub (anthropic-stub/canned fixture/response/empty-end-turn))
      (receive (r transcript) (anthropic/converse (list (anthropic-message/user "hi")))
-       (⊦= "end_turn" (anthropic-response/stop-reason r))
-       (⊦= 1 (length transcript)))))
+       (⊦= "end_turn" (anthropic-response-stop-reason r))
+       (⊦= 1 (length transcript))))
+   `(doc (p "An " (code/inline "end_turn") " carrying " (code/inline "\"content\":[]")
+            " ends the conversation without appending an assistant turn: an empty "
+            (code/inline "content") " array is a 400 the moment it is sent back.")))
 
   ((test/anthropic/loop/stop-sequence-terminates _)
+   ; There is no anthropic-response/stop-sequence accessor -- §3.7 stops at -stop-details --
+   ; so the stop sequence is read off the decoded body, which is where it lives.
    (letstub (stub (anthropic-stub/canned fixture/response/stop-sequence))
      (receive (r transcript) (anthropic/converse (list (anthropic-message/user "hi")))
-       (⊦= "stop_sequence" (anthropic-response/stop-reason r))
-       (⊦= "END" (anthropic-response/stop-sequence r)))))
+       (⊦= "stop_sequence" (anthropic-response-stop-reason r))
+       (⊦= "END" (anthropic-json/ref (anthropic-response-json r) 'stop_sequence))
+       (⊦= 2 (length transcript))))
+   `(doc (p (code/inline "stop_sequence") " terminates the loop exactly like "
+            (code/inline "end_turn") ". Falling through to the "
+            (code/inline "unknown stop_reason") " branch instead would turn a normal, "
+            "requested stop into a raised condition.")))
 
   ((test/anthropic/loop/on-response-hook-fires-once-per-turn _)
+   ; TWO parameters: §4.18 calls (on-response r request), where `request` is the 1-based turn
+   ; number.  A one-parameter hook is an arity error in the middle of a conversation.
    (let1 (seen '())
      (letstub (stub (anthropic-stub/canned fixture/response/tool-use)
                     (anthropic-stub/canned fixture/response/text))
        (anthropic/converse (list (anthropic-message/user "weather?"))
                            tools: (list get_weather/tool)
-                           on-response: (λ (r) (set! seen (cons (anthropic-response/stop-reason r) seen))))
-       (⊦= '("tool_use" "end_turn") (reverse seen)))))
+                           on-response: (λ (r n)
+                                          (set! seen
+                                            (cons (list n (anthropic-response-stop-reason r))
+                                                  seen))))
+       (⊦= '((1 "tool_use") (2 "end_turn")) (reverse seen))))
+   `(doc (p "The hook sees every turn, in order, with its 1-based request number -- which is "
+            "what makes it usable for a progress display and for enforcing a budget the "
+            (code/inline "max-iterations") " guard alone cannot express.")))
 
   ((test/anthropic/loop/options-reach-the-request _)
    ; One assertion covering the whole keyword-forwarding row in §4.18: a keyword dropped from
@@ -4099,24 +4373,66 @@ branch whose *absence* passes every existing case, which is the dangerous kind o
      (anthropic/converse (list (anthropic-message/user "hi"))
                          system: "be terse" max-tokens: 128
                          stop-sequences: '("END") effort: "low")
-     (let1 (req (anthropic-stub/request stub 0))
+     (let1 (req (first (anthropic-stub/requests stub)))
        (⊦= "be terse" (anthropic-json/ref req 'system))
        (⊦= 128 (anthropic-json/ref req 'max_tokens))
        (⊦= #("END") (anthropic-json/ref req 'stop_sequences))
-       (⊦= "low" (anthropic-json/ref (anthropic-json/ref req 'output_config) 'effort)))))
+       (⊦= "low" (anthropic-json/ref (anthropic-json/ref req 'output_config) 'effort))))
+   `(doc (p (code/inline "anthropic/converse") " forwards eleven keywords to "
+            (code/inline "anthropic/messages") " by hand. Dropping one is silent: the call "
+            "still succeeds, it just ignores what the caller asked for.")))
 
   ((test/anthropic/sse/orphan-delta-and-stop-are-ignored _)
-   (let1 (r (anthropic-sse/collect (anthropic-sse/of-string fixture/sse/orphan-index)))
-     (⊦= "ok" (anthropic-response/text r))))
+   ; anthropic-sse->message answers (values message errors) and `message` is a decoded ALIST.
+   ; The §3.7 response accessors do NOT apply to it; anthropic-json/ref does.
+   (receive (message errors)
+       (anthropic-sse->message (anthropic-sse/events (open-input-string fixture/sse/orphan-index)))
+     (⊦= '() errors)
+     (⊦= #(((type "text") (text "ok"))) (anthropic-json/ref message 'content))
+     (⊦= "end_turn" (anthropic-json/ref message 'stop_reason)))
+   `(doc (p "A " (code/inline "content_block_delta") " or "
+            (code/inline "content_block_stop") " for an index that was never opened is "
+            "DROPPED, not raised on: the accumulator looks the index up with "
+            (code/inline "assv") " and does nothing when the lookup fails. Raising would "
+            "throw away a turn that is otherwise complete, over a frame the caller cannot "
+            "act on anyway.")))
 
   ((test/anthropic/sse/redacted-thinking-round-trips _)
-   (let1 (r (anthropic-sse/collect (anthropic-sse/of-string fixture/sse/redacted-thinking)))
-     (⊦= "redacted_thinking"
-         (anthropic-block-type (first (anthropic-response/blocks r))))
-     (⊨ (string? (anthropic-json/ref (first (anthropic-response/blocks r)) 'data)))))
+   (receive (message errors)
+       (anthropic-sse->message
+         (anthropic-sse/events (open-input-string fixture/sse/redacted-thinking)))
+     (⊦= '() errors)
+     (let1 (blk (vector-ref (anthropic-json/ref message 'content) 0))
+       (⊦= "redacted_thinking" (anthropic-block-type blk))
+       (⊨ (string? (anthropic-json/ref blk 'data)))
+       (⊦= "EncryptedBlob" (anthropic-json/ref blk 'data))))
+   `(doc (p "A " (code/inline "redacted_thinking") " block has no delta of any kind: its "
+            (code/inline "content_block_start") " template IS the whole block and must pass "
+            "through untouched, because the API rejects a thinking block that was modified.")))
+
+  ((test/anthropic/tools/schema/integer-enum _)
+   ; enum-type calls exact-integer? at EXPANSION time, and exact-integer? lives only in
+   ; scheme.base -- so without (scheme base) in §4.1's import-for-syntax list this case does
+   ; not fail, it fails to COMPILE.  The all-strings clause short-circuits ahead of it, which
+   ; is why every other enum in this suite expands fine.
+   (⊦= '((type "object")
+         (properties ((level ((type "integer") (enum #(1 2 3)) (description "How urgent")))))
+         (required #("level")))
+       (anthropic-tool-schema set_priority/tool))
+   (⊦= "{\"name\":\"set_priority\",\"description\":\"Set a priority.\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"level\":{\"type\":\"integer\",\"enum\":[1,2,3],\"description\":\"How urgent\"}},\"required\":[\"level\"]}}"
+       (anthropic-json/write (anthropic-tool->json set_priority/tool)))
+   (⊦= "priority 2" (set_priority 2))
+   `(doc (p "An " (code/inline "(enum ...)") " of exact integers derives "
+            (code/inline "\"type\":\"integer\"") ", not "
+            (code/inline "\"type\":\"string\"") ". The interesting part is where it would "
+            "break: " (code/inline "exact-integer?") " is called while the macro EXPANDS, so "
+            "it has to be in " (code/inline "import-for-syntax") ", and the failure is a "
+            "compile error rather than a red case.")))
 ```
 
-The five new fixtures these need, alongside the others in §6.1:
+The fixtures and the one tool these need, alongside the others in §6.1. The four SSE pieces are
+defined here rather than assumed: an earlier draft referred to `fixture/sse/text-prefix`,
+`/text-suffix`, `/message-start` and `/message-end` without ever writing them down.
 
 ```scheme
 (define fixture/response/empty-end-turn
@@ -4128,16 +4444,35 @@ The five new fixtures these need, alongside the others in §6.1:
                  "\"content\":[{\"type\":\"text\",\"text\":\"halted\"}],"
                  "\"stop_reason\":\"stop_sequence\",\"stop_sequence\":\"END\"}"))
 
-(define fixture/sse/delta-before-start
-  (string-append "event: content_block_delta\n"
-                 "data: {\"type\":\"content_block_delta\",\"index\":0,"
-                 "\"delta\":{\"type\":\"text_delta\",\"text\":\"x\"}}\n\n"))
+; the four reusable halves of a minimal one-text-block stream
+(define fixture/sse/message-start
+  (string-append
+    "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_g1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":1}}}\n\n"))
 
-(define fixture/sse/orphan-index      ; a well-formed stream carrying a delta for index 7
+(define fixture/sse/message-end
+  (string-append
+    "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":3}}\n\n"
+    "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+
+(define fixture/sse/text-prefix
+  (string-append
+    fixture/sse/message-start
+    "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+    "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n"))
+
+(define fixture/sse/text-suffix
+  (string-append
+    "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    fixture/sse/message-end))
+
+; a well-formed stream carrying a delta AND a stop for index 7, which was never opened
+(define fixture/sse/orphan-index
   (string-append fixture/sse/text-prefix
                  "event: content_block_delta\n"
                  "data: {\"type\":\"content_block_delta\",\"index\":7,"
                  "\"delta\":{\"type\":\"text_delta\",\"text\":\"ignored\"}}\n\n"
+                 "event: content_block_stop\n"
+                 "data: {\"type\":\"content_block_stop\",\"index\":7}\n\n"
                  fixture/sse/text-suffix))
 
 (define fixture/sse/redacted-thinking
@@ -4147,7 +4482,20 @@ The five new fixtures these need, alongside the others in §6.1:
                  "\"content_block\":{\"type\":\"redacted_thinking\",\"data\":\"EncryptedBlob\"}}\n\n"
                  "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
                  fixture/sse/message-end))
+
+; at TOP LEVEL, beside the other define-tool forms, for the integer-enum case
+(define-tool (set_priority (level (enum 1 2 3) "How urgent"))
+  "Set a priority."
+  (conc "priority " level))
 ```
+
+One case the earlier draft carried is **gone rather than fixed**: `sse/structural-frame-raises`,
+which claimed a `content_block_delta` arriving before its `content_block_start` raises an
+`anthropic-sse-error`. It does not. §4.16's accumulator looks the index up with `assv` and ignores
+the frame when the lookup fails, which is what `sse/orphan-delta-and-stop-are-ignored` above now
+pins. Its fixture would have passed the assertion anyway, for the wrong reason — it had no
+`message_stop`, so the raise it saw was the missing-stop check, not a structural one. A case that
+passes for a reason other than the one it names is worse than no case.
 
 
 ## 7. Packaging diff
@@ -4169,7 +4517,7 @@ One line, appended as the **last** component. `chicken-install` builds component
 
 Three edits. All continuation lines are **tab**-indented, matching the file.
 
-**(a) `test:` — append after line 29 (`microkanren-show.scm`), making it the last suite.**
+**(a) `test:` — append after line 29 (`microkanren-show.scm`), making it the last suite.** The `test:` target is seventeen hand-maintained recipe lines with no wildcard and no `.PHONY`, so the eighteenth has to be written out; and because the target is not phony, the `-B` in `Dockerfile:18` is what makes it run at all. Neither is cosmetic.
 
 ```diff
  	cd test && ${CSI} -s microkanren-show.scm
@@ -4249,7 +4597,7 @@ Exported entry points include:
   `anthropic/retries`, `anthropic/backoff`, `anthropic/sleep`
 
 ```scheme
-(import (aux base) (aux anthropic))
+(import (aux base) (aux anthropic) (chicken string))
 
 (anthropic/ask "What is the capital of France?")
 ;; => "Paris."
@@ -4286,13 +4634,24 @@ cd src && make test-anthropic-live
 
 ### 7.4 `Dockerfile` — **no change**
 
-Verified against `ghcr.io/massimo-nocentini/aux.scm:master`:
+Verified by listing every path of all six layers of the base image
+`ghcr.io/massimo-nocentini/chicken-scheme.docker:6.0.0-eggs-included`, which is what
+`ghcr.io/massimo-nocentini/aux.scm:master` is built `FROM`:
 
-- `curl 8.5.0 (aarch64-unknown-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13` is at `/usr/bin/curl`, and PATH resolution works, so Part A's `(anthropic/curl "curl")` default is right.
+- `usr/bin/curl` is present, version 8.18.0, and PATH resolution works, so Part A's `(anthropic/curl "curl")` default is right. The layers are **amd64**; there is no separate arm64 image to check, for the reason given under "Review status".
+- `include/curl`, `curl.h`, `libcurl.pc`, the link-time `libcurl.so` symlink and `pkg-config` return **zero** hits. The binary is there, the development headers are not. That is the blocker behind §4.8b, and it is also why nothing in this change needs an `apt-get` line.
 - No new egg, so `make install` (`chicken-install -sudo`) is unaffected and does not reach the network for a new dependency.
 - `COPY src src` already picks up `aux.anthropic.scm`, `test/anthropic.scm` and `test/anthropic-live.scm`.
 - `cp test/*.html test/*.md ../test-results` already picks up `testsuite-anthropic-suite.html`.
 - `anthropic-live.scm` is not in the `test:` target, so the build never runs it and never needs a secret.
+
+The one line worth considering anyway is a guard, so that a base image that ever drops `curl` fails at its own layer with an obvious message instead of failing seventeen suites at `make test`:
+
+```dockerfile
+RUN command -v curl && curl --version | head -1
+```
+
+It costs one cached layer and buys a legible error. It is optional; nothing in this plan depends on it.
 
 ### 7.5 `.gitignore` — **no change**
 
@@ -4310,8 +4669,8 @@ A developer can tick these off top to bottom. Steps 1–6 are the foundation and
 4. **Parse, encode, access** (§4.6). Run `test/anthropic/json/round-trip`, `/escapes-control-characters`, `/numbers`, `/encoder-is-total`, `/accessors`, `/set-and-merge` by hand in `csi`.
 5. **Strings, headers, status** (§4.7).
 6. **Create `src/test/anthropic.scm`** with the imports, the three assertion macros, `letstub`, all fixtures and the tool definitions from §6.4, plus only the cases covering steps 2–5. Add `(extension aux.anthropic)` to `src/aux.egg` and `cd test && ${CSI} -s anthropic.scm` to the `test:` target now, so `make install && make test` exercises the module from here on. Everything to this point must be green.
-7. **The wire record, `anthropic-wire/close!`, `anthropic-wire/drain!`, `anthropic-wire->body!`** (§4.8, §4.10). Add `test/anthropic/curl/wire-record`. Note the ordering inside `close`: **stdout is closed before stderr is drained.** Draining stderr while curl is still writing stdout deadlocks on a full 64 KB pipe; closing stdout first makes curl exit 23 instead, which is why 23 is in `anthropic-curl/diagnosis`.
-8. **The curl helpers** — `anthropic-curl/argv`, `-headers->file!`, `-status-line`, `-read-block`, `-read-headers`, `-diagnosis`, `-transient?` (§4.8). Add `test/anthropic/curl/status-line`, `/read-headers-skips-1xx`, `/argv-never-carries-the-key` and `test/anthropic/curl/diagnosis-and-transient`. These are all offline: no process is spawned.
+7. **The wire record, `anthropic-wire/close!`, `anthropic-wire/drain!`, `anthropic-wire->body!`** (§4.8, §4.10). Add `test/anthropic/transport/wire-record`, `/close-is-idempotent` and `/port->string-over-a-custom-port`. Two orderings inside `close` are load-bearing and neither is obvious: **stdout is closed before stderr is drained** — draining stderr while curl is still writing stdout deadlocks on a full 64 KB pipe, while closing stdout makes curl exit 23 instead, which is why 23 is in the diagnosis table — and **the child is probed and killed before it is waited for**, or abandoning a stream blocks for the whole `--max-time`. Write `anthropic-wire/close!` as the memoising accessor from §4.8; do not put a `reaped` flag in the backend.
+8. **The transport helpers** — `anthropic-curl/argv`, `-headers->file!`, `-status-line`, `-read-block`, `-read-headers`, plus `anthropic-transport/diagnosis`, `-transient?`, `-transient-codes` and their `anthropic-curl/*` aliases (§4.8). Add `test/anthropic/curl/status-line`, `/read-headers-skips-1xx`, `/argv-never-carries-the-key` and `test/anthropic/transport/diagnosis-and-transient`. These are all offline: no process is spawned.
 9. **`anthropic-transport/curl` and the `anthropic/transport` parameter** (§4.8), in that order — the parameter's initializer is evaluated at load time and would otherwise name an unbound identifier. The two port-accessor comments are load-bearing; keep them verbatim. Smoke-test against a loopback server, not the API:
    `python3 -m http.server 8899 &` then in `csi`, `(parameterize ((anthropic/base-url "http://127.0.0.1:8899/") (anthropic/api-key "sk-ant-local")) (anthropic-wire-status (anthropic-transport/curl (anthropic/base-url) (anthropic-request/headers) "{}" #f)))` → `501`. Then `(anthropic-curl/headers->file! …)` must leave no file behind after `anthropic-wire/close!`; check `ls $TMPDIR | grep anthropic` is empty.
 10. **The stub transport** (§4.9). Add `test/anthropic/messages/stub-exhaustion-raises` and `test/anthropic/redaction/stub-log-is-clean`. The header-name lowercasing in `anthropic-stub/canned` is not cosmetic: without it a fixture written `(("Retry-After" "3"))` silently takes the backoff path and a test that would pass against curl fails against the stub.
@@ -4328,8 +4687,8 @@ A developer can tick these off top to bottom. Steps 1–6 are the foundation and
 21. **Create `src/test/anthropic-live.scm`** from §6.5 and add the `test-anthropic:` / `test-anthropic-live:` targets. Verify the skip path with the variable unset: `cd src && make test-anthropic-live` must print `anthropic-live: SKIPPED …` and exit 0.
 22. **Run the live suite once**, with a real key. It is the only thing that exercises the curl backend against TLS, HTTP/2, and real SSE pacing. In particular re-confirm the two facts established only by probe and never in CI: `process*` returns one object, and `process-input-port` is the port you *write*.
 23. **Finish packaging**: the three `format:` lines, the README section. Run `make format` locally if `scheme-indent` is installed; do not hand-align.
-24. **`make docker-build`** at the repository root — the only end-to-end verification path, and the one that confirms the port-direction result on `linux/amd64` and `linux/arm64` with CHICKEN 6.0.0 and curl 8.5.0, rather than on the local 6.0.1pre1 / curl 8.7.1.
-25. **Commit** on a branch off `master`. The untracked `src/test/users_1.7m.json` and `src/test/users_100k.json` present in the working tree are unrelated to this change and must not be added.
+24. **`make docker-build`** at the repository root — the only end-to-end verification path, and the one that confirms the port-direction result under CHICKEN 6.0.0 and curl 8.18.0 rather than on the local 6.0.1pre1 / curl 8.7.1. It confirms it on `linux/amd64` only: the `linux/arm64` leg builds on the same amd64 runner and produces the same bytes, as recorded under "Review status", so no arm64 claim can be made from it.
+25. **Commit** on a branch off `master`. An earlier draft warned here against committing two stray fixture files, `src/test/users_1.7m.json` and `src/test/users_100k.json`; neither exists and the tree is clean at `4af90d8`, so the warning is gone rather than carried forward.
 
 ---
 
@@ -4347,7 +4706,11 @@ A developer can tick these off top to bottom. Steps 1–6 are the foundation and
 
 **A raw-alist tool is advertised but not dispatchable** (G5). `anthropic-tools->json` accepts a hand-written definition so a tool that predates the macro can still reach the model; `anthropic-tools->table` registers only records, so that tool is answered with `no such tool: …`. **v2:** make `anthropic/converse` raise an `anthropic-config-error` up front when a tool in `tools:` is not an `anthropic-tool?`, which turns a confusing mid-conversation `is_error` into a local error at call time.
 
-**The API key is on disk for the life of the request**, `0600`, which for a long stream is minutes. A root-equivalent local attacker can read it. Passing it via the environment instead is worse: `(chicken process)` switches to `execve` when handed an environment alist, which discards `PATH` and would force an absolute `/usr/bin/curl`. **v2:** `curl --variable %ANTHROPIC_API_KEY --expand-header 'x-api-key: {{ANTHROPIC_API_KEY}}'`, which keeps the key in the inherited environment and off both argv and disk — it is not the default only because it cannot express a key that came from the `anthropic/api-key` parameter rather than the environment.
+**The API key is on disk for the life of the request**, `0600`, which for a long stream is minutes. A root-equivalent local attacker can read it. Passing it via the environment instead is worse: `(chicken process)` switches to `execve` when handed an environment alist, which discards `PATH` and would force an absolute `/usr/bin/curl`. The obvious v2 is `curl --variable %ANTHROPIC_API_KEY --expand-header 'x-api-key: {{ANTHROPIC_API_KEY}}'`, which keeps the key in the inherited environment and off both argv and disk. **Do not implement it from that sentence: as stated it is a security regression, not an improvement.** Three traps, the first of which is the reason. (1) `--expand-header` bypasses `anthropic-header/check!`, which is reached only from `anthropic-curl/headers->file!` and is this module's CR/LF header-injection guard. curl does not sanitise expanded values: a key containing `\r\nx-injected: yes` was sent through that path against an echo server and arrived as a **separate header**, rc=0. Any implementation must run the check on the variable's value before the child is spawned, which means reading the environment in Scheme — at which point most of the argument for the mechanism is gone. (2) The `execve`/`PATH` problem above. (3) A version gate has to be numeric: `--variable` needs curl 8.3.0, and `(string>=? "8.18.0" "8.3.0")` is `#f`, so a naive lexicographic test silently refuses on exactly the version the target image ships. There is also the smaller point that the mechanism cannot express a key that came from the `anthropic/api-key` parameter rather than the environment.
+
+**`process-wait` suspends every srfi-18 thread, not just the calling one.** The CHICKEN manual is explicit — "suspending the current process implies that all threads are suspended as well" — and it is measured: a 200 ms ticker went dead for 3004 ms across one wait. It sits on the hot path, in `anthropic-wire/close!`, on every request. If `(aux anthropic)` is ever used alongside other srfi-18 threads this is the module's one genuine architectural defect, and the fix is a different transport (§4.8b), not a different wait. **v2:** if it ever matters, that is what justifies the libcurl `curl_multi` backend and nothing less does.
+
+**Abandoning a wire kills the transfer rather than draining it.** §4.8's close thunk probes with the non-blocking `process-wait` and sends `signal/term` if the child is still alive, so a caller who stops reading an SSE stream halfway gets its process back in milliseconds instead of waiting out `anthropic/stream-max-time`. Measured against a child that holds its pipes open and stays silent for thirty seconds: the whole close — probe, `signal/term`, stderr drain, blocking reap — returned in 2 ms of process time and 21 ms wall clock, with a final status of 128. The cost is that the abandoned response is genuinely gone — there is no "finish in the background and discard" path, and the exit status a killed curl reports is not one of the diagnosis table's meaningful codes. That is the right trade for a 1800-second default, but it is a behaviour and not an implementation detail: a caller that wants the rest of a stream must read the rest of the stream.
 
 **`process-sleep` has one-second granularity.** The backoff cannot express sub-second waits, so the first retry always costs at least a second even when `retry-after` says less. `srfi-18`'s `thread-sleep!` would fix it but is not on `src/aux.egg:6`. **v2:** add `srfi-18` to the dependency line — it is already installed in the image — and make `anthropic/sleep` default to `thread-sleep!`.
 
