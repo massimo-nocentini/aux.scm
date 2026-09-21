@@ -23,7 +23,8 @@
         "relations added that the book has no use for -- four mirrored comparisons, then "
         (code/inline "multiple°") ", " (code/inline "divisor°") ", " (code/inline "even°")
         ", " (code/inline "odd°") ", " (code/inline "square°") ", " (code/inline "composite°")
-        ", " (code/inline "between°") " and " (code/inline "common-divisor°")
+        ", " (code/inline "between°") ", " (code/inline "common-divisor°") ", "
+        (code/inline "numeral°") " and " (code/inline "prime°")
         ", each a few lines over what chapters 7 and 8 already give. Nothing in the "
         "translation is clever: " (code/inline "defrel") " becomes "
         (code/inline "define-relation") ", " (code/inline "conde") " becomes "
@@ -952,13 +953,10 @@
             "and " (code/inline ">1°") " says \"at least two cells\", which for a canonical "
             "numeral is exactly \"at least two\". Stated positively like this it stays a "
             "relation and needs nothing the module does not already have.")
-         (p "Its complement does not. " (code/inline "prime°") " would have to say that no "
-            "divisor other than 1 and n exists, and \"no ... exists\" is a negation over a "
-            "goal, which this " (code/inline "µKanren") " does not provide -- "
-            (code/inline "≠°") " is disequality between terms, not refutation of a goal. So "
-            "the useful half is here and the other half is deliberately absent rather than "
-            "quietly non-relational: 97 is refused as composite in about a third of a second, "
-            "and a caller who wants primality can read that refusal.")))
+         (p "Its complement, " (code/inline "prime°") ", needs a negation -- \"no divisor "
+            "other than 1 and n exists\" -- and costs a good deal more; it has its own cases "
+            "below. 97 is refused as composite in about a third of a second, and that refusal "
+            "is most of what primality then reads.")))
 
   ((test/between° _)
    (⊦= (map build-num '(3 6 5 4)) (μkanren-run (n 10 #t) (between° (build-num 3) n (build-num 6))))
@@ -981,12 +979,68 @@
             " fresh it enumerates the common divisors. 12 and 18 give 1, 2, 3 and 6, and the "
             "largest of those is their gcd -- but only a reader can see that it is the "
             "largest, because picking the greatest element of a stream is a negation again "
-            "(\"no common divisor is bigger\"), and the same wall that keeps "
-            (code/inline "prime°") " out keeps " (code/inline "gcd°") " out. What the "
+            "(\"no common divisor is bigger\") -- the same shape of problem that "
+            (code/inline "prime°") " below has to pay for. What the "
             "relation does give, cheaply, is coprimality: 7 and 13 share exactly one divisor, "
             "so the single-element stream is the answer to \"are these coprime\". The third "
             "line spells the interleaving out once more: 4 and 8 share 1, 4 and 2, delivered "
             "in that order.")))
+
+  ((test/numeral° _)
+   (⊦= (map build-num '(0 1 2 3 4 5 6 7 8 9)) (μkanren-run (n 10 #t) (numeral° n)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (numeral° (build-num 12)) (=° r 'yes)))
+   ; (0) is a zero written with a trailing zero, so it is not a numeral
+   (⊦= '()    (μkanren-run (r 1 #t) (numeral° '(0)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (numeral° '(1 0)) (=° r 'yes)))
+   `(doc (p (code/inline "pos°") " and " (code/inline ">1°")
+            " constrain the SHAPE of a numeral; this one enumerates its VALUES, in increasing "
+            "order, which is the first enumeration in the module that is not interleaved. A "
+            "canonical numeral is the empty list or a list of bits whose last cell is 1, and "
+            (code/inline "numeral/pos°") " is that sentence. The " (code/inline "bit°")
+            " inside it is what makes the answers concrete: without it the relation would "
+            "answer with shapes full of fresh variables, which is the right answer to a "
+            "different question and useless as a generator.")
+         (p "The last two assertions are the canonicality guard from the other side. "
+            (code/inline "(0)") " and " (code/inline "(1 0)") " denote 0 and 1 in a "
+            "positional reading, but they are not numerals, and a generator that produced "
+            "them would make " (code/inline "prime°") " below enumerate the same prime twice.")))
+
+  ((test/prime° _)
+   (⊦= '(yes) (μkanren-run (r 1 #t) (prime° (build-num 2))  (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (prime° (build-num 7))  (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (prime° (build-num 97)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (prime° (build-num 0))  (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (prime° (build-num 1))  (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (prime° (build-num 9))  (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (prime° (build-num 12)) (=° r 'yes)))
+   `(doc (p (code/inline "prime°") " is the one relation in the module that is not pure. "
+            (code/inline "(if° (composite° p) ✗° ✓°)") " is negation as failure: it asks "
+            "whether " (code/inline "composite° p") " has an answer NOW, so it is sound only "
+            "when " (code/inline "p") " is already ground when it runs, and "
+            (code/inline "numeral°") " in front of it is what guarantees that. The order is "
+            "the definition, not a stylistic choice -- put the negation first and the goal "
+            "does not return at all, because with " (code/inline "p")
+            " fresh " (code/inline "composite° p") " has answers and the negation fails "
+            "before the generator ever chooses a candidate.")
+         (p "0 and 1 are excluded by " (code/inline ">1°") ", which on a canonical numeral "
+            "means \"at least two\"; 9 and 12 by the " (code/inline "composite°")
+            " refutation. Checked against an ordinary Scheme primality test over 0 to 60, the "
+            "two agree everywhere.")))
+
+  ((test/prime°/generates _)
+   (⊦= (map build-num '(2 3 5 7 11 13 17 19))
+       (μkanren-run (p 8 #t) (prime° p)))
+   `(doc (p "The payoff of putting the generator first: the same goal with "
+            (code/inline "p") " fresh ENUMERATES the primes, in increasing order, by "
+            "generate-and-test -- " (code/inline "numeral°") " proposes 2, 3, 4, 5, ... and "
+            "the negation discards the composite ones. A relation written as a test is a "
+            "generator for free, which is the whole argument of the book, and it survives "
+            "here even though the test itself is not pure.")
+         (p "It is not cheap. Each candidate pays for a full " (code/inline "composite°")
+            " refutation, so these eight cost about a third of a second and the first twenty "
+            "about ten. That is why the case stops at eight: the assertion is that the "
+            "enumeration is correct and ordered, and twelve more primes would only have "
+            "asserted patience.")))
 
   ; -- div: split° and long division ------------------------------------------------------
 

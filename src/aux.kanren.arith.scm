@@ -19,8 +19,9 @@
   ;;; Definitions are presented in the order in which they appear in
   ;;; Chapters 7 and 8.  The additions are a block after `<=°' -- the mirrored
   ;;; comparisons `>l°', `>=l°', `>°' and `>=°', then `multiple°', `divisor°',
-  ;;; `even°', `odd°', `square°', `composite°', `between°' and
-  ;;; `common-divisor°' -- which the book never needs and so never writes.
+  ;;; `even°', `odd°', `square°', `composite°', `between°',
+  ;;; `common-divisor°', `bit°', `numeral°' and `prime°' -- which the book
+  ;;; never needs and so never writes.
   ;;; Each is a few lines over what chapters 7 and 8 already provide, and each
   ;;; is marked where it is defined.
 
@@ -312,10 +313,9 @@
   ; that has no integer root FAILS rather than searching forever.
   (define-relation (square° n m) (*° n n m))
 
-  ; `n` is a product of two numerals that are each at least two.  Stated
-  ; positively like this it stays a relation; the complementary `prime°` does
-  ; not, because "no divisor other than 1 and n" is a negation, and this
-  ; µKanren has disequality but not negation of a goal.
+  ; `n` is a product of two numerals that are each at least two.  Purely
+  ; relational: it needs nothing the module does not already have.  `prime°`,
+  ; below, is the complement and costs rather more.
   (define-relation (composite° n) (fresh° (x y) (>1° x) (>1° y) (*° x y n)))
 
   ; `lo <= n <= hi`, which reads as a range and, with `n` fresh, enumerates
@@ -325,6 +325,44 @@
   ; `d` divides both.  With `d` fresh it enumerates the common divisors, so a
   ; single answer means the two numerals are coprime.
   (define-relation (common-divisor° d n m) (and° (multiple° d n) (multiple° d m)))
+
+  ; A generator for the module's own datatype: every canonical numeral, in
+  ; increasing order.  A canonical numeral is the empty list or a list of bits
+  ; whose LAST cell is 1, which is what `numeral/pos°` spells out; the `bit°`
+  ; is what makes the answers concrete rather than shapes full of fresh
+  ; variables.  `pos°` and `>1°` constrain a numeral's shape; this one
+  ; enumerates its values.
+  (define-relation (bit° x) (or° (=° x 0) (=° x 1)))
+
+  (define-relation (numeral/pos° n)
+    (cond°
+      ((=° n '(1)))
+      ((fresh° (a d) (=° n `(,a . ,d)) (bit° a) (numeral/pos° d)))))
+
+  (define-relation (numeral° n)
+    (cond°
+      ((=° n '()))
+      ((numeral/pos° n))))
+
+  ; `p` is prime.  This is the one relation in the module that is not pure:
+  ; `(if° g ✗° ✓°)` is negation as failure -- it asks whether `g` has an
+  ; answer NOW, so it is sound only when `p` is already ground by the time it
+  ; runs.  That is exactly what `numeral°` in front of it guarantees, and it
+  ; is why the conjunction is written in this order and no other.  Put the
+  ; negation first and the goal does not merely give wrong answers, it never
+  ; returns: with `p` fresh, `composite° p` has answers, so the negation fails
+  ; before `numeral°` ever gets to choose a candidate.
+  ;
+  ; Because the generator runs first, both directions work: as a test it
+  ; agrees with an ordinary Scheme primality test on 0..60, and with `p` fresh
+  ; it ENUMERATES the primes in increasing order -- 2, 3, 5, 7, 11, ... -- by
+  ; generate-and-test.  It is not cheap: the first eight take about a third of
+  ; a second and the first twenty about ten, since each candidate pays for a
+  ; full `composite°` refutation.
+  (define-relation (prime° p)
+    (and° (numeral° p)
+          (>1° p)
+          (if° (composite° p) ✗° ✓°)))
 
   ; There is deliberately no `=°` or `≠°` for numerals here.  `build-num` is
   ; canonical -- little-endian, no trailing zero -- so two numerals denote the
