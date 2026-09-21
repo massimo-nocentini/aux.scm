@@ -17,7 +17,9 @@
   ;;; book's trailing `o` becomes a trailing `°` throughout.
 
   ;;; Definitions are presented in the order in which they appear in
-  ;;; Chapters 7 and 8.
+  ;;; Chapters 7 and 8.  The one addition is a block of four relations after
+  ;;; `<=°' -- `>l°', `>=l°', `>°' and `>=°' -- which the book never needs and
+  ;;; so never writes; they are marked as such where they are defined.
 
   ;;; As in the book, there are three definitions of '/°'.  The first two,
   ;;; flawed definitions, are commented out using Scheme's '#;' convention.
@@ -256,6 +258,25 @@
     (cond°
       ((=° n m))
       ((<° n m))))
+
+  ; The book stops here: `/°` and `log°` only ever ask whether something is
+  ; SMALLER, so `>` and `>=` are never written down.  A relation has no
+  ; preferred direction, though -- the remaining four comparisons are the same
+  ; goals with their arguments crossed, exactly as the book defines `minus°`
+  ; as `plus°` read backwards.  Both families are mirrored: `>l°`/`>=l°`
+  ; compare the length of the numeral, `>°`/`>=°` compare its value.
+  (define-relation (>l° n m) (<l° m n))
+  (define-relation (>=l° n m) (<=l° m n))
+  (define-relation (>° n m) (<° m n))
+  (define-relation (>=° n m) (<=° m n))
+
+  ; There is deliberately no `=°` or `≠°` for numerals here.  `build-num` is
+  ; canonical -- little-endian, no trailing zero -- so two numerals denote the
+  ; same number exactly when their lists unify, and `(aux kanren micro)`'s own
+  ; `=°` and `≠°` already decide that.  A wrapper would only hide which one is
+  ; doing the work.  Note the difference in strength, though: `(=° n m)` on two
+  ; fresh variables unifies them without making either a numeral, whereas
+  ; `(<=° n m)` constrains both to be numerals on the way to answering.
 
   ; Flawed definition of '/°' from frame 8:54 on page 118.
   #;(define-relation (/° n m q r)

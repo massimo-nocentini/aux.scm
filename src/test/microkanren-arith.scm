@@ -19,7 +19,8 @@
         " build addition, subtraction, multiplication, division, exponentiation and the "
         "logarithm out of two truth tables and a great deal of unification. The definitions in "
         (code/inline "(aux kanren arith)") " are that development, translated line by line into the "
-        (code/inline "(aux kanren micro)") " idiom and then exercised here. Nothing in the "
+        (code/inline "(aux kanren micro)") " idiom and then exercised here, with four "
+        "comparison relations added that the book has no use for. Nothing in the "
         "translation is clever: " (code/inline "defrel") " becomes "
         (code/inline "define-relation") ", " (code/inline "conde") " becomes "
         (code/inline "cond°") ", " (code/inline "fresh") " becomes " (code/inline "fresh°")
@@ -760,6 +761,77 @@
             (code/inline "<°") " answers.  The last line is the mirror direction and the reason "
             "this relation terminates upwards at all: one shape answer for everything four cells "
             "and wider, then the finitely many equal-length numerals above five, 6 and 7.")))
+
+  ((test/mirrored-orderings _)
+   ; >° and >=° are ours, not the book's: the same goals with the arguments crossed.
+   (⊦= '(yes) (μkanren-run (r 3 #t) (>° (build-num 9) (build-num 5)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 3 #t) (>° (build-num 5) (build-num 9)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 3 #t) (>° (build-num 5) (build-num 5)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 3 #t) (>=° (build-num 5) (build-num 5)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 3 #t) (>=° (build-num 9) (build-num 5)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 3 #t) (>=° (build-num 5) (build-num 9)) (=° r 'yes)))
+   ; zero is the empty list, so the one pair that exercises the '() clauses
+   (⊦= '(yes) (μkanren-run (r 3 #t) (>° (build-num 1) (build-num 0)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 3 #t) (>° (build-num 0) (build-num 0)) (=° r 'yes)))
+   `(doc (p "The book never writes " (code/inline ">") " or " (code/inline ">=") ": "
+            (code/inline "/°") " and " (code/inline "log°") " only ever ask whether something "
+            "is smaller, so chapter 8 needs one direction and stops. A relation has no "
+            "preferred direction though, and these four are the existing goals with their "
+            "arguments crossed -- the same move the book already makes when it defines "
+            (code/inline "minus°") " as " (code/inline "plus°") " read backwards. They are "
+            "the one part of " (code/inline "(aux kanren arith)") " that is not in the book, "
+            "which is why they are pinned here rather than taken on trust.")))
+
+  ((test/mirrored-orderings/length-vs-value _)
+   (⊦= '(yes) (μkanren-run (r 3 #t) (>l° (build-num 9) (build-num 5)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 3 #t) (>l° (build-num 5) (build-num 9)) (=° r 'yes)))
+   ; six and five are both three bits wide, so the two families part company here
+   (⊦= (list '(0 1 1) '(1 0 1)) (list (build-num 6) (build-num 5)))
+   (⊦= '(yes) (μkanren-run (r 3 #t) (>° (build-num 6) (build-num 5)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 3 #t) (>l° (build-num 6) (build-num 5)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 3 #t) (>=l° (build-num 6) (build-num 5)) (=° r 'yes)))
+   `(doc (p "Six is " (code/inline "(0 1 1)") " and five is " (code/inline "(1 0 1)") " -- same "
+            "width, different value -- so this is the pair that tells the two mirrored families "
+            "apart. " (code/inline ">°") " says yes because six is the larger number; "
+            (code/inline ">l°") " says no because neither numeral is the longer one; and "
+            (code/inline ">=l°") " says yes on the strength of " (code/inline "=l°") " alone. "
+            "A reader reaching for " (code/inline ">l°") " when they meant " (code/inline ">°")
+            " gets no error and no empty stream, just a quietly different question answered, "
+            "which is why the distinction is asserted rather than described.")))
+
+  ((test/mirrored-orderings/generate _)
+   (⊦= (list '(α β γ δ . ε) (build-num 6) (build-num 7))
+       (μkanren-run (n 6 #t) (>° n (build-num 5))))
+   (⊦= (list (build-num 5) '(α β γ δ . ε) (build-num 6) (build-num 7))
+       (μkanren-run (n 6 #t) (>=° n (build-num 5))))
+   (⊦= (list '() (build-num 1) '(α 1) (build-num 4))
+       (μkanren-run (m 10 #t) (>° (build-num 5) m)))
+   (⊦= (list (build-num 5) '() (build-num 1) '(α 1) (build-num 4))
+       (μkanren-run (m 10 #t) (>=° (build-num 5) m)))
+   `(doc (p "Crossing the arguments crosses the enumeration too, and both directions stay "
+            "finite. Asked for six numerals above five the relation answers three and closes "
+            "the stream: " (code/inline "(α β γ δ . ε)") " for everything four cells and wider, "
+            "then 6 and 7, which between them are every number greater than five. Downwards it "
+            "answers four -- 0, 1, " (code/inline "(α 1)") " covering both 2 and 3, and 4. "
+            (code/inline ">=°") " prepends five itself in each direction, from the "
+            (code/inline "(=° n m)") " clause of " (code/inline "<=°")
+            ". Counts of six and ten against streams of three and four are the point: they "
+            "assert exhaustion, not merely the first few answers.")))
+
+  ((test/numeral-equality-is-unification _)
+   (⊦= '(yes) (μkanren-run (r 3 #t) (=° (build-num 5) (build-num 5)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 3 #t) (≠° (build-num 5) (build-num 4)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 3 #t) (≠° (build-num 5) (build-num 5)) (=° r 'yes)))
+   `(doc (p "There is deliberately no " (code/inline "=n°") " or " (code/inline "≠n°")
+            " beside the four mirrored orderings. " (code/inline "build-num") " is canonical "
+            "-- little-endian, no trailing zero -- so two numerals denote the same number "
+            "exactly when their lists unify, and " (code/inline "(aux kanren micro)") "'s own "
+            (code/inline "=°") " and " (code/inline "≠°") " already decide that. A wrapper "
+            "would add a name and hide which relation is doing the work. The strengths do "
+            "differ, and that is worth knowing rather than wrapping away: "
+            (code/inline "(=° n m)") " on two fresh variables unifies them without making "
+            "either one a numeral, whereas " (code/inline "(<=° n m)")
+            " constrains both to be numerals on the way to answering.")))
 
   ; -- div: split° and long division ------------------------------------------------------
 
