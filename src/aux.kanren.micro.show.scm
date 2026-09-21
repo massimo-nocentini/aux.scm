@@ -58,7 +58,8 @@
   (define (μkanren-form->constraint c)
     (cond
       ((μkanren-tagged? c 'begin)
-        (let* ((equalities (map cadr (cdr c)))                             ; (equal? α repr)
+        (let* ((denied (cadr (cadr c)))                                    ; (equal? α repr) | (and (equal? ...) ...)
+               (equalities (if (μkanren-tagged? denied 'and) (cdr denied) (list denied)))
                (ls (map cadr equalities))
                (rs (map (o μkanren-repr->datum caddr) equalities)))
           (if (one? (length ls)) `(≠ ,(car ls) ,(car rs)) `(≠ ,ls ,rs))))  ; a tuple disequality.

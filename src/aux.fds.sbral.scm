@@ -37,23 +37,25 @@
       (((,s _ ,α ,β) . ,sbral*) (let1 (w (quotient s 2)) `((,w . ,α) (,w . ,β) . ,sbral*)))
       (else error "cdr/sbral: not a valid sbral")))
 
-  (define sbral-tree-lookup
-    (λ-match/first
-      ((_   0 (,v . _)) v)
-      ((,w ,i (,v ,α ,β)) (let1 (w/2 (quotient w 2))
-                            (cond
-                              ((<= i w/2) (sbral-tree-lookup w/2 (- i 1) α))
-                              (else (sbral-tree-lookup w/2 (- i 1 w/2) β)))))
+  ; fixed-arity procedures: this is the innermost loop of the substitution walk, so the
+  ; rest list that `λ-match/first` would cons and destructure at every level is avoided.
+  (define (sbral-tree-lookup w i tree)
+    (match/first tree
+      (((,v . _) ⊣ (fx= i 0)) v)
+      ((,v ,α ,β) (let1 (w/2 (quotient w 2))
+                    (cond
+                      ((<= i w/2) (sbral-tree-lookup w/2 (- i 1) α))
+                      (else (sbral-tree-lookup w/2 (- i 1 w/2) β)))))
       (else (error "sbral-tree-lookup: not a valid sbral"))))
 
-  (define sbral-tree-update
-    (λ-match/first
-      ((_   0 ,y (_ . ,αβ)) `(,y . ,αβ))
-      ((,w ,i ,y (,v ,α ,β))  (let1 (w/2 (quotient w 2))
-                                (cond
-                                  ((<= i w/2) `(,v ,(sbral-tree-update w/2 (- i 1) y α) ,β))
-                                  (else `(,v ,α ,(sbral-tree-update w/2 (- i 1 w/2) y β))))))
-      (else (error "sbral-tree-update: not a valid sbral"))))    
+  (define (sbral-tree-update w i y tree)
+    (match/first tree
+      (((_ . ,αβ) ⊣ (fx= i 0)) `(,y . ,αβ))
+      ((,v ,α ,β) (let1 (w/2 (quotient w 2))
+                    (cond
+                      ((<= i w/2) `(,v ,(sbral-tree-update w/2 (- i 1) y α) ,β))
+                      (else `(,v ,α ,(sbral-tree-update w/2 (- i 1 w/2) y β))))))
+      (else (error "sbral-tree-update: not a valid sbral"))))
 
   (define (sbral-ref sbral i)
     (match/first sbral

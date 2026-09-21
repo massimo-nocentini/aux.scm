@@ -96,6 +96,21 @@
 
   ((test/λ-match-first/unquote-unquote-pattern _)
     (⊦= 2 (match/first '(1 . ((1))) ((,x . ((,,x))) (add1 x))))
+    (⊦= 1.5 (match/first (list 1.5 (list 1.5)) ((,x (,,x)) x)))
+  )
+
+  ((test/match-first/receiver _)
+    (⊦= 4 (match/first '(1 2) (((,a ,b) ⊣ (+ a b)) => (μ s (add1 s)))))
+    (⊦= 'fallthrough (match/first '(1 2) (((,a ,b) ⊣ (memq 3 (list a b))) => car) (else 'fallthrough)))
+    (⊦= 4 (match/first '(1 2) (((,a ,b) ⊣ (+ a b)) => add1) (else 'no)))
+  )
+
+  ((test/non-overlapping/single-evaluation _)
+
+    (define c 0)
+
+    (⊦= '(1 1) (match/non-overlapping (begin (set! c (add1 c)) c) (,x (list x c))))
+
   )
 
 
