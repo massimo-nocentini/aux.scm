@@ -27,6 +27,7 @@ test:
 	cd test && ${CSI} -s microkanren-aggregation.scm
 	cd test && ${CSI} -s microkanren-untagged.scm
 	cd test && ${CSI} -s microkanren-show.scm
+	cd test && ${CSI} -s microkanren-arith.scm
 	cd test && ${CSI} -s anthropic.scm
 
 test-microkanren:
@@ -34,6 +35,9 @@ test-microkanren:
 
 test-microkanren-show:
 	cd test && ${CSI} -s microkanren-show.scm
+
+test-microkanren-arith:
+	cd test && ${CSI} -s microkanren-arith.scm
 
 test-anthropic:
 	cd test && ${CSI} -s anthropic.scm
