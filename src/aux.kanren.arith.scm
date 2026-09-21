@@ -18,8 +18,11 @@
 
   ;;; Definitions are presented in the order in which they appear in
   ;;; Chapters 7 and 8.  The additions are a block after `<=°' -- the mirrored
-  ;;; comparisons `>l°', `>=l°', `>°' and `>=°', and `multiple°' -- which the
-  ;;; book never needs and so never writes; each is marked where it is defined.
+  ;;; comparisons `>l°', `>=l°', `>°' and `>=°', then `multiple°', `divisor°',
+  ;;; `even°', `odd°', `square°', `composite°', `between°' and
+  ;;; `common-divisor°' -- which the book never needs and so never writes.
+  ;;; Each is a few lines over what chapters 7 and 8 already provide, and each
+  ;;; is marked where it is defined.
 
   ;;; As in the book, there are three definitions of '/°'.  The first two,
   ;;; flawed definitions, are commented out using Scheme's '#;' convention.
@@ -283,6 +286,45 @@
   ; divides zero (k = 0), zero divides only itself (a * k = 0 forces b = 0),
   ; and one divides everything.
   (define-relation (multiple° a b) (fresh° (k) (*° a k b)))
+
+  ; The same fact read from the other end: `(divisor° n d)` is "d is a divisor
+  ; of n".  Both spellings put the described numeral second, so `(multiple° a b)`
+  ; is "b is a multiple of a" and the two never have to be untangled at the
+  ; call site.
+  (define-relation (divisor° n d) (multiple° d n))
+
+  ; Parity needs no arithmetic at all: the numeral is little-endian, so the
+  ; first cell IS the parity bit.  `(multiple° (build-num 2) n)` would decide it
+  ; too, by searching; this decides it by looking.  The `pos°` in `even°` is
+  ; canonicality, not parity -- it rejects `(0)`, which would be a zero with a
+  ; trailing zero, and is the reason the empty list needs its own clause.
+  ; Backwards they are the sharpest generators in the module: every even
+  ; numeral in two answers, every odd one in a single answer.
+  (define-relation (even° n)
+    (cond°
+      ((=° n '()))
+      ((fresh° (d) (=° n `(0 . ,d)) (pos° d)))))
+
+  (define-relation (odd° n) (fresh° (d) (=° n `(1 . ,d))))
+
+  ; `m` is the square of `n`.  Read backwards it is the integer square root,
+  ; and -- like `multiple°`, and for the same `bound-*°` reason -- a number
+  ; that has no integer root FAILS rather than searching forever.
+  (define-relation (square° n m) (*° n n m))
+
+  ; `n` is a product of two numerals that are each at least two.  Stated
+  ; positively like this it stays a relation; the complementary `prime°` does
+  ; not, because "no divisor other than 1 and n" is a negation, and this
+  ; µKanren has disequality but not negation of a goal.
+  (define-relation (composite° n) (fresh° (x y) (>1° x) (>1° y) (*° x y n)))
+
+  ; `lo <= n <= hi`, which reads as a range and, with `n` fresh, enumerates
+  ; one.  An empty range is an empty stream rather than an error.
+  (define-relation (between° lo n hi) (and° (<=° lo n) (<=° n hi)))
+
+  ; `d` divides both.  With `d` fresh it enumerates the common divisors, so a
+  ; single answer means the two numerals are coprime.
+  (define-relation (common-divisor° d n m) (and° (multiple° d n) (multiple° d m)))
 
   ; There is deliberately no `=°` or `≠°` for numerals here.  `build-num` is
   ; canonical -- little-endian, no trailing zero -- so two numerals denote the

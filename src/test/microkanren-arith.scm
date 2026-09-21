@@ -19,9 +19,12 @@
         " build addition, subtraction, multiplication, division, exponentiation and the "
         "logarithm out of two truth tables and a great deal of unification. The definitions in "
         (code/inline "(aux kanren arith)") " are that development, translated line by line into the "
-        (code/inline "(aux kanren micro)") " idiom and then exercised here, with five "
-        "relations added that the book has no use for -- four mirrored comparisons and "
-        (code/inline "multiple°") ". Nothing in the "
+        (code/inline "(aux kanren micro)") " idiom and then exercised here, with a dozen "
+        "relations added that the book has no use for -- four mirrored comparisons, then "
+        (code/inline "multiple°") ", " (code/inline "divisor°") ", " (code/inline "even°")
+        ", " (code/inline "odd°") ", " (code/inline "square°") ", " (code/inline "composite°")
+        ", " (code/inline "between°") " and " (code/inline "common-divisor°")
+        ", each a few lines over what chapters 7 and 8 already give. Nothing in the "
         "translation is clever: " (code/inline "defrel") " becomes "
         (code/inline "define-relation") ", " (code/inline "conde") " becomes "
         (code/inline "cond°") ", " (code/inline "fresh") " becomes " (code/inline "fresh°")
@@ -887,6 +890,103 @@
             ", zero and one reified shape standing for every positive numeral, then closes. "
             "That is the payoff of a partially-ground answer: an infinite set delivered in two "
             "lines.")))
+
+  ((test/divisor° _)
+   (⊦= (map build-num '(1 12 2 4 3 6)) (μkanren-run (d 20 #t) (divisor° (build-num 12) d)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (divisor° (build-num 12) (build-num 4)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (divisor° (build-num 12) (build-num 5)) (=° r 'yes)))
+   `(doc (p (code/inline "(divisor° n d)") " is " (code/inline "(multiple° d n)")
+            " read from the other end. It earns its name rather than its logic: both spellings "
+            "put the described numeral second, so " (code/inline "(multiple° a b)")
+            " is \"b is a multiple of a\" and " (code/inline "(divisor° n d)")
+            " is \"d is a divisor of n\", and a call site never has to untangle which way round "
+            "the pair goes. The same six divisors of 12 come back, since it is the same goal.")))
+
+  ((test/even°-and-odd° _)
+   (⊦= '(yes) (μkanren-run (r 1 #t) (even° (build-num 0)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (even° (build-num 6)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (even° (build-num 5)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (odd° (build-num 5)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (odd° (build-num 0)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (odd° (build-num 6)) (=° r 'yes)))
+   ; backwards: every even numeral in two answers, every odd one in a single answer
+   (⊦= (list '() '(0 α . β)) (μkanren-run (n 5 #t) (even° n)))
+   (⊦= (list '(1 . α))       (μkanren-run (n 5 #t) (odd° n)))
+   `(doc (p "Parity needs no arithmetic here. The numeral is little-endian, so its first cell "
+            "IS the parity bit, and these two relations only look at it -- where "
+            (code/inline "(multiple° (build-num 2) n)") " would decide the same question by "
+            "searching. The " (code/inline "pos°") " inside " (code/inline "even°")
+            " is canonicality rather than parity: it rejects " (code/inline "(0)")
+            ", a zero written with a trailing zero, which is also why the empty list needs a "
+            "clause of its own.")
+         (p "Backwards they are the sharpest generators in the module. Asked for five even "
+            "numerals the relation answers two -- " (code/inline "()") " and "
+            (code/inline "(0 α . β)") " -- and asked for five odd ones it answers exactly one, "
+            (code/inline "(1 . α)") ". Two infinite sets, three answers, and the counts of "
+            "five are what assert that nothing further is coming.")))
+
+  ((test/square° _)
+   (⊦= (build-num 25) (car (μkanren-run (m 1 #t) (square° (build-num 5) m))))
+   (⊦= (list (build-num 4))  (μkanren-run (n 1 #t) (square° n (build-num 16))))
+   (⊦= (list (build-num 12)) (μkanren-run (n 1 #t) (square° n (build-num 144))))
+   ; 15 is not a perfect square: the root search must fail, not run forever
+   (⊦= '() (μkanren-run (n 1 #t) (square° n (build-num 15))))
+   (⊦= (map build-num '(0 1 4 16 64 256)) (μkanren-run (m 6 #t) (fresh° (n) (square° n m))))
+   `(doc (p (code/inline "(square° n m)") " is " (code/inline "(*° n n m)")
+            " and nothing else, but the repeated variable is the whole point: the same goal "
+            "read with " (code/inline "m") " ground is the integer square root, because "
+            "unification is what ties the two factors together and neither position is an "
+            "input. 144 comes back as 12. The fourth assertion is the one that matters -- 15 "
+            "has no integer root, and the relation says so and stops, which is again "
+            (code/inline "bound-*°") " doing its work. The enumeration runs 0, 1, 4, 16, 64, "
+            "256, which is the order " (code/inline "*°") " reaches them, not the order a "
+            "reader expects; 9 and 25 arrive later.")))
+
+  ((test/composite° _)
+   (⊦= '(yes) (μkanren-run (r 1 #t) (composite° (build-num 12)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (composite° (build-num 4))  (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (composite° (build-num 7))  (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (composite° (build-num 1))  (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (composite° (build-num 97)) (=° r 'yes)))
+   `(doc (p "A numeral is composite when it is a product of two numerals each at least two, "
+            "and " (code/inline ">1°") " says \"at least two cells\", which for a canonical "
+            "numeral is exactly \"at least two\". Stated positively like this it stays a "
+            "relation and needs nothing the module does not already have.")
+         (p "Its complement does not. " (code/inline "prime°") " would have to say that no "
+            "divisor other than 1 and n exists, and \"no ... exists\" is a negation over a "
+            "goal, which this " (code/inline "µKanren") " does not provide -- "
+            (code/inline "≠°") " is disequality between terms, not refutation of a goal. So "
+            "the useful half is here and the other half is deliberately absent rather than "
+            "quietly non-relational: 97 is refused as composite in about a third of a second, "
+            "and a caller who wants primality can read that refusal.")))
+
+  ((test/between° _)
+   (⊦= (map build-num '(3 6 5 4)) (μkanren-run (n 10 #t) (between° (build-num 3) n (build-num 6))))
+   (⊦= (map build-num '(0 3 1 2)) (μkanren-run (n 10 #t) (between° (build-num 0) n (build-num 3))))
+   (⊦= (list (build-num 5))       (μkanren-run (n 10 #t) (between° (build-num 5) n (build-num 5))))
+   (⊦= '()                        (μkanren-run (n 10 #t) (between° (build-num 6) n (build-num 3))))
+   `(doc (p "Two comparisons conjoined, which with " (code/inline "n") " fresh is a range. "
+            "Every count here is ten against streams of four, four, one and zero, so each "
+            "assertion pins the whole range and not a prefix of it. The order is "
+            (code/inline "3 6 5 4") " rather than 3 4 5 6 -- the interleaving of "
+            (code/inline "or°") " again -- which is worth seeing written down, because a "
+            "range is the one construct a reader will assume comes out sorted. An inverted "
+            "range is simply an empty stream: no error, nothing to catch.")))
+
+  ((test/common-divisor° _)
+   (⊦= (map build-num '(1 2 3 6)) (μkanren-run (d 20 #t) (common-divisor° d (build-num 12) (build-num 18))))
+   (⊦= (map build-num '(1))       (μkanren-run (d 10 #t) (common-divisor° d (build-num 7) (build-num 13))))
+   (⊦= (map build-num '(1 4 2))   (μkanren-run (d 10 #t) (common-divisor° d (build-num 4) (build-num 8))))
+   `(doc (p "Divides one and divides the other, so with " (code/inline "d")
+            " fresh it enumerates the common divisors. 12 and 18 give 1, 2, 3 and 6, and the "
+            "largest of those is their gcd -- but only a reader can see that it is the "
+            "largest, because picking the greatest element of a stream is a negation again "
+            "(\"no common divisor is bigger\"), and the same wall that keeps "
+            (code/inline "prime°") " out keeps " (code/inline "gcd°") " out. What the "
+            "relation does give, cheaply, is coprimality: 7 and 13 share exactly one divisor, "
+            "so the single-element stream is the answer to \"are these coprime\". The third "
+            "line spells the interleaving out once more: 4 and 8 share 1, 4 and 2, delivered "
+            "in that order.")))
 
   ; -- div: split° and long division ------------------------------------------------------
 
