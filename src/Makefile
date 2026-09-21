@@ -3,8 +3,8 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-anthropic test-anthropic-live install format simdjson-fetch timsort-fetch \
-        foreigns-fetch json-bench bitcoin-colors
+        test-microkanren-date test-anthropic test-anthropic-live install format simdjson-fetch \
+        timsort-fetch foreigns-fetch json-bench bitcoin-colors
 
 echo:
 	echo "Catch all for the Makefile"
@@ -32,6 +32,7 @@ test:
 	cd test && ${CSI} -s microkanren-untagged.scm
 	cd test && ${CSI} -s microkanren-show.scm
 	cd test && ${CSI} -s microkanren-arith.scm
+	cd test && ${CSI} -s microkanren-date.scm
 	cd test && ${CSI} -s anthropic.scm
 
 test-microkanren:
@@ -42,6 +43,9 @@ test-microkanren-show:
 
 test-microkanren-arith:
 	cd test && ${CSI} -s microkanren-arith.scm
+
+test-microkanren-date:
+	cd test && ${CSI} -s microkanren-date.scm
 
 test-anthropic:
 	cd test && ${CSI} -s anthropic.scm
