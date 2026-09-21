@@ -101,6 +101,7 @@
            (quine (λQ 'α)))
       (⊦= 
        '(λ (α)
+            (begin (deny (equal? α 'closure)))
             (begin (deny (equal? α 'list)))
             (begin (deny (equal? α 'quote)))
             (assert (every (μ v (symbol? v)) (list α)))
@@ -171,11 +172,11 @@
     (⊦= '((λ (α β γ) (begin (deny (equal? α (cons β γ)))) (cons α (cons β (cons γ '()))))) (°->list #f (fresh° (q x y z) (≠° (cons y z) x) (=° (list x y z) q))))
     (⊦= '((λ (α) (begin (deny (equal? α 6))) (cons (cons 5 α) (cons 5 (cons α (quote ())))))) (°->list #f (fresh° (q x y z) (=° (cons y z) x) (≠° (cons 5 6) x) (=° 5 y) (=° (list x y z) q))))
     (⊦= '((λ (α) (cons (cons 6 α) (cons 6 (cons α (quote ())))))) (°->list #f (fresh° (q x y z) (=° (cons y z) x) (≠° (cons 5 6) x) (=° 6 y) (=° (list x y z) q))))
-    (⊦= '((λ (α β γ) (begin (deny (equal? α 5))) (begin (deny (equal? α 6))) (begin (deny (equal? β 2)) (deny (equal? γ 1))) (cons α (cons β (cons γ (quote ())))))) (°->list #f (fresh° (q x y z) (≠° 5 x) (≠° 6 x) (≠° (list y 1) (list 2 z)) (=° (list x y z) q))))
+    (⊦= '((λ (α β γ) (begin (deny (equal? α 5))) (begin (deny (equal? α 6))) (begin (deny (and (equal? β 2) (equal? γ 1)))) (cons α (cons β (cons γ (quote ())))))) (°->list #f (fresh° (q x y z) (≠° 5 x) (≠° 6 x) (≠° (list y 1) (list 2 z)) (=° (list x y z) q))))
     (⊦= '((λ (α) (begin (deny (equal? α 1))) α)) (°->list #f (fresh° (s) (≠° s 1))))
     (⊦= '() (°->list #f (fresh° (s) (≠° s 1) (=° s 1))))
     (⊦= '((λ (α) (begin (deny (equal? α (cons 'a (cons 'b '()))))) α)) (°->list #f (fresh° (s) (≠° s '(a b)))))
-    (⊦= '((λ (α β) (begin (deny (equal? α 1)) (deny (equal? β 2))) (cons α (cons β (quote ())))))
+    (⊦= '((λ (α β) (begin (deny (and (equal? α 1) (equal? β 2)))) (cons α (cons β (quote ())))))
         (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° q (list p r)))))
     (⊦= '((λ (α) (begin (deny (equal? α 2))) (cons 1 (cons α (quote ())))))
         (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° q (list p r)))))
@@ -231,13 +232,14 @@
 (unittest/✓ microkanren-untagged-suite)
 
 #|
-(define Q '(λ (α) (begin (deny (equal? α (quote list)))) (begin (deny (equal? α (quote quote)))) (assert (every (μ v (symbol? v)) (list α))) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
+(define Q '(λ (α) (begin (deny (equal? α (quote closure)))) (begin (deny (equal? α (quote list)))) (begin (deny (equal? α (quote quote)))) (assert (every (μ v (symbol? v)) (list α))) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
 (equal? ((eval Q ) 'α) Q)
 
 (pp Q)
 
 (define Q
 (λ (α)
+    (begin (deny (equal? α 'closure)))
     (begin (deny (equal? α 'list)))
     (begin (deny (equal? α 'quote)))
     (assert (every (μ v (symbol? v)) (list α)))

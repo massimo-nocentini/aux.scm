@@ -2,21 +2,16 @@
 (module (aux base) *
 
   (import scheme
-          (scheme base)
-          (chicken base) 
-          (chicken continuation) 
-          (chicken pretty-print) 
-          (chicken memory representation) 
-          (chicken fixnum) 
-          (chicken sort) 
-          (chicken port) 
-          (chicken foreign)
+          (chicken base)
+          (chicken pretty-print)
+          (chicken memory representation)
+          (chicken fixnum)
+          (chicken sort)
+          (chicken port)
           (chicken syntax)
-          (chicken module)
           (chicken string)
-          (only srfi-1 append-map iota)
-          srfi-69
-          vector-lib)
+          (only srfi-1 append-map iota concatenate any)
+          srfi-69)
 
   (define-syntax let1 
     (syntax-rules () 
@@ -36,7 +31,7 @@
 
   (define-syntax-rule (define-macro (name (inject (bi i) ...) (compare (bl l) ...)) (pattern body ...) ...)
     (define-macro-ir (name expr inject* compare)
-      (let* ((inject (λ symbols (inject* (apply symbols->symbol/stripped-syntax symbols))))
+      (let* ((inject (λ symbols (inject* (apply symbol-append (map strip-syntax symbols)))))
              (bi (inject i)) ...
              (bl (let1 (l* l) (λ (x) (compare x l*)))) ...)
         (match/first expr (pattern body ...) ...))))
@@ -48,15 +43,10 @@
 
   ; match/non-overlapping --------------------------------------------------------------------------
 
-  (define-syntax-rule (match/non-overlapping v (e ...) ...) 
-    (dmatch-run-a-thunk (quote v) v (dmatch-remexp v (e ...) ...)))
+  (define-syntax-rule (match/non-overlapping v (e ...) ...)
+    (let1 (v* v) (dmatch-run-a-thunk (quote v) v* (dmatch-aux v* (e ...) ...))))
 
   (define-record dmatch-pkg clause thunk)
-
-  (define-syntax dmatch-remexp
-    (syntax-rules ()
-      ((dmatch-remexp (rator rand ...) cls ...) (let1 (v (rator rand ...)) (dmatch-aux v cls ...)))
-      ((dmatch-remexp v cls ...) (dmatch-aux v cls ...))))
 
   (define-syntax dmatch-aux
     (syntax-rules (⊣ =>)
@@ -93,11 +83,15 @@
   (define-syntax-rule (match/first exp clause ...) (let1 (val exp) (match-case-simple* val clause ...)))
 
   (define-syntax match-case-simple*
-    (syntax-rules (else ⊣)
+    (syntax-rules (else ⊣ =>)
       ((match-case-simple* val) (match-case-simple* val
                                   (else (error (string-append "match/first: uncaught value.\n\n" 
                                                               (->string/pretty-print val))))))
       ((match-case-simple* val (else expr ...)) (begin expr ...))
+      ; a guarded clause may also be ((pat ⊣ g) => receiver): receiver gets g's value (cond semantics)
+      ((match-case-simple* val ((pattern ⊣ g) => receiver) clause ...)
+        (let1 (fk (τ (match-case-simple* val clause ...)))
+          (match-pattern val pattern (let1 (g* g) (if g* (receiver g*) (fk))) (fk))))
       ((match-case-simple* val ((pattern ⊣ g) exp ...) clause ...)
         (let1 (fk (τ (match-case-simple* val clause ...)))
           (match-pattern val pattern (cond (g exp ...) (else (fk))) (fk))))
@@ -105,44 +99,28 @@
         (let1 (fk (τ (match-case-simple* val clause ...)))
           (match-pattern val pattern (begin expr ...) (fk))))))
 
-#|
-  (import srfi-1)
-  (match/first '(1 2 3 4) ((1 ,@v 3 4) v))
-  (take '(a b . c) 3)
-|#
-
+  ; NOTE: pattern variables must be LINEAR: each `,x` unconditionally rebinds x, so `(,x ,x)`
+  ; matches ANY 2-list and binds x to the last element. To test a position against an already
+  ; bound x use `,,x`, which compares with eqv? (identity for strings and lists).
   (define-syntax match-pattern
     (syntax-rules (unquote unquote-splicing _)
       ((match-pattern val _ kt kf) kt)
       ((match-pattern val #() kt kf) (if (and (vector? val) (zero? (vector-length val))) kt kf))
       ((match-pattern val () kt kf) (if (null? val) kt kf))
-      #;((match-pattern val (e as (unquote var)) kt kf) (match-pattern val e (let1 (var (quasiquote e)) kt) kf))
-      ((match-pattern val (unquote (unquote var)) kt kf) (if (eq? var val) kt kf))
-      ((match-pattern val (unquote-splicing var) kt kf) (match-pattern val (unquote var) kt kf))
+      ((match-pattern val (unquote (unquote var)) kt kf) (if (eqv? var val) kt kf))
+      ((match-pattern val (unquote-splicing var) kt kf)
+        (syntax-error "match-pattern: splicing patterns are not supported" var))
       ((match-pattern val (unquote var) kt kf) (let1 (var val) kt))
       ((match-pattern val #(x x* ...) kt kf)
-        (cond
-          #;((pair? val)
-            (let ((valx (car val)) (valy (cdr val)))
-              (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
-          ((and (vector? val) (> (vector-length val) 0))
-            (let ((valx (vector-ref val 0)) (valy (subvector val 1)))
-              (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
-          ((record-instance? val)
-            (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
-              (match-pattern valx x (match-pattern valy #(x* ...) kt kf) kf)))
-          (else kf)))
+        (let1 (val* (cond
+                      ((vector? val) (vector->list val))
+                      ((record-instance? val) (vector->list (record->vector val)))
+                      (else #f)))
+          (if val* (match-pattern val* (x x* ...) kt kf) kf)))
       ((match-pattern val (x . y) kt kf)
         (cond
           ((pair? val)
             (let ((valx (car val)) (valy (cdr val)))
-              (match-pattern valx x (match-pattern valy y kt kf) kf)))
-          #;((vector? val) (if (< 0 (vector-length val))
-                            (let ((valx (vector-ref val 0)) (valy (subvector val 1)))
-                              (match-pattern valx x (match-pattern valy y kt kf) kf))
-                            kf))
-          #;((record-instance? val)
-            (let* ((val* (record->vector val)) (valx (vector-ref val* 0)) (valy (subvector val* 1)))
               (match-pattern valx x (match-pattern valy y kt kf) kf)))
           (else kf)))
       ((match-pattern val lit kt kf) (if (equal? val (quote lit)) kt kf))))
@@ -151,7 +129,7 @@
   (define-syntax-rule (λ-match/first e ...) (λ args (match/first args e ...)))
   (define-syntax-rule (λ1-match/first e ...) (μ arg (match/first arg e ...)))
 
-  (define-syntax-rule (Λ pat body ...) (λ args (match/first args (pat body ...))))
+  (define-syntax-rule (Λ pat body ...) (λ-match/first (pat body ...)))
 
   ; -------------------------------------------------------------------------------------------------
 
@@ -160,9 +138,7 @@
       ((_ (p out) body ...) (let* ((v (void))
                                    (s (call-with-output-string (λ (p) (set! v (begin body ...))))))
                               (values v s)))
-      ((_ (p instring) body ...) (let* ((v (void))
-                                        (s (call-with-input-string instring (λ (p) (set! v (begin body ...))))))
-                                   (values v s)))
+      ((_ (p instring) body ...) (call-with-input-string instring (λ (p) body ...)))
       ((_ else body ...) (let* ((v (void))
                                 (s (with-error-output-to-string (τ (set! v (begin body ...))))))
                            (values v s)))))
@@ -247,10 +223,7 @@
 
   (define-syntax-rule (letmaptensor ((x expr) ...) body ...) (lettensor map ((x expr) ...) body ...))
 
-  (define-syntax letmap
-    (syntax-rules ()
-      ((letmap () body ...) (list (begin body ...)))
-      ((letmap ((x expr) e ...) body ...) (append-map (μ x (letmap (e ...) body ...)) expr))))
+  (define-syntax-rule (letmap ((x expr) ...) body ...) (lettensor append-map ((x expr) ...) (list (begin body ...))))
 
   (define (member? v lst) (pair? (member v lst)))
 
@@ -265,10 +238,7 @@
        (let1 (p (assoc searchexpr lstexpr))
              (if (pair? p) (cdr p) (begin body ...))))))
 
-  (define (mappair f lst)
-    (cond
-      ((or (null? lst) (null? (cdr lst))) '())
-      (else (cons (f (car lst) (cadr lst)) (mappair f (cdr lst))))))
+  (define (mappair f lst) (if (null? lst) '() (map f lst (cdr lst))))
 
   (define (curry f g) (λ args (apply f (cons g args)))) 
 
@@ -286,18 +256,19 @@
             (set! called #t))
           memo)))
 
+  ; the fill thunk of `hash-table-ref` gives a single lookup per call, both on hit and on miss.
+  (define (memoize f)
+    (let1 (memo (make-hash-table))
+      (λ args
+        (hash-table-ref memo args (τ (let1 (v (apply f args)) (hash-table-set! memo args v) v))))))
+
+  ; kept as a dedicated 1-argument procedure: aliasing it to `memoize` forfeits most of the gain.
   (define (memoize/arg f)
     (let1 (memo (make-hash-table))
-          (λ (arg)
-              (unless (hash-table-exists? memo arg) (hash-table-set! memo arg (f arg)))
-              (hash-table-ref memo arg))))
+      (λ (arg)
+        (hash-table-ref memo arg (τ (let1 (v (f arg)) (hash-table-set! memo arg v) v))))))
 
-  (define-syntax-rule (λ-memo args body ...) (let ((memo (make-hash-table))
-                                                    (f (λ args body ...)))
-                                                (λ vargs
-                                                    (unless (hash-table-exists? memo vargs) 
-                                                      (hash-table-set! memo vargs (apply f vargs)))
-                                                    (hash-table-ref memo vargs))))
+  (define-syntax-rule (λ-memo args body ...) (memoize (λ args body ...)))
 
   (define-syntax-rule (define-memo (name arg ...) body ...) (define name (λ-memo (arg ...) body ...)))
 
@@ -307,18 +278,30 @@
 
   (define ((indicator set) v) (member? v set))
 
+  ; hybrid: the O(n²) scan wins below ~60 elements, the srfi-69 table above. `length/>?`
+  ; returns the element after the prefix, so a `#f` there only picks the scan, which stays correct.
   (define (pairwise-different? lst)
     (cond
-      ((null? lst) #t)  ; Empty list, all elements are trivially different
-      ((member? (car lst) (cdr lst)) #f)  ; First element is found in the rest of the list
-      (else (pairwise-different? (cdr lst)))))  ; Recur on the rest of the list
+      ((length/>? lst 60)
+        (let1 (seen (make-hash-table equal? equal?-hash))
+          (let P ((lst* lst))
+            (cond
+              ((null? lst*) #t)
+              ((hash-table-exists? seen (car lst*)) #f)
+              (else (hash-table-set! seen (car lst*) #t) (P (cdr lst*)))))))
+      (else
+        (let P ((lst* lst))
+          (cond
+            ((null? lst*) #t)  ; empty list, all elements are trivially different
+            ((member? (car lst*) (cdr lst*)) #f)  ; first element is found in the rest of the list
+            (else (P (cdr lst*))))))))
 
   (define one? (λ (n) (equal? n 1)))
   (define void? (let1 (v (void)) (μ v* (eq? v v*))))
 
   ; the SKI combinators.
-  (define (K x) (λ_ x))
-  (define K* (λ keeps (λ_ (apply values keeps))))
+  (define (K x) (constantly x))
+  (define K* constantly)
   (define (((S x) y) z) (x z (y z)))
   (define (((S* x) y) . zs) (apply x (append zs (list (apply y zs)))))
   (define (((S⁺ x) y) . zs) (apply x (cons (apply y zs) zs)))
@@ -326,21 +309,17 @@
   (define Φ (λ (f) (f f)))
   (define Y (λ (f) (Φ (λ (g) (f (λ args (apply (Φ g) args)))))))
 
-  (define curry₁ (λ (f) (λ (g) (λ args (apply f (cons g args))))))
+  (define curry₁ (μ (f g) (curry f g)))
 
   (define (snoc xs x) (cons x xs))
   (define (cons/λ x) (λ (xs) (cons x xs)))
   (define (snoc/λ xs) (λ (x) (cons x xs)))
   (define (map/curry f) (μ lst (map f lst)))
 
-  (define-syntax λ-curry
-    (syntax-rules ()
-     ((λ-curry () body ...) (λ (useless) body ...))
-     ((λ-curry (arg) body ...) (λ (arg) body ...))
-     ((λ-curry (arg args ...) body ...) (λ (arg) (λ-curry (args ...) body ...)))))
-  (define-syntax-rule (define-curry (name arg ...) body ...) (define name (λ-curry (arg ...) body ...)))
+  (define-syntax-rule (λ-curry formals body ...) (μ formals body ...))
+  (define-syntax-rule (define-curry (name arg ...) body ...) (define name (μ (arg ...) body ...)))
 
-  (define (load/string str) (read (open-input-string str)))
+  (define (load/string str) (with-input-from-string str read))
   (define (->string/pretty-print v) (call-with-output-string (λ (p) (pretty-print v p))))
   (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))
   (define (display/pp . args) (for-each (μ v (display (->string/pretty-print v))) args))
@@ -351,18 +330,21 @@
 
   (define (foldr/add lst) (foldr + 0 lst))
   (define (foldr/times lst) (foldr * 1 lst))
-  (define (foldr/avg lst) (/ (foldr/add lst) (length lst)))
+  (define (foldr/avg lst) (if (null? lst) +nan.0 (/ (foldr/add lst) (length lst))))
   (define (foldr/var lst)
-    (let1 (m (foldr/avg lst))
+    (let1 (n (length lst))
+      (if (< n 2)
+        +nan.0
+        (let1 (m (foldr/avg lst))
           (/ (foldr (λ (x acc) (let1 (d (- x m)) (+ (* d d) acc))) 0 lst)
-             (sub1 (length lst)))))
+             (sub1 n))))))
   (define (foldr/stddev lst) (sqrt (foldr/var lst)))
-  (define (foldr/concat lst) (foldr append '() lst))
+  (define (foldr/concat lst) (concatenate lst))
   (define (foldr/concat-strings lst) (foldr string-append "" lst))
   (define (foldr/max lst) (foldr (λ (a b) (if (> a b) a b)) -inf.0 lst))
   (define (foldr/min lst) (foldr (λ (a b) (if (< a b) a b)) +inf.0 lst))
-  (define (foldr/and lst) (foldr (λ (a b) (and a b)) #t lst))
-  (define (foldr/or lst) (foldr (λ (a b) (or a b)) #f lst))
+  (define (foldr/and lst) (not (memq #f lst)))
+  (define (foldr/or lst) (any identity lst))
 
   (define (not/✓ v) (match/first v (#t #f) (#f #t) (else v)))
 
@@ -370,18 +352,16 @@
   (define rhs cdr)
 
   (define (exists pred?)
-    (letrec ((E (λ1-match/first
-                  (() #f)
-                  (((,l . _) ⊣ (pred? l)) #t)
-                  ((_ . ,lst*) (E lst*)))))
-      E))
+    (μ lst
+      (let E ((lst* lst))
+        (cond
+          ((null? lst*) #f)
+          ((pred? (car lst*)) #t)
+          (else (E (cdr lst*)))))))
 
-  (define (prefix-with-respect-to s)
-    (letrec ((P (μ s*
-                  (cond
-                    ((or (null? s*) (eq? s* s)) '())
-                    (else (cons (car s*) (P (cdr s*))))))))
-      P))
+  (define ((prefix-with-respect-to s) s*)
+    (let P ((s* s*))
+      (if (or (null? s*) (eq? s* s)) '() (cons (car s*) (P (cdr s*))))))
 
   ; Returns a new list with duplicate elements removed, preserving the order
   ; of first occurrence. Uses foldl for tail-recursive traversal and member?
@@ -401,7 +381,11 @@
   (define-syntax-rule (appender˲ l ...) (μ lst (append l ... lst)))
 
   (define (lex<=? x y) (string<=? (->string x) (->string y)))
-  (define (sort/lex<=? ls) (sort ls lex<=?))
+  ; decorate once with `->string` instead of twice per comparison; ties keep the `sort` order.
+  (define (sort/lex<=? ls)
+    (let* ((decorated (map (λ (x) (cons (->string x) x)) ls))
+           (sorted (sort decorated (λ (a b) (string<=? (car a) (car b))))))
+      (map cdr sorted)))
 
   (define ∞ +inf.0)
   (define -∞ -inf.0)
@@ -411,9 +395,10 @@
   (define greek-alphabet/uppercase    #(Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω))
   (define ι iota)
   (define (enumerate lst)
-    (let ((index 0) (result '()))
-      (for-each (λ (v) (push! (list index v) result) (add1! index)) lst)
-      (reverse result)))
+    (let E ((lst* lst) (index 0) (result '()))
+      (cond
+        ((null? lst*) (reverse result))
+        (else (E (cdr lst*) (fx+ index 1) (cons (list index (car lst*)) result))))))
   (define (length/>? lst n)
     (match/first (cons n lst)
       ((0 . (,v . _)) v)
@@ -428,16 +413,32 @@
           (else (L (cdr args*)))))))
 
   (define (absent? v obj)
-    (cond
-      ((null? obj) #t)
-      ((pair? obj) (and (absent? v (car obj)) (absent? v (cdr obj))))
-      ((vector? obj) (let loop ((i 0))
-                       (cond
-                         ((= i (vector-length obj)) #t)
-                         ((absent? v (vector-ref obj i)) (loop (add1 i)))
-                         (else #f))))
-      ((record-instance? obj) (absent? v (record->vector obj)))
-      (else (not (equal? v obj)))))
+    (define (atom-absent? obj) ; v is an atom: only leaves can be equal? to it
+      (cond
+        ((pair? obj) (and (atom-absent? (car obj)) (atom-absent? (cdr obj))))
+        ((vector? obj) (let1 (n (vector-length obj))
+                         (let loop ((i 0))
+                           (cond
+                             ((fx= i n) #t)
+                             ((atom-absent? (vector-ref obj i)) (loop (fx+ i 1)))
+                             (else #f)))))
+        ((record-instance? obj) (atom-absent? (record->vector obj)))
+        (else (not (equal? v obj)))))
+    (define (struct-absent? obj) ; v is compound (or ()): compare at every node
+      (cond
+        ((equal? v obj) #f)
+        ((pair? obj) (and (struct-absent? (car obj)) (struct-absent? (cdr obj))))
+        ((vector? obj) (let1 (n (vector-length obj))
+                         (let loop ((i 0))
+                           (cond
+                             ((fx= i n) #t)
+                             ((struct-absent? (vector-ref obj i)) (loop (fx+ i 1)))
+                             (else #f)))))
+        ((record-instance? obj) (struct-absent? (record->vector obj)))
+        (else #t)))
+    (if (or (null? v) (pair? v) (vector? v) (record-instance? v))
+      (struct-absent? obj)
+      (atom-absent? obj)))
 
   (define (($ . args) f) (apply f args))
 

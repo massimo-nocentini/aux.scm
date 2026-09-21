@@ -77,8 +77,8 @@
 
   ((test/form->constraint _)
    (⊦= '(≠ α list) (μkanren-form->constraint '(begin (deny (equal? α (quote list))))))
-   (⊦= '(≠ (α β) (list quote)) (μkanren-form->constraint '(begin (deny (equal? α (quote list)))
-                                                                 (deny (equal? β (quote quote))))))
+   (⊦= '(≠ (α β) (list quote)) (μkanren-form->constraint '(begin (deny (and (equal? α (quote list))
+                                                                           (equal? β (quote quote)))))))
    (⊦= '(symbol? α) (μkanren-form->constraint '(assert (every (μ v (symbol? v)) (list α)))))
    (⊦= '(absento closure α) (μkanren-form->constraint '(assert (absent? (quote closure) α)))))
 
@@ -135,7 +135,7 @@
   ((test/quine _)
    (match1/first ((,answers ,profile) (°->answers/profiled (take° 1 (fresh° (q) (eval-exp° q '() q)))))
      (let ((a (car answers)))
-       (⊦= '((≠ α list) (≠ α quote) (symbol? α)) (μkanren-answer->constraints a))
+       (⊦= '((≠ α closure) (≠ α list) (≠ α quote) (symbol? α)) (μkanren-answer->constraints a))
        (⊦= '((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α)))))
            (μkanren-answer->datum a))
        `(doc (p "The smallest quine of the relational interpreter. An answer too wide for a table cell "
@@ -150,7 +150,7 @@
    (let1 (md (°->markdown (take° 1 (fresh° (q) (eval-exp° q '() q))) title: "quine" var: 'q diagram: #f))
      (⊨ (and (substring-index "### answer 1" md) #t))
      (⊨ (and (substring-index "((λ (α) (list α (list 'quote α)))" md) #t))   ; pretty-printed, abbreviated
-     (⊨ (and (substring-index "constraints: `(≠ α list)`" md) #t))))
+     (⊨ (and (substring-index "constraints: `(≠ α closure)`, `(≠ α list)`" md) #t))))
 
   ; tuples ---------------------------------------------------------------------------
 
