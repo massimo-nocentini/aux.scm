@@ -17,9 +17,9 @@
   ;;; book's trailing `o` becomes a trailing `°` throughout.
 
   ;;; Definitions are presented in the order in which they appear in
-  ;;; Chapters 7 and 8.  The one addition is a block of four relations after
-  ;;; `<=°' -- `>l°', `>=l°', `>°' and `>=°' -- which the book never needs and
-  ;;; so never writes; they are marked as such where they are defined.
+  ;;; Chapters 7 and 8.  The additions are a block after `<=°' -- the mirrored
+  ;;; comparisons `>l°', `>=l°', `>°' and `>=°', and `multiple°' -- which the
+  ;;; book never needs and so never writes; each is marked where it is defined.
 
   ;;; As in the book, there are three definitions of '/°'.  The first two,
   ;;; flawed definitions, are commented out using Scheme's '#;' convention.
@@ -269,6 +269,20 @@
   (define-relation (>=l° n m) (<=l° m n))
   (define-relation (>° n m) (<° m n))
   (define-relation (>=° n m) (<=° m n))
+
+  ; `b` is a multiple of `a` exactly when some `k` makes a * k = b, which is
+  ; the whole definition -- `*°` supplies the search and `bound-*°` supplies
+  ; the termination, so a non-multiple FAILS rather than diverging.
+  ;
+  ; Read the other way round it enumerates divisors, and the enumeration is
+  ; exhaustive: asking for more divisors of 12 than exist answers 1, 12, 2, 4,
+  ; 3, 6 and closes the stream, so `(multiple° a n)` with `a` fresh is a
+  ; factorisation and a primality test at once.
+  ;
+  ; The degenerate rows follow from a * k = b and are worth stating: every `a`
+  ; divides zero (k = 0), zero divides only itself (a * k = 0 forces b = 0),
+  ; and one divides everything.
+  (define-relation (multiple° a b) (fresh° (k) (*° a k b)))
 
   ; There is deliberately no `=°` or `≠°` for numerals here.  `build-num` is
   ; canonical -- little-endian, no trailing zero -- so two numerals denote the

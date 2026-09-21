@@ -19,8 +19,9 @@
         " build addition, subtraction, multiplication, division, exponentiation and the "
         "logarithm out of two truth tables and a great deal of unification. The definitions in "
         (code/inline "(aux kanren arith)") " are that development, translated line by line into the "
-        (code/inline "(aux kanren micro)") " idiom and then exercised here, with four "
-        "comparison relations added that the book has no use for. Nothing in the "
+        (code/inline "(aux kanren micro)") " idiom and then exercised here, with five "
+        "relations added that the book has no use for -- four mirrored comparisons and "
+        (code/inline "multiple°") ". Nothing in the "
         "translation is clever: " (code/inline "defrel") " becomes "
         (code/inline "define-relation") ", " (code/inline "conde") " becomes "
         (code/inline "cond°") ", " (code/inline "fresh") " becomes " (code/inline "fresh°")
@@ -832,6 +833,60 @@
             (code/inline "(=° n m)") " on two fresh variables unifies them without making "
             "either one a numeral, whereas " (code/inline "(<=° n m)")
             " constrains both to be numerals on the way to answering.")))
+
+  ((test/multiple° _)
+   (⊦= '(yes) (μkanren-run (r 1 #t) (multiple° (build-num 3) (build-num 12)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (multiple° (build-num 5) (build-num 5))  (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (multiple° (build-num 1) (build-num 5))  (=° r 'yes)))
+   ; a non-multiple must FAIL, not diverge -- this is the whole risk of the definition
+   (⊦= '()    (μkanren-run (r 1 #t) (multiple° (build-num 3) (build-num 7))  (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (multiple° (build-num 4) (build-num 10)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (multiple° (build-num 7) (build-num 100)) (=° r 'yes)))
+   `(doc (p (code/inline "(multiple° a b)") " holds exactly when some "
+            (code/inline "k") " makes " (code/inline "a") " times "
+            (code/inline "k") " equal " (code/inline "b") ", and that is the entire "
+            "definition -- " (code/inline "*°") " supplies the search. The three failing "
+            "assertions carry the weight. A relation that merely lacked an answer would look "
+            "the same as one that never finished looking, and the naive reading of "
+            (code/inline "multiple°") " -- guess " (code/inline "k") ", multiply, compare -- "
+            "does not terminate on a non-multiple, because there is always a larger "
+            (code/inline "k") " left to try. What stops it is " (code/inline "bound-*°")
+            ", whose only job in chapter 8 is to bound that very search by the width of the "
+            "product, so 100 is refused as a multiple of 7 in a tenth of a second rather than "
+            "never.")))
+
+  ((test/multiple°/divisors _)
+   ; asked for far more divisors than exist, so these pin exhaustion
+   (⊦= (map build-num '(1 12 2 4 3 6)) (μkanren-run (a 20 #t) (multiple° a (build-num 12))))
+   (⊦= (map build-num '(1 7))          (μkanren-run (a 10 #t) (multiple° a (build-num 7))))
+   (⊦= (map build-num '(1))            (μkanren-run (a 10 #t) (multiple° a (build-num 1))))
+   `(doc (p "Run with the divisor fresh, " (code/inline "multiple°")
+            " enumerates divisors, and it closes the stream when they run out: twenty "
+            "requested, six delivered for 12 -- 1, 12, 2, 4, 3, 6, every divisor exactly once "
+            "and in the interleaved order " (code/inline "*°") " produces them, not in "
+            "increasing order. For 7 it answers 1 and 7 and stops, which is to say the same "
+            "goal read backwards is a primality test; for 1 it answers only 1. Each count here "
+            "is larger than the stream on purpose, so the case pins exhaustion rather than a "
+            "prefix -- a " (code/inline "multiple°") " that silently dropped a divisor would "
+            "pass a weaker assertion.")))
+
+  ((test/multiple°/degenerate-rows _)
+   (⊦= '(yes) (μkanren-run (r 1 #t) (multiple° (build-num 5) (build-num 0)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (multiple° (build-num 0) (build-num 0)) (=° r 'yes)))
+   (⊦= '()    (μkanren-run (r 1 #t) (multiple° (build-num 0) (build-num 5)) (=° r 'yes)))
+   ; every numeral divides zero, which the relation says in two answers rather than infinitely many
+   (⊦= (list '() '(α . β)) (μkanren-run (a 6 #t) (multiple° a (build-num 0))))
+   `(doc (p "The rows that a hand-written predicate gets wrong. They are not special cases in "
+            "the definition -- each one falls out of " (code/inline "a * k = b")
+            " -- but they are the ones worth stating. Zero is a multiple of five, with "
+            (code/inline "k") " zero. Zero is a multiple of zero. Five is not a multiple of "
+            "zero, because no " (code/inline "k") " makes " (code/inline "0 * k") " five, so "
+            "the relation simply has no answer where a function would have to raise. And asked "
+            "which numerals divide zero -- all of them -- it does not enumerate forever: it "
+            "answers " (code/inline "()") " and " (code/inline "(α . β)")
+            ", zero and one reified shape standing for every positive numeral, then closes. "
+            "That is the payoff of a partially-ground answer: an infinite set delivered in two "
+            "lines.")))
 
   ; -- div: split° and long division ------------------------------------------------------
 
