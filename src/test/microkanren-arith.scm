@@ -38,7 +38,7 @@
 (import scheme (chicken base) srfi-1 (aux base) (aux unittest) (aux kanren micro))
 
 ;;; Goal construction in (aux kanren micro) is *eager*: `and°`/`or°`/`cond°`
-;;; are ordinary procedures (`andª`/`orª`), so every goal sub-expression of a
+;;; expand into calls to the procedures `andª`/`orª`, so every goal sub-expression of a
 ;;; clause is evaluated while the goal tree is being built.  A direct recursive
 ;;; call therefore has to be protected by an eta-expansion plus a `δ` (delay),
 ;;; unless it already sits inside a `fresh°` body (which is a λ, hence a
@@ -143,9 +143,13 @@
   (fresh° (a ad dd)
     (=° `(,a ,ad . ,dd) n)))
 
-; The five recursive calls below are clause-level conjuncts, not `fresh°`
-; bodies, so each one must be delayed with `δ°`; without it the very first
-; call to `adder°` would never finish building its own goal tree.
+; `adder°`'s body is a bare `cond°`, i.e. an ordinary call, so the three
+; self-calls below are evaluated while `adder°` is building its own goal tree
+; and each one must be delayed with `δ°`; without that the very first call to
+; `adder°` would never finish.  The two calls to `gen-adder°` need no wrapper:
+; what decides is the callee's body, not the call site, and `gen-adder°`'s body
+; is a single `fresh°`, i.e. `(freshª (λ ...))`, so calling it merely builds a λ
+; and returns.
 (define-relation (adder° b n m r)
   (cond°
     ((=° 0 b) (=° '() m) (=° n r))
@@ -159,10 +163,10 @@
      (fresh° (a c)
        (=° `(,a ,c) r)
        (full-adder° b 1 1 a c)))
-    ((=° '(1) n) (δ° (gen-adder° b n m r)))
+    ((=° '(1) n) (gen-adder° b n m r))
     ((=° '(1) m) (>1° n) (>1° r)
      (δ° (adder° b '(1) n r)))
-    ((>1° n) (δ° (gen-adder° b n m r)))))
+    ((>1° n) (gen-adder° b n m r))))
 
 (define-relation (gen-adder° b n m r)
   (fresh° (a c d e x y z)
@@ -406,7 +410,9 @@
 
   ((doc r)
    `((structure/section "Arithmetic as a relation")
-     (p "Chapters 7 and 8 of " (cite/quote "The Reasoned Schemer, Second Edition")
+     (p "Chapters 7 and 8 of "
+        (cite/a "https://github.com/TheReasonedSchemer2ndEd/CodeFromTheReasonedSchemer2ndEd/blob/master/trs2-arith.scm"
+                "The Reasoned Schemer, Second Edition")
         " build addition, subtraction, multiplication, division, exponentiation and the "
         "logarithm out of two truth tables and a great deal of unification. The definitions "
         "above are that development, translated line by line into the "
@@ -453,7 +459,7 @@
      (p "This is the one fact a reader of this repository needs before changing anything above, "
         "and it is the single respect in which the translation could not be literal. In "
         (code/inline "(aux kanren micro)") ", " (code/inline "and°") ", " (code/inline "or°")
-        " and " (code/inline "cond°") " are ordinary procedures -- they call "
+        " and " (code/inline "cond°") " are macros that expand into calls to the procedures "
         (code/inline "andª") " and " (code/inline "orª") " -- so every goal sub-expression of "
         "every clause is evaluated while the goal tree is being built, long before any "
         "substitution exists to search over. A recursive call that is the sole goal of its "
@@ -461,15 +467,26 @@
         "body is a λ and a λ is a natural delay. A recursive call sitting next to other goals "
         "in a conjunction is not: building the tree for " (code/inline "adder°") " builds the "
         "tree for " (code/inline "adder°") " builds the tree for " (code/inline "adder°")
-        ", and the file hangs at load time. The symptom is not a wrong answer or a long search; "
-        "it is no output at all, because no query ever starts.")
+        ", and the call never returns. Not at load time, though: " (code/inline "define-relation")
+        " expands to a plain " (code/inline "define") ", so every definition in this file installs "
+        "and every query that never reaches " (code/inline "adder°") " -- "
+        (code/inline "append°") ", " (code/inline "bit-xor°") ", " (code/inline "<l°")
+        " -- still runs and answers. The divergence is inside the first query that does reach it, "
+        "directly or through " (code/inline "plus°") ", " (code/inline "*°") " or "
+        (code/inline "odd-*°") ", while that query's goal tree is being built. The symptom is not "
+        "a wrong answer or a long search: running the whole file prints nothing at all, because "
+        "the suite reports only once every case has finished. So the question to ask is which "
+        "relation the first hanging query touches, not what the load order was.")
      (p "The cure is an eta-expansion around a " (code/inline "δ") ", which is exactly what the "
         "book's " (code/inline "defrel") " does for free and what this file has to write by hand:")
-     (code/pre "(define-syntax-rule (δ° g) (μ s (δ (g s))))\n\n; hangs while the tree is built -- the call is a clause-level conjunct:\n((=° 1 b) (=° '() m) (adder° 0 n '(1) r))\n\n; terminates -- the call is now a λ awaiting a substitution:\n((=° 1 b) (=° '() m) (δ° (adder° 0 n '(1) r)))")
-     (p "Five calls need it, all of them in " (code/inline "adder°") ": the two self-calls that "
-        "discharge a carry against an empty addend, the one that commutes "
-        (code/inline "'(1)") " into the first position, and the two calls to "
-        (code/inline "gen-adder°") ". Everywhere else the recursion is already under a "
+     (code/lang "scheme" "(define-syntax-rule (δ° g) (μ s (δ (g s))))\n\n; hangs while the tree is built -- the call is a clause-level conjunct:\n((=° 1 b) (=° '() m) (adder° 0 n '(1) r))\n\n; terminates -- the call is now a λ awaiting a substitution:\n((=° 1 b) (=° '() m) (δ° (adder° 0 n '(1) r)))")
+     (p "Three calls need it, all of them self-calls of " (code/inline "adder°") ": the two that "
+        "discharge a carry against an empty addend and the one that commutes "
+        (code/inline "'(1)") " into the first position. What decides is the callee's body, not "
+        "the call site -- the two calls to " (code/inline "gen-adder°") " are clause-level "
+        "conjuncts too, but " (code/inline "gen-adder°") " is a single " (code/inline "fresh°")
+        ", that is " (code/inline "(freshª (λ ...))") ", so the call hands back a goal without "
+        "evaluating its body. Everywhere else the recursion is already under a "
         (code/inline "fresh°") " -- " (code/inline "*°") ", " (code/inline "split°") ", "
         (code/inline "=l°") ", " (code/inline "exp2°") " and the rest are unchanged from the "
         "book. The wrapper is applied where eagerness would bite and nowhere else, so its "
@@ -483,9 +500,12 @@
         " and nothing more. Those partially ground answers are the interesting ones -- they are "
         "the relation declining to decide a bit it was never asked about, and an expectation "
         "that spelled a concrete bit there would be asserting something the code does not "
-        "claim. Answer ORDER is asserted too: " (code/inline "cond°") " is tried clause by "
-        "clause, so the textual order of a truth table is observable ten definitions later in "
-        "the order " (code/inline "plus°") " hands back its solutions.")
+        "claim. Answer ORDER is asserted too: " (code/inline "cond°") " disjoins by "
+        "INTERLEAVING its clauses, and for a truth table -- where every clause yields exactly "
+        "one answer -- the interleaving coincides with textual order, so that order is "
+        "observable ten definitions later in the order " (code/inline "plus°") " hands back "
+        "its solutions. Where a clause yields more than one answer the two part company, and "
+        "the expectations below are read off the interleaving.")
      (p "The definitions under test are the ones immediately above, in the same file: a case "
         "and the relation it pins are never more than a screen apart, and the "
         (code/inline "#;") "-commented alternatives -- the frame 7:12 half-adder, the frame 7:15 "
@@ -571,9 +591,11 @@
         "nothing local to blame.")
      (p "The answer ORDER is asserted too, and the two tables do not share it: upstream writes "
         (code/inline "bit-and°") " as 00, 10, 01, 11 while " (code/inline "bit-xor°")
-        " is 00, 01, 10, 11. Since " (code/inline "cond°") " answers clause by clause, that "
-        "textual order is observable and it propagates into the order in which "
-        (code/inline "adder°") " and " (code/inline "*°") " enumerate their solutions.")
+        " is 00, 01, 10, 11. Each clause of these tables yields exactly one answer, so "
+        (code/inline "cond°") "'s interleaving degenerates to textual order here; that order "
+        "is observable and it feeds into the order in which " (code/inline "adder°") " and "
+        (code/inline "*°") " enumerate their solutions, which past the leaves is an "
+        "interleaving and no longer clause order.")
      (p "Run backwards from " (code/inline "r") ", " (code/inline "bit-xor°") " has two "
         "preimages and " (code/inline "bit-and°") " has one; that asymmetry is what makes the "
         "carry bit the deterministic half of " (code/inline "half-adder°") ". The final case "
@@ -803,9 +825,11 @@
             (code/inline "(adder° b '(1) n r)") ", are exactly the calls this file wraps in "
             (code/inline "δ°") ": they are clause-level conjuncts of a " (code/inline "cond°")
             ", and goal construction here is eager, so without the wrapper the goal tree for "
-            (code/inline "adder°") " never finishes being built and the file hangs before any "
-            "query runs at all -- deleting a single wrapper produces no output whatsoever, not "
-            "a wrong answer.  The last two lines ground the sum and leave the carry fresh: the "
+            (code/inline "adder°") " never finishes being built -- not at load time, but inside "
+            "the first query that calls it.  Deleting a single wrapper leaves every definition "
+            "and every adder-free case working, and still yields no output whatsoever from a run "
+            "of this file, not a wrong answer.  The last two lines ground the sum and leave the "
+            "carry fresh: the "
             "bit is recovered, uniquely, from 3+4 against 8 rather than 7.")))
 
   ((test/gen-adder° _)
@@ -883,8 +907,12 @@
         "operands are not symmetric in the code even though the answers are: with "
         (code/inline "n") " odd and " (code/inline "m") " even the sixth clause recurs as "
         (code/inline "(*° m n p)") ", swapping the pair so the even operand is the one that "
-        "gets halved by clause five, and " (code/inline "7*7") " is the case that reaches the "
-        "seventh clause, the only one that hands the work to " (code/inline "odd-*°") ".")
+        "gets halved by clause five.  Three of the nine rows reach the seventh clause, the only "
+        "one that hands the work to " (code/inline "odd-*°") ": " (code/inline "3*5")
+        " enters it once and is the smallest odd-times-odd product, " (code/inline "6*7")
+        " once after clause five has halved the 6 into " (code/inline "(*° 3 7 z)") ", and "
+        (code/inline "7*7") " eight times -- depth, not path, is what that last row buys, and "
+        "deleting the clause costs exactly those three of the nine their answer.")
      (p "The last two are the zero clauses, and they are the only place "
         (code/inline "*°") " answers without grounding its arguments. "
         (code/inline "(*° '() m '())") " has a single answer that says nothing at all about "
@@ -907,9 +935,10 @@
         "output -- there is no mode declaration and no guard on which arguments are ground -- "
         "so this direction costs no extra code; what it costs is termination, and that is "
         "what these five assertions buy. Both factor positions are exercised because the "
-        "clause that fires differs: with the fresh variable second the search descends "
-        "through clause five halving " (code/inline "n") ", with it first the swap in clause "
-        "six runs instead.")
+        "clause that fires differs: with the fresh variable second the ground odd "
+        (code/inline "n") " cannot match clause five at all and the swap in clause six is "
+        "what fires; with it first clause six is dead and clause five halves the fresh "
+        (code/inline "n") " instead.")
      (p "The last line is the one that matters. " (code/inline "(*° 3 m 13)") " has no "
         "solution, and a relational divide that cannot say so is useless: it would have to "
         "enumerate ever longer candidates for " (code/inline "m") " forever. It returns the "
@@ -1043,7 +1072,7 @@
    (⊦= '()    (μkanren-run (r 1 #t) (<° (build-num 5) (build-num 5)) (=° r 'yes)))
    (⊦= '(yes) (μkanren-run (r 1 #t) (<° (build-num 4) (build-num 5)) (=° r 'yes)))
    (⊦= '()    (μkanren-run (r 1 #t) (<l° (build-num 4) (build-num 5)) (=° r 'yes)))
-   (⊦= '(yes) (μkanren-run (r 1 #t) (<=° (build-num 5) (build-num 5)) (=° r 'yes)))
+   (⊦= '(yes) (μkanren-run (r 1 #t) (<=° (build-num 5) (build-num 6)) (=° r 'yes)))
    (⊦= '(yes) (μkanren-run (r 4 #t) (<=° (build-num 5) (build-num 5)) (=° r 'yes)))
    (⊦= '(α)   (μkanren-run (r 1 #t) (fresh° (x) (<=° x x) (=° r x))))
    `(doc (p (code/inline "<°") " is " (code/inline "<l°") " widened: it first tries the length "
@@ -1213,8 +1242,9 @@
          (code/inline "(<° r m)") " and nothing is below " (code/inline "'()") ", and the point of "
          "asserting the empty stream is that the failure is finite -- the guards reject before the "
          "recursion is entered, so 5/0 costs nothing instead of hanging. Cost note: 17/3 (~60 ms) "
-         "and 12/4 (~45 ms) are the two most expensive queries in this family; the price is in the "
-         "bit width of the operands, so widen the numbers only with a reason.")))
+         "dominates this family by an order of magnitude -- 12/4 is next at ~7 ms, 7/1 costs ~3 ms "
+         "and the three narrow cases are at or under 1 ms; the price is in the bit width of the "
+         "operands, so widen the numbers only with a reason.")))
 
   ((test//°/relational _)
    (⊦= (list (build-num 17))                                 ; n such that n = 3·5 + 2
@@ -1313,10 +1343,15 @@
         (code/inline "(=° '(0 1) b)") ", which performs no arithmetic at all: it reads "
         (code/inline "q") " off " (code/inline "exp2°") " and then uses "
         (code/inline "split°") " to cut " (code/inline "n") " at that position for the "
-        "remainder. Hence base two costs single-digit milliseconds where base three costs "
-        "eighty, and 12 = 2³ + 4 is the one assertion here that would survive nothing: 8 and 16 "
-        "are exact powers whose remainder is " (code/inline "'()") " however "
-        (code/inline "split°") " misbehaves.")
+        "remainder. Hence none of these five queries costs more than twenty milliseconds where the "
+        "matching base-three query costs eighty, and the weight is carried by the two non-exact "
+        "rows, 9 = 2³ + 1 and 12 = 2³ + 4: they are the assertions that would survive nothing, "
+        "since " (code/inline "r") " reaches them only through " (code/inline "split°")
+        ". 8 and 16 are exact powers whose remainder stays " (code/inline "'()") " however "
+        (code/inline "split°") " misbehaves, and 1 never enters this clause at all -- "
+        (code/inline "(pos° dd)") " demands three bits, so " (code/inline "n = 1")
+        " is answered by the first clause as " (code/inline "q = 0") ", "
+        (code/inline "r = n - 1") ".")
      (p "Asking for four answers of " (code/inline "log° 12 2") " and getting exactly one is "
         "the contract, not an accident. The clause commits to " (code/inline "q = ⌊log₂ n⌋")
         ", after which " (code/inline "r") " is a function of it, so the base-two path is "

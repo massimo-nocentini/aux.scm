@@ -2,6 +2,10 @@
 CSI=csi
 CSC=csc
 
+.PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
+        test-anthropic test-anthropic-live install format simdjson-fetch timsort-fetch \
+        foreigns-fetch json-bench bitcoin-colors
+
 echo:
 	echo "Catch all for the Makefile"
 

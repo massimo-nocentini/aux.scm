@@ -68,7 +68,7 @@
           (let ((header-id (symbol->string testcase-name)))
             `((h2 (@ (id ,header-id))
                 (a (@ (href ,(string-append "#" header-id)))
-                  (code ,testcase-name)
+                  (code ,header-id)
                   ": " 
                   ,(if (eq? v witness)
                       '(span (@ (class "w3-text-red")) fail) 
