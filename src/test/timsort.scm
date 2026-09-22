@@ -116,7 +116,7 @@
 
   ((test/primitive _)
    (⊦= (sort '(5 4 3 2 1) <) (timsort/primitive '(5 4 3 2 1)))
-   #;(⊦= '(1.1 2.1 3.1 4.1 5.1) (timsort/primitive '(5.1 4.1 3.1 2.1 1.1)))
+   (⊦= '(1.1 2.1 3.1 4.1 5.1) (timsort/primitive '(5.1 4.1 3.1 2.1 1.1)))
    (⊦= '(hello world) (timsort/primitive '(world hello))))
 
   )
