@@ -510,11 +510,16 @@ static threeways_comparefunc_t timsort_homogeneous_comparator(C_word elements, s
     }
 }
 
+/* Defined below, with the comment block explaining why its keys may be pinned:
+   both entry points need it, and it sits with the other keyed comparators. */
+static threeways_comparefunc_t timsort_keyed_comparator(C_word keys, size_t n, int widen);
+
 C_word C_timsort(C_word in,
                  size_t size,
                  C_word comparator,
                  C_word buffer,
                  C_word elements,
+                 C_word keys,
                  int inplace,
                  int reverse,
                  int use_ordinary_insertion_sort,
@@ -523,15 +528,22 @@ C_word C_timsort(C_word in,
 {
     timsort_list_t list;
     timsort_scheme_t ctx;
-    threeways_comparefunc_t homogeneous;
-    size_t index, n;
+    threeways_comparefunc_t specialised;
+    size_t index, n, m;
     C_word cons_cell, sorted_vector, result;
-    int res;
+    int res, carries_values;
 
     /* The vector is the authority on how many elements there are; `size' may
-       only shrink that, never grow it past the allocation. */
+       only shrink that, never grow it past the allocation -- and a keys vector,
+       when there is one, may shrink it further. */
     n = (size_t)C_unfix(C_i_vector_length(elements));
     if (size < n) n = size;
+
+    if (keys != C_SCHEME_FALSE)
+    {
+        m = (size_t)C_unfix(C_i_vector_length(keys));
+        if (m < n) n = m;
+    }
 
     if (n == 0)
     {
@@ -541,16 +553,26 @@ C_word C_timsort(C_word in,
     ctx.primitive = comparator_type == TIMSORT_USE_LESS_THAN
                  || comparator_type == TIMSORT_USE_NUMBER_LESS_THAN;
     ctx.widen = comparator_type == TIMSORT_USE_LESS_THAN;
-    ctx.keyed = 0;                     /* the list entry point has no keys */
+    ctx.keyed = keys != C_SCHEME_FALSE;
     ctx.keys_pinned = C_SCHEME_FALSE;
 
     ctx.roots = timsort_roots_acquire();
 
     if (ctx.roots == NULL) C_return(C_SCHEME_FALSE);
 
-    homogeneous = ctx.primitive
-        ? timsort_homogeneous_comparator(elements, n, ctx.widen)
-        : NULL;
+    /* A keyed sort must keep the permutation, so even when its keys are
+       homogeneous `ob_item' holds indices; only an unkeyed homogeneous sort can
+       carry the values themselves. */
+    if (ctx.keyed)
+    {
+        specialised = ctx.primitive ? timsort_keyed_comparator(keys, n, ctx.widen) : NULL;
+        carries_values = 0;
+    }
+    else
+    {
+        specialised = ctx.primitive ? timsort_homogeneous_comparator(elements, n, ctx.widen) : NULL;
+        carries_values = specialised != NULL;
+    }
 
     list.ob_item = (timsort_object_t **)malloc(n * sizeof(timsort_object_t *));
 
@@ -570,17 +592,19 @@ C_word C_timsort(C_word in,
     CHICKEN_gc_root_set(ctx.roots->comparator, comparator);
     CHICKEN_gc_root_set(ctx.roots->in, in);
     CHICKEN_gc_root_set(ctx.roots->buffer, buffer);
+    CHICKEN_gc_root_set(ctx.roots->keys, keys);
+
+    /* Only read by the keyed specialised comparators, which cannot collect. */
+    if (ctx.keyed && specialised != NULL) ctx.keys_pinned = keys;
 
     list.ob_size = (timsort_ssize_t)n;
 
-    if (homogeneous != NULL)
+    if (carries_values)
     {
         for (index = 0; index < n; index++)
         {
             list.ob_item[index] = (timsort_object_t *)(uintptr_t)C_block_item(elements, index);
         }
-
-        res = list_sort_impl(&list, reverse, use_ordinary_insertion_sort, unpredictable_branch_on_random_data, homogeneous, NULL);
     }
     else
     {
@@ -588,9 +612,12 @@ C_word C_timsort(C_word in,
         {
             list.ob_item[index] = TIMSORT_OBJECT_FOR_INDEX(index);
         }
-
-        res = list_sort_impl(&list, reverse, use_ordinary_insertion_sort, unpredictable_branch_on_random_data, timsort_comparator, &ctx);
     }
+
+    res = list_sort_impl(&list, reverse, use_ordinary_insertion_sort,
+                         unpredictable_branch_on_random_data,
+                         specialised != NULL ? specialised : timsort_comparator,
+                         specialised != NULL && carries_values ? NULL : (void *)&ctx);
 
     /* `list_sort_impl' returns -1 when `merge_getmem' cannot allocate its
        temporary run buffer.  An `assert' is not error handling: under NDEBUG
@@ -611,7 +638,7 @@ C_word C_timsort(C_word in,
 
     for (index = 0; index < n && cons_cell != C_SCHEME_END_OF_LIST; index++)
     {
-        C_word sorted = homogeneous != NULL
+        C_word sorted = carries_values
             ? TIMSORT_VALUE(list.ob_item[index])
             : C_block_item(sorted_vector, TIMSORT_INDEX(list.ob_item[index]));
 

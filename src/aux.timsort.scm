@@ -9,7 +9,7 @@
   (foreign-declare "#include \"chicken-timsort.h\"")
 
   (define timsort-foreign
-    (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object scheme-object bool bool bool bool int))
+    (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object scheme-object scheme-object bool bool bool bool int))
 
   (define timsort-depth (foreign-lambda size_t "C_timsort_depth"))
   (define timsort-unwind (foreign-lambda void "C_timsort_unwind" size_t))
@@ -34,9 +34,31 @@
           ;; nothing for C to do and nothing that can escape.  Returning here
           ;; skips the foreign call, the buffer and the `dynamic-wind'.
           (if inplace (void) (if (null? lst) '() (list (car lst))))
-          (timsort/call lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type lst elements size))))
+          (timsort/call lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type lst elements #f size))))
 
-  (define (timsort/call lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type lst elements size)
+  ;; The keys are extracted here, in Scheme, before C is entered: the key
+  ;; procedure runs exactly once per element and as an ordinary Scheme call,
+  ;; never as a `C_callback'.  C then orders the keys, which is why a keyed
+  ;; sort re-enters Scheme not once per comparison but not at all.
+  (define (%timsort-keys key elements size)
+    (let ((keys (make-vector size)))
+      (let loop ((i 0))
+        (if (eq? i size)
+            keys
+            (begin (vector-set! keys i (key (vector-ref elements i)))
+                   (loop (+ i 1)))))))
+
+  (define ((timsort/key/gen lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type) lst key)
+    (let* ((elements (list->vector lst))
+           (size (vector-length elements)))
+      (if (< size 2)
+          ;; As above -- and the key is applied zero times, so a caller cannot
+          ;; tell a singleton from an empty list by counting applications.
+          (if inplace (void) (if (null? lst) '() (list (car lst))))
+          (timsort/call lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type
+                        lst elements (%timsort-keys key elements size) size))))
+
+  (define (timsort/call lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type lst elements keys size)
     (let* ((new-lst (if inplace lst (%timsort-fresh-list size)))
            (depth (timsort-depth)))
       ;; A comparator that raises, or that escapes through a continuation
@@ -45,7 +67,7 @@
       (or (dynamic-wind
             void
             (lambda ()
-              (timsort-foreign lst size lt? new-lst elements inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type))
+              (timsort-foreign lst size lt? new-lst elements keys inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type))
             (lambda () (timsort-unwind depth)))
           (error 'timsort "cannot allocate the working array" size))))
 
@@ -68,6 +90,28 @@
   (define timsort/primitive! (timsort/gen < #t #f #f #t TIMSORT_USE_LESS_THAN))
   (define timtros/primitive (timsort/gen < #f #t #f #t TIMSORT_USE_LESS_THAN))
   (define timtros/primitive! (timsort/gen < #t #t #f #t TIMSORT_USE_LESS_THAN))
+
+  ;; ----------------------------------------------------------------------
+  ;; SORT BY KEY.  `(timsort/key lst car)' orders the ELEMENTS of lst by
+  ;; `(< (car a) (car b))', stably, applying `car' exactly once per element in
+  ;; input order.  The comparator on the left is handed the two KEYS, not the
+  ;; two elements, because comparing keys is what this is defined to do -- so a
+  ;; type error still comes from `<' and reads as it always did.
+  ;;
+  ;; A key can only express a total preorder.  A comparator that is not a
+  ;; function of one projection of each element -- a multi-field order with
+  ;; mixed directions, say -- has no single key, and still needs
+  ;; `timsort/gen' with TIMSORT_USE_COMPARATOR and its per-comparison callback.
+  ;; ----------------------------------------------------------------------
+  (define timsort/key  (timsort/key/gen < #f #f #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timsort/key! (timsort/key/gen < #t #f #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timtros/key  (timsort/key/gen < #f #t #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timtros/key! (timsort/key/gen < #t #t #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+
+  (define timsort/primitive/key  (timsort/key/gen < #f #f #f #t TIMSORT_USE_LESS_THAN))
+  (define timsort/primitive/key! (timsort/key/gen < #t #f #f #t TIMSORT_USE_LESS_THAN))
+  (define timtros/primitive/key  (timsort/key/gen < #f #t #f #t TIMSORT_USE_LESS_THAN))
+  (define timtros/primitive/key! (timsort/key/gen < #t #t #f #t TIMSORT_USE_LESS_THAN))
 
   ;; ======================================================================
   ;; NATIVE VECTOR API

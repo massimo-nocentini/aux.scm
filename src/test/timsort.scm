@@ -143,6 +143,27 @@
    (⊦= '#(#\a #\b #\z) (timsort/primitive/vector '#(#\z #\b #\a)))
    (⊦= '#(#f #t) (timsort/primitive/vector '#(#t #f))))
 
+  ((test/key _)
+   ;; Ordered by the key, and STABLE: equal keys keep their input order, which
+   ;; the (key . position) decoration below makes observable.
+   (let ((recs (list (cons 1 'a) (cons 0 'b) (cons 1 'c) (cons 0 'd))))
+     (⊦= (list (cons 0 'b) (cons 0 'd) (cons 1 'a) (cons 1 'c))
+         (timsort/key recs car))
+     ;; descending keys, ties still in INPUT order
+     (⊦= (list (cons 1 'a) (cons 1 'c) (cons 0 'b) (cons 0 'd))
+         (timtros/key recs car)))
+   ;; the key runs exactly once per element, in input order
+   (let* ((seen '())
+          (recs (list (cons 3 'x) (cons 1 'y) (cons 2 'z)))
+          (spy (lambda (r) (set! seen (cons r seen)) (car r))))
+     (timsort/key recs spy)
+     (⊦= recs (reverse seen)))
+   `(doc (p "A key is applied exactly once per element rather than twice per "
+            "comparison, so the ordering is decided entirely in C and the sort "
+            "makes no call back into Scheme at all. A key can only express a "
+            "total preorder; an arbitrary comparator still needs "
+            (code/inline "timsort/gen") ".")))
+
   ((test/vector/key _)
    (let ((v (vector (cons 1 'a) (cons 0 'b) (cons 1 'c))))
      (⊦= (vector (cons 0 'b) (cons 1 'a) (cons 1 'c)) (timsort/vector/key v car))

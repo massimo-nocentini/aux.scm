@@ -34,6 +34,10 @@ typedef enum timsort_scheme_comparison_type_e
    indices into it, so that no C_word is ever cached in C memory across a
    comparator callback.  See the comment at the top of chicken-timsort.c.
 
+   `keys', when it is not #f, must be a vector as long as `elements' holding
+   one key per element; the order is then decided by comparing KEYS rather than
+   elements, and the permutation is applied to the elements at the end.
+
    Returns the sorted buffer list (#!unspecific when `inplace'), or #f when a
    working array could not be allocated -- nothing has been written in that
    case. */
@@ -42,6 +46,7 @@ C_word C_timsort(C_word list_or_array,
                  C_word comparator,
                  C_word buffer,
                  C_word elements,
+                 C_word keys,
                  int inplace,
                  int reverse,
                  int use_ordinary_insertion_sort,
