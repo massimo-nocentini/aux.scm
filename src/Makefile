@@ -20,6 +20,7 @@ test:
 	cd test && ${CSI} -s letnondeterministic.scm
 	cd test && ${CSI} -s delimcc.scm
 	cd test && ${CSI} -s timsort.scm
+	cd test && ${CSI} -s timsort-trace-buffer.scm
 	cd test && ${CSI} -s bootstrap.scm
 	cd test && ${CSC} learning.scm bar.c -I/usr/local/include && ./learning && rm learning
 	cd test && ${CSI} -s hansei.scm
@@ -61,6 +62,7 @@ format:
 	scheme-indent -T 2 < test/letnondeterministic.scm > test/letnondeterministic.scm.tmp && mv test/letnondeterministic.scm.tmp test/letnondeterministic.scm
 	scheme-indent -T 2 < test/delimcc.scm > test/delimcc.scm.tmp && mv test/delimcc.scm.tmp test/delimcc.scm
 	scheme-indent -T 2 < test/timsort.scm > test/timsort.scm.tmp && mv test/timsort.scm.tmp test/timsort.scm
+	scheme-indent -T 2 < test/timsort-trace-buffer.scm > test/timsort-trace-buffer.scm.tmp && mv test/timsort-trace-buffer.scm.tmp test/timsort-trace-buffer.scm
 	scheme-indent -T 2 < test/test.scm > test/test.scm.tmp && mv test/test.scm.tmp test/test.scm
 	scheme-indent -T 2 < test/stream.scm > test/stream.scm.tmp && mv test/stream.scm.tmp test/stream.scm
 	scheme-indent -T 2 < test/bootstrap.scm > test/bootstrap.scm.tmp && mv test/bootstrap.scm.tmp test/bootstrap.scm
