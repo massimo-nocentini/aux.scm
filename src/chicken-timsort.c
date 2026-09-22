@@ -24,14 +24,28 @@
 
    The rule this file follows: no `C_word' is ever held across a call to
    `C_callback'.  The objects to be sorted live in a Scheme vector supplied by
-   the caller; the sort permutes plain C indices into that vector, and the four
-   Scheme values we need (the vector, the comparator, the input list and the
-   output list) are held in GC roots and re-read from those roots after every
-   point where a collection may have happened.
+   the caller; the sort permutes plain C indices into that vector, and the five
+   Scheme values we need (the vector, the comparator, the input list, the
+   output list or vector, and the key vector) are held in GC roots and re-read
+   from those roots after every point where a collection may have happened.
 
-   `timsort_homogeneous_comparator' below is the one deliberate exception, and
-   it earns it by proving that no callback -- hence no collection -- can happen
-   at all for the duration of that sort.  Read its comment before touching it.
+   `timsort_homogeneous_comparator' and the keyed comparators below are the two
+   deliberate exceptions, and they earn it by proving that no callback -- hence
+   no collection -- can happen at all for the duration of that sort.  Read
+   their comments before touching them.
+
+   A SECOND, UNRELATED INVARIANT, on the Scheme side, because it is invisible
+   in review and costs megabytes per escape: NOTHING MAY BE NAMED AFTER THE
+   FOREIGN CALL EXCEPT ITS RETURN VALUE.  Whatever the call's continuation
+   captures is pinned for the life of the process when a comparator escapes
+   non-locally, because CHICKEN never unwinds that continuation.  Writing
+   `(vector-length src)' into the failure message of the vector wrapper --
+   which is the obvious thing to write -- retained the caller's whole vector,
+   elements included, on every escaped sort: measured at 4.8 MB per escape for
+   300 records carrying a 2000-word payload each.  Passing the length in as an
+   argument and mentioning only that argument drops it to the same 430 bytes
+   the list path costs.  This is NOT the GC-safety rule above and is not
+   implied by it.
 
    The roots themselves are recycled through a process-lifetime pool rather
    than deleted.  `CHICKEN_gc_root_set' is `C_mutate', which records the
@@ -50,6 +64,7 @@ typedef struct timsort_roots_s
     void *comparator;
     void *in;
     void *buffer;
+    void *keys;
     void *ob_item;
 } timsort_roots_t;
 
@@ -63,6 +78,7 @@ static void timsort_roots_clear(timsort_roots_t *r)
     CHICKEN_gc_root_set(r->comparator, C_SCHEME_UNDEFINED);
     CHICKEN_gc_root_set(r->in, C_SCHEME_UNDEFINED);
     CHICKEN_gc_root_set(r->buffer, C_SCHEME_UNDEFINED);
+    CHICKEN_gc_root_set(r->keys, C_SCHEME_UNDEFINED);
 }
 
 static timsort_roots_t *timsort_roots_acquire(void)
@@ -83,6 +99,7 @@ static timsort_roots_t *timsort_roots_acquire(void)
         r->comparator = CHICKEN_new_gc_root();
         r->in = CHICKEN_new_gc_root();
         r->buffer = CHICKEN_new_gc_root();
+        r->keys = CHICKEN_new_gc_root();
     }
 
     r->ob_item = NULL;
@@ -158,6 +175,11 @@ typedef struct
     timsort_roots_t *roots;
     int primitive; /* order what we can in C, instead of always calling back */
     int widen;     /* ... and not just numbers */
+    int keyed;     /* compare the KEYS at those indices, not the elements */
+
+    /* Only set, and only read, by the keyed homogeneous comparators below,
+       which provably never reach `C_callback'.  See their comment. */
+    C_word keys_pinned;
 } timsort_scheme_t;
 
 /* `timsort_object_t' is `void *' and the sort treats it as completely opaque:
@@ -307,8 +329,10 @@ static int timsort_comparator(timsort_object_t *a, timsort_object_t *b, void *ar
     timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
 
     /* Re-read the vector, and both elements out of it, on every comparison: a
-       previous callback may have let a collection move all three. */
-    C_word vector = CHICKEN_gc_root_ref(ctx->roots->vector);
+       previous callback may have let a collection move all three.  On a keyed
+       sort the order is decided by the parallel key vector; the elements
+       themselves are never looked at until the write-back. */
+    C_word vector = CHICKEN_gc_root_ref(ctx->keyed ? ctx->roots->keys : ctx->roots->vector);
 
     C_word aw = C_block_item(vector, TIMSORT_INDEX(a));
     C_word bw = C_block_item(vector, TIMSORT_INDEX(b));
@@ -359,12 +383,14 @@ static int timsort_comparator(timsort_object_t *a, timsort_object_t *b, void *ar
    The vector stays pinned in its GC root, so the values in that array stay
    live even though the collector cannot see the array itself.
 
-   THIS IS THE ONE PLACE IN THIS FILE THAT BREAKS THE "no C_word in C memory"
-   RULE, and its soundness rests entirely on "no callback implies no
-   collection".  Anything added to the dispatch that can allocate in the
-   nursery, or any class let through here that can reach the Scheme
-   comparator, turns every word in this array into a pointer into the dead
-   semispace.
+   THIS IS ONE OF THE TWO PLACES IN THIS FILE THAT BREAK THE "no C_word in C
+   memory" RULE -- the other is `ctx->keys_pinned', used by the keyed
+   specialised comparators (see TIMSORT_KEY below) -- and the soundness of
+   both rests entirely on "no callback implies no collection".  Anything added
+   to the dispatch that can allocate in the nursery, or any class let through
+   here that can reach the Scheme comparator, turns every word held this way
+   into a pointer into the dead semispace.  If you add a third such place,
+   say so here and there.
    ------------------------------------------------------------------------ */
 
 #define TIMSORT_VALUE(o) ((C_word)(uintptr_t)(o))
@@ -412,10 +438,23 @@ static int timsort_v_boolean(timsort_object_t *a, timsort_object_t *b, void *arg
     return TIMSORT_VALUE(a) == C_SCHEME_FALSE && TIMSORT_VALUE(b) != C_SCHEME_FALSE;
 }
 
-/* The specialised comparator for `elements', or NULL when the vector is not
-   homogeneous enough for one and the callback-capable path has to be used.
-   One linear read-only pass, decided before anything is allocated. */
-static threeways_comparefunc_t timsort_homogeneous_comparator(C_word elements, size_t n, int widen)
+/* The one ordering class every element of `elements' belongs to, refined to
+   all-fixnum / all-flonum where that holds, or TIMSORT_HOMO_NONE when the
+   vector is not homogeneous enough and the callback-capable path has to be
+   used.  One linear read-only pass, decided before anything is allocated. */
+enum timsort_homo_e
+{
+    TIMSORT_HOMO_NONE = 0,
+    TIMSORT_HOMO_FIXNUM,
+    TIMSORT_HOMO_FLONUM,
+    TIMSORT_HOMO_NUMBER,
+    TIMSORT_HOMO_STRING,
+    TIMSORT_HOMO_SYMBOL,
+    TIMSORT_HOMO_CHAR,
+    TIMSORT_HOMO_BOOLEAN
+};
+
+static int timsort_homogeneous_kind(C_word elements, size_t n, int widen)
 {
     size_t i;
     int kind = -1, all_fixnum = 1, all_flonum = 1;
@@ -425,17 +464,17 @@ static threeways_comparefunc_t timsort_homogeneous_comparator(C_word elements, s
         C_word e = C_block_item(elements, i);
         int k = timsort_kind(e);
 
-        if (k == TIMSORT_KIND_OTHER) return NULL;
-        if (!widen && k != TIMSORT_KIND_NUMBER) return NULL;
+        if (k == TIMSORT_KIND_OTHER) return TIMSORT_HOMO_NONE;
+        if (!widen && k != TIMSORT_KIND_NUMBER) return TIMSORT_HOMO_NONE;
         if (kind < 0) kind = k;
-        else if (k != kind) return NULL;
+        else if (k != kind) return TIMSORT_HOMO_NONE;
 
         /* The value goes straight into `ob_item', where the sort requires it
            to be non-NULL.  No Scheme object is ever the word 0 -- fixnums are
            odd, the other immediates carry their type bits and a block is a
            real address -- but this path must not be the place that finds out
            otherwise. */
-        if (e == 0) return NULL;
+        if (e == 0) return TIMSORT_HOMO_NONE;
 
         if (!(e & C_FIXNUM_BIT)) all_fixnum = 0;
         /* `C_block_header' dereferences, so immediates must be ruled out. */
@@ -445,11 +484,28 @@ static threeways_comparefunc_t timsort_homogeneous_comparator(C_word elements, s
     switch (kind)
     {
     case TIMSORT_KIND_NUMBER:
-        return all_fixnum ? timsort_v_fixnum : (all_flonum ? timsort_v_flonum : timsort_v_number);
-    case TIMSORT_KIND_STRING:  return timsort_v_string;
-    case TIMSORT_KIND_SYMBOL:  return timsort_v_symbol;
-    case TIMSORT_KIND_CHAR:    return timsort_v_char;
-    case TIMSORT_KIND_BOOLEAN: return timsort_v_boolean;
+        return all_fixnum ? TIMSORT_HOMO_FIXNUM
+             : (all_flonum ? TIMSORT_HOMO_FLONUM : TIMSORT_HOMO_NUMBER);
+    case TIMSORT_KIND_STRING:  return TIMSORT_HOMO_STRING;
+    case TIMSORT_KIND_SYMBOL:  return TIMSORT_HOMO_SYMBOL;
+    case TIMSORT_KIND_CHAR:    return TIMSORT_HOMO_CHAR;
+    case TIMSORT_KIND_BOOLEAN: return TIMSORT_HOMO_BOOLEAN;
+    default: return TIMSORT_HOMO_NONE;
+    }
+}
+
+/* The value-carrying comparator for that class, or NULL for none. */
+static threeways_comparefunc_t timsort_homogeneous_comparator(C_word elements, size_t n, int widen)
+{
+    switch (timsort_homogeneous_kind(elements, n, widen))
+    {
+    case TIMSORT_HOMO_FIXNUM:  return timsort_v_fixnum;
+    case TIMSORT_HOMO_FLONUM:  return timsort_v_flonum;
+    case TIMSORT_HOMO_NUMBER:  return timsort_v_number;
+    case TIMSORT_HOMO_STRING:  return timsort_v_string;
+    case TIMSORT_HOMO_SYMBOL:  return timsort_v_symbol;
+    case TIMSORT_HOMO_CHAR:    return timsort_v_char;
+    case TIMSORT_HOMO_BOOLEAN: return timsort_v_boolean;
     default: return NULL;
     }
 }
@@ -485,6 +541,8 @@ C_word C_timsort(C_word in,
     ctx.primitive = comparator_type == TIMSORT_USE_LESS_THAN
                  || comparator_type == TIMSORT_USE_NUMBER_LESS_THAN;
     ctx.widen = comparator_type == TIMSORT_USE_LESS_THAN;
+    ctx.keyed = 0;                     /* the list entry point has no keys */
+    ctx.keys_pinned = C_SCHEME_FALSE;
 
     ctx.roots = timsort_roots_acquire();
 
@@ -575,6 +633,272 @@ C_word C_timsort(C_word in,
     }
 
     result = inplace ? C_SCHEME_UNDEFINED : CHICKEN_gc_root_ref(ctx.roots->buffer);
+
+    timsort_roots_release();
+
+    C_return(result);
+}
+
+/* ------------------------------------------------------------------------
+   The keyed homogeneous comparators.
+
+   A keyed sort permutes INDICES -- the permutation is what the write-back
+   needs in order to move the elements -- so these cannot carry values in
+   `ob_item' the way the unkeyed homogeneous path does.  What they can do,
+   when the key vector is homogeneous, is skip the callback entirely and read
+   the key straight out of a pinned vector.
+
+   `ctx->keys_pinned' is a raw `C_word' held in C memory for the duration of
+   the sort, which is exactly what the rest of this file forbids.  It is
+   sound here for the same reason `timsort_homogeneous_comparator' is: the
+   key vector was scanned before the sort started and every key belongs to
+   one class this file orders in C, so no comparison can reach `C_callback',
+   so no comparison can collect, so nothing moves.  The key vector is also
+   held in `roots->keys' throughout, so it stays live.
+
+   SAYING IT PLAINLY: if anything is ever added below that can allocate in
+   the nursery or fall back to the Scheme comparator, `keys_pinned' becomes a
+   pointer into the dead semispace and this must go back to re-reading the
+   root on every comparison.
+   ------------------------------------------------------------------------ */
+
+#define TIMSORT_KEY(ctx, o) (C_block_item((ctx)->keys_pinned, TIMSORT_INDEX(o)))
+
+static int timsort_k_fixnum(timsort_object_t *a, timsort_object_t *b, void *arg)
+{
+    timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
+    return (C_word)TIMSORT_KEY(ctx, a) < (C_word)TIMSORT_KEY(ctx, b);
+}
+
+static int timsort_k_flonum(timsort_object_t *a, timsort_object_t *b, void *arg)
+{
+    timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
+    return C_flonum_magnitude(TIMSORT_KEY(ctx, a)) < C_flonum_magnitude(TIMSORT_KEY(ctx, b));
+}
+
+static int timsort_k_number(timsort_object_t *a, timsort_object_t *b, void *arg)
+{
+    timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
+    return C_truep(C_i_lessp(TIMSORT_KEY(ctx, a), TIMSORT_KEY(ctx, b)));
+}
+
+static int timsort_k_string(timsort_object_t *a, timsort_object_t *b, void *arg)
+{
+    timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
+    return timsort_string_lessp(TIMSORT_KEY(ctx, a), TIMSORT_KEY(ctx, b));
+}
+
+static int timsort_k_symbol(timsort_object_t *a, timsort_object_t *b, void *arg)
+{
+    timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
+    return timsort_symbol_lessp(TIMSORT_KEY(ctx, a), TIMSORT_KEY(ctx, b));
+}
+
+static int timsort_k_char(timsort_object_t *a, timsort_object_t *b, void *arg)
+{
+    timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
+    return C_character_code(TIMSORT_KEY(ctx, a)) < C_character_code(TIMSORT_KEY(ctx, b));
+}
+
+static int timsort_k_boolean(timsort_object_t *a, timsort_object_t *b, void *arg)
+{
+    timsort_scheme_t *ctx = (timsort_scheme_t *)arg;
+    return TIMSORT_KEY(ctx, a) == C_SCHEME_FALSE && TIMSORT_KEY(ctx, b) != C_SCHEME_FALSE;
+}
+
+static threeways_comparefunc_t timsort_keyed_comparator(C_word keys, size_t n, int widen)
+{
+    switch (timsort_homogeneous_kind(keys, n, widen))
+    {
+    case TIMSORT_HOMO_FIXNUM:  return timsort_k_fixnum;
+    case TIMSORT_HOMO_FLONUM:  return timsort_k_flonum;
+    case TIMSORT_HOMO_NUMBER:  return timsort_k_number;
+    case TIMSORT_HOMO_STRING:  return timsort_k_string;
+    case TIMSORT_HOMO_SYMBOL:  return timsort_k_symbol;
+    case TIMSORT_HOMO_CHAR:    return timsort_k_char;
+    case TIMSORT_HOMO_BOOLEAN: return timsort_k_boolean;
+    default: return NULL;
+    }
+}
+
+/* ------------------------------------------------------------------------
+   The native vector entry point.  No list is built, walked or marshalled
+   anywhere: the caller's vector IS the working representation.
+   ------------------------------------------------------------------------ */
+
+C_word C_timsort_vector(C_word src,
+                        size_t size,
+                        C_word comparator,
+                        C_word dst,
+                        C_word keys,
+                        int reverse,
+                        int use_ordinary_insertion_sort,
+                        int unpredictable_branch_on_random_data,
+                        timsort_scheme_comparison_type_t comparator_type)
+{
+    timsort_list_t list;
+    timsort_scheme_t ctx;
+    threeways_comparefunc_t specialised;
+    size_t index, n, m;
+    C_word sorted_src, out, result;
+    int res, carries_values;
+
+    n = (size_t)C_unfix(C_i_vector_length(src));
+    if (size < n) n = size;
+
+    m = (size_t)C_unfix(C_i_vector_length(dst));
+    if (m < n) n = m;
+
+    /* Every comparison on the keyed path indexes `keys' with an index the sort
+       took from [0, n), and the homogeneity scan reads the same range, so `n'
+       must not exceed the keys vector either.  The Scheme wrappers always pass
+       a freshly made keys vector of exactly this length; the clamp is here so
+       that the C entry point cannot be made to read off the end of a shorter
+       one. */
+    if (keys != C_SCHEME_FALSE)
+    {
+        m = (size_t)C_unfix(C_i_vector_length(keys));
+        if (m < n) n = m;
+    }
+
+    if (n == 0) C_return(dst);
+
+    ctx.primitive = comparator_type == TIMSORT_USE_LESS_THAN
+                 || comparator_type == TIMSORT_USE_NUMBER_LESS_THAN;
+    ctx.widen = comparator_type == TIMSORT_USE_LESS_THAN;
+    ctx.keyed = keys != C_SCHEME_FALSE;
+    ctx.keys_pinned = C_SCHEME_FALSE;
+
+    ctx.roots = timsort_roots_acquire();
+
+    if (ctx.roots == NULL) C_return(C_SCHEME_FALSE);
+
+    /* A keyed sort must keep the permutation, so even when its keys are
+       homogeneous `ob_item' holds indices; only an unkeyed homogeneous sort
+       can carry the values themselves. */
+    if (ctx.keyed)
+    {
+        specialised = ctx.primitive ? timsort_keyed_comparator(keys, n, ctx.widen) : NULL;
+        carries_values = 0;
+    }
+    else
+    {
+        specialised = ctx.primitive ? timsort_homogeneous_comparator(src, n, ctx.widen) : NULL;
+        carries_values = specialised != NULL;
+    }
+
+    list.ob_item = (timsort_object_t **)malloc(n * sizeof(timsort_object_t *));
+
+    ctx.roots->ob_item = list.ob_item;
+
+    if (list.ob_item == NULL)
+    {
+        timsort_roots_release();
+        C_return(C_SCHEME_FALSE);
+    }
+
+    /* `roots->in' is the list entry point's input list and has no counterpart
+       here.  It holds C_SCHEME_UNDEFINED throughout: `CHICKEN_new_gc_root_2'
+       initialises a fresh root to it (runtime.c), and `timsort_roots_clear'
+       restores it on every release, so it is an immediate whichever way this
+       root set was obtained.  Nothing on this path reads it. */
+    CHICKEN_gc_root_set(ctx.roots->vector, src);
+    CHICKEN_gc_root_set(ctx.roots->comparator, comparator);
+    CHICKEN_gc_root_set(ctx.roots->buffer, dst);
+    CHICKEN_gc_root_set(ctx.roots->keys, keys);
+
+    /* Only read by the keyed specialised comparators, which cannot collect. */
+    if (ctx.keyed && specialised != NULL) ctx.keys_pinned = keys;
+
+    list.ob_size = (timsort_ssize_t)n;
+
+    if (carries_values)
+    {
+        for (index = 0; index < n; index++)
+            list.ob_item[index] = (timsort_object_t *)(uintptr_t)C_block_item(src, index);
+    }
+    else
+    {
+        for (index = 0; index < n; index++)
+            list.ob_item[index] = TIMSORT_OBJECT_FOR_INDEX(index);
+    }
+
+    res = list_sort_impl(&list, reverse, use_ordinary_insertion_sort,
+                         unpredictable_branch_on_random_data,
+                         specialised != NULL ? specialised : timsort_comparator,
+                         specialised != NULL && carries_values ? NULL : (void *)&ctx);
+
+    if (res != 0)
+    {
+        timsort_roots_release();
+        C_return(C_SCHEME_FALSE);
+    }
+
+    /* The sort is over: no further callback, hence no further collection, so
+       locals may hold `C_word's again -- but they must be re-read from the
+       roots, because the parameters are stale.
+
+       Every write-back below then holds `out' (and, in the in-place case, one
+       displaced element) in C locals across a run of `C_mutate' calls.  That
+       is sound because `C_mutate' cannot collect: it is the inline in
+       chicken.h that stores an immediate directly and otherwise calls
+       `C_mutate_slot', which only ever pushes the slot onto the mutation stack
+       and reallocs that stack if it is full.  I read runtime.c to confirm it
+       rather than assume it. */
+    sorted_src = CHICKEN_gc_root_ref(ctx.roots->vector);
+    out = CHICKEN_gc_root_ref(ctx.roots->buffer);
+
+    if (carries_values)
+    {
+        /* `ob_item' already holds the sorted objects; `src' is never read
+           again, so `out' being `src' itself is harmless. */
+        for (index = 0; index < n; index++)
+            C_mutate(&C_block_item(out, index), TIMSORT_VALUE(list.ob_item[index]));
+    }
+    else if (out != sorted_src)
+    {
+        for (index = 0; index < n; index++)
+            C_mutate(&C_block_item(out, index),
+                     C_block_item(sorted_src, TIMSORT_INDEX(list.ob_item[index])));
+    }
+    else
+    {
+        /* In place, and `ob_item' is a permutation of indices into the very
+           vector being written: out[i] must become src[p[i]], and src[p[i]]
+           may itself still be needed by a later i.  Walk the permutation one
+           cycle at a time, saving the single element the cycle displaces.
+           Each slot is read exactly once, before it is written, and a slot
+           already placed is marked by clearing its `ob_item' entry -- NULL
+           cannot collide with a real entry, which is a one-biased index.
+           No extra memory at all. */
+        for (index = 0; index < n; index++)
+        {
+            size_t j, k;
+            C_word displaced;
+
+            if (list.ob_item[index] == NULL) continue;
+
+            j = index;
+            displaced = C_block_item(out, index);
+
+            for (;;)
+            {
+                k = TIMSORT_INDEX(list.ob_item[j]);
+                list.ob_item[j] = NULL;
+
+                if (k == index)
+                {
+                    C_mutate(&C_block_item(out, j), displaced);
+                    break;
+                }
+
+                C_mutate(&C_block_item(out, j), C_block_item(out, k));
+                j = k;
+            }
+        }
+    }
+
+    result = CHICKEN_gc_root_ref(ctx.roots->buffer);
 
     timsort_roots_release();
 

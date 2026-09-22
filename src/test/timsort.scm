@@ -119,6 +119,35 @@
    (⊦= '(1.1 2.1 3.1 4.1 5.1) (timsort/primitive '(5.1 4.1 3.1 2.1 1.1)))
    (⊦= '(hello world) (timsort/primitive '(world hello))))
 
+  ((test/vector _)
+   (⊦= '#(1 2 3 4 5) (timsort/vector '#(5 4 3 2 1)))
+   (⊦= '#(5 4 3 2 1) (timtros/vector '#(1 2 3 4 5)))
+   (⊦= '#(1) (timsort/vector '#(1)))
+   (⊦= '#() (timsort/vector '#()))
+   ;; the non-destructive form must leave its argument alone …
+   (let ((v (vector 3 1 2)))
+     (⊦= '#(1 2 3) (timsort/vector v))
+     (⊦= '#(3 1 2) v))
+   ;; … and the destructive one must sort, and return, that very object.
+   (let ((v (vector 3 1 2)))
+     (⊨ (eq? v (begin (timsort/vector! v) v)))
+     (⊦= '#(1 2 3) v))
+   `(doc (p "The vector entry points sort a vector without going through a list: "
+            (code/inline "timsort/vector") " returns a fresh vector and leaves its "
+            "argument untouched, while " (code/inline "timsort/vector!") " sorts in "
+            "place and returns the vector it was given.")))
+
+  ((test/vector/primitive _)
+   (⊦= '#("apple" "fig" "pear") (timsort/primitive/vector '#("pear" "apple" "fig")))
+   (⊦= '#(a m z) (timsort/primitive/vector '#(z a m)))
+   (⊦= '#(#\a #\b #\z) (timsort/primitive/vector '#(#\z #\b #\a)))
+   (⊦= '#(#f #t) (timsort/primitive/vector '#(#t #f))))
+
+  ((test/vector/key _)
+   (let ((v (vector (cons 1 'a) (cons 0 'b) (cons 1 'c))))
+     (⊦= (vector (cons 0 'b) (cons 1 'a) (cons 1 'c)) (timsort/vector/key v car))
+     (⊦= (vector (cons 1 'a) (cons 0 'b) (cons 1 'c)) v)))
+
   )
 
 (unittest/✓ timsort-suite)

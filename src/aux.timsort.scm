@@ -69,4 +69,103 @@
   (define timtros/primitive (timsort/gen < #f #t #f #t TIMSORT_USE_LESS_THAN))
   (define timtros/primitive! (timsort/gen < #t #t #f #t TIMSORT_USE_LESS_THAN))
 
+  ;; ======================================================================
+  ;; NATIVE VECTOR API
+  ;;
+  ;; No list is built, walked or marshalled: the caller's vector is handed
+  ;; to C as-is and IS the working representation.  `src' is the GC root the
+  ;; objects live in; `dst' is what C writes into and may be `src' itself,
+  ;; in which case C applies the permutation in place, cycle by cycle, with
+  ;; no second vector.
+  ;; ======================================================================
+
+  (define timsort-vector-foreign
+    (foreign-safe-lambda scheme-object "C_timsort_vector"
+      scheme-object size_t scheme-object scheme-object scheme-object bool bool bool int))
+
+  (define (%vector-copy v n)
+    (let ((w (make-vector n)))
+      (let loop ((i 0)) (if (eq? i n) w (begin (vector-set! w i (vector-ref v i)) (loop (+ i 1)))))))
+
+  ;; `n' is passed in, and the failure message mentions only `n', SO THAT
+  ;; NOTHING AFTER THE FOREIGN CALL REFERS TO `src'.  Anything the code after
+  ;; the call still needs is captured by that call's continuation, and when a
+  ;; comparator escapes, the abandoned continuation of the `C_callback' keeps
+  ;; that capture alive for the life of the process: writing
+  ;; `(vector-length src)' in the error message, which is the obvious thing to
+  ;; write, retains the caller's whole vector -- elements included -- on every
+  ;; escape: measured at 4,812,436 bytes per escaped sort of 300 records
+  ;; carrying a 2000-word payload each, against 428 bytes when only `n' is
+  ;; named.  The list path is accidentally free of this because its own
+  ;; message mentions a fixnum it already had.  This is NOT the GC-safety
+  ;; rule; see the note at the top of chicken-timsort.c.
+  (define (%timsort/vector-call lt? src dst keys n reverse use-insertion-sort be-unpredictable-on-random-data comparator_type)
+    (let ((depth (timsort-depth)))
+      ;; Same escape unwind as the list path: a comparator that raises or
+      ;; escapes never lets C drop the roots holding `src', `dst' and `keys'.
+      (or (dynamic-wind
+            void
+            (lambda ()
+              (timsort-vector-foreign src n lt? dst keys
+                                      reverse use-insertion-sort
+                                      be-unpredictable-on-random-data comparator_type))
+            (lambda () (timsort-unwind depth)))
+          (error 'timsort/vector "cannot allocate the working array" n))))
+
+  ;; A `!' variant sorts `v' in place and RETURNS it, the way `sort!' does; the
+  ;; others return a FRESH vector and leave `v' untouched.  Sorting in place
+  ;; allocates nothing in the Scheme heap at all: C applies the permutation to
+  ;; `v' one cycle at a time, with no second vector and no mark array.
+  (define ((timsort/vector/gen lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type) v)
+    (let ((n (vector-length v)))
+      (if (< n 2)
+          (if inplace v (%vector-copy v n))
+          (%timsort/vector-call lt? v (if inplace v (make-vector n)) #f n
+                                reverse use-insertion-sort be-unpredictable-on-random-data comparator_type))))
+
+  ;; Decorate-sort-undecorate.  `key' is applied EXACTLY ONCE per element, in
+  ;; index order, in Scheme, before C is entered at all; the sort then orders
+  ;; the KEY vector and permutes the elements alongside it.  So a sort by a
+  ;; computed key costs n ordinary Scheme calls and, whenever the keys all
+  ;; belong to one class C can order, ZERO `C_callback's -- instead of ~n log n
+  ;; of them, each of which forces a minor collection.
+  ;;
+  ;; Stable: equal keys keep input order, and `reverse' is a stable descending
+  ;; sort rather than a flipped comparator.  `key' is applied for every length,
+  ;; including 0 and 1, only in the sense that a sort of fewer than two
+  ;; elements applies it zero times -- a caller must not count applications to
+  ;; detect a singleton.  A `key' that mutates `v' is undefined.  Because every
+  ;; key is computed before the first comparison, a `key' that raises raises
+  ;; earlier, and possibly on a different element, than a comparison-driven
+  ;; sort would.
+  (define ((timsort/vector/key/gen lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type) v key)
+    (let ((n (vector-length v)))
+      (if (< n 2)
+          (if inplace v (%vector-copy v n))
+          (let ((keys (make-vector n)))
+            (let loop ((i 0))
+              (unless (eq? i n) (vector-set! keys i (key (vector-ref v i))) (loop (+ i 1))))
+            (%timsort/vector-call lt? v (if inplace v (make-vector n)) keys n
+                                  reverse use-insertion-sort be-unpredictable-on-random-data comparator_type)))))
+
+  (define timsort/vector  (timsort/vector/gen < #f #f #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timsort/vector! (timsort/vector/gen < #t #f #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timtros/vector  (timsort/vector/gen < #f #t #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timtros/vector! (timsort/vector/gen < #t #t #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+
+  (define timsort/primitive/vector  (timsort/vector/gen < #f #f #f #t TIMSORT_USE_LESS_THAN))
+  (define timsort/primitive/vector! (timsort/vector/gen < #t #f #f #t TIMSORT_USE_LESS_THAN))
+  (define timtros/primitive/vector  (timsort/vector/gen < #f #t #f #t TIMSORT_USE_LESS_THAN))
+  (define timtros/primitive/vector! (timsort/vector/gen < #t #t #f #t TIMSORT_USE_LESS_THAN))
+
+  (define timsort/vector/key  (timsort/vector/key/gen < #f #f #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timsort/vector/key! (timsort/vector/key/gen < #t #f #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timtros/vector/key  (timsort/vector/key/gen < #f #t #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+  (define timtros/vector/key! (timsort/vector/key/gen < #t #t #f #t TIMSORT_USE_NUMBER_LESS_THAN))
+
+  (define timsort/primitive/vector/key  (timsort/vector/key/gen < #f #f #f #t TIMSORT_USE_LESS_THAN))
+  (define timsort/primitive/vector/key! (timsort/vector/key/gen < #t #f #f #t TIMSORT_USE_LESS_THAN))
+  (define timtros/primitive/vector/key  (timsort/vector/key/gen < #f #t #f #t TIMSORT_USE_LESS_THAN))
+  (define timtros/primitive/vector/key! (timsort/vector/key/gen < #t #t #f #t TIMSORT_USE_LESS_THAN))
+
   )
