@@ -9,12 +9,28 @@
   (foreign-declare "#include \"chicken-timsort.h\"")
 
   (define timsort-foreign 
-    (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object bool bool bool bool int))
+    (foreign-safe-lambda scheme-object "C_timsort" scheme-object size_t scheme-object scheme-object scheme-object bool bool bool bool int))
 
+  (define timsort-depth (foreign-lambda size_t "C_timsort_depth"))
+  (define timsort-unwind (foreign-lambda void "C_timsort_unwind" size_t))
+
+  ;; The elements are handed to C inside a vector: that vector is the only
+  ;; place they live while the sort runs, so the collector keeps tracing them
+  ;; and C never has to cache a C_word of its own.  See chicken-timsort.c.
   (define ((timsort/gen lt? inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type) lst) 
-    (let* ((size 0)
-           (new-lst (map (λ (each) (add1! size)) lst)))
-      (timsort-foreign lst size lt? new-lst inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type)))
+    (let* ((elements (list->vector lst))
+           (size (vector-length elements))
+           (new-lst (if inplace lst (vector->list elements)))
+           (depth (timsort-depth)))
+      ;; A comparator that raises, or that escapes through a continuation
+      ;; captured outside the sort, never lets C_timsort return and drop the
+      ;; roots holding `elements'; they are dropped here instead.
+      (or (dynamic-wind
+            void
+            (lambda () 
+              (timsort-foreign lst size lt? new-lst elements inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type))
+            (lambda () (timsort-unwind depth)))
+          (error 'timsort "cannot allocate the working array" size))))
 
   (define TIMSORT_USE_COMPARATOR (foreign-value "TIMSORT_USE_COMPARATOR" int))
   (define TIMSORT_USE_LESS_THAN (foreign-value "TIMSORT_USE_LESS_THAN" int))
