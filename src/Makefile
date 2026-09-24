@@ -3,7 +3,7 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-microkanren-date test-anthropic test-anthropic-live install format simdjson-fetch \
+        test-microkanren-date test-anthropic test-anthropic-live test-cml install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors
 
 echo:
@@ -35,6 +35,9 @@ test:
 	cd test && ${CSI} -s microkanren-arith.scm
 	cd test && ${CSI} -s microkanren-date.scm
 	cd test && ${CSI} -s anthropic.scm
+	cd test && ${CSI} -s cml.scm
+	cd test && ${CSI} -s cml-lib.scm
+	cd test && ${CSI} -s cml-io.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm
@@ -53,6 +56,11 @@ test-anthropic:
 
 test-anthropic-live:
 	cd test && ${CSI} -s anthropic-live.scm
+
+test-cml:
+	cd test && ${CSI} -s cml.scm
+	cd test && ${CSI} -s cml-lib.scm
+	cd test && ${CSI} -s cml-io.scm
 
 install:
 	chicken-install -sudo
@@ -73,6 +81,9 @@ format:
 	scheme-indent -T 2 < test/fds.sbral.scm > test/fds.sbral.scm.tmp && mv test/fds.sbral.scm.tmp test/fds.sbral.scm
 	scheme-indent -T 2 < test/anthropic.scm > test/anthropic.scm.tmp && mv test/anthropic.scm.tmp test/anthropic.scm
 	scheme-indent -T 2 < test/anthropic-live.scm > test/anthropic-live.scm.tmp && mv test/anthropic-live.scm.tmp test/anthropic-live.scm
+	scheme-indent -T 2 < test/cml.scm > test/cml.scm.tmp && mv test/cml.scm.tmp test/cml.scm
+	scheme-indent -T 2 < test/cml-lib.scm > test/cml-lib.scm.tmp && mv test/cml-lib.scm.tmp test/cml-lib.scm
+	scheme-indent -T 2 < test/cml-io.scm > test/cml-io.scm.tmp && mv test/cml-io.scm.tmp test/cml-io.scm
 	scheme-indent -T 2 < aux.base.scm > aux.base.scm.tmp && mv aux.base.scm.tmp aux.base.scm 
 	scheme-indent -T 2 < aux.libc.scm > aux.libc.scm.tmp && mv aux.libc.scm.tmp aux.libc.scm
 	scheme-indent -T 2 < aux.simdjson.scm > aux.simdjson.scm.tmp && mv aux.simdjson.scm.tmp aux.simdjson.scm
@@ -88,6 +99,7 @@ format:
 	scheme-indent -T 2 < aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm
 	scheme-indent -T 2 < aux.kanren.micro.show.scm > aux.kanren.micro.show.scm.tmp && mv aux.kanren.micro.show.scm.tmp aux.kanren.micro.show.scm
 	scheme-indent -T 2 < aux.anthropic.scm > aux.anthropic.scm.tmp && mv aux.anthropic.scm.tmp aux.anthropic.scm
+	scheme-indent -T 2 < aux.cml.scm > aux.cml.scm.tmp && mv aux.cml.scm.tmp aux.cml.scm
 
 simdjson-fetch:
 	rm -rf simdjson.cpp simdjson.h #test/twitter.json

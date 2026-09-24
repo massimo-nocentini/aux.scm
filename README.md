@@ -112,3 +112,137 @@ against a stub transport with no network and no key. The live suite is opt-in:
 export ANTHROPIC_API_KEY=sk-ant-...
 cd src && make test-anthropic-live
 ```
+
+### `(aux cml)`
+
+`(aux cml)` is a port of Concurrent ML, as found in SML/NJ
+(`smlnj/libraries/cml`), to CHICKEN Scheme: first-class synchronous events,
+lightweight threads, channels and the rest of the CML library, together with the
+`cml-lib` utilities (Multicast, SimpleRPC, TraceCML) and an event-valued IO / OS
+layer.
+
+The design follows the ML sources closely:
+
+- threads are first-class continuations driven by its own scheduler, exactly as
+  CML does with `callcc`; there is no srfi-18 underneath. The scheduler keeps
+  ML's two ready queues, its non-nesting atomic flag and its
+  `atomicBegin`/`atomicEnd`/`dispatch` discipline. Because threads switch with
+  `call/cc`, the before/after thunks of a thread's `dynamic-wind` frames run at
+  every switch, an after thunk on behalf of the thread being switched to: they
+  must not use CML operations, and `dynamic-wind` cannot protect a critical
+  section (take and put an mvar instead);
+- scheduling is **cooperative**: switches happen at CML operations (sync, spawn,
+  yield, blocking). Every operation, polls and each channel rendezvous
+  included, is also a clock tick, and ML's quantum and fairness heuristic are
+  applied on those ticks (with one thread promoted from the compute-bound queue
+  at every preemption, so that the deterministic ticks cannot starve it), but a
+  thread that computes without calling CML is never preempted;
+- base events implement `event.sml`'s poll / enabled / blocked protocol, with
+  priorities, shared transaction ids, and `guard`/`with-nack` forced at every
+  sync;
+- everything runs inside `(run-cml thunk #!key quantum)`. It returns the status
+  given to `cml/shutdown` (`'success` when called with no argument), or
+  `'failure` when no thread can run any more: as in ML, a run whose threads all
+  finish or block without calling `cml/shutdown` counts as a deadlock, so
+  `(run-cml (lambda () (do-work)))` returns `'failure`; end the thunk with
+  `(cml/shutdown)` to get `'success`. Every session starts with fresh scheduler
+  state (ready queues, timeouts, pending I/O, tids); registered cleaners,
+  logged channels, mailboxes and servers, uncaught-exception handlers, trace
+  settings and `cml/debug?` are global and persist across sessions, as in ML,
+  and children still running when a session ends are reaped by later ones.
+  When no thread is runnable, the idle scheduler sleeps in `file-select` until
+  the next timeout or ready descriptor, polling every 5 ms instead while child
+  processes or input on ports without a descriptor are awaited (there is no
+  SIGCHLD handler); while port events wait on descriptors it also wakes once,
+  0.1 s after a thread last ran, to look for ports that another thread closed;
+- times are in real seconds, an ML `'a option` is `'()` or `(list v)`, and
+  CML's own errors are conditions of kind `(exn cml <kind>)`, e.g.
+  `(exn cml put)` for a double put, `(exn cml not-running)` or
+  `(exn cml barrier)`; bad arguments (sync on a non-event, a non-port given to
+  a port event, a bad count, a non-procedure given to `spawn`, ...) raise ordinary errors of kind `(exn)`, which
+  an `(exn cml)` handler does not catch.
+
+Exported entry points include:
+
+- events: `never-evt`, `always-evt`, `wrap`, `wrap-handler`, `guard`,
+  `with-nack`, `choose`, `choose*`, `sync`, `select`, `select*`, `select/case`,
+  `sync/timeout` (with 0 seconds it is a poll: the event's value whenever it is
+  ready, the default otherwise)
+- threads: `spawn`, `spawn/call`, `current-tid`, `join-evt`, `cml/yield`,
+  `cml/exit`, `tid=?`, `tid-compare`, `tid->string`, `make-thread-property`,
+  `make-thread-flag`, `default-exn-handler`
+- channels and timeouts: `make-channel`, `send`, `recv`, `send-evt`, `recv-evt`,
+  `send-poll`, `recv-poll`, `timeout-evt`, `at-time-evt`, `cml/now`, `cml/sleep`
+- synchronization variables: `make-ivar`, `ivar-put!`, `ivar-get`,
+  `ivar-get-evt`, `make-mvar`, `mvar-put!`, `mvar-take!`, `mvar-get`,
+  `mvar-swap!` and their `-evt`/`-poll` variants; `make-mailbox`,
+  `mailbox-send!`, `mailbox-recv`, `mailbox-recv-evt`; `make-barrier`,
+  `barrier-enroll`, `barrier-wait`, `barrier-wait-evt`, `barrier-resign`;
+  `make-result`, `result-put!`, `result-put-exn!`, `result-get`, `result-get-evt`
+- running: `run-cml`, `cml-running?`, `cml/shutdown`, `cml/add-cleaner!`,
+  `cml/log-channel!`, `cml/log-mailbox!`, `cml/log-server!`, `cml/version`,
+  `cml/debug`
+- IO / OS: `io-evt`, `poll-evt`, `process-evt`, `system-evt`, `cml/system`,
+  `cml/execute` (with an optional environment, as `Unix.executeInEnv`),
+  `input-char-evt`, `peek-char-evt`, `input-line-evt`, `input-string-evt`,
+  `input-evt` (`TextIO.inputEvt`: whatever is available), `input-all-evt`,
+  `output-evt`, `write-string-evt`,
+  `open-channel-input-port`, `open-channel-output-port`, `tcp-accept-evt`,
+  `tcp-connect-evt`
+- cml-lib: `make-multicast-channel`, `multicast-port`, `multicast-copy-port`,
+  `multicast!`, `multicast-recv`, `multicast-recv-evt`; `make-rpc`,
+  `make-rpc/in`, `make-rpc/out`, `make-rpc/in-out`, `make-rpc/state`;
+  `trace-module`, `trace-on!`, `trace-off!`, `trace-on-only!`, `trace-status`,
+  `trace`, `trace-to`, `watch`, `unwatch`, `set-uncaught-handler!`,
+  `add-uncaught-handler!`
+
+`guard` is CML's combinator, so clients should import
+`(except (chicken base) guard)` to hide the R7RS exception syntax.
+
+```scheme
+(import scheme (except (chicken base) guard) (aux cml))
+
+(define (square-server)
+  (receive (call entry-evt) (make-rpc (lambda (n) (* n n)))
+    (spawn (lambda () (let loop () (sync entry-evt) (loop))))
+    call))
+
+(run-cml
+  (lambda ()
+    (let ((ch (make-channel))
+          (square (square-server)))
+      (spawn (lambda () (for-each (lambda (i) (send ch i)) '(1 2 3))))
+      (let loop ((acc '()))
+        (select/case
+          ((recv-evt ch) (v) (loop (cons (square v) acc)))
+          ((timeout-evt 0.1) _ (cml/shutdown (reverse acc))))))))
+;; => (1 4 9)
+```
+
+Where the port deliberately departs from ML (the Barrier bugs, barrier
+waiters woken oldest first (ML wakes them newest first), SimpleRPC
+delivering exceptions to the caller, TraceCML without servers, port events that
+never lose input to a losing `select`, nacks set right after the commit and also
+when a sync is abandoned while forcing or polling or by the death of its thread,
+wrap functions run at the sync's own continuation, waiter queues cleaned in
+amortized O(1) per enqueue, timeouts kept in a heap, a write to a pipe whose
+reader has exited raising EPIPE, `cml/execute` searching PATH (but not when
+an environment is given, as in ML) and passing the command as given as
+argv[0], ...), the header of each part of
+`src/aux.cml.scm` says so.
+
+Not ported:
+
+- signal-driven preemption: CHICKEN cannot safely capture continuations inside
+  a signal handler, so preemption happens only at CML operations;
+- the `OldCML` compatibility shim, which upstream no longer builds;
+- the SML Basis plumbing (the `PRIM_IO`/`STREAM_IO` functors, stream
+  positions, buffer modes), because CML events work directly on CHICKEN ports;
+- `exportFn` and heap export, which have no CHICKEN equivalent;
+- the Win32 glue;
+- SMLNJ-Util atoms, because Scheme symbols already are atoms;
+- the socket library's phantom types, UDP and Unix-domain sockets, because only
+  TCP is available through `(chicken tcp)`.
+
+The suites run with `cd src && make test-cml` (`test/cml.scm`,
+`test/cml-lib.scm`, `test/cml-io.scm`).
