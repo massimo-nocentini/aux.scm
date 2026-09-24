@@ -12,3 +12,5 @@ src/test/*.md
 src/test/learning
 *.swp
 *.DS_Store
+# large generated test data
+src/test/users_*.json

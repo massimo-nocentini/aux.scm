@@ -1097,6 +1097,11 @@ Schemer", written on top of `(aux kanren unionfind)` and ported from the same
 sorting with one or two stacks. The co-import warning of `(aux kanren
 unionfind)` applies to this module too.
 
+This module lives in the extension `aux.kanren.unionfind`, so `(aux kanren
+unionfind)` must be imported before `(aux kanren unionfind reasoned)`;
+importing `(aux kanren unionfind reasoned)` alone fails with `cannot load
+extension: aux.kanren.unionfind.reasoned`.
+
 Exported entry points include:
 
 - `null°`, `cons°`, `car°`, `cdr°`, `pair°`, `list°`, `append°`
