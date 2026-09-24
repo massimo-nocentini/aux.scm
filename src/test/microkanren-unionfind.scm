@@ -1,0 +1,466 @@
+;
+; The microkanren-test.scm of the old `on-scheme` repository, ported to (aux unittest), for
+; (aux kanren unionfind) and (aux kanren unionfind reasoned).
+;
+; All 59 original assertions are here, one case per original `test-group` (the "stacksortº"
+; group is split in three cases: stacksort°, anti-reverse and 2stacksort°):
+;   - `test` becomes ⊦=, `test-fail` becomes ⊭ and `test-assert` becomes `(⊨ (and x #t))`
+;     (⊨ wants exactly #t, while `(run/with-symbols #t ✓)` gives `(#t 0)`);
+;   - the º suffix becomes °, and `∞` is now the aux value +inf.0 (an expression, no more a
+;     syntax literal of `run/with-symbols`);
+;   - the two gensym checks `(test 'V₅ ...)` and `(test 'V₆ ...)` depend on the global gensym
+;     counter, so they become structural: the symbol reads `V` followed by subscript digits, and
+;     two consecutive calls give different symbols;
+;   - the `#;(test-error ...)` forms of the original are kept as comments: those goals have no
+;     value (they diverge), so they cannot be run;
+;   - the 2stacksort° group had no active assertion (its expected value, for a 5-permutation, was
+;     commented out): it now checks the shape of the (3 2 1) run instead.
+; New cases: regressions for the `unify` fix, strings, cond°/!, cond°/!!, cond°/¦ and `deepening`.
+;
+
+(import scheme
+        (chicken base)
+        (chicken sort)
+        (chicken condition)
+        (only srfi-1 every filter list-tabulate)
+        (aux unittest)
+        (aux base)
+        (only (aux commons) ○ fmap fsort =to? cond/λ group tuple/pred?)
+        (only (aux stream sicp) stream:->list)
+        (aux kanren unionfind)
+        (aux kanren unionfind reasoned))
+
+; `V` followed by one or more subscript digits, as the printer of working variables writes them.
+(define (V/subscripted? sym)
+  (and (symbol? sym)
+       (let1 (cs (string->list (symbol->string sym)))
+         (and (pair? cs)
+              (eq? (car cs) #\V)
+              (pair? (cdr cs))
+              (every (λ (c) (and (member c (string->list "₀₁₂₃₄₅₆₇₈₉")) #t)) (cdr cs))))))
+
+(define anti-reverse
+  (λ (s)
+    (letrec ((R (λ (l α)
+                  (cond
+                    ((null? l) α)
+                    (else (match1/first ((,l₀ . ,ls) l)
+                            (cond/λ l₀
+                              ((=to? #\() (K (R ls (cons #\) α))))
+                              ((=to? #\)) (K (R ls (cons #\( α))))
+                              (else (λ (c) (R ls (cons c α)))))))))))
+      (list->string (R (string->list s) '())))))
+
+(define closed?
+  (λ (f)
+    (λ (set)
+      (let1 (E (λ (s)
+                 (member? (f s) set)))
+        (every E set)))))
+
+(define-suite microkanren-unionfind-suite
+
+  ((test/vars-generation _)
+   (⊭ (equal? (V 'V0) (V/gensym)))
+   (⊭ (equal? (V 'V₁) (V/gensym)))
+   (⊭ (equal? (V/gensym) (V/gensym)))
+   ; originally (test 'V₅ (variable->symbol (V/gensym))) and (test 'V₆ ...): the numbers depend
+   ; on how many gensyms were made before, so check the shape and the distinctness.
+   (let* ((v₅ (variable->symbol (V/gensym)))
+          (v₆ (variable->symbol (V/gensym))))
+     (⊨ (V/subscripted? v₅))
+     (⊨ (and (V/subscripted? v₆) (not (eq? v₅ v₆))))))
+
+  ((test/tautologies _)
+   (⊦= '() (stream:->list (run ✗)))
+   (⊭ (run/with-symbols #t ✗))
+   (⊦= '((#t 0)) (stream:->list (run ✓)))
+   (⊨ (and (run/with-symbols #t ✓) #t))
+   (⊦= '() (stream:->list (run (≡ 2 3))))
+   (⊭ (run/with-symbols #t (≡ 2 3)))
+   (⊦= '(#t) (run/with-symbols ∞ (≡ 3 3)))
+   (⊦= '() (run/with-symbols ∞ (fresh (v) ✗)))
+   (⊦= '(#t) (run/with-symbols ∞ (fresh (v) ✓)))
+   (⊦= '(#t) (run/with-symbols ∞ (fresh (v) (≡ v 3))))
+   (⊦= '() (run/with-symbols ∞ (fresh (v) (∧ (≡ v 3) (≡ v 4))))))
+
+  ((test/vars-≡-sharing _)
+   (⊦= '(3) (run/with-symbols ∞ (v) (≡ v 3)))
+   (⊦= '(3) (run/with-symbols ∞ (v) (≡ 3 v)))
+   (⊦= '(3) (run/with-symbols ∞ (v) (≡ '(3 4) `(,v 4))))
+   (⊦= (list `(,(R '▢ 0) 0)) (stream:->list (run (v) ✓)))
+   (⊦= '(▢₀) (run/with-symbols ∞ (v) ✓))
+   (⊦= '((▢₀ ▢₁)) (run/with-symbols ∞ (v w) ✓))
+   (⊦= '((▢₀ ▢₀)) (run/with-symbols ∞ (v w) (≡ v w)))
+   (⊦= '((▢₀ (((▢₀))))) (run/with-symbols ∞ (v w) (≡ `(((,v))) w))))
+
+  ((test/list-destructuring _)
+   (⊦= '(())
+       (run/with-symbols ∞ (v) (null° v)))
+   (⊦= '(0)
+       (run/with-symbols ∞ (l) (car° '(0 1 2 3) l)))
+   (⊦= '((1 2 3))
+       (run/with-symbols ∞ (l) (cdr° '(0 1 2 3) l)))
+   (⊦= '((3 4))
+       (run/with-symbols ∞ (v w) (cons° v 4 `(3 . ,w))))
+   (⊦= '(#t)
+       (run/with-symbols ∞ (fresh (w) (pair° `(3 . ,w)))))
+   (⊦= '((▢₀ . ▢₁))
+       (run/with-symbols ∞ (w) (pair° w))))
+
+  ((test/cond° _)
+   (⊦= '(tea cup)
+       (run/with-symbols ∞ (v) (tea-cup° v)))
+   (⊦= '((split pea) (red bean))
+       (run/with-symbols ∞ (v w) (split-pea° v w)))
+   (⊦= '((tea ▢₀) (#f tea) (cup ▢₀) (#f cup))
+       (run/with-symbols ∞ (v w) (split-pea₁° v w))))
+
+  ((test/list° _)
+   (⊦= '()
+       (run/with-symbols ∞ (list° 3)))
+   (⊦= '(#t)
+       (run/with-symbols ∞ (list° '())))
+   (⊦= '(#t)
+       (run/with-symbols ∞ (list° '())))
+   (⊦= '(#t)
+       (run/with-symbols ∞ (list° '(3 4))))
+   (⊦= '(() (▢₀) (▢₀ ▢₁) (▢₀ ▢₁ ▢₂) (▢₀ ▢₁ ▢₂ ▢₃))
+       (run/with-symbols 5 (l) (list° l))))
+
+  ((test/append° _)
+   (⊨ (and (run/with-symbols #t (append° '(0 1 2) '(3 4 5) '(0 1 2 3 4 5))) #t))
+   (⊦= '(#t)
+       (run/with-symbols ∞ (append° '(0 1 2) '(3 4 5) '(0 1 2 3 4 5))))
+   (⊦= '((0 1 2 3 4 5))
+       (run/with-symbols ∞ (v) (append° '(0 1 2) '(3 4 5) v)))
+   (⊦= '((() (0 1 2 3 4 5))
+         ((0) (1 2 3 4 5))
+         ((0 1) (2 3 4 5))
+         ((0 1 2) (3 4 5))
+         ((0 1 2 3) (4 5))
+         ((0 1 2 3 4) (5))
+         ((0 1 2 3 4 5) ()))
+       (run/with-symbols ∞ (v w) (append° v w '(0 1 2 3 4 5))))
+   (⊦= '(((0 1 2 3 4 5) ())
+         ((1 2 3 4 5) (0))
+         ((2 3 4 5) (0 1))
+         ((3 4 5) (0 1 2))
+         ((4 5) (0 1 2 3))
+         ((5) (0 1 2 3 4))
+         (() (0 1 2 3 4 5)))
+       (run/with-symbols ∞ (v w) (append° w v '(0 1 2 3 4 5)))))
+
+  ((test/always°-never° _)
+   (⊦= '(▢₀) (run/with-symbols 1 (v) always°))
+   (⊦= '(▢₀ ▢₀ ▢₀ ▢₀ ▢₀) (run/with-symbols 5 (v) always°))
+   (⊦= '(onion onion onion onion onion)
+       (run/with-symbols 5 (v) (∧ (≡ v 'onion) always°)))
+   ; (run/with-symbols 1 (v) (∧ always° ✗)) has no value (slow heap saturation)
+   (⊦= '() (run/with-symbols 1 (v) (∧ (≡ v 'garlic) ✓ (≡ v 'onion))))
+   ; (run/with-symbols 1 (v) (∧ (≡ v 'garlic) always° (≡ v 'onion))) has no value
+   (let ((g₀ (λ (v)
+               (∧
+                 (cond°/§
+                   ((≡ v 'garlic) always°)
+                   ((≡ v 'onion)))
+                 (≡ v 'onion))))
+         (g₁ (λ (v)
+               (∧
+                 (cond°/§
+                   ((≡ v 'garlic) always°)
+                   ((≡ v 'onion) ✓))
+                 (≡ v 'onion))))
+         (g₂ (λ (v)
+               (∧
+                 (cond°/§
+                   ((≡ v 'garlic) always°)
+                   ((≡ v 'onion) always°))
+                 (≡ v 'onion)))))
+     (⊦= '(onion) (run/with-symbols 1 (v) (g₀ v)))
+     ; (run/with-symbols 2 (v) (g₀ v)) has no value
+     ; (run/with-symbols 2 (v) (g₁ v)) still has no value
+     (⊦= '(onion onion onion onion onion) (run/with-symbols 5 (v) (g₂ v)))
+     ; (run/with-symbols 1 (v) never°) has no value
+     (⊦= '() (run/with-symbols 1 (v) (∧ ✗ never°)))
+     (⊦= '(▢₀) (run/with-symbols 1 (v) (cond°/§ (✓) (never°))))
+     ; (run/with-symbols 2 (v) (cond°/§ (✓) (never°))) has no value
+     ; (run/with-symbols 1 (v) (cond°/§ (never°) (✓))) has no value
+     ; (run/with-symbols 1 (v) (∧ (cond°/§ (✓) (never°)) ✗)) has no value
+     ;
+     ; the following two examples have a solution according to "The Reasoned Schemer" book,
+     ; but here they have no value:
+     ;   (run/with-symbols 5 (v) (cond°/§ (never°) (always°) (never°))) ; book: (▢₀ ▢₀ ▢₀ ▢₀ ▢₀)
+     ;   (run/with-symbols 4 (v) (cond°/§ ((≡ 'spicy v) never°) ((≡ 'hot v) never°)
+     ;                                    ((≡ 'apple v) always°) ((≡ 'cider v) always°))) ; book: ()
+     ))
+
+  ((test/dyck° _)
+   (⊦= '(()
+        (○ ●)
+        (○ ○ ● ●)
+        (○ ● ○ ●)
+        (○ ○ ○ ● ● ●)
+        (○ ● ○ ○ ● ●)
+        (○ ○ ● ● ○ ●)
+        (○ ● ○ ● ○ ●)
+        (○ ○ ● ○ ● ●)
+        (○ ● ○ ○ ○ ● ● ●)
+        (○ ○ ● ● ○ ○ ● ●)
+        (○ ● ○ ● ○ ○ ● ●)
+        (○ ○ ○ ● ● ● ○ ●)
+        (○ ● ○ ○ ● ● ○ ●)
+        (○ ○ ● ● ○ ● ○ ●)
+        (○ ● ○ ● ○ ● ○ ●)
+        (○ ○ ○ ○ ● ● ● ●)
+        (○ ● ○ ○ ● ○ ● ●)
+        (○ ○ ● ● ○ ○ ○ ● ● ●)
+        (○ ● ○ ● ○ ○ ○ ● ● ●)
+        (○ ○ ○ ● ● ● ○ ○ ● ●)
+        (○ ● ○ ○ ● ● ○ ○ ● ●)
+        (○ ○ ● ● ○ ● ○ ○ ● ●)
+        (○ ● ○ ● ○ ● ○ ○ ● ●)
+        (○ ○ ● ○ ● ● ○ ●)
+        (○ ● ○ ○ ○ ● ● ● ○ ●)
+        (○ ○ ● ● ○ ○ ● ● ○ ●)
+        (○ ● ○ ● ○ ○ ● ● ○ ●)
+        (○ ○ ○ ● ● ● ○ ● ○ ●)
+        (○ ● ○ ○ ● ● ○ ● ○ ●)
+        (○ ○ ● ● ○ ● ○ ● ○ ●)
+        (○ ● ○ ● ○ ● ○ ● ○ ●)
+        (○ ○ ● ○ ○ ● ● ●)
+        (○ ● ○ ○ ○ ○ ● ● ● ●)
+        (○ ○ ● ● ○ ○ ● ○ ● ●)
+        (○ ● ○ ● ○ ○ ● ○ ● ●)
+        (○ ○ ○ ● ● ● ○ ○ ○ ● ● ●)
+        (○ ● ○ ○ ● ● ○ ○ ○ ● ● ●)
+        (○ ○ ● ● ○ ● ○ ○ ○ ● ● ●)
+        (○ ● ○ ● ○ ● ○ ○ ○ ● ● ●)
+        (○ ○ ● ○ ● ● ○ ○ ● ●)
+        (○ ● ○ ○ ○ ● ● ● ○ ○ ● ●))
+       (run/with-symbols 42 (α) (dyck° α))))
+
+  ((test/dyck°/deepening _)
+   (⊦= '((() 1)
+        ((○ ●) 7)
+        ((○ ○ ● ●) 17)
+        ((○ ● ○ ●) 13)
+        ((○ ○ ○ ● ● ●) 31)
+        ((○ ● ○ ○ ● ●) 23)
+        ((○ ○ ● ● ○ ●) 23)
+        ((○ ● ○ ● ○ ●) 19)
+        ((○ ○ ● ○ ● ●) 27)
+        ((○ ● ○ ○ ○ ● ● ●) 37)
+        ((○ ○ ● ● ○ ○ ● ●) 33)
+        ((○ ● ○ ● ○ ○ ● ●) 29)
+        ((○ ○ ○ ● ● ● ○ ●) 37)
+        ((○ ● ○ ○ ● ● ○ ●) 29)
+        ((○ ○ ● ● ○ ● ○ ●) 29)
+        ((○ ● ○ ● ○ ● ○ ●) 25)
+        ((○ ○ ○ ○ ● ● ● ●) 49)
+        ((○ ● ○ ○ ● ○ ● ●) 33)
+        ((○ ○ ● ● ○ ○ ○ ● ● ●) 47)
+        ((○ ● ○ ● ○ ○ ○ ● ● ●) 43)
+        ((○ ○ ○ ● ● ● ○ ○ ● ●) 47)
+        ((○ ● ○ ○ ● ● ○ ○ ● ●) 39)
+        ((○ ○ ● ● ○ ● ○ ○ ● ●) 39)
+        ((○ ● ○ ● ○ ● ○ ○ ● ●) 35)
+        ((○ ○ ● ○ ● ● ○ ●) 33)
+        ((○ ● ○ ○ ○ ● ● ● ○ ●) 43)
+        ((○ ○ ● ● ○ ○ ● ● ○ ●) 39)
+        ((○ ● ○ ● ○ ○ ● ● ○ ●) 35)
+        ((○ ○ ○ ● ● ● ○ ● ○ ●) 43)
+        ((○ ● ○ ○ ● ● ○ ● ○ ●) 35)
+        ((○ ○ ● ● ○ ● ○ ● ○ ●) 35)
+        ((○ ● ○ ● ○ ● ○ ● ○ ●) 31)
+        ((○ ○ ● ○ ○ ● ● ●) 41)
+        ((○ ● ○ ○ ○ ○ ● ● ● ●) 55)
+        ((○ ○ ● ● ○ ○ ● ○ ● ●) 43)
+        ((○ ● ○ ● ○ ○ ● ○ ● ●) 39)
+        ((○ ○ ○ ● ● ● ○ ○ ○ ● ● ●) 61)
+        ((○ ● ○ ○ ● ● ○ ○ ○ ● ● ●) 53)
+        ((○ ○ ● ● ○ ● ○ ○ ○ ● ● ●) 53)
+        ((○ ● ○ ● ○ ● ○ ○ ○ ● ● ●) 49)
+        ((○ ○ ● ○ ● ● ○ ○ ● ●) 43)
+        ((○ ● ○ ○ ○ ● ● ● ○ ○ ● ●) 53))
+       (run/with-symbols ↓ 42 (α) ((deepening 100) (dyck° α)))))
+
+  ((test/stacksort° _)
+   (⊦= '(((5 4 3 2 1) "((((()))))")
+        ((4 3 2 1 5) "(((())))()")
+        ((5 3 2 1 4) "(((()))())")
+        ((3 2 1 4 5) "((()))()()")
+        ((5 4 2 1 3) "(((())()))")
+        ((4 2 1 3 5) "((())())()")
+        ((3 2 1 5 4) "((()))(())")
+        ((2 1 3 4 5) "(())()()()")
+        ((5 4 3 1 2) "(((()())))")
+        ((4 3 1 2 5) "((()()))()")
+        ((5 2 1 3 4) "((())()())")
+        ((3 1 2 4 5) "(()())()()")
+        ((5 2 1 4 3) "((())(()))")
+        ((2 1 4 3 5) "(())(())()")
+        ((2 1 3 5 4) "(())()(())")
+        ((1 2 3 4 5) "()()()()()")
+        ((5 4 1 3 2) "((()(())))")
+        ((4 1 3 2 5) "(()(()))()")
+        ((5 3 1 2 4) "((()())())")
+        ((1 3 2 4 5) "()(())()()")
+        ((5 4 1 2 3) "((()()()))")
+        ((4 1 2 3 5) "(()()())()")
+        ((3 1 2 5 4) "(()())(())")
+        ((1 4 3 2 5) "()((()))()")
+        ((5 1 4 3 2) "(()((())))")
+        ((1 2 4 3 5) "()()(())()")
+        ((2 1 5 3 4) "(())(()())")
+        ((1 4 2 3 5) "()(()())()")
+        ((2 1 5 4 3) "(())((()))")
+        ((1 2 3 5 4) "()()()(())")
+        ((1 5 4 3 2) "()(((())))")
+        ((5 1 3 2 4) "(()(())())")
+        ((5 1 4 2 3) "(()(()()))")
+        ((1 3 2 5 4) "()(())(())")
+        ((5 1 2 4 3) "(()()(()))")
+        ((5 1 2 3 4) "(()()()())")
+        ((1 5 4 2 3) "()((()()))")
+        ((1 5 3 2 4) "()((())())")
+        ((1 2 5 4 3) "()()((()))")
+        ((1 2 5 3 4) "()()(()())")
+        ((1 5 2 4 3) "()(()(()))")
+        ((1 5 2 3 4) "()(()()())"))
+       (map (λ (p)
+              (list (car p) (list->string (cadr p))))
+            (run/with-symbols ∞ (α β)
+              (stacksort° β α '(5 4 3 2 1))))))
+
+  ((test/anti-reverse _)
+   (⊦= "(((-)))" (anti-reverse "(((-)))"))
+   (⊦= "(-((((-))--)-))" (anti-reverse "((-(--((-))))-)"))
+   (⊨ (and ((closed? anti-reverse)
+            '("(-(-(((-)))-)-)" "(((-((-)--)-)))" "(((-(-(-)-)-)))" "(((--((-))--)))" "(((-(--(-))-)))"))
+           #t)))
+
+  ((test/2stacksort° _)
+   ; The original only computed `permutations` for (3 2 1), with no active assertion; its
+   ; commented expected values (for (6 5 4 3 2 1) and for a 5-permutation) are dropped.
+   (let* ((sort-by-arranging-ways/ascending (fsort cadr <))
+          (permutation+#paths+paths (λ (p)
+                                      (let1 (L (map cadr (cdr p)))
+                                        (list (car p) (length L) L))))
+          (group-by-permutation (group car permutation+#paths+paths))
+          (permutation+path (λ (p)
+                              (list (car p) (list->string (cadr p)))))
+          (map->group->sort (○
+                              sort-by-arranging-ways/ascending
+                              group-by-permutation
+                              (fmap permutation+path)))
+          (permutations (map->group->sort
+                          (run/with-symbols ∞ (α β)
+                            (2stacksort° β α '(3 2 1))))))
+     ; every permutation of 3 items is sortable by two stacks in series
+     (⊦= 6 (length permutations))
+     (⊨ (every (λ (p) (member? p (map car permutations)))
+               '((1 2 3) (1 3 2) (2 1 3) (2 3 1) (3 1 2) (3 2 1))))
+     ; the number of paths is the length of their list, and it is ascending
+     (⊨ (every (λ (t) (= (cadr t) (length (caddr t)))) permutations))
+     (⊨ (apply <= (map cadr permutations)))
+     ; each path has 3 pushes #\), 3 moves #\- and 3 pops #\(
+     (⊨ (every (λ (t)
+                 (every (λ (path)
+                          (let1 (cs (string->list path))
+                            (and (= 9 (length cs))
+                                 (= 3 (length (filter (=to? #\)) cs)))
+                                 (= 3 (length (filter (=to? #\-) cs))))))
+                        (caddr t)))
+               permutations))))
+
+  ((test/recurrence-unfolding _)
+   (⊦= '(((2 1))
+        ((0 1) (1 1))
+        ((-2 1) (-1 2) (0 1))
+        ((-4 1) (-3 3) (-2 3) (-1 1))
+        ((-6 1) (-5 4) (-4 6) (-3 4) (-2 1))
+        ((-8 1) (-7 5) (-6 10) (-5 10) (-4 5) (-3 1))
+        ((-10 1) (-9 6) (-8 15) (-7 20) (-6 15) (-5 6) (-4 1))
+        ((-12 1) (-11 7) (-10 21) (-9 35) (-8 35) (-7 21) (-6 7) (-5 1))
+        ((-14 1) (-13 8) (-12 28) (-11 56) (-10 70) (-9 56) (-8 28) (-7 8) (-6 1)))
+       (map (λ (n)
+              ((○
+                 ; adding (fmap cadr) to the composition yields the usual Pascal triangle
+                 (λ (l) (sort l (λ args (apply < (map car args)))))
+                 (group identity (λ (p) (list (car p) (length (cdr p))))))
+               (car (run/with-symbols ∞ (α) (fibonacci° n 2 α)))))
+            (list-tabulate 9 identity)))
+   (⊦= '((((1 1) 1))
+        (((0 1) 1) ((0 0) 1))
+        (((-1 1) 1) ((-1 0) 2) ((-1 -1) 1))
+        (((-2 1) 1) ((-2 0) 3) ((-2 -1) 3) ((-2 -2) 1))
+        (((-3 1) 1) ((-3 0) 4) ((-3 -1) 6) ((-3 -2) 4) ((-3 -3) 1))
+        (((-4 1) 1) ((-4 0) 5) ((-4 -1) 10) ((-4 -2) 10) ((-4 -3) 5) ((-4 -4) 1))
+        (((-5 1) 1) ((-5 0) 6) ((-5 -1) 15) ((-5 -2) 20) ((-5 -3) 15) ((-5 -4) 6) ((-5 -5) 1))
+        (((-6 1) 1) ((-6 0) 7) ((-6 -1) 21) ((-6 -2) 35) ((-6 -3) 35) ((-6 -4) 21) ((-6 -5) 7) ((-6 -6) 1))
+        (((-7 1) 1) ((-7 0) 8) ((-7 -1) 28) ((-7 -2) 56) ((-7 -3) 70) ((-7 -4) 56) ((-7 -5) 28) ((-7 -6) 8) ((-7 -7) 1)))
+       (map (λ (n)
+              ((○
+                 (λ (l)
+                   (sort l (λ args (apply (tuple/pred? >=) (map car args)))))
+                 (group identity (λ (p) (list (car p) (length (cdr p))))))
+               (car (run/with-symbols ∞ (α) (tartaglia° n 1 1 α)))))
+            (list-tabulate 9 identity))))
+
+  ; new cases --------------------------------------------------------------------------------------
+
+  ((test/unify-binds-variables-to-terms _)
+   ; the original `unify` made the constant a child of a rank-1 root: ((▢₀ ▢₀)) and an unsound success
+   (⊦= '((3 3)) (run/with-symbols ∞ (v w) (∧ (≡ v w) (≡ v 3))))
+   (⊦= '((3 3)) (run/with-symbols ∞ (v w) (∧ (≡ v w) (≡ w 3))))
+   (⊦= '((3 3)) (run/with-symbols ∞ (v w) (∧ (≡ v w) (≡ 3 v))))
+   (⊦= '() (run/with-symbols ∞ (v w) (∧ (≡ v w) (≡ v 3) (≡ v 4))))
+   (⊦= '() (run/with-symbols ∞ (v w) (∧ (≡ v 3) (≡ w 4) (≡ v w))))
+   (⊦= '((3 3 3)) (run/with-symbols ∞ (u v w) (∧ (≡ u v) (≡ v w) (≡ w 3))))
+   (⊦= '((3 3 3)) (run/with-symbols ∞ (u v w) (∧ (≡ u v) (≡ w 3) (≡ v w))))
+   (⊦= '(((1 2) (1 2))) (run/with-symbols ∞ (v w) (∧ (≡ v w) (≡ w `(1 ,(add1 1))))))
+   (⊦= '(((▢₀ 2) (▢₀ 2))) (run/with-symbols ∞ (v w) (fresh (x) (∧ (≡ v w) (≡ v `(,x 2)))))))
+
+  ((test/unify-strings _)
+   (⊦= '(#t) (run/with-symbols ∞ (≡ "ab" (string #\a #\b))))
+   (⊦= '() (run/with-symbols ∞ (≡ "ab" "ba")))
+   (⊦= '("ab") (run/with-symbols ∞ (v) (∧ (≡ v "ab") (≡ v (string #\a #\b))))))
+
+  ((test/conditionals _)
+   ; soft cut: only the answers of the first question that succeeds
+   (⊦= '(1) (run/with-symbols ∞ (v) (cond°/! ((≡ v 1)) ((≡ v 2)))))
+   (⊦= '(cup) (run/with-symbols ∞ (v) (cond°/! ((tea-cup° v) (≡ v 'cup)) ((≡ v 2)))))
+   (⊦= '(tea cup) (run/with-symbols ∞ (v) (cond°/! ((tea-cup° v)) ((≡ v 2)))))
+   (⊦= '(2) (run/with-symbols ∞ (v) (cond°/! (✗) ((≡ v 2)))))
+   ; committed choice: only the first answer of the first question that succeeds
+   (⊦= '(1) (run/with-symbols ∞ (v) (cond°/!! ((≡ v 1)) ((≡ v 2)))))
+   (⊦= '(tea) (run/with-symbols ∞ (v) (cond°/!! ((tea-cup° v)) ((≡ v 2)))))
+   (⊦= '(2) (run/with-symbols ∞ (v) (cond°/!! (✗) ((≡ v 2)))))
+   ; unfair append: all the answers of a clause before the ones of the next
+   (⊦= '(1 2) (run/with-symbols ∞ (v) (cond°/¦ ((≡ v 1)) ((≡ v 2)))))
+   (⊦= '(tea cup 2) (run/with-symbols ∞ (v) (cond°/¦ ((tea-cup° v)) ((≡ v 2)))))
+   (⊦= '(▢₀ ▢₀ ▢₀) (run/with-symbols 3 (v) (cond°/¦ (always°) ((≡ v 2)))))
+   ; while interleaving reaches the second clause too
+   (⊦= '(▢₀ 2 ▢₀) (run/with-symbols 3 (v) (cond°/§ (always°) ((≡ v 2))))))
+
+  ((test/deepening _)
+   (⊦= '((1 1)) (run/with-symbols ↓ ∞ (v) ((deepening 1) (cond°/§ ((≡ v 1))))))
+   (⊦= '((1 1)) (run/with-symbols ↓ ∞ (v) ((deepening 1) (cond°/§ ((≡ v 1)) ((≡ v 2))))))
+   (⊦= '((1 1) (2 2)) (run/with-symbols ↓ ∞ (v) ((deepening 2) (cond°/§ ((≡ v 1)) ((≡ v 2))))))
+   (⊦= '((#t 0)) (run/with-symbols ↓ ∞ ((deepening 0) ✓))))
+
+  ((test/strict-errors _)
+   ; `run/with-symbols` with a count that is neither a number nor ∞
+   (⊨ (condition-case (begin (run/with-symbols 'all (v) (≡ v 1)) #f) ((exn) #t)))
+   ; `≡` needs a status
+   (⊨ (condition-case (begin (force ((≡ 1 1) 'no-status)) #f) ((exn) #t)))
+   ; `V` and `R` check their fields, as the original datatype did
+   (⊨ (condition-case (begin (V 3) #f) ((exn) #t)))
+   (⊨ (condition-case (begin (R "x" 0) #f) ((exn) #t)))
+   (⊨ (condition-case (begin (R 'x 'y) #f) ((exn) #t)))
+   (⊨ (and (variable? (V 'x)) (variable? (R 'x 0)) #t)))
+
+  )
+
+(unittest/✓ microkanren-unionfind-suite)

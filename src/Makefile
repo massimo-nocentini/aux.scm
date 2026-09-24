@@ -3,7 +3,7 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-microkanren-date test-anthropic test-anthropic-live test-cml install format simdjson-fetch \
+        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-learning-matchable install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors
 
 echo:
@@ -38,6 +38,24 @@ test:
 	cd test && ${CSI} -s cml.scm
 	cd test && ${CSI} -s cml-lib.scm
 	cd test && ${CSI} -s cml-io.scm
+	cd test && ${CSI} -s commons.scm
+	cd test && ${CSI} -s tabling.scm
+	cd test && ${CSI} -s variable.scm
+	cd test && ${CSI} -s promise.scm
+	cd test && ${CSI} -s learning-chicken.scm
+	cd test && ${CSI} -s ackermann.scm
+	cd test && ${CSI} -s continuation.classic.scm
+	cd test && ${CSI} -s continuation.amb.scm
+	cd test && ${CSI} -s continuation.escaper.scm
+	cd test && ${CSI} -s continuation.collatz.scm
+	cd test && ${CSI} -s stream.sicp.scm
+	cd test && ${CSI} -s fds.unionfind.scm
+	cd test && ${CSI} -s schemer.seasoned.scm
+	cd test && ${CSI} -s machine.env.scm
+	cd test && ${CSI} -s machine.sc.scm
+	cd test && ${CSI} -s machine.secd.scm
+	cd test && ${CSI} -s microkanren-unionfind.scm
+	cd test && ${CSI} -s games.dice-of-doom.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm
@@ -61,6 +79,29 @@ test-cml:
 	cd test && ${CSI} -s cml.scm
 	cd test && ${CSI} -s cml-lib.scm
 	cd test && ${CSI} -s cml-io.scm
+
+test-on-scheme:
+	cd test && ${CSI} -s commons.scm
+	cd test && ${CSI} -s tabling.scm
+	cd test && ${CSI} -s variable.scm
+	cd test && ${CSI} -s promise.scm
+	cd test && ${CSI} -s learning-chicken.scm
+	cd test && ${CSI} -s ackermann.scm
+	cd test && ${CSI} -s continuation.classic.scm
+	cd test && ${CSI} -s continuation.amb.scm
+	cd test && ${CSI} -s continuation.escaper.scm
+	cd test && ${CSI} -s continuation.collatz.scm
+	cd test && ${CSI} -s stream.sicp.scm
+	cd test && ${CSI} -s fds.unionfind.scm
+	cd test && ${CSI} -s schemer.seasoned.scm
+	cd test && ${CSI} -s machine.env.scm
+	cd test && ${CSI} -s machine.sc.scm
+	cd test && ${CSI} -s machine.secd.scm
+	cd test && ${CSI} -s microkanren-unionfind.scm
+	cd test && ${CSI} -s games.dice-of-doom.scm
+
+test-learning-matchable:
+	cd test && ${CSI} -s learning-matchable.scm
 
 install:
 	chicken-install -sudo
@@ -100,6 +141,38 @@ format:
 	scheme-indent -T 2 < aux.kanren.micro.show.scm > aux.kanren.micro.show.scm.tmp && mv aux.kanren.micro.show.scm.tmp aux.kanren.micro.show.scm
 	scheme-indent -T 2 < aux.anthropic.scm > aux.anthropic.scm.tmp && mv aux.anthropic.scm.tmp aux.anthropic.scm
 	scheme-indent -T 2 < aux.cml.scm > aux.cml.scm.tmp && mv aux.cml.scm.tmp aux.cml.scm
+	scheme-indent -T 2 < test/commons.scm > test/commons.scm.tmp && mv test/commons.scm.tmp test/commons.scm
+	scheme-indent -T 2 < test/tabling.scm > test/tabling.scm.tmp && mv test/tabling.scm.tmp test/tabling.scm
+	scheme-indent -T 2 < test/variable.scm > test/variable.scm.tmp && mv test/variable.scm.tmp test/variable.scm
+	scheme-indent -T 2 < test/promise.scm > test/promise.scm.tmp && mv test/promise.scm.tmp test/promise.scm
+	scheme-indent -T 2 < test/learning-chicken.scm > test/learning-chicken.scm.tmp && mv test/learning-chicken.scm.tmp test/learning-chicken.scm
+	scheme-indent -T 2 < test/ackermann.scm > test/ackermann.scm.tmp && mv test/ackermann.scm.tmp test/ackermann.scm
+	scheme-indent -T 2 < test/continuation.classic.scm > test/continuation.classic.scm.tmp && mv test/continuation.classic.scm.tmp test/continuation.classic.scm
+	scheme-indent -T 2 < test/continuation.amb.scm > test/continuation.amb.scm.tmp && mv test/continuation.amb.scm.tmp test/continuation.amb.scm
+	scheme-indent -T 2 < test/continuation.escaper.scm > test/continuation.escaper.scm.tmp && mv test/continuation.escaper.scm.tmp test/continuation.escaper.scm
+	scheme-indent -T 2 < test/continuation.collatz.scm > test/continuation.collatz.scm.tmp && mv test/continuation.collatz.scm.tmp test/continuation.collatz.scm
+	scheme-indent -T 2 < test/stream.sicp.scm > test/stream.sicp.scm.tmp && mv test/stream.sicp.scm.tmp test/stream.sicp.scm
+	scheme-indent -T 2 < test/fds.unionfind.scm > test/fds.unionfind.scm.tmp && mv test/fds.unionfind.scm.tmp test/fds.unionfind.scm
+	scheme-indent -T 2 < test/schemer.seasoned.scm > test/schemer.seasoned.scm.tmp && mv test/schemer.seasoned.scm.tmp test/schemer.seasoned.scm
+	scheme-indent -T 2 < test/machine.env.scm > test/machine.env.scm.tmp && mv test/machine.env.scm.tmp test/machine.env.scm
+	scheme-indent -T 2 < test/machine.sc.scm > test/machine.sc.scm.tmp && mv test/machine.sc.scm.tmp test/machine.sc.scm
+	scheme-indent -T 2 < test/machine.secd.scm > test/machine.secd.scm.tmp && mv test/machine.secd.scm.tmp test/machine.secd.scm
+	scheme-indent -T 2 < test/microkanren-unionfind.scm > test/microkanren-unionfind.scm.tmp && mv test/microkanren-unionfind.scm.tmp test/microkanren-unionfind.scm
+	scheme-indent -T 2 < test/games.dice-of-doom.scm > test/games.dice-of-doom.scm.tmp && mv test/games.dice-of-doom.scm.tmp test/games.dice-of-doom.scm
+	scheme-indent -T 2 < test/learning-matchable.scm > test/learning-matchable.scm.tmp && mv test/learning-matchable.scm.tmp test/learning-matchable.scm
+	scheme-indent -T 2 < aux.commons.scm > aux.commons.scm.tmp && mv aux.commons.scm.tmp aux.commons.scm
+	scheme-indent -T 2 < aux.tabling.scm > aux.tabling.scm.tmp && mv aux.tabling.scm.tmp aux.tabling.scm
+	scheme-indent -T 2 < aux.variable.scm > aux.variable.scm.tmp && mv aux.variable.scm.tmp aux.variable.scm
+	scheme-indent -T 2 < aux.continuation.classic.scm > aux.continuation.classic.scm.tmp && mv aux.continuation.classic.scm.tmp aux.continuation.classic.scm
+	scheme-indent -T 2 < aux.stream.sicp.scm > aux.stream.sicp.scm.tmp && mv aux.stream.sicp.scm.tmp aux.stream.sicp.scm
+	scheme-indent -T 2 < aux.stream.series.scm > aux.stream.series.scm.tmp && mv aux.stream.series.scm.tmp aux.stream.series.scm
+	scheme-indent -T 2 < aux.fds.unionfind.scm > aux.fds.unionfind.scm.tmp && mv aux.fds.unionfind.scm.tmp aux.fds.unionfind.scm
+	scheme-indent -T 2 < aux.schemer.seasoned.scm > aux.schemer.seasoned.scm.tmp && mv aux.schemer.seasoned.scm.tmp aux.schemer.seasoned.scm
+	scheme-indent -T 2 < aux.machine.env.scm > aux.machine.env.scm.tmp && mv aux.machine.env.scm.tmp aux.machine.env.scm
+	scheme-indent -T 2 < aux.machine.sc.scm > aux.machine.sc.scm.tmp && mv aux.machine.sc.scm.tmp aux.machine.sc.scm
+	scheme-indent -T 2 < aux.machine.secd.scm > aux.machine.secd.scm.tmp && mv aux.machine.secd.scm.tmp aux.machine.secd.scm
+	scheme-indent -T 2 < aux.kanren.unionfind.scm > aux.kanren.unionfind.scm.tmp && mv aux.kanren.unionfind.scm.tmp aux.kanren.unionfind.scm
+	scheme-indent -T 2 < aux.games.dice-of-doom.scm > aux.games.dice-of-doom.scm.tmp && mv aux.games.dice-of-doom.scm.tmp aux.games.dice-of-doom.scm
 
 simdjson-fetch:
 	rm -rf simdjson.cpp simdjson.h #test/twitter.json
