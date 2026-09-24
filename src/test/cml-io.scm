@@ -46,6 +46,9 @@
 
 (define (sleep-ms ms) (file-select '() '() (/ ms 1000.0)))
 
+; whether (round-trip) gives #t 10 times in a row
+(define (every-reply round-trip) (let loop ((i 0)) (or (= i 10) (and (round-trip) (loop (add1 i))))))
+
 ; the CPU time used by this process, in ms
 (define (cpu-ms) (receive (user system) (cpu-time) (+ user system)))
 
@@ -604,6 +607,29 @@
    (⊦= "cml: bad io spec, expected (fd input|output)" (message (τ (poll-evt (list 0.0 'input)))))
    (⊦= "ab" (run/value (τ (sync (input-string-evt (open-input-string "abcdef") 2))))))
 
+  ((test/polls-find-the-available-input _)
+   ; a poll (sync/timeout with 0 seconds) of an input event finds the input that is there: the
+   ; event polls a fast path itself, before its helper thread may take the port's lock.  The helper
+   ; used to run first, and when a preemption caught it holding the lock before its offer, it waited
+   ; in rdyQ2 and every poll missed until the next preemption: most polls missed at the default
+   ; quantum, some 500 in a row at quantum 1000
+   (define (misses port q)
+     (run-cml (τ (let loop ((i 0) (misses 0))
+                   (if (= i 1000)
+                     (cml/shutdown misses)
+                     (loop (add1 i) (if (eq? 'none (sync/timeout (input-char-evt port) 0 'none)) (add1 misses) misses)))))
+              quantum: q))
+   (for-each (λ (q) (⊦= 0 (misses (open-input-string (make-string 2000 #\a)) q))) '(8 64 1000))
+   (with-pipe (λ (p out) (fd-write! out (make-string 2000 #\b)) (⊦= 0 (misses p 64))))
+   ; the input a poll drained but did not take stays in the side buffer, for the next event
+   (⊦= '(none #\x "yz" none)
+       (with-pipe (λ (p out)
+                    (log-of (τ (note! (sync/timeout (input-char-evt p) 0 'none))
+                               (fd-write! out "xyz\n")
+                               (note! (sync/timeout (input-char-evt p) 0 'none))
+                               (note! (sync/timeout (input-line-evt p) 0 'none))
+                               (note! (sync/timeout (input-char-evt p) 0 'none))))))))
+
   ((test/not-running _)
    (with-pipe (λ (p out) (⊦raises (exn cml not-running) (sync (input-char-evt p)))))
    (⊦raises (exn cml not-running) (system-evt "true"))
@@ -622,6 +648,19 @@
                   (let1 (e (system-evt "true"))
                     (sync e)
                     (note! (sync e)))))))                        ; the status is memoized
+
+  ((test/bad-arguments _)
+   ; a command, arguments or environment of the wrong type raise in the caller, before any fork:
+   ; they used to fail in the child, which exited with 127 or 128 as if the command had failed
+   ; (and a string of arguments ran the command)
+   (⊦= '(raised raised raised raised raised raised)
+       (run/value (τ (map (λ (thunk) (condition-case (begin (thunk) 'no-raise) (e (exn) 'raised)))
+                          (list (τ (system-evt 42))
+                                (τ (cml/system 'true))
+                                (τ (cml/execute 'ls))
+                                (τ (cml/execute "ls" "-l"))
+                                (τ (cml/execute "ls" '(1 2)))
+                                (τ (cml/execute "ls" '() '(42)))))))))
 
   ((test/system-evt/eager-and-selectable _)
    ; the command starts when the event is made; a timeout can win against it and it is reaped anyway
@@ -795,6 +834,34 @@
                       (note! (result-get r2)))))))
      (tcp-close l)
      (⊦= '(("a" ("echo a0" "echo a1" "echo a2") #!eof) ("b" ("echo b0" "echo b1" "echo b2") #!eof)) log)))
+
+  ((test/write-string-evt-sends-a-message-at-once _)
+   ; a string written on a tcp port goes out in one send (a non-blocking descriptor takes what it
+   ; can and the rest waits for readiness), not in 128-char pieces: Nagle's algorithm held every
+   ; piece after the first until the peer's delayed ACK, some 40 ms per message and direction, so
+   ; these 10 request/response round trips of 1000 chars took over 800 ms
+   (let* ((l (tcp-listen 0 4 "127.0.0.1"))
+          (port (tcp-listener-port l))
+          (line (make-string 1000 #\m))
+          (r (run/value (τ (spawn (τ (let* ((io (sync (tcp-accept-evt l))) (in (car io)) (out (cadr io)))
+                                       (let loop ()
+                                         (let1 (s (sync (input-line-evt in)))
+                                           (unless (eof-object? s)
+                                             (sync (write-string-evt out (string-append s "\n")))
+                                             (loop))))
+                                       (close-input-port in)
+                                       (close-output-port out))))
+                           (let* ((io (sync (tcp-connect-evt "127.0.0.1" port))) (in (car io)) (out (cadr io))
+                                  (t0 (current-process-milliseconds))
+                                  (ok (every-reply (λ () (sync (write-string-evt out (string-append line "\n")))
+                                                         (equal? line (sync (input-line-evt in)))))))
+                             (let1 (ms (- (current-process-milliseconds) t0))
+                               (close-output-port out)
+                               (close-input-port in)
+                               (list ok ms)))))))
+     (tcp-close l)
+     (⊨ (car r))
+     (⊨ (< (cadr r) 400))))
 
   ((test/accept-evt/timeout-then-accept _)
    ; with no client the timeout wins and no connection is consumed; then a client comes in

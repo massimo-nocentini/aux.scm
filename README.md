@@ -136,7 +136,10 @@ The design follows the ML sources closely:
   included, is also a clock tick, and ML's quantum and fairness heuristic are
   applied on those ticks (with one thread promoted from the compute-bound queue
   at every preemption, so that the deterministic ticks cannot starve it), but a
-  thread that computes without calling CML is never preempted;
+  thread that computes without calling CML is never preempted. A preemption
+  polls the timeouts, and the descriptors and child processes once 2 ms (or ten
+  times as long as their last poll took) have passed since their last poll, so
+  that thousands of idle I/O waiters do not slow down the other threads;
 - base events implement `event.sml`'s poll / enabled / blocked protocol, with
   priorities, shared transaction ids, and `guard`/`with-nack` forced at every
   sync;
@@ -159,8 +162,10 @@ The design follows the ML sources closely:
   CML's own errors are conditions of kind `(exn cml <kind>)`, e.g.
   `(exn cml put)` for a double put, `(exn cml not-running)` or
   `(exn cml barrier)`; bad arguments (sync on a non-event, a non-port given to
-  a port event, a bad count, a non-procedure given to `spawn`, ...) raise ordinary errors of kind `(exn)`, which
-  an `(exn cml)` handler does not catch.
+  a port event, a bad count, a non-procedure given to `spawn` or
+  `cml/add-cleaner!`, an ivar given to an mvar operation, a command that is not
+  a string, ...) raise ordinary errors of kind `(exn)` in the caller, which an
+  `(exn cml)` handler does not catch.
 
 Exported entry points include:
 
@@ -225,7 +230,8 @@ delivering exceptions to the caller, TraceCML without servers, port events that
 never lose input to a losing `select`, nacks set right after the commit and also
 when a sync is abandoned while forcing or polling or by the death of its thread,
 wrap functions run at the sync's own continuation, waiter queues cleaned in
-amortized O(1) per enqueue, timeouts kept in a heap, a write to a pipe whose
+amortized O(1) per enqueue, timeouts kept in a heap, `multicast!` without a
+server thread but yielding at every message, a write to a pipe whose
 reader has exited raising EPIPE, `cml/execute` searching PATH (but not when
 an environment is given, as in ML) and passing the command as given as
 argv[0], ...), the header of each part of

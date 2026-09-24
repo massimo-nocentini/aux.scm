@@ -26,9 +26,10 @@
 ;;   `quantum` ticks have elapsed the running thread is preempted as ML's SIGALRM handler does (a
 ;;   thread marked `done-comm` is unmarked and goes to the rear of rdyQ1, an unmarked one is demoted
 ;;   to rdyQ2) except that one thread is promoted from rdyQ2 at every preemption (ML: only when the
-;;   preempted thread was marked), then the scheduler hook polls timeouts, descriptors and child
-;;   processes and dispatches.  A thread that computes without ever calling a CML operation is never
-;;   preempted; `cml/yield` is a tick too, and a yielding thread is preempted like a marked one.
+;;   preempted thread was marked), then the scheduler hook polls timeouts (and descriptors and child
+;;   processes, once 2 ms, or ten times as long as their last poll took, have passed since it) and
+;;   dispatches.  A thread that computes without ever calling a CML operation is never preempted;
+;;   `cml/yield` is a tick too, and a yielding thread is preempted like a marked one.
 ;; - event.sml: base events are poll thunks returning (make-%enabled prio do-thunk) or
 ;;   (make-%blocked (λ (trans cleanup next) ...)); prio >= 0 is dynamic and -1 fixed (counted as the
 ;;   number of enabled events); the choice takes the max priority starting from 0 and breaks ties with
@@ -42,7 +43,8 @@
 ;;   SyncVar takes/gets/swaps, the Mailbox operations, ...) is attempted outside `run-cml`, (exn cml
 ;;   barrier) for a misused barrier; puts and the non-blocking polls of SyncVar and Mailbox work
 ;;   outside, and never wake anybody there.  Bad arguments (sync on a non-event, a guard returning
-;;   a non-event, a non-port given to a port event, ...) raise ordinary errors, of kind (exn) only.
+;;   a non-event, a non-port given to a port event, an ivar given to an mvar operation, a cleaner
+;;   that is not a procedure, ...) raise ordinary errors, of kind (exn) only, in the caller.
 ;; - `guard` is CML's guard combinator: a client importing (chicken base) as well should write
 ;;   (import (except (chicken base) guard)) to drop the R7RS exception-handling syntax.
 ;;
@@ -70,8 +72,10 @@
 ;; previous one reach the length it left, so that blocking n threads costs O(n), not O(n^2) (ML
 ;; cleans a channel queue at every enqueue); the pending timeouts are a heap, so blocking n
 ;; sleepers is O(n log n) and a preemption tick does not scan them all (ML's sorted list is cleaned
-;; whole at every poll, which is harmless at its 20 ms SIGALRM but not at every tick); a thread is
-;; promoted from rdyQ2 at every preemption (see above); a rendezvous never resumes a thread that
+;; whole at every poll, which is harmless at its 20 ms SIGALRM but not at every tick), and the
+;; descriptors and child processes are polled at a tick only 2 ms (or ten times as long as that
+;; poll took) after their last poll; a thread is promoted from rdyQ2 at every preemption (see
+;; above), and at every multicast! (see Multicast); a rendezvous never resumes a thread that
 ;; died meanwhile (an after thunk that raised while it switched to its partner), a receiver whose
 ;; blocked sender dies as it is switched in (a before thunk that raised) receives again instead of
 ;; being left blocked on nothing, when a SyncVar reader dies so, the next reader is handed the
@@ -142,7 +146,7 @@
           (chicken bytevector)
           (only (chicken io) read-byte)
           (only (chicken string) string-split ->string)
-          (only srfi-1 filter any remove append-map cons* fold)
+          (only srfi-1 filter any every remove append-map cons* fold)
           (aux base)
           (aux continuation))
 
@@ -485,8 +489,30 @@
   (define (%enqueue-tmp-thread! thunk)
     (%q-enqueue-front! %rdy-q1 (cons %dummy-tid (%isolated (τ (condition-case (thunk) (e () (void))) (%dispatch))))))
 
-  ; the scheduler hook (pollK) and the pause hook (pauseK) of export-fn-fn.sml
-  (define (%poll-k) (%atomic-begin) (%poll-os!) (%atomic-dispatch))
+  ; the scheduler hook (pollK) and the pause hook (pauseK) of export-fn-fn.sml.  The preemption
+  ; ticks come every `quantum` CML operations, far more often than ML's 20 ms SIGALRM, and polling
+  ; descriptors and child processes costs a select over every waiter's descriptor and a waitpid per
+  ; child: at a tick they are polled only once %poll-interval-ms, or ten times as long as their
+  ; previous poll took (a select over thousands of descriptors takes milliseconds), have passed
+  ; since that poll, so that idle waiters (a server's thousands of idle connections) do not slow
+  ; down every other thread.  Timeouts (a heap) and the extra os pollers are polled at every tick,
+  ; and everything is polled at every round of the idle loop
+  (define %poll-interval-ms 2)
+  (define %poll-next-ms 0)                ; when descriptors and processes are due at a tick
+
+  (define (%poll-io+procs!)
+    (let1 (t0 (%now-ms))
+      (%poll-io!)
+      (%poll-procs!)
+      (let1 (t1 (%now-ms)) (set! %poll-next-ms (+ t1 (max %poll-interval-ms (* 10 (- t1 t0))))))))
+
+  (define (%poll-os/tick!)
+    (%poll-time!)
+    (let1 (now (%now-ms))
+      (when (or (>= now %poll-next-ms) (< (+ now 60000) %poll-next-ms)) (%poll-io+procs!)))
+    (%poll-os-pollers!))
+
+  (define (%poll-k) (%atomic-begin) (%poll-os/tick!) (%atomic-dispatch))
 
   (define (%pause-k)
     (%atomic-begin)
@@ -1152,7 +1178,7 @@
           (%channel-priority-set! ch 1)
           (%switch! (cdr item) msg))
         (let1 (r (%letcc/call send-k
-                   (%q-enqueue! (%channel-out-q ch) (cons (%mk-id) send-k))
+                   (%clean-and-enqueue! (%channel-out-q ch) (cons (%mk-id) send-k))
                    (%atomic-dispatch)))
           (%partner-switch-to! r msg))))
     (void))
@@ -1166,7 +1192,7 @@
         (let1 (v (%letcc/call recv-k (%switch-to-sender! ch item recv-k)))
           (if (eq? v %rendezvous-failed) (recv ch) v))
         (let1 (msg (%letcc/call recv-k
-                     (%q-enqueue! (%channel-in-q ch) (cons (%mk-id) recv-k))
+                     (%clean-and-enqueue! (%channel-in-q ch) (cons (%mk-id) recv-k))
                      (%atomic-dispatch)))
           (%atomic-end)
           msg))))
@@ -1375,15 +1401,28 @@
 
   (define (%io-item-live? it) (%trans-live? (vector-ref it 1)))
 
-  ; the ready subset of specs, never raises (as ML's poll, errors count as not ready)
-  (define (%fds-select specs timeout)
+  ; select on specs: #f when none is ready, else a predicate telling the ready specs, looked up by
+  ; descriptor in a table (not by member in the lists of ready ones, which made waking r of n
+  ; waiters O(n*r)); never raises (as ML's poll, errors count as not ready)
+  (define (%fds-select* specs timeout)
     (let ((rl (map car (filter (λ (s) (eq? 'input (cadr s))) specs)))
           (wl (map car (filter (λ (s) (eq? 'output (cadr s))) specs))))
       (condition-case
         (receive (r w) (if timeout (file-select rl wl timeout) (file-select rl wl))
           (let ((r (if (list? r) r '())) (w (if (list? w) w '())))
-            (filter (λ (s) (memv (car s) (if (eq? 'input (cadr s)) r w))) specs)))
-        (ignored () '()))))
+            (and (or (pair? r) (pair? w))
+                 (let1 (v (make-vector (add1 (fold max 0 (append r w))) 0))
+                   (for-each (λ (fd) (vector-set! v fd (bitwise-ior 1 (vector-ref v fd)))) r)
+                   (for-each (λ (fd) (vector-set! v fd (bitwise-ior 2 (vector-ref v fd)))) w)
+                   (λ (s)
+                     (let1 (fd (car s))
+                       (and (< fd (vector-length v))
+                            (not (zero? (bitwise-and (vector-ref v fd) (if (eq? 'input (cadr s)) 1 2)))))))))))
+        (ignored () #f))))
+
+  ; the ready subset of specs
+  (define (%fds-select specs timeout)
+    (let1 (ready? (%fds-select* specs timeout)) (if ready? (filter ready? specs) '())))
 
   (define (%check-io-spec s)
     (unless (and (list? s) (= 2 (length s)) (exact-integer? (car s)) (>= (car s) 0) (memq (cadr s) '(input output)))
@@ -1417,13 +1456,13 @@
       (let1 (live (reverse (filter %io-item-live? %io-waiting)))
         (if (null? live)
           (set! %io-waiting '())
-          (let1 (ready (%fds-select (append-map (λ (it) (vector-ref it 0)) live) 0))
+          (let1 (ready? (%fds-select* (append-map (λ (it) (vector-ref it 0)) live) 0))
             (set! %io-waiting
-              (let loop ((items live) (kept '()))
+              (let loop ((items (if ready? live '())) (kept (if ready? '() (reverse live))))
                 (if (null? items)
                   kept
                   (let* ((it (car items))
-                         (mine (filter (λ (s) (member s ready)) (vector-ref it 0))))
+                         (mine (filter ready? (vector-ref it 0))))
                     (cond
                       ((not (%io-item-live? it)) (loop (cdr items) kept))
                       ((null? mine) (loop (cdr items) (cons it kept)))
@@ -1470,6 +1509,8 @@
   ; is waited for afresh; a new process-evt on a numeric pid already reaped fails (ECHILD), as in
   ; ML, while a CHICKEN process object keeps its status and gives it again
   (define (process-evt pid)
+    (unless (or (and (exact-integer? pid) (positive? pid)) (process? pid))
+      (error 'process-evt "not a process id nor a process" pid))
     (%check-running 'process-evt)
     (let1 (m (assv pid %proc-memo))
       (if m
@@ -1512,12 +1553,13 @@
 
   (define (%remove-os-poller! name) (set! %os-pollers (remove (λ (p) (equal? name (car p))) %os-pollers)))
 
+  (define (%poll-os-pollers!) (for-each (λ (p) ((cadr p))) %os-pollers))
+
   ; UnixGlue.pollOS
   (define (%poll-os!)
     (%poll-time!)
-    (%poll-io!)
-    (%poll-procs!)
-    (for-each (λ (p) ((cadr p))) %os-pollers))
+    (%poll-io+procs!)
+    (%poll-os-pollers!))
 
   (define (%sleep-ms ms) (when (> ms 0) (condition-case (file-select '() '() (/ ms 1000.0)) (ignored () (void)))))
 
@@ -1558,6 +1600,11 @@
   (define (mvar? x) (and (%cell? x) (eq? 'mvar (%cell-kind x))))
   (define (ivar=? a b) (eq? a b))                                      ; SyncVar.sameIVar
   (define (mvar=? a b) (eq? a b))                                      ; SyncVar.sameMVar
+
+  ; ivars and mvars are one record, so its accessors cannot tell them apart: each operation checks
+  ; the kind, else an mvar take or swap would empty or overwrite an ivar (ML's types rule it out)
+  (define (%check-ivar who x) (unless (ivar? x) (error who "not an ivar" x)))
+  (define (%check-mvar who x) (unless (mvar? x) (error who "not an mvar" x)))
 
   (define (%cell-bump! c) (let1 (n (%cell-priority c)) (%cell-priority-set! c (add1 n)) n))
 
@@ -1613,10 +1660,11 @@
   (define (%option v) (if (eq? v %empty) '() (list v)))
 
   ; SyncVar.iPut, raises (exn cml put) when full
-  (define (ivar-put! iv x) (%cell-put! iv x 'ivar-put!))
+  (define (ivar-put! iv x) (%check-ivar 'ivar-put! iv) (%cell-put! iv x 'ivar-put!))
 
   ; SyncVar.iGet
   (define (ivar-get iv)
+    (%check-ivar 'ivar-get iv)
     (%check-running 'ivar-get)
     (%atomic-begin)
     (let1 (v (%cell-value iv))
@@ -1626,6 +1674,7 @@
 
   ; SyncVar.iGetEvt
   (define (ivar-get-evt iv)
+    (%check-ivar 'ivar-get-evt iv)
     (%base-evt
       (τ (let1 (v (%cell-value iv))
            (if (eq? v %empty)
@@ -1637,13 +1686,14 @@
   (define (%cell-poll c) (let1 (v (%cell-value c)) (%atomic-begin) (%atomic-end) (%option v)))
 
   ; SyncVar.iGetPoll: '() or (list v)
-  (define (ivar-get-poll iv) (%cell-poll iv))
+  (define (ivar-get-poll iv) (%check-ivar 'ivar-get-poll iv) (%cell-poll iv))
 
   ; SyncVar.mPut, raises (exn cml put) when full
-  (define (mvar-put! mv x) (%cell-put! mv x 'mvar-put!))
+  (define (mvar-put! mv x) (%check-mvar 'mvar-put! mv) (%cell-put! mv x 'mvar-put!))
 
   ; SyncVar.mTake
   (define (mvar-take! mv)
+    (%check-mvar 'mvar-take! mv)
     (%check-running 'mvar-take!)
     (%atomic-begin)
     (let1 (v (%cell-value mv))
@@ -1653,6 +1703,7 @@
 
   ; SyncVar.mTakeEvt (its doFn does not reset the priority)
   (define (mvar-take-evt mv)
+    (%check-mvar 'mvar-take-evt mv)
     (%base-evt
       (τ (let1 (v (%cell-value mv))
            (if (eq? v %empty)
@@ -1661,6 +1712,7 @@
 
   ; SyncVar.mTakePoll: '() or (list v)
   (define (mvar-take-poll mv)
+    (%check-mvar 'mvar-take-poll mv)
     (%atomic-begin)
     (let1 (v (%cell-value mv))
       (unless (eq? v %empty) (%cell-value-set! mv %empty))
@@ -1669,6 +1721,7 @@
 
   ; SyncVar.mGet
   (define (mvar-get mv)
+    (%check-mvar 'mvar-get mv)
     (%check-running 'mvar-get)
     (%atomic-begin)
     (let1 (v (%cell-value mv))
@@ -1678,6 +1731,7 @@
 
   ; SyncVar.mGetEvt
   (define (mvar-get-evt mv)
+    (%check-mvar 'mvar-get-evt mv)
     (%base-evt
       (τ (let1 (v (%cell-value mv))
            (if (eq? v %empty)
@@ -1685,10 +1739,11 @@
              (make-%enabled (%cell-bump! mv) (τ (%atomic-end) v)))))))
 
   ; SyncVar.mGetPoll
-  (define (mvar-get-poll mv) (%cell-poll mv))
+  (define (mvar-get-poll mv) (%check-mvar 'mvar-get-poll mv) (%cell-poll mv))
 
   ; SyncVar.mSwap
   (define (mvar-swap! mv new)
+    (%check-mvar 'mvar-swap! mv)
     (%check-running 'mvar-swap!)
     (%atomic-begin)
     (let1 (v (%cell-value mv))
@@ -1701,6 +1756,7 @@
 
   ; SyncVar.mSwapEvt
   (define (mvar-swap-evt mv new)
+    (%check-mvar 'mvar-swap-evt mv)
     (%base-evt
       (τ (let1 (v (%cell-value mv))
            (if (eq? v %empty)
@@ -1781,32 +1837,35 @@
       (%atomic-end)
       (car p)))
 
-  ; Mailbox.recv
+  ; add the waiter item to the empty mailbox mb, the stale waiters being dropped as in
+  ; %clean-and-enqueue! (by the blocking recv too: a waiter left by a previous session would
+  ; otherwise stay there for good, with its continuation, when nobody sends on mb any more)
+  (define (%mailbox-add-waiter! mb item)
+    (let ((q (cdr (%mailbox-state mb))) (b (%mailbox-budget mb)))
+      (if (positive? b)
+        (%mailbox-budget-set! mb (sub1 b))
+        (begin
+          (set! q (%fq-clean q))
+          (%mailbox-budget-set! mb (max %clean-budget-min (+ (length (car q)) (length (cdr q)))))))
+      (%mailbox-state-set! mb (cons 'empty (%fq-enqueue q item)))))
+
+  ; Mailbox.recv; the waiter is added where no old state of the mailbox is in scope (see
+  ; %cvar-block)
   (define (mailbox-recv mb)
     (%check-running 'mailbox-recv)
     (%atomic-begin)
-    (let1 (st (%mailbox-state mb))
-      (if (eq? 'empty (car st))
-        (let1 (msg (%letcc/call k
-                     (%mailbox-state-set! mb (cons 'empty (%fq-enqueue (cdr st) (cons (%mk-id) k))))
-                     (%atomic-dispatch)))
-          (%atomic-end)
-          msg)
-        (%mailbox-get-msg! mb (cddr st)))))
+    (if (eq? 'empty (car (%mailbox-state mb)))
+      (let1 (msg (%letcc/call k (%mailbox-add-waiter! mb (cons (%mk-id) k)) (%atomic-dispatch)))
+        (%atomic-end)
+        msg)
+      (%mailbox-get-msg! mb (cddr (%mailbox-state mb)))))
 
-  ; made where no old state of the mailbox is in scope, see %cvar-block; the stale waiters are
-  ; dropped as in %clean-and-enqueue!
+  ; made where no old state of the mailbox is in scope, see %cvar-block
   (define (%mailbox-block mb)
     (make-%blocked
       (λ (trans cleanup next)
         (let1 (msg (%letcc/call k
-                     (let ((q (cdr (%mailbox-state mb))) (b (%mailbox-budget mb)))
-                       (if (positive? b)
-                         (%mailbox-budget-set! mb (sub1 b))
-                         (begin
-                           (set! q (%fq-clean q))
-                           (%mailbox-budget-set! mb (max %clean-budget-min (+ (length (car q)) (length (cdr q)))))))
-                       (%mailbox-state-set! mb (cons 'empty (%fq-enqueue q (cons trans k)))))
+                     (%mailbox-add-waiter! mb (cons trans k))
                      (next)
                      (%impossible 'mailbox-recv-evt)))
           (cleanup)
@@ -1973,24 +2032,36 @@
   (define %mbox-list '())
   (define %server-list '())
 
-  (define (%whens w) (cond ((eq? w 'all) cml/at-all) ((symbol? w) (list w)) (else w)))
+  ; whens as a list of cml/at-all's symbols: 'all, one of them, or a list of them
+  (define (%whens w)
+    (let1 (l (cond ((eq? w 'all) cml/at-all) ((symbol? w) (list w)) (else w)))
+      (unless (and (list? l) (every (λ (x) (memq x cml/at-all)) l))
+        (error 'cml/add-cleaner! "bad whens, expected all, or one or a list of" cml/at-all w))
+      l))
 
-  ; CleanUp.protect: hold the lock while CML runs
+  ; CleanUp.protect: hold the lock while CML runs.  The lock is taken as an internal hold (see
+  ; %hold-take!): a thread that dies holding it (a dynamic-wind thunk raising as it is switched out
+  ; right after the take) gives it back, or every later registration and the next cleanup would
+  ; wait for it for good
   (define (%protect thunk)
     (if %running
       (begin
-        (mvar-take! %cleanup-lock)
-        (let1 (v (handle-exceptions e (begin (mvar-put! %cleanup-lock (void)) (abort e)) (thunk)))
-          (mvar-put! %cleanup-lock (void))
+        (%hold-take! %cleanup-lock)
+        (let1 (v (handle-exceptions e (begin (%hold-put! %cleanup-lock) (abort e)) (thunk)))
+          (%hold-put! %cleanup-lock)
           v))
       (thunk)))
 
   (define (%delete-named name l) (remove (λ (h) (equal? name (car h))) l))
 
-  ; CleanUp.addCleaner: returns the previous (whens proc) as an option
+  ; CleanUp.addCleaner: returns the previous (whens proc) as an option.  A bad whens or a
+  ; non-procedure raises here, in the caller: the cleaners run in run-cml's own context, where a
+  ; non-procedure would make every later run-cml raise before running its thunk
   (define (cml/add-cleaner! name whens proc)
+    (unless (procedure? proc) (error 'cml/add-cleaner! "not a procedure" proc))
+    (set! whens (%whens whens))
     (%protect (τ (let1 (old (assoc name %hooks))
-                   (set! %hooks (cons (list name (%whens whens) proc) (%delete-named name %hooks)))
+                   (set! %hooks (cons (list name whens proc) (%delete-named name %hooks)))
                    (if old (list (cdr old)) '())))))
 
   ; CleanUp.removeCleaner: returns the removed (whens proc) as an option
@@ -2012,19 +2083,25 @@
     (unless (assoc name l) (%cml-raise 'unlog "unlog: no such name" name))
     (%delete-named name l))
 
-  ; CleanUp.logChannel and friends: logged items are reset at every run start and shutdown
+  ; CleanUp.logChannel and friends: logged items are reset at every run start and shutdown.  A
+  ; wrong-typed item raises here, in the caller: its reset, run with the others' in one cleaner
+  ; thread, would kill that thread at every start and shutdown and so skip the items after it
   (define (cml/log-channel! name ch)
+    (unless (channel? ch) (error 'cml/log-channel! "not a channel" ch))
     (%protect (τ (let1 (f (τ (%channel-reset! ch)))
                    (set! %chan-list (cons (list name f f) (%delete-named name %chan-list)))))))
   (define (cml/unlog-channel! name) (%protect (τ (set! %chan-list (%unlog-item %chan-list name)))))
 
   (define (cml/log-mailbox! name mb)
+    (unless (mailbox? mb) (error 'cml/log-mailbox! "not a mailbox" mb))
     (%protect (τ (let1 (f (τ (%mailbox-reset! mb)))
                    (set! %mbox-list (cons (list name f f) (%delete-named name %mbox-list)))))))
   (define (cml/unlog-mailbox! name) (%protect (τ (set! %mbox-list (%unlog-item %mbox-list name)))))
 
   ; CleanUp.logServer: init runs at every start, shut at every shutdown (at most 2 seconds)
   (define (cml/log-server! name init shut)
+    (unless (procedure? init) (error 'cml/log-server! "not a procedure" init))
+    (unless (procedure? shut) (error 'cml/log-server! "not a procedure" shut))
     (%protect (τ (set! %server-list (cons (list name init shut) (%delete-named name %server-list))))))
   (define (cml/unlog-server! name) (%protect (τ (set! %server-list (%unlog-item %server-list name)))))
 
@@ -2146,7 +2223,11 @@
   ;;   is not enough and offers the value on a rendezvous together with the nack.  Only the commit
   ;;   removes characters from the side buffer (atomically, as part of the rendezvous), so a branch that
   ;;   loses a select, or a timeout that fires in the middle of a line, loses nothing: the partial data
-  ;;   is kept for the next input event on the port.  Spurious readiness just makes the helper read
+  ;;   is kept for the next input event on the port.  The event polls a fast path of its own too:
+  ;;   when the lock is free and the side buffer, completed by a drain for stdio, tcp and string
+  ;;   ports, holds the value, it commits in the syncing thread, so a poll (sync/timeout with 0
+  ;;   seconds) finds the input that is there; the helper is queued, not run first, and leaves at
+  ;;   once when its sync went another way.  Spurious readiness just makes the helper read
   ;;   nothing and wait again.  A sync abandoned while forcing or polling (a later guard that raises,
   ;;   say) sets the nacks made so far (see %force-group), so such a helper releases the port.  A helper
   ;;   reads at most 4096 characters at a time, then checks its nack and yields with a preemption, so a
@@ -2176,12 +2257,15 @@
   ;;   there and gives every char available by then (at most 4096 more than the side buffer held).
   ;; - port output events commit when the descriptor is writable; the string is then written in chunks
   ;;   of at most 128 characters, each after a new readiness wait and followed by a flush, so a writer
-  ;;   never blocks the process on a full pipe or socket (only the syncing thread waits).  A per-port
-  ;;   write lock is held from the first chunk to the last, so the strings of two write-string-evts on
-  ;;   one port never interleave (TextIO.output holds the stream lock).  A write to a pipe whose reader
-  ;;   has exited raises the i/o condition of file-write, errno EPIPE (as ML raises Io): loading
-  ;;   (chicken tcp), as this module does, ignores SIGPIPE, and CHICKEN's stdio flush drops write
-  ;;   errors, so stdio ports are written through their descriptor, whatever their encoding.  Input
+  ;;   never blocks the process on a full pipe (only the syncing thread waits); on a non-blocking
+  ;;   descriptor (a tcp socket) a chunk is up to 65536 characters, written as far as the kernel
+  ;;   takes it, the rest after a readiness wait (small writes would be held by Nagle's algorithm).
+  ;;   A per-port write lock is held from the first chunk to the last, so the strings of two
+  ;;   write-string-evts on one port never interleave (TextIO.output holds the stream lock).  A write
+  ;;   to a pipe whose reader has exited raises the i/o condition of file-write, errno EPIPE (as ML
+  ;;   raises Io): loading (chicken tcp), as this module does, ignores SIGPIPE, and CHICKEN's stdio
+  ;;   flush drops write errors, so stdio and tcp ports are written through their descriptor,
+  ;;   whatever their encoding.  Input
   ;;   events on a closed port raise at sync, as a direct read does (the descriptor number may
   ;;   belong to another file by then), and so does a reader, or a writer between two chunks,
   ;;   waiting on a descriptor port that another thread closes: one sweep every 0.1 s looks for
@@ -2201,9 +2285,9 @@
   ;;   buffers and sends one string per flush-output (or every 1024 characters), close flushes and
   ;;   sends #!eof; write-string-evt on it, and the send of a flush, take the buffered output at their
   ;;   commit, so a thread's output keeps its order whichever commits first; neither ever sends an
-;;   empty string (a write-string-evt of "" with nothing buffered commits at once, as ML's writer
-;;   never puts an empty vector on its channel).  The output
-  ;;   events (output-evt, write-string-evt) raise, at every sync, once their port is closed.
+  ;;   empty string (a write-string-evt of "" with nothing buffered commits at once, as ML's writer
+  ;;   never puts an empty vector on its channel).  The output events (output-evt, write-string-evt)
+  ;;   raise, at every sync, once their port is closed.
   ;; - the per-port state is found in O(1) (see %port-table): the ports without a descriptor (channel,
   ;;   string and custom ports) carry theirs in their data slot, and the entries of the other ports
   ;;   are weak, so ports dropped without being closed are collected; only a custom port whose maker
@@ -2214,6 +2298,7 @@
   (define %port-poll-secs 0.005)           ; polling interval for ports without a descriptor
   (define %port-closed-check-ms 100)       ; how often the waiting readers and writers are checked for a close
   (define %port-write-chunk 128)           ; characters per write, at most 512 bytes in UTF-8
+  (define %port-write-chunk/nonblock 65536) ; the same on a non-blocking descriptor (a tcp socket)
   (define %chan-port-chunk 1024)           ; ChanIO chunkSize
 
   ; the descriptor of port, or #f
@@ -2664,19 +2749,64 @@
           (select (wrap ((%pdriver-wait d)) (λ (absorb) (loop absorb #f)))
                   (wrap nack (λ ignored (release))))))
       (define fd? (and (%port-fileno port) #t))
-      (select (wrap (mvar-take-evt lock) (λ ignored (loop void #t))) nack)))
+      ; a helper whose sync went another way before it ran (see %port-input-evt) leaves at once
+      (unless (sync/timeout (wrap nack (λ ignored #t)) 0 #f)
+        (select (wrap (mvar-take-evt lock) (λ ignored (loop void #t))) nack))))
+
+  ; a thread that runs thunk once the current one blocks or yields (spawn runs its child first)
+  (define (%spawn/queued! thunk)
+    (let1 (id (%new-tid))
+      (%enqueue! (cons id (%isolated (τ (handle-exceptions e (%thread-died! id e) (thunk))
+                                        (%notify-and-dispatch id)))))
+      id))
+
+  ; the input event's own fast path, polled by the syncing thread: when the port's lock is free (no
+  ; helper is reading) and the side buffer, completed by a drain for the ports whose drain never
+  ; runs user code nor CML operations (stdio, tcp and string ports), satisfies take, the event is
+  ; enabled and its commit updates the side buffer itself; a drain that raises gives the condition
+  ; as the event's value, as the helper does.  Without it, a poll (sync/timeout with 0 seconds)
+  ; found the value only once the helper, run first, had offered it: when the helper was preempted
+  ; while it held the lock, it waited in rdyQ2 and every poll until the next preemption missed data
+  ; that was there.  The commit takes the value from the buffer as it is by then, as a drain by
+  ; another branch of the same sync may have added to it (never taking anything away).  Its
+  ; priority is the one the helper's offer on a new reply channel has
+  (define (%port-ready-evt d port take need)
+    (define drain? (memq (%port-kind port) '(stream socket string)))
+    (define (commit)
+      (let1 (t (take (%pdriver-text d) (%pdriver-eof d)))
+        (%pdriver-set-buffer! d (cadr t))
+        (%pdriver-eof-set! d (caddr t))
+        (%atomic-end)
+        (cons 'ok (car t))))
+    (wrap (%base-evt
+            (τ (let1 (r (and (not (eq? %empty (%cell-value (%pdriver-lock d))))
+                             (condition-case
+                               (if drain?
+                                 (%pdriver-step! d port take need #t)
+                                 (take (%pdriver-text d) (%pdriver-eof d)))
+                               (e () (vector e)))))
+                 (cond
+                   ((vector? r) (make-%enabled 1 (τ (%atomic-end) (cons 'exn (vector-ref r 0)))))
+                   ((pair? r) (make-%enabled 1 commit))
+                   (else (make-%blocked (λ (trans cleanup next) (next))))))))
+          %result-value))
 
   ; a closed port raises at sync, as a direct read on it does (and the reader checks it again
-  ; before every drain, another thread may close the port while it waits)
+  ; before every drain, another thread may close the port while it waits).  The helper is queued
+  ; rather than run first, so that the fast path is polled before it may take the lock; when the
+  ; fast path commits, the nack tells the helper to leave
   (define (%port-input-evt who port take need)
     (unless (input-port? port) (error who "not an input port" port))
-    (with-nack
-      (λ (nack)
-        (when (port-closed? port) (error who "port is closed" port))
-        (let ((d (%port-driver port))
-              (reply (make-channel)))
-          (spawn (τ (%port-reader d port take need nack reply)))
-          (wrap (recv-evt reply) %result-value)))))
+    (guard
+      (τ (when (port-closed? port) (error who "port is closed" port))
+         (let1 (d (%port-driver port))
+           (choose
+             (%port-ready-evt d port take need)
+             (with-nack
+               (λ (nack)
+                 (let1 (reply (make-channel))
+                   (%spawn/queued! (τ (%port-reader d port take need nack reply)))
+                   (wrap (recv-evt reply) %result-value)))))))))
 
   ; ports: input events (TextIO.input1Evt / inputNEvt / inputEvt / inputAllEvt, StreamIO.inputLineEvt)
 
@@ -2807,13 +2937,22 @@
     (when (port-closed? port) (error 'write-string-evt "port is closed" port)))
 
   ; write s on the descriptor-backed port in chunks, each one after a readiness wait, and flush.
+  ; The chunks are small on a blocking descriptor (a pipe or tty), which a write of more than
+  ; what it can take at once would block for the whole process, and large on a non-blocking one
+  ; (a tcp socket), which %port-write! writes as far as it goes and waits for the rest: small
+  ; writes on a socket would be small segments, and Nagle's algorithm holds each one after the
+  ; first until the peer's delayed ACK, some 40 ms per message in a request/response protocol.
   ; The port's write lock is held from the first chunk to the last, so the chunks of two
   ; write-string-evts on one port never interleave (TextIO.output holds the stream lock as well);
   ; when the lock was not free the readiness seen at the commit is stale and is waited for again.
   ; A writer that dies holding the lock (a dynamic-wind thunk raising as it is switched in or out
   ; between two chunks, outside handle-exceptions) gives it back too (see %release-holds!)
+  (define (%fd-nonblocking? fd)
+    (condition-case (not (zero? (bitwise-and (file-control fd fcntl/getfl) open/nonblock))) (ignored () #f)))
+
   (define (%port-write-chunks! port fd s first-ready?)
     (let* ((lock (%port-write-lock port fd))
+           (chunk (if (%fd-nonblocking? fd) %port-write-chunk/nonblock %port-write-chunk))
            (ready? (and first-ready? (%hold-take-poll! lock))))
       (unless ready? (%hold-take! lock))
       (handle-exceptions e
@@ -2823,7 +2962,7 @@
             (if ready?
               (when (port-closed? port) (error 'write-string-evt "port is closed" port))
               (%port-output-wait port fd))
-            (let1 (j (min n (+ i %port-write-chunk)))
+            (let1 (j (min n (+ i chunk)))
               (%port-write! port fd (substring s i j))
               (when (< j n) (loop j #f))))))
       (%hold-put! lock)))
@@ -2844,10 +2983,11 @@
   ; loaded (by this module), a write to a pipe whose reader has exited would lose the data
   ; silently, so a writer loop would never stop.  Here it raises the i/o condition of file-write
   ; (errno EPIPE), as ML's output raises Io, whatever the encoding.  A partial write (a descriptor
-  ; made non-blocking) waits for readiness again.  Other ports (tcp ports report their errors
-  ; themselves) are written through the port
+  ; made non-blocking) waits for readiness again.  A tcp port is written through its descriptor
+  ; too (its own buffer flushed first), which is non-blocking: its own write would wait for a full
+  ; socket to drain by blocking the process, and a whole chunk goes out in one send
   (define (%port-write! port fd s)
-    (if (eq? 'stream (%port-kind port))
+    (if (memq (%port-kind port) '(stream socket))
       (begin
         (flush-output port)
         (let loop ((bv (%encode-string s (##sys#slot port 15))))
@@ -3030,6 +3170,7 @@
   ; status (0 is success, 127 when /bin/sh cannot be run, as in ML); syncing again gives the same
   ; status.  /bin/sh as in ML, not the user's $SHELL that (process-run cmd) would use
   (define (system-evt cmd)
+    (unless (string? cmd) (error 'system-evt "not a string" cmd))
     (%check-running 'system-evt)
     (let1 (pid (%fork-exec "/bin/sh" (list "-c" cmd) 127 void))
       (wrap (process-evt pid) %status->code)))
@@ -3055,7 +3196,11 @@
   ; above 2 (the parent may have closed its stdin or stdout, so that create-pipe handed out 0 or 1),
   ; then copied onto 0 and 1 and closed
   (define (cml/execute cmd #!optional (args '()) env)
-    (define alist (and env (%env->alist 'cml/execute env)))
+    (define alist
+      (begin
+        (unless (string? cmd) (error 'cml/execute "not a string" cmd))
+        (unless (and (list? args) (every string? args)) (error 'cml/execute "not a list of strings" args))
+        (and env (%env->alist 'cml/execute env))))
     (receive (child-in parent-out) (create-pipe)
       (receive (parent-in child-out) (create-pipe)
         (%set-cloexec! parent-in)
@@ -3103,9 +3248,11 @@
   ;;
   ;; Deviations from ML, all deliberate:
   ;; - Multicast has no server thread: `multicast!` appends to the stream of ivars itself, which is
-  ;;   atomic because the scheduler only switches at CML operations; ports keep ML's tee thread, so
-  ;;   several readers of one port share its messages exactly as in ML.  A port needs a running CML
-  ;;   (it spawns its tee) and belongs to that run-cml session; the channel itself does not.
+  ;;   atomic because the scheduler only switches at CML operations, and then yields (promoting a
+  ;;   thread from rdyQ2), which keeps a producer to the pace of its readers as ML's rendezvous with
+  ;;   the server does; ports keep ML's tee thread, so several readers of one port share its
+  ;;   messages exactly as in ML.  A port needs a running CML (it spawns its tee) and belongs to
+  ;;   that run-cml session; the channel itself does not.
   ;; - SimpleRPC answers with a Result: when f raises, the caller of `call` gets the exception (ML
   ;;   leaves it blocked forever) and the server goes on, see each maker for the entry event's value.
   ;; - TraceCML has no servers: trace modules, destinations, watches and the handler registry are
@@ -3148,12 +3295,19 @@
   ; Multicast.copy: a port whose future stream is the one of port (exact for a single reader)
   (define (multicast-copy-port port) (%make-mport (mvar-get (%mport-state port))))
 
-  ; Multicast.multicast: never blocks
+  ; Multicast.multicast: never blocks, but within run-cml it yields, and promotes a thread from
+  ; rdyQ2 (see %preempt!) as it does.  ML's multicast is a rendezvous with the server thread, which
+  ; throttles a producer to the pace of the tees and receivers: without it a producer looping on
+  ; multicast! would use its whole quantum while they, several switches per message and often
+  ; demoted to rdyQ2 by preemptions, fall behind for good, and the chain of ivars that the slowest
+  ; port has not read yet grows without bound
   (define (multicast! mc v)
     (let* ((cv (%mchan-tail mc))
            (next (make-ivar)))
       (%mchan-tail-set! mc next)
-      (ivar-put! cv (cons v next))))
+      (ivar-put! cv (cons v next))
+      (when %running (%letcc/call k (%atomic-begin) (%promote!) (%atomic-yield k)))
+      (void)))
 
   (define (%mport-advance! port m) (mvar-swap! (%mport-state port) (cdr m)) (car m))
 

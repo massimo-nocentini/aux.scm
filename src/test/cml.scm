@@ -1102,6 +1102,27 @@
      (⊨ (result? (make-result))) (⊭ (result? iv))
      (⊦raises (exn cml put) (ivar-put! iv 1) (ivar-put! iv 2))))
 
+  ((test/ivar-mvar-kinds _)
+   ; ivars and mvars are one record: every operation checks the kind, so an mvar take or swap
+   ; cannot empty or overwrite an ivar (which a later ivar-put! would then write again), nor an
+   ; ivar operation act on an mvar; the error is an ordinary one, raised in the caller
+   (define (kind-errors ops)
+     (map (λ (op) (condition-case (begin (op) 'no-raise) (e (exn cml) 'cml-raised) (e (exn) 'raised))) ops))
+   (⊦= '((raised raised raised raised raised raised raised raised raised raised)
+         (raised raised raised raised raised)
+         (1 () (1)))
+       (run/value (τ (let ((iv (make-ivar)) (mv (make-mvar)))
+                       (ivar-put! iv 1)
+                       (list (kind-errors (list (τ (mvar-take! iv)) (τ (mvar-take-evt iv)) (τ (mvar-take-poll iv))
+                                                (τ (mvar-swap! iv 2)) (τ (mvar-swap-evt iv 2)) (τ (mvar-put! iv 2))
+                                                (τ (mvar-get iv)) (τ (mvar-get-evt iv)) (τ (mvar-get-poll iv))
+                                                (τ (sync (mvar-take-evt iv)))))
+                             (kind-errors (list (τ (ivar-put! mv 1)) (τ (ivar-get mv)) (τ (ivar-get-evt mv))
+                                                (τ (ivar-get-poll mv)) (τ (sync (ivar-get-evt mv)))))
+                             (list (ivar-get iv) (mvar-take-poll mv) (ivar-get-poll iv)))))))
+   (⊦raises (exn) (mvar-put! (make-ivar) 1))                   ; outside run-cml too
+   (⊦raises (exn) (ivar-put! (make-mvar) 1)))
+
   ((test/condition-predicates _)
    (let ((put (condition-case (let1 (iv (make-ivar)) (ivar-put! iv 1) (ivar-put! iv 2)) (e () e)))
          (not-running (condition-case (sync (always-evt 1)) (e () e)))
@@ -1441,6 +1462,76 @@
      (⊦= 'first (run-cml (τ (spawn (τ (send ch 'stale))) (spawn (τ (ivar-get iv))) (cml/shutdown 'first))))
      (⊦= '(() #f ok) (run/value (τ (ivar-put! iv 'ok) (list (recv-poll ch) (send-poll ch 1) (ivar-get iv)))))))
 
+  ((test/stale-waiters-of-blocking-operations-are-dropped _)
+   ; the blocking send, recv and mailbox-recv drop the stale waiters, those left by previous runs
+   ; included, as they add theirs (as the events do): a global channel or mailbox that every run
+   ; only receives (or only sends) on keeps at most a few of them, not one per run, each holding a
+   ; dead thread's continuation
+   (define (size q) (+ (length (%queue-front q)) (length (%queue-rear q))))
+   (define (mb-size mb) (let1 (st (%mailbox-state mb)) (if (eq? 'empty (car st)) (+ (length (cadr st)) (length (cddr st))) 0)))
+   (define bound (* 2 (+ %clean-budget-min 2)))
+   (let ((in (make-channel)) (out (make-channel)) (mb (make-mailbox)))
+     (for-each (λ (i) (run-cml (τ (spawn (τ (recv in))) (spawn (τ (send out i))) (spawn (τ (mailbox-recv mb)))
+                                  (cml/yield) (cml/shutdown))))
+               (iota 200))
+     (⊨ (<= (size (%channel-in-q in)) bound))
+     (⊨ (<= (size (%channel-out-q out)) bound))
+     (⊨ (<= (mb-size mb) bound))))
+
+  ((test/bad-arguments-raise-at-registration _)
+   ; a cleaner that is not a procedure, or a bad when, raises when it is registered: the cleaners
+   ; run in run-cml's own context, where it made every later run-cml raise before running its
+   ; thunk; a logged item of the wrong type raises too: the resets of the logged channels and
+   ; mailboxes run in one cleaner thread, which it killed at every start and shutdown, skipping
+   ; the items after it (a mailbox logged later kept its stale messages); likewise for a server
+   (define (raises? thunk) (condition-case (begin (thunk) 'no-raise) (e (exn) 'raised)))
+   (let1 (mb (make-mailbox))
+     (dynamic-wind
+       void
+       (τ (⊦= '(raised raised raised raised raised raised raised raised)
+              (map raises? (list (τ (cml/add-cleaner! "test-bad" 'at-init 42))
+                                 (τ (cml/add-cleaner! "test-bad" 'bogus void))
+                                 (τ (cml/add-cleaner! "test-bad" '(at-init bogus) void))
+                                 (τ (cml/add-cleaner! "test-bad" 42 void))
+                                 (τ (cml/log-channel! "test-bad" (make-mailbox)))
+                                 (τ (cml/log-mailbox! "test-bad" (make-channel)))
+                                 (τ (cml/log-server! "test-bad" 42 void))
+                                 (τ (cml/log-server! "test-bad" void 42)))))
+          (⊦= '() (cml/remove-cleaner! "test-bad"))
+          (map (λ (unlog) (⊦raises (exn cml unlog) (unlog "test-bad")))
+               (list cml/unlog-channel! cml/unlog-mailbox! cml/unlog-server!))
+          (cml/log-mailbox! "test-mb-after" mb)
+          (⊦= 'ok (run-cml (τ (mailbox-send! mb 'stale) (cml/shutdown 'ok))))
+          (⊦= '(ran ()) (run/value (τ (list 'ran (mailbox-recv-poll mb))))))
+       (τ (condition-case (cml/unlog-mailbox! "test-mb-after") (e () (void)))
+          (cml/remove-cleaner! "test-bad")
+          (for-each (λ (unlog) (condition-case (unlog "test-bad") (e () (void))))
+                    (list cml/unlog-channel! cml/unlog-mailbox! cml/unlog-server!))))))
+
+  ((test/registration-lock-given-back-by-a-dying-thread _)
+   ; the lock of the CleanUp registry is an internal hold: a thread that dies holding it (its after
+   ; thunk raising as it is preempted right after the take, with quantum 1) gives it back, or every
+   ; later registration would block and the shutdown cleaners of the run would never run
+   (set! cml-test/log '())
+   (dynamic-wind
+     (τ (cml/add-cleaner! "test-probe" 'at-shutdown (λ (w) (note! 'shutdown-cleaner))))
+     (τ (parameterize ((default-exn-handler (λ (e) (note! 'died))))
+          (⊦= 'ok (run-cml (τ (let1 (t (spawn (τ (let1 (armed #t)
+                                                   (dynamic-wind
+                                                     void
+                                                     (τ (cml/add-cleaner! "test-dying" 'at-shutdown void))
+                                                     (τ (when armed (set! armed #f) (error "after thunk"))))))))
+                                (sync (join-evt t))
+                                (note! (sync/timeout (wrap (join-evt (spawn (τ (cml/log-channel! "test-dying-ch" (make-channel)))))
+                                                           (λ ignored 'logged))
+                                                     0.5 'blocked))
+                                (note! 'shutdown)
+                                (cml/shutdown 'ok)))
+                           quantum: 1)))
+        (⊦= '(died logged shutdown shutdown-cleaner) (reverse cml-test/log)))
+     (τ (for-each cml/remove-cleaner! '("test-probe" "test-dying"))
+        (condition-case (cml/unlog-channel! "test-dying-ch") (e () (void))))))
+
   ((test/logged-server _)
    (set! cml-test/log '())
    (dynamic-wind
@@ -1496,6 +1587,25 @@
                              (else 'starved)))))))
      (for-each file-close (list in out))))
 
+  ((test/io-evt/idle-waiters-do-not-slow-others _)
+   ; descriptors are polled at a preemption tick only once 2 ms (or ten times the last poll) have
+   ; passed since the last poll, not at every tick: 2000 threads idle on a descriptor (a select over
+   ; 2000 specs at every tick made this some ten times slower) leave channel hand-offs as fast
+   (define (hand-off-time n)
+     (receive (r w) (create-pipe)
+       (let1 (t (run-cml (τ (for-each (λ (i) (spawn (τ (sync (io-evt r 'input))))) (iota n))
+                            (cml/sleep 0.02)
+                            (let ((ch (make-channel)) (t0 (current-process-milliseconds)))
+                              (spawn (τ (let loop ((i 0)) (when (< i 20000) (send ch i) (loop (add1 i))))))
+                              (let loop ((i 0)) (when (< i 20000) (recv ch) (loop (add1 i))))
+                              (cml/shutdown (- (current-process-milliseconds) t0))))))
+         (file-close r)
+         (file-close w)
+         t)))
+   (let* ((none (max 50 (hand-off-time 0)))
+          (idle (hand-off-time 2000)))
+     (⊨ (< idle (* 4 none)))))
+
   ((test/process-evt _)
    (let1 (log (cdr (run/log (τ (let* ((p1 (process-run "true"))
                                       (p2 (process-run "sh" '("-c" "exit 3")))
@@ -1518,6 +1628,13 @@
                           (note! (sync (process-evt (process-id q))))
                           (note! (raised-or (exn) (sync (process-evt (process-id q))))))
                         (cml/shutdown))))))
+
+  ((test/process-evt/bad-pid _)
+   ; a pid that is neither a positive exact integer nor a process object raises when the event is
+   ; made, in the caller (it was queued and failed at sync with a misleading ECHILD)
+   (⊦= '(raised raised raised raised)
+       (run/value (τ (map (λ (pid) (condition-case (begin (process-evt pid) 'no-raise) (e (exn) 'raised)))
+                          (list 'y "x" 0 -1))))))
 
   ((test/process-evt/keeps-run-alive _)
    ; a pending child process is something to wait for: no deadlock while it runs

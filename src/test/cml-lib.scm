@@ -151,6 +151,27 @@
                        (spawn (τ (for-each (λ (v) (multicast! mc v)) (iota 500))))
                        (map (λ (i) (multicast-recv p)) (iota 500)))))))
 
+  ((test/producer-keeps-to-its-readers-pace _)
+   ; multicast! yields (promoting a thread from rdyQ2), as ML's rendezvous with the server thread
+   ; throttles its producer: readers that are always ready keep up with a producer that does
+   ; nothing but multicast, so the ivars not read yet do not pile up (the lag was some two thirds
+   ; of the messages sent, 13000 after 20000, growing without bound)
+   (let1 (lags (run/value (τ (let* ((mc (make-multicast-channel))
+                                    (ps (map (λ (i) (multicast-port mc)) (iota 2)))
+                                    (got (make-vector 2 0)))
+                               (for-each (λ (i p) (spawn (τ (let loop ()
+                                                              (multicast-recv p)
+                                                              (vector-set! got i (add1 (vector-ref got i)))
+                                                              (loop)))))
+                                         '(0 1) ps)
+                               (let loop ((i 0) (lag 0))
+                                 (if (= i 20000)
+                                   lag
+                                   (begin
+                                     (multicast! mc i)
+                                     (loop (add1 i) (max lag (- (add1 i) (min (vector-ref got 0) (vector-ref got 1))))))))))))
+     (⊨ (< lags 50))))
+
   )
 
 (define-suite cml-rpc-suite
