@@ -10,6 +10,12 @@ The code in `src/aux.cml.scm` is the reference. Every behavioural claim below wa
 against it, some of them with small experiments run under `csi`. It describes
 `src/aux.cml.scm` as of the commit on branch `aux-cml` that adds this document.
 
+**ML source baseline.** Everything said here about SML/NJ CML (its sources, representations,
+algorithms, bugs and doc/code mismatches, and every "ML does ..." comparison) refers to
+`libraries/cml` of [`git@github.com:smlnj/smlnj.git`](https://github.com/smlnj/smlnj) up to
+commit `92a912a5aea716ecb7454d07a803f3b172f6dc64` ("switch to V3 literals implementation",
+2026-09-22). Later upstream changes are not reflected.
+
 Contents
 
 1. [Overview](#1-overview)
