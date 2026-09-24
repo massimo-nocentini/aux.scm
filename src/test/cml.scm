@@ -84,10 +84,21 @@
      (⊦raises (exn cml not-running) (mvar-swap! mv 2))
      (mvar-put! mv 3)
      (⊦= '(3) (mvar-get-poll mv))
+     (⊦= '(3) (mvar-take-poll mv))
+     (⊦= '() (mvar-take-poll mv))
      (⊦raises (exn cml not-running) (mailbox-recv mb))
      (⊦raises (exn cml not-running) (mailbox-send! mb 4))
      (⊦= '() (mailbox-recv-poll mb)))
    (⊦= 'ok (run/value (τ 'ok))))                          ; state is sane after all of this
+
+  ((test/run-cml/bad-arguments _)
+   ; a bad quantum or thunk is an error in the caller, before any session starts
+   (⊦raises (exn) (run-cml void quantum: 0))
+   (⊦raises (exn) (run-cml void quantum: -3))
+   (⊦raises (exn) (run-cml void quantum: 1.5))
+   (⊦raises (exn) (run-cml 'not-a-thunk))
+   (⊭ (cml-running?))
+   (⊦= 'ok (run/value (τ 'ok))))
 
   ((test/run-cml/escape _)
    ; leaving run-cml through a continuation ends the session and CML can run again

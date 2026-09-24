@@ -225,7 +225,8 @@ Exported entry points include:
 ```
 
 Where the port deliberately departs from ML (the Barrier bugs, barrier
-waiters woken oldest first (ML wakes them newest first), SimpleRPC
+waiters woken oldest first (ML wakes them newest first), `make-barrier` taking
+the initial state first (ML: `Barrier.barrier update init`), SimpleRPC
 delivering exceptions to the caller, TraceCML without servers, port events that
 never lose input to a losing `select`, nacks set right after the commit and also
 when a sync is abandoned while forcing or polling or by the death of its thread,

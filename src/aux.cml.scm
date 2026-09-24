@@ -18,8 +18,9 @@
 ;;   `run-cml`).  User `dynamic-wind` frames established inside a thread have their after/before
 ;;   thunks run each time that thread is switched out/in (standard call/cc semantics), see below.
 ;; - scheduler.sml: two FIFO ready queues rdyQ1 (primary) and rdyQ2 (compute-bound threads), a
-;;   current-thread register and a single, NON-nesting atomic flag with the three states
-;;   non-atomic / atomic / signal-pending and the atomicBegin / atomicEnd / atomicDispatch /
+;;   current-thread register and a single, NON-nesting atomic flag with the two states
+;;   non-atomic / atomic (ML's third state, signal-pending, is set only by its SIGALRM handler,
+;;   which has no counterpart here) and the atomicBegin / atomicEnd / atomicDispatch /
 ;;   atomicSwitchTo discipline.  Preemption is cooperative: every `%atomic-end` (i.e. every CML
 ;;   operation, the read-only polls ivar-get-poll and mvar-get-poll included) and every
 ;;   `%atomic-switch-to` (the hand-off of a channel rendezvous) is a clock tick; when
@@ -41,14 +42,16 @@
 ;; - CML's own errors are CHICKEN conditions of kinds (exn cml <kind>), e.g. (exn cml put) for a
 ;;   double put, (exn cml not-running) when a blocking operation (sync, send, recv, their polls, the
 ;;   SyncVar takes/gets/swaps, the Mailbox operations, ...) is attempted outside `run-cml`, (exn cml
-;;   barrier) for a misused barrier; puts and the non-blocking polls of SyncVar and Mailbox work
-;;   outside, and never wake anybody there.  Bad arguments (sync on a non-event, a guard returning
+;;   barrier) for a misused barrier; ivar-put! and mvar-put!, and the non-blocking polls
+;;   ivar-get-poll, mvar-take-poll, mvar-get-poll and mailbox-recv-poll, work outside and never
+;;   wake anybody there, while mailbox-send! (which may hand off to a receiver) raises.  Bad arguments (sync on a non-event, a guard returning
 ;;   a non-event, a non-port given to a port event, an ivar given to an mvar operation, a cleaner
 ;;   that is not a procedure, ...) raise ordinary errors, of kind (exn) only, in the caller.
 ;; - `guard` is CML's guard combinator: a client importing (chicken base) as well should write
 ;;   (import (except (chicken base) guard)) to drop the R7RS exception-handling syntax.
 ;;
-;; Deviations from ML, all deliberate: Barrier's three bugs are fixed, waits are events
+;; Deviations from ML, all deliberate: (make-barrier init update) takes the initial state first
+;; (ML: Barrier.barrier update init); Barrier's three bugs are fixed, waits are events
 ;; (barrier-wait-evt) and a completed round wakes its waiters oldest first (ML: newest first);
 ;; `recv` leaves the atomic region when resumed; tid->string prints negative ids as "[-000001]";
 ;; the clock is read on demand instead of being cached per quantum; the idle scheduler sleeps
@@ -278,7 +281,7 @@
   (define %tid-count 0)
   (define %dummy-tid #f)                 ; ML dummyTid, id -1: idle loop, temp threads, root context
   (define %cur-tid #f)
-  (define %atomic-state 'non-atomic)     ; non-atomic | atomic | signal-pending
+  (define %atomic-state 'non-atomic)     ; non-atomic | atomic
   (define %rdy-q1 (%q))
   (define %rdy-q2 (%q))
   (define %quantum %default-quantum)
@@ -381,15 +384,12 @@
   ; Scheduler.atomicEnd, plus the preemption tick
   (define (%atomic-end)
     (when %commit-hook (%run-commit-hook!))
-    (if (eq? %atomic-state 'signal-pending)
-      (%letcc/call k (%enqueue! (cons %cur-tid k)) (%dispatch-scheduler-hook))
-      (begin
-        (set! %atomic-state 'non-atomic)
-        (set! %ticks (sub1 %ticks))
-        (when (<= %ticks 0)
-          (set! %ticks %quantum)
-          (when %running (%letcc/call k (%preempt! k) (%dispatch-scheduler-hook))))
-        (void))))
+    (set! %atomic-state 'non-atomic)
+    (set! %ticks (sub1 %ticks))
+    (when (<= %ticks 0)
+      (set! %ticks %quantum)
+      (when %running (%letcc/call k (%preempt! k) (%dispatch-scheduler-hook))))
+    (void))
 
   ; every switch to another thread (or to the isolated context on behalf of another thread) calls
   ; (k x) through here, once %cur-tid is the new thread: when a dynamic-wind after thunk of the thread
@@ -416,16 +416,14 @@
   ; Scheduler.atomicDispatch: run the next ready thread, never returns; a dead thread is skipped
   (define (%atomic-dispatch)
     (%check-running 'atomic-dispatch)
-    (if (eq? %atomic-state 'signal-pending)
-      (%dispatch-scheduler-hook)
-      (let loop ()
-        (let1 (item (%dequeue1!))
-          (if (%tid-dead? (car item))
-            (loop)
-            (begin
-              (set! %cur-tid (car item))
-              (set! %atomic-state 'non-atomic)
-              (%switch! (cdr item) (void))))))))
+    (let loop ()
+      (let1 (item (%dequeue1!))
+        (if (%tid-dead? (car item))
+          (loop)
+          (begin
+            (set! %cur-tid (car item))
+            (set! %atomic-state 'non-atomic)
+            (%switch! (cdr item) (void)))))))
 
   ; Scheduler.dispatch
   (define (%dispatch) (%atomic-begin) (%atomic-dispatch))
@@ -445,11 +443,6 @@
       (%atomic-end)
       (%letcc/call cur-k
         (cond
-          ((eq? %atomic-state 'signal-pending)
-            (%letcc/call k2
-              (%enqueue! (cons tid k2))
-              (%enqueue! (cons %cur-tid cur-k))
-              (%dispatch-scheduler-hook)))
           ((begin (set! %ticks (sub1 %ticks)) (and (<= %ticks 0) %running))
             (set! %ticks %quantum)
             (%promote!)
@@ -1915,7 +1908,7 @@
   (set-record-printer! %enrollment
     (λ (b port) (display "#<enrollment " port) (display (%enrollment-status b) port) (display ">" port)))
 
-  ; Barrier.barrier (argument order as in the spec: initial state first)
+  ; Barrier.barrier, but with the initial state first: (make-barrier init update)
   (define (make-barrier init update) (make-%barrier init update 0 '() 0))
   (define (barrier? x) (%barrier? x))
   (define (enrollment? x) (%enrollment? x))
@@ -2145,8 +2138,11 @@
   ; quantum is the number of CML operations (%atomic-end ticks) between two preemptions.
   (define (run-cml thunk #!key (quantum %default-quantum))
     (when %running (%cml-raise 'running "run-cml: CML is already running"))
+    (unless (procedure? thunk) (error "run-cml: not a procedure" thunk))
+    (unless (and (exact-integer? quantum) (> quantum 0))
+      (error "run-cml: quantum must be a positive exact integer" quantum))
     (%reset!)
-    (set! %quantum (if (and (exact-integer? quantum) (> quantum 0)) quantum %default-quantum))
+    (set! %quantum quantum)
     (set! %ticks %quantum)
     (set! %running #t)
     ; every thread runs within this dynamic extent, so the after thunk only runs when the session
@@ -3254,7 +3250,9 @@
   ;;   messages exactly as in ML.  A port needs a running CML (it spawns its tee) and belongs to
   ;;   that run-cml session; the channel itself does not.
   ;; - SimpleRPC answers with a Result: when f raises, the caller of `call` gets the exception (ML
-  ;;   leaves it blocked forever) and the server goes on, see each maker for the entry event's value.
+  ;;   leaves it blocked forever).  The server goes on with make-rpc, make-rpc/in, make-rpc/in-out
+  ;;   (whose entry event then yields the old state) and make-rpc/state; make-rpc/out has no state
+  ;;   to yield, so its entry event re-raises the exception in the server as well, as ML does.
   ;; - TraceCML has no servers: trace modules, destinations, watches and the handler registry are
   ;;   plain atomic updates, so ML's "carefully" protocol and its failure modes disappear (an error
   ;;   such as `trace-module-of` on a missing name is raised in the caller, never in a server).
