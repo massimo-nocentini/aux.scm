@@ -46,28 +46,6 @@
              (greater (op/greater)))
         (sort folded (λ (a b) (greater (cadr a) (cadr b)))))))
 
-  #;(define (probcc-next-value choices)
-    (match/non-overlapping choices
-      (() '())
-      ((((V ,v) ,pt) . _) choices)
-      ((((C ,t) ,pt) . ,d) (let* ((times (op/times))
-                                         (F (λ1/non-overlapping (,slot ,p) `(,slot ,(times p pt))))
-                                         (choices** (map F (t))))
-                                    (probcc-next-value (append d choices**))))))
-                                
-  #;(define (probcc-next-value choices)
-    (match/non-overlapping choices
-      (() '())
-      (else (match1/non-overlapping ((,slot ,pt) (car choices)) 
-                             (match/non-overlapping slot
-                                              ((V ,v) choices)
-                                              ((C ,t) (let1 (times (op/times))
-                                                           (probcc-next-value
-                                                             (append (cdr choices)
-                                                                     (letmap ((pair (t)))
-                                                                             (match1/non-overlapping ((,slot ,p) pair)
-                                                                                              `(,slot ,(times p pt)))))))))))))
-
   (define (probcc-normalize choices)
     (let* ((divide (op/divide))
            (plus (op/plus))
