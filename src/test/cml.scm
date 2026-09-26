@@ -543,14 +543,17 @@
   ((test/priorities/prio-0 _)
    ; critic C: a fresh mvar-init get event polls with priority 0, next to a fixed priority event (2,
    ; the number of enabled events): the always event wins while the mvar's priority is 0 and 1,
-   ; again on the tie at 2 (the tie-break counter), and the bumped mvar wins from then on
-   (⊦= (append '(a a a) (make-list 17 5))
+   ; again on the tie at 2 (the tie-break counter), and the bumped mvar wins at 3.  Its commit
+   ; resets the priority to 1 (not in ML, where the mvar wins from then on), so it loses at 1,
+   ; wins or loses the tie at 2 and wins at 3 again
+   (⊦= '(a a a 5 a 5 a a 5 a 5 a a 5 a 5 a a 5 a)
        (run/value (τ (let1 (mv (make-mvar 5))
                        (map (λ (i) (select (mvar-get-evt mv) (always-evt 'a))) (iota 20)))))))
 
   ((test/priorities/reset _)
-   ; iGetEvt's doFn resets the dynamic priority, mTakeEvt's does not
-   (⊦= '(1 2)
+   ; the doFns of iGetEvt, mTakeEvt, mGetEvt and mSwapEvt reset the dynamic priority (in ML only
+   ; iGetEvt's does)
+   (⊦= '(1 1 1 1)
        (run/value (τ (let ((iv (make-ivar)) (mv (make-mvar 'x)))
                        (ivar-put! iv 'v)
                        (sync (ivar-get-evt iv))
@@ -558,7 +561,26 @@
                        (sync (mvar-take-evt mv))
                        (mvar-put! mv 'y)
                        (sync (mvar-take-evt mv))
-                       (list (%cell-priority iv) (%cell-priority mv)))))))
+                       (mvar-put! mv 'z)
+                       (let1 (take (%cell-priority mv))
+                         (sync (mvar-get-evt mv))
+                         (sync (mvar-get-evt mv))
+                         (let1 (get (%cell-priority mv))
+                           (sync (mvar-swap-evt mv 'w))
+                           (sync (mvar-swap-evt mv 'w))
+                           (list (%cell-priority iv) take get (%cell-priority mv)))))))))
+
+  ((test/priorities/full-mvar-does-not-starve _)
+   ; a full mvar's get, swap or take (put back) event against a full ivar's: each wins half of the
+   ; selects, as two ivars do (the mvar won all of them but the first ones, its priority growing)
+   (define (wins mvar-evt)
+     (run/value (τ (let ((mv (make-mvar 1)) (iv (make-ivar)) (m 0))
+                     (ivar-put! iv 2)
+                     (do ((i 0 (add1 i))) ((= i 100) m)
+                       (select (wrap (mvar-evt mv) (λ ignored (set! m (add1 m)) (when (null? (mvar-get-poll mv)) (mvar-put! mv 1))))
+                               (ivar-get-evt iv)))))))
+   (⊦= '(50 50 50)
+       (map wins (list mvar-get-evt (λ (mv) (mvar-swap-evt mv 1)) mvar-take-evt))))
 
   ((test/priorities/tie-break _)
    ; always events tie at priority n: the counter based tie-break reaches every branch

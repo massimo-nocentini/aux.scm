@@ -61,7 +61,7 @@ everything it defines (`(module (aux cml) * ...)`). The file has three parts:
 
 Each part starts with a `;;` header comment that holds its design notes and its deviations from
 ML. The test suites are `src/test/cml.scm`, `src/test/cml-lib.scm` and `src/test/cml-io.scm`
-(213 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
+(214 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
 `src/aux.egg` as `(extension aux.cml)` and the suites run with `make test-cml` in `src/`.
 
 The port targets CHICKEN **6** (it was developed against 6.0.1pre1, binary version 12). It
@@ -255,6 +255,7 @@ datatype 'a event = BEVT of 'a base_evt list | CHOOSE of 'a event list
 | `barrier.sml` (other) | Waiters are woken newest first (an artefact of the list); the doc says `value` raises `Fail`, the code never does; the doc example applies `resign` to the barrier, not to an enrollment (ill-typed). | Waiters are woken oldest first (documented deviation); `barrier-value` never raises. |
 | `trace-cml.sml` watcher | After a watched thread dies, the watcher server blocks forever on a `send` nobody receives, so every later `watch`/`unwatch` hangs; `watch` returns before the watch is registered, so an immediate `unwatch` may miss it; the death message lacks a space before the tid. | TraceCML has no servers; all three are fixed. |
 | `trace-cml.sml` module names | A full name is the parent's full name followed by the label, without a separator (`"/ThreadWatcher"`), while the documentation writes `/`-separated paths. | Each label is followed by `/` (`"/ThreadWatcher/"`). |
+| `sync-var.sml` priorities | The doFns of `mTakeEvt`, `mGetEvt` and `mSwapEvt` never reset the mvar's priority, so it grows at every enabled poll: once a full mvar has won a select against another variable or channel (reset by their commits), it wins every later one and the other branches starve (a take too, as the put that refills it resets it only when it wakes a waiter). | The three do-thunks reset it to 1, as `iGetEvt`'s does. |
 | `simple-rpc.sml` | If the server function raises, the caller stays blocked forever. | The caller gets the exception through a `Result`. |
 | IO: imperative `input1` / `inputLine` at end of file | They take the stream mvar and never put it back: the next operation on the stream deadlocks. | Not applicable (no functional streams); port events never lose their lock. |
 | IO: `PrimIO` `eventWrap` | Loses the lock when the nack fires, and runs `f` without the lock in the busy case. | The helper thread holds a per-port lock, released on the nack and after the offer. |
@@ -1166,9 +1167,10 @@ when empty.
   live reader (`%relay-msg!`), each switch handing over to the next, until the queue is empty;
   the last one leaves the region. `mvar-take` instead empties the cell, which stops the chain.
   `mvar-swap` stores the new value and relays that.
-- **Priorities**: a cell starts at 0; each enabled poll returns the counter and bumps it;
-  `ivar-get-evt`'s do-thunk and a put's hand-off reset it to 1; `mvar-take-evt`, `mvar-get-evt`
-  and `mvar-swap-evt` do not, as in `sync-var.sml`.
+- **Priorities**: a cell starts at 0; each enabled poll returns the counter and bumps it; the
+  do-thunks of `ivar-get-evt`, `mvar-take-evt`, `mvar-get-evt` and `mvar-swap-evt` and a put's
+  hand-off reset it to 1. In `sync-var.sml` only `iGetEvt`'s doFn and the hand-off do (see
+  [2.5](#25-ml-bugs-and-doccode-mismatches)).
 
 ### 4.7 Mailboxes
 
@@ -1514,6 +1516,7 @@ All are deliberate; most are also listed in the header comments of `src/aux.cml.
 | Barriers have no event | `barrier-wait-evt`; a losing wait is not counted; several enrollments in one sync count once; two waits on one enrollment in one sync raise | Composability |
 | Waiters woken newest first | Oldest first | Arrival order; not specified by `BARRIER` |
 | `Barrier.barrier update init` | `(make-barrier init update)` | Initial state first, as `make-mvar`'s initial value; listed among the header's and README's deviations |
+| `mTakeEvt`, `mGetEvt`, `mSwapEvt` never reset the priority | Their commits reset it to 1 | ML bug (a full mvar starves the other branches of a select) |
 | ivar and mvar are different types | One record, every operation checks the kind (an `(exn)` error) | Scheme is untyped |
 | Puts outside `RunCML` | SyncVar puts and polls work outside and wake nobody; blocking operations raise `(exn cml not-running)` | No scheduler outside |
 | Cleaner registration with bad arguments | Checked at registration (non-procedure, bad `whens`, wrong-typed logged object) | A bad entry broke every later `run-cml` |
@@ -1836,11 +1839,11 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 
 ### 7.3 Inventory
 
-213 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
+214 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
 
 | File | Suite | Cases | What it covers |
 |---|---|---|---|
-| `cml.scm` | `cml-events-suite` | 37 | version, run status, not-running, bad `run-cml` arguments, escaping `run-cml`, internal names, rendezvous both ways and as events, polls and their ticks, `choose` flattening, `select/case`, guards per sync, guard and `with-nack` bodies returning no event (wrapped too) and non-event arguments, `wrap-handler` nesting and scoping, `with-nack` (losers only, blocked, nested, forcing raising/escaping/re-entered, killed forcing thread, set when `sync` returns, preempted handler, raising poll), continuable conditions, wrap loops that do not nest, priorities (prio 0, reset, tie-break) |
+| `cml.scm` | `cml-events-suite` | 38 | version, run status, not-running, bad `run-cml` arguments, escaping `run-cml`, internal names, rendezvous both ways and as events, polls and their ticks, `choose` flattening, `select/case`, guards per sync, guard and `with-nack` bodies returning no event (wrapped too) and non-event arguments, `wrap-handler` nesting and scoping, `with-nack` (losers only, blocked, nested, forcing raising/escaping/re-entered, killed forcing thread, set when `sync` returns, preempted handler, raising poll), continuable conditions, wrap loops that do not nest, priorities (prio 0, reset, a full mvar does not starve a select, tie-break) |
 | | `cml-threads-suite` | 27 | tids, independent runs, child first, non-procedure spawn, `join-evt` (all deaths, FIFO), exception handlers, every `dynamic-wind` death case of [4.3](#43-thread-death), mailbox redelivery only for switch-in deaths, yield, thread properties and flags, fairness (producers, preemption, yield promotion, no phase-lock, channel ping-pong ticks) |
 | | `cml-time-suite` | 10 | timeout order, duration, zero and past deadlines, LIFO ties, `sync/timeout` (and 0 as a poll), a yield loop cannot starve timeouts, many sleepers (ratio), losing timeouts dropped, cancelled waits not woken |
 | | `cml-syncvar-suite` | 10 | ivar and mvar semantics, predicates, kind checks, condition predicates, relay chains, losing waiters dropped, many waiters in linear time, many deaths in linear time, `Result` |

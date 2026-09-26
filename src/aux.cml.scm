@@ -57,6 +57,9 @@
 ;; the clock is read on demand instead of being cached per quantum; the idle scheduler sleeps
 ;; in file-select until the next deadline instead of waiting for SIGALRM; blocked mailbox
 ;; receivers are filtered on enqueue; the default exception handler prints the condition;
+;; the commits of mvar-take-evt, mvar-get-evt and mvar-swap-evt reset the variable's polling
+;; priority to 1, as ivar-get-evt's does (sync-var.sml's mTakeEvt, mGetEvt and mSwapEvt never do,
+;; so a full mvar that won a select once won every later one, starving the other branches);
 ;; a queue entry left by a previous run-cml session is stale (the transaction records its run), so
 ;; channels & co. that were not logged with the CleanUp registry cannot resume dead continuations;
 ;; the block functions of a blocked sync still run nested (event.sml's `log`) but the wrappers of an
@@ -1704,14 +1707,18 @@
         (let1 (v (%cell-block! mv)) (%cell-value-set! mv %empty) (%atomic-end) v)
         (begin (%cell-value-set! mv %empty) (%atomic-end) v))))
 
-  ; SyncVar.mTakeEvt (its doFn does not reset the priority)
+  ; SyncVar.mTakeEvt.  Its doFn resets the priority, as iGetEvt's does, and so do mGetEvt's and
+  ; mSwapEvt's (none of the three do in ML): else every enabled poll of the mvar bumps its priority
+  ; for good, and once it has won a select against another variable or channel (reset to 1 by
+  ; their commits) it wins every later one, the other branches starving (a take too: the put that
+  ; fills the mvar again only resets it when it wakes a waiter)
   (define (mvar-take-evt mv)
     (%check-mvar 'mvar-take-evt mv)
     (%base-evt
       (τ (let1 (v (%cell-value mv))
            (if (eq? v %empty)
              (%cell-block-fn mv (λ (v) (%cell-value-set! mv %empty) (%atomic-end) v))
-             (make-%enabled (%cell-bump! mv) (τ (%cell-value-set! mv %empty) (%atomic-end) v)))))))
+             (make-%enabled (%cell-bump! mv) (τ (%cell-priority-set! mv 1) (%cell-value-set! mv %empty) (%atomic-end) v)))))))
 
   ; SyncVar.mTakePoll: '() or (list v)
   (define (mvar-take-poll mv)
@@ -1739,7 +1746,7 @@
       (τ (let1 (v (%cell-value mv))
            (if (eq? v %empty)
              (%cell-block-fn mv (λ (v) (%relay-msg! mv v) v))
-             (make-%enabled (%cell-bump! mv) (τ (%atomic-end) v)))))))
+             (make-%enabled (%cell-bump! mv) (τ (%cell-priority-set! mv 1) (%atomic-end) v)))))))
 
   ; SyncVar.mGetPoll
   (define (mvar-get-poll mv) (%check-mvar 'mvar-get-poll mv) (%cell-poll mv))
@@ -1764,7 +1771,7 @@
       (τ (let1 (v (%cell-value mv))
            (if (eq? v %empty)
              (%cell-block-fn mv (λ (v) (%cell-value-set! mv new) (%relay-msg! mv new) v))
-             (make-%enabled (%cell-bump! mv) (τ (%cell-value-set! mv new) (%atomic-end) v)))))))
+             (make-%enabled (%cell-bump! mv) (τ (%cell-priority-set! mv 1) (%cell-value-set! mv new) (%atomic-end) v)))))))
 
   ; Mailbox (mailbox.sml) ---------------------------------------------------------------------------
 
