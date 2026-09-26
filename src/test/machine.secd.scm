@@ -209,6 +209,17 @@
    (⊦= "[((Position 0) (Load null?) Apply (Test ((Load zero)) ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply))) ([((Position 0) (Position 1) (Position&Apply 1) Apply) ([((Closure ((Position 0) (Position 1) (Position&Apply 1) Apply)) (Position&Apply 1)) ([((Closure ((Position 0) (Load null?) Apply (Test ((Load zero)) ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply))))) ()])] [((Closure ((Position 0) (Load null?) Apply (Test ((Load zero)) ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply))))) ()])])]"
        ((○ to-string car status-S last →/compiled⁺*) Y⁺)))
 
+  ; new: the two compiled machines share their rules, but the plain one still has no rule for
+  ; the instructions that only `compile⁺` emits, and the optimised one rejects non-instructions.
+  ((test/compiled-rules _)
+   (let1 (no-rule (λ (→ C)
+                    (condition-case (begin ((→ (make-E)) (status-init '() C)) #f)
+                      (e (exn) ((condition-property-accessor 'exn 'message) e)))))
+     (for-each (λ (i) (⊦= "no transition for" (no-rule →/compiled (list i))))
+               (list (Enter) (Exit) (Position&Apply 0) (Jump)))
+     (⊦= "not an instruction" (no-rule →/compiled⁺ (list 'Load))))
+   (⊦= (map to-string (→/compiled* s₁)) (map to-string (→/compiled⁺* s₁))))
+
   ((test/Y-length _)
    (⊦= `(3 ,'() ,'() ,(void))
        (let* ((s₁ (status-init '() ((○ compile expression->de-bruijn) Y₁)))

@@ -353,42 +353,58 @@
     (λ (pc out)
       (format out "<[~a ~a]>" (program-closure-body pc) (program-closure-D pc))))
 
+  ; `→/compiled` and `→/compiled⁺` share the dump discipline and the rules of `Load`, `Position`,
+  ; `Closure`, `Test` and `Apply`: `(→/compiled/rules PA other)` is such a transition, where
+  ; `(PA f y S E C D)` applies `f` to `y` over the rest of the status, and `(other C₀ S E C D)`
+  ; is the rule of any other instruction `C₀`, whose `C` is the rest of the control.
+  (define →/compiled/rules
+    (λ (PA other)
+      (λ (E₀)
+        (dbind/status
+          (λ (s S E C D)
+            (cond
+              ((and (null? C) (void? D)) s) ; termination condition for fixed-point
+              ((null? C)
+               (let1 (extend-dump (dbind/status
+                                    (λ (_ S₁ E₁ C₁ D₁)
+                                      (let1 (S₂ (cons (car S) S₁))
+                                        (make-status S₂ E₁ C₁ D₁)))))
+                 (extend-dump D)))
+              (else (match1/first ((,C₀ . ,C₊) C)
+                      (cond
+                        ((%Load? C₀) (let1 (S₁ (cons ((%Load-selector C₀) E₀) S))
+                                       (make-status S₁ E C₊ D)))
+                        ((%Position? C₀) (let1 (S₁ (cons (list-ref E (%Position-index C₀)) S))
+                                           (make-status S₁ E C₊ D)))
+                        ((%Closure? C₀) (let1 (c₊ (make-closure₊ (%Closure-control C₀) E))
+                                          (make-status (cons c₊ S) E C₊ D)))
+                        ((%Test? C₀) (match1/first ((,boolean . ,S₊) S)
+                                       (let1 (branch (if boolean (%Test-answer C₀) (%Test-otherwise C₀)))
+                                         (make-status S₊ E (append branch C₊) D))))
+                        ((%Apply? C₀) (match1/first ((,f ,y . ,S₊) S)
+                                        (PA f y S₊ E C₊ D)))
+                        (else (other C₀ S E C₊ D)))))))))))
+
+  ; the `Apply` of `→/compiled`: a `closure₊` runs its control in a new dump, anything else is a
+  ; Scheme procedure.
+  (define PA/compiled
+    (λ (f y S E C D)
+      (cond/λ f
+        (closure₊? (dbind/closure₊
+                     (λ (_ C₁ E₁)
+                       (let ((S₂ '())
+                             (E₂ (cons y E₁))
+                             (C₂ (identity C₁))
+                             (D₂ (make-status S E C D)))
+                         (make-status S₂ E₂ C₂ D₂)))))
+        (else (K (make-status (cons (f y) S) E C D))))))
+
   (define →/compiled
-    (λ (E₀)
-      (dbind/status
-        (λ (s S E C D)
-          (cond
-            ((and (null? C) (void? D)) s) ; termination condition for fixed-point
-            ((null? C)
-             (let1 (extend-dump (dbind/status
-                                  (λ (_ S₁ E₁ C₁ D₁)
-                                    (let1 (S₂ (cons (car S) S₁))
-                                      (make-status S₂ E₁ C₁ D₁)))))
-               (extend-dump D)))
-            (else (match1/first ((,C₀ . ,C₊) C)
-                    (cond
-                      ((%Load? C₀) (let1 (S₁ (cons ((%Load-selector C₀) E₀) S))
-                                     (make-status S₁ E C₊ D)))
-                      ((%Position? C₀) (let1 (S₁ (cons (list-ref E (%Position-index C₀)) S))
-                                         (make-status S₁ E C₊ D)))
-                      ((%Closure? C₀) (let1 (c₊ (make-closure₊ (%Closure-control C₀) E))
-                                        (make-status (cons c₊ S) E C₊ D)))
-                      ((%Test? C₀) (match1/first ((,boolean . ,S₊) S)
-                                     (let1 (branch (if boolean (%Test-answer C₀) (%Test-otherwise C₀)))
-                                       (make-status S₊ E (append branch C₊) D))))
-                      ((%Apply? C₀) (match1/first ((,f ,y . ,S₊) S)
-                                      (cond/λ f
-                                        (closure₊? (dbind/closure₊
-                                                     (λ (_ C₁ E₁)
-                                                       (let ((S₂ '())
-                                                             (E₂ (cons y E₁))
-                                                             (C₂ (identity C₁))
-                                                             (D₂ (make-status S₊ E C₊ D)))
-                                                         (make-status S₂ E₂ C₂ D₂)))))
-                                        (else (K (make-status (cons (f y) S₊) E C₊ D))))))
-                      ; as with the old `cases`, this machine has no rule for the other
-                      ; instructions, which only `compile⁺` emits.
-                      (else (error '→/compiled "no transition for" C₀))))))))))
+    (→/compiled/rules
+      PA/compiled
+      ; as with the old `cases`, this machine has no rule for the other instructions, which
+      ; only `compile⁺` emits.
+      (λ (C₀ S E C D) (error '→/compiled "no transition for" C₀))))
 
   (define compile⁺
     (rec C (λ (e)
@@ -419,13 +435,6 @@
   (define →/compiled⁺
     (let ((PA (λ (f y S E C D)
                 (cond/λ f
-                  (closure₊? (dbind/closure₊
-                               (λ (_ C₁ E₁)
-                                 (let ((S₂ '())
-                                       (E₂ (cons y E₁))
-                                       (C₂ (identity C₁))
-                                       (D₂ (make-status S E C D)))
-                                   (make-status S₂ E₂ C₂ D₂)))))
                   (program-closure? (dbind/program-closure
                                       (λ (_ body D₀)
                                         ; as in the `status?` case, the current context is
@@ -446,44 +455,24 @@
                                       (λ (_ D₀)
                                         (let1 (pc (make-program-closure y D₀))
                                           (make-status (cons pc S) E C D)))))
-                  (else (K (make-status (cons (f y) S) E C D)))))))
-      (λ (E₀)
-        (dbind/status
-          (λ (s S E C D)
-            (cond
-              ((and (null? C) (void? D)) s) ; termination condition for fixed-point
-              ((null? C)
-               (let1 (extend-dump (dbind/status
-                                    (λ (_ S₁ E₁ C₁ D₁)
-                                      (let1 (S₂ (cons (car S) S₁))
-                                        (make-status S₂ E₁ C₁ D₁)))))
-                 (extend-dump D)))
-              (else (match1/first ((,C₀ . ,C₊) C)
-                      (cond
-                        ((%Load? C₀) (let1 (S₁ (cons ((%Load-selector C₀) E₀) S))
-                                       (make-status S₁ E C₊ D)))
-                        ((%Position? C₀) (let1 (S₁ (cons (list-ref E (%Position-index C₀)) S))
-                                           (make-status S₁ E C₊ D)))
-                        ((%Closure? C₀) (let1 (c₊ (make-closure₊ (%Closure-control C₀) E))
-                                          (make-status (cons c₊ S) E C₊ D)))
-                        ((%Enter? C₀) (match1/first ((,s₀ . ,S₊) S)
-                                        (let1 (D₁ (make-status S₊ '() '() D))
-                                          (make-status '() (cons s₀ E) C₊ D₁))))
-                        ((%Exit? C₀) (let ((S₁ (cons (car S) (status-S D)))
-                                           (E₁ (cdr E))
-                                           (C₁ C₊)
-                                           (D₁ (status-D D)))
-                                       (make-status S₁ E₁ C₁ D₁)))
-                        ((%Test? C₀) (match1/first ((,boolean . ,S₊) S)
-                                       (let1 (branch (if boolean (%Test-answer C₀) (%Test-otherwise C₀)))
-                                         (make-status S₊ E (append branch C₊) D))))
-                        ((%Position&Apply? C₀) (let1 (f (list-ref E (%Position&Apply-index C₀)))
-                                                 (match1/first ((,y . ,S₊) S)
-                                                   (PA f y S₊ E C₊ D))))
-                        ((%Apply? C₀) (match1/first ((,f ,y . ,S₊) S)
-                                        (PA f y S₊ E C₊ D)))
-                        ((%Jump? C₀) (let1 (S₁ (cons (make-status-appender D) S))
-                                       (make-status S₁ E C₊ D)))
-                        (else (error '→/compiled⁺ "not an instruction" C₀)))))))))))
+                  (else (λ (f) (PA/compiled f y S E C D)))))))
+      (→/compiled/rules
+        PA
+        (λ (C₀ S E C₊ D)
+          (cond
+            ((%Enter? C₀) (match1/first ((,s₀ . ,S₊) S)
+                            (let1 (D₁ (make-status S₊ '() '() D))
+                              (make-status '() (cons s₀ E) C₊ D₁))))
+            ((%Exit? C₀) (let ((S₁ (cons (car S) (status-S D)))
+                               (E₁ (cdr E))
+                               (C₁ C₊)
+                               (D₁ (status-D D)))
+                           (make-status S₁ E₁ C₁ D₁)))
+            ((%Position&Apply? C₀) (let1 (f (list-ref E (%Position&Apply-index C₀)))
+                                     (match1/first ((,y . ,S₊) S)
+                                       (PA f y S₊ E C₊ D))))
+            ((%Jump? C₀) (let1 (S₁ (cons (make-status-appender D) S))
+                           (make-status S₁ E C₊ D)))
+            (else (error '→/compiled⁺ "not an instruction" C₀)))))))
 
   )
