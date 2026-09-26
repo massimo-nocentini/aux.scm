@@ -3,6 +3,7 @@
 
   (import
     scheme 
+    (scheme case-lambda)
     (chicken base) 
     (chicken condition) 
     (chicken pretty-print) 
@@ -189,9 +190,14 @@
           (implicit-exit-handler (lambda () (exit 1))))
         r)))
 
-  (define (unittest/condition-expected-actual a b)
-    (condition `(exn message "assert-equal failed") 
-               `(unittest-assert-equal comparison ((expected ,a) (got ,b)))))
+  ; the condition ⊦ signals, for a predicate of any arity: two arguments are compared as
+  ; expected and got, any other number of them is reported as got.
+  (define unittest/condition-expected-actual
+    (case-lambda
+      ((a b) (condition `(exn message "assert-equal failed") 
+                        `(unittest-assert-equal comparison ((expected ,a) (got ,b)))))
+      (args (condition `(exn message "assert failed") 
+                       `(unittest-assert-equal comparison ((got ,@args)))))))
 
   (define-syntax ⊦⧳
     (syntax-rules ()

@@ -140,6 +140,16 @@
    (⊭ ((equal-approx? 0.000001) #(1.1) #(1)))
    (⊭ ((equal-approx? 0.000001) #(1) '(1))))
 
+  ((test-⊦-arity tc _ _)
+   (⊦= '(((got 4)) ((got 1 2 3 1)) ((got)))
+       (map (lambda (thunk)
+              (condition-case (thunk)
+                (c (exn unittest-assert-equal) 
+                   (get-condition-property c 'unittest-assert-equal 'comparison))))
+            (list (lambda () (⊦ odd? 4)) 
+                  (lambda () (⊦ < 1 2 3 1)) 
+                  (lambda () (⊦ (lambda () #f)))))))
+
   ((test-⊨ tc _ _) (⊨ #t))
 
   ((test-⊭ tc _ _) (⊭ #f))
