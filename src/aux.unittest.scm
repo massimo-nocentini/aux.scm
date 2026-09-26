@@ -24,61 +24,83 @@
   (define (unittest/testcase-logcons! testcase msg)
     (unittest/testcase-log-set! testcase (cons msg (unittest/testcase-log testcase))))
 
+  ; runs thunk, recording a condition it raises as a failure of testcase-name, then answers witness
+  (define (unittest/testcase-guard result testcase-name witness thunk)
+    (condition-case (thunk)
+      (c (exn unittest-assert-equal) 
+         (unittest/result-failed!
+           result (cons testcase-name (get-condition-property c 'unittest-assert-equal 'comparison)))
+         witness)
+      (c (exn)
+         (unittest/result-failed!
+           result (list testcase-name (call-with-output-string
+                                        (lambda (port) (print-error-message c port)))))
+         witness)
+      (c () 
+         (unittest/result-failed! result (list testcase-name c))
+         witness)))
+
   (define (unittest/testcase-run testcase result sut)
     (let* ((methods (cdr sut))
            (setup (alist-ref 'setup methods))
            (teardown (alist-ref 'teardown methods))
-           (testcase-name (unittest/testcase-name testcase)))
+           (testcase-name (unittest/testcase-name testcase))
+           (witness (gensym))
+           (guarded (lambda (thunk) (unittest/testcase-guard result testcase-name witness thunk))))
       (unittest/result-started! result)
-      (let-values ((args (if setup ((car setup) testcase) (values)))
-                   ((f code) (apply values (alist-ref testcase-name methods))))
-        (let* ((witness (gensym))
-               (no-outsrt "")
-               (eta-time 0)
-               (pair (condition-case (let* ((res (void))
-                                            (outstr no-outsrt)
-                                            (errstr (with-error-output-to-string
-                                                      (lambda ()
-                                                        (set! outstr (with-output-to-string
-                                                                       (lambda () 
-                                                                         (let-values (((u s) (cpu-time)))
-                                                                           (set! res (apply f testcase args))
-                                                                           (let-values (((uu ss) (cpu-time)))
-                                                                             (set! eta-time (- (+ uu ss) (+ u s))))))))))))
-                                       (list res outstr errstr))
-                       (c (exn unittest-assert-equal) 
-                          (begin
-                            (unittest/result-failed!
-                              result (cons testcase-name (get-condition-property c 'unittest-assert-equal 'comparison)))
-                            (list witness no-outsrt no-outsrt)))
-                       (c (exn)
-                          (begin
-                            (unittest/result-failed!
-                              result (list testcase-name (call-with-output-string
-                                                           (lambda (port) (print-error-message c port)))))
-                            (list witness no-outsrt no-outsrt)))
-                       (c () (begin
-                               (unittest/result-failed! result (list testcase-name c))
-                               (list witness no-outsrt no-outsrt)))))
-               (v (first pair))
-               (outstr (second pair))
-               (errstr (third pair))
-               (hasdoc (and (pair? v) (eq? (car v) 'doc))))
-          (when teardown (apply (car teardown) testcase args))
-          (let ((header-id (symbol->string testcase-name)))
-            `((h2 (@ (id ,header-id))
-                (a (@ (href ,(string-append "#" header-id)))
-                  (code ,header-id)
-                  ": " 
-                  ,(if (eq? v witness)
-                      '(span (@ (class "w3-text-red")) fail) 
-                      '(span (@ (class "w3-text-green")) pass))))
-              ,@(if hasdoc (cdr v) '())
-              (code/scheme ,(if hasdoc (butlast code) code))
-              (code/scheme ((eta ,(exact->inexact (/ eta-time 1000)))
-                            (memory ,(memory-statistics))
-                            (stdout ,outstr)
-                            (stderr ,errstr)))))))))
+      ; setup and teardown raise as a failure of the case too: a raising setup skips the body and
+      ; the teardown, a raising teardown fails a case whose body passed.  A case fails once: the
+      ; condition of a teardown raising after a failed body goes to the case's stderr instead.
+      (let ((args (if setup 
+                    (guarded (lambda () (call-with-values (lambda () ((car setup) testcase)) list)))
+                    '())))
+        (let-values (((f code) (apply values (alist-ref testcase-name methods))))
+          (let* ((no-outsrt "")
+                 (eta-time 0)
+                 (pair (if (eq? args witness)
+                         witness
+                         (guarded (lambda ()
+                                    (let* ((res (void))
+                                           (outstr no-outsrt)
+                                           (errstr (with-error-output-to-string
+                                                     (lambda ()
+                                                       (set! outstr (with-output-to-string
+                                                                      (lambda () 
+                                                                        (let-values (((u s) (cpu-time)))
+                                                                          (set! res (apply f testcase args))
+                                                                          (let-values (((uu ss) (cpu-time)))
+                                                                            (set! eta-time (- (+ uu ss) (+ u s))))))))))))
+                                      (list res outstr errstr))))))
+                 (pair (if (eq? pair witness) (list witness no-outsrt no-outsrt) pair))
+                 (v (first pair))
+                 (outstr (second pair))
+                 (errstr (third pair))
+                 (hasdoc (and (pair? v) (eq? (car v) 'doc)))
+                 (torn (cond
+                         ((or (not teardown) (eq? args witness)) (void))
+                         ((eq? v witness)
+                          (condition-case (apply (car teardown) testcase args)
+                            (c ()
+                               (set! errstr (string-append 
+                                              errstr
+                                              (call-with-output-string
+                                                (lambda (port) (print-error-message c port)))))
+                               witness)))
+                         (else (guarded (lambda () (apply (car teardown) testcase args)))))))
+            (let ((header-id (symbol->string testcase-name)))
+              `((h2 (@ (id ,header-id))
+                  (a (@ (href ,(string-append "#" header-id)))
+                    (code ,header-id)
+                    ": " 
+                    ,(if (or (eq? v witness) (eq? torn witness))
+                        '(span (@ (class "w3-text-red")) fail) 
+                        '(span (@ (class "w3-text-green")) pass))))
+                ,@(if hasdoc (cdr v) '())
+                (code/scheme ,(if hasdoc (butlast code) code))
+                (code/scheme ((eta ,(exact->inexact (/ eta-time 1000)))
+                              (memory ,(memory-statistics))
+                              (stdout ,outstr)
+                              (stderr ,errstr))))))))))
 
   (define-syntax define-suite
     (syntax-rules ()

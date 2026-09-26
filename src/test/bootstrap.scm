@@ -8,6 +8,17 @@
   ((test-unbound-variable tc _) unbound-v)
   ((test-broken tc _) (signal (unittest/condition-expected-actual 'useless '_))))
 
+(define-suite raising-setup-sut
+  ((setup tc)         (error "setup exploded"))
+  ((teardown tc)      (unittest/testcase-logcons! tc 'teardown))
+  ((test-method tc)   (unittest/testcase-logcons! tc 'test-method))
+  ((test-other tc)    (unittest/testcase-logcons! tc 'test-other)))
+
+(define-suite raising-teardown-sut
+  ((teardown tc)      (error "teardown exploded"))
+  ((test-method tc)   (unittest/testcase-logcons! tc 'test-method))
+  ((test-broken tc)   (⊦= 1 2)))
+
 (define-suite bootstrap-sut 
 
   ((doc r) `((p "This test suite drove the implementation of the unittest framework itself.") 
@@ -35,6 +46,34 @@
    (lettest ((t 'test-unbound-variable))
             (unittest/testcase-run t r wasrun-sut)
             (⊦= '((ran 1) (failed 1 (test-unbound-variable "\nError: unbound variable: unbound-v\n")))
+                  (unittest/result-summary r))))
+
+  ((test-raising-setup tc _ r)
+   (lettest ((t 'test-method))
+            (unittest/testcase-run t r raising-setup-sut)
+            (⊦= '() (unittest/testcase-log t))
+            (⊦= '((ran 1) (failed 1 (test-method "\nError: setup exploded\n")))
+                  (unittest/result-summary r))))
+
+  ((test-raising-setup-suite tc _ r)
+   (letsuite ((suite '(test-method test-other)))
+             (unittest/testsuite-run suite r raising-setup-sut)
+             (⊦= '((ran 2) (failed 2 (test-other "\nError: setup exploded\n")
+                                      (test-method "\nError: setup exploded\n")))
+                   (unittest/result-summary r))))
+
+  ((test-raising-teardown-after-failure tc _ r)
+   (lettest ((t 'test-broken))
+            (let ((report (cadr (car (reverse (unittest/testcase-run t r raising-teardown-sut))))))
+              (⊦= '("\nError: teardown exploded\n") (alist-ref 'stderr report))
+              (⊦= '((ran 1) (failed 1 (test-broken (expected 1) (got 2))))
+                  (unittest/result-summary r)))))
+
+  ((test-raising-teardown tc _ r)
+   (lettest ((t 'test-method))
+            (unittest/testcase-run t r raising-teardown-sut)
+            (⊦= '(test-method) (unittest/testcase-log t))
+            (⊦= '((ran 1) (failed 1 (test-method "\nError: teardown exploded\n")))
                   (unittest/result-summary r))))
 
   ((test-failed-result tc _ r)

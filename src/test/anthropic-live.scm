@@ -10,8 +10,8 @@
 ;
 ; With the variable unset the file prints one line and exits 0. The gate is the WHOLE FILE and
 ; not a per-case early return, because (aux unittest) has no skip: unittest/result has only
-; `ran` and `failed` (aux.unittest.scm:94) and unittest/result-started! fires at :32 before a
-; case body can decline, so a "skipped" case would be counted as a PASS and inflate `ran`. A
+; `ran` and `failed` and unittest/testcase-run fires unittest/result-started! before a case
+; body can decline, so a "skipped" case would be counted as a PASS and inflate `ran`. A
 ; top-level print DOES reach the terminal; only in-case output is captured into the report.
 
 (import
