@@ -137,6 +137,9 @@
                     ; = first: equal infinities differ by +nan.0, which is not < p
                     ((and (real? a) (real? b)) (or (= a b) (< (abs (- a b)) p)))
                     ((and (pair? a) (pair? b)) (and (? (car a) (car b)) (? (cdr a) (cdr b))))
+                    ((and (vector? a) (vector? b)) 
+                     (and (= (vector-length a) (vector-length b)) 
+                          (every ? (vector->list a) (vector->list b))))
                     (else (equal=? a b))))))
       ?))
 
