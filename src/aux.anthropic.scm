@@ -1552,26 +1552,17 @@
 
   ; entry points ---------------------------------------------------------------------------------
 
-  (define (anthropic/messages messages
-                              #!key (model (anthropic/model))
-                                    (max-tokens #f)
-                                    (system #f)
-                                    (tools #f)
-                                    (tool-choice #f)
-                                    (disable-parallel #f)
-                                    (thinking #f)
-                                    (effort #f)
-                                    (stop-sequences #f)
-                                    (extra '())
-                                    (betas (anthropic/betas)))
+  ; The request options -- model:, max-tokens:, system:, tools:, tool-choice:,
+  ; disable-parallel:, thinking:, effort:, stop-sequences:, extra: -- are anthropic-request/body's
+  ; and are forwarded to it as they came, so that is the ONE place an option is defined.  They
+  ; used to be spelled out again in each entry point and in each forwarding call, seven lists in
+  ; lock-step, and a keyword dropped from one of them silently fell back to its default.  An
+  ; entry point names only the keys it reads itself; a key placed AHEAD of the forwarded ones
+  ; wins, because the first occurrence of a keyword is the one that binds, and the body ignores
+  ; keys it does not know.  `stream: #f` is such a key: a blocking call never asks for SSE.
+  (define (anthropic/messages messages #!rest options #!key (betas (anthropic/betas)))
     (anthropic-messages/validate! messages)
-    (let* ((body (anthropic-json/write
-                   (anthropic-request/body messages
-                                           model: model max-tokens: max-tokens system: system
-                                           tools: tools tool-choice: tool-choice
-                                           disable-parallel: disable-parallel
-                                           thinking: thinking effort: effort
-                                           stop-sequences: stop-sequences extra: extra)))
+    (let* ((body (anthropic-json/write (apply anthropic-request/body messages stream: #f options)))
            (w (anthropic-send body betas: betas))
            (text (anthropic-wire->body! w)))
       (anthropic-response/decode (anthropic-wire-status w) (anthropic-wire-headers w) text)))
@@ -1815,29 +1806,12 @@
   ; the middle of the fold (an `error` frame, an undecodable structural frame), and without it the
   ; curl child and the 0600 file holding the API key would leak until the process exits.
 
-  (define (anthropic/stream messages
-                            #!key (model (anthropic/model))
-                                  (max-tokens #f)
-                                  (system #f)
-                                  (tools #f)
-                                  (tool-choice #f)
-                                  (disable-parallel #f)
-                                  (thinking #f)
-                                  (effort #f)
-                                  (stop-sequences #f)
-                                  (extra '())
-                                  (betas (anthropic/betas))
-                                  (on-event void)
-                                  (on-text void))
+  ; the request options are anthropic-request/body's, forwarded as in anthropic/messages
+  (define (anthropic/stream messages #!rest options #!key (betas (anthropic/betas))
+                                                          (on-event void)
+                                                          (on-text void))
     (anthropic-messages/validate! messages)
-    (let* ((body (anthropic-json/write
-                   (anthropic-request/body messages
-                                           model: model max-tokens: max-tokens system: system
-                                           tools: tools tool-choice: tool-choice
-                                           disable-parallel: disable-parallel
-                                           thinking: thinking effort: effort
-                                           stop-sequences: stop-sequences
-                                           stream: #t extra: extra)))
+    (let* ((body (anthropic-json/write (apply anthropic-request/body messages stream: #t options)))
            (transport (anthropic/transport))
            (w (transport (anthropic/base-url) (anthropic-request/headers betas: betas) body #t)))
       ; a non-2xx on a streaming request answers with an ordinary JSON error body, not with SSE
@@ -1915,18 +1889,11 @@
           transcript
           (append transcript (list (anthropic-message/assistant content))))))
 
+  ; the request options and betas: go through to anthropic/messages as they came; `tools` is read
+  ; here too, for the dispatch table, and is passed ahead of them in its normalized form
   (define (anthropic/converse messages
+                              #!rest options
                               #!key (tools '())
-                                    (model (anthropic/model))
-                                    (max-tokens #f)
-                                    (system #f)
-                                    (tool-choice #f)
-                                    (disable-parallel #f)
-                                    (thinking #f)
-                                    (effort #f)
-                                    (stop-sequences #f)
-                                    (extra '())
-                                    (betas (anthropic/betas))
                                     (max-iterations 8)
                                     (max-pauses 5)
                                     (around anthropic-tool/around)
@@ -1950,13 +1917,7 @@
                                 (conc "too many requests in one conversation (max-iterations "
                                       max-iterations ")")
                                 #f))
-        (let* ((r (anthropic/messages transcript
-                                      model: model max-tokens: max-tokens system: system
-                                      tools: (if (pair? tools) tools #f)
-                                      tool-choice: tool-choice
-                                      disable-parallel: disable-parallel
-                                      thinking: thinking effort: effort
-                                      stop-sequences: stop-sequences extra: extra betas: betas))
+        (let* ((r (apply anthropic/messages transcript tools: (if (pair? tools) tools #f) options))
                (content (anthropic-response-content r)))
           (on-response r request)
           ; branch on stop_reason ONLY -- stop_details can be null even on a refusal -- and branch

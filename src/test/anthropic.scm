@@ -1330,6 +1330,31 @@
 
   ; -- the blocking call over the stub ----------------------------------------------------------
 
+  ((test/anthropic/entry-points-forward-every-request-option _)
+   (let* ((msgs (list (anthropic-message/user "weather in Paris?")))
+          (options (list model: "claude-haiku-4-5" max-tokens: 123 system: "Be terse."
+                         tools: (list get_weather/tool) tool-choice: 'auto disable-parallel: #t
+                         thinking: '((type "adaptive")) effort: "low" stop-sequences: '("END")
+                         extra: '((metadata ((user_id "u1"))))))
+          (expected (λ (stream?)
+                      (anthropic-json/parse
+                        (anthropic-json/write
+                          (apply anthropic-request/body msgs stream: stream? options))))))
+     (letstub (stub (anthropic-stub/canned fixture/response/text))
+       (apply anthropic/messages msgs stream: #t options)          ; a blocking call never streams
+       (⊦= (list (expected #f)) (anthropic-stub/requests stub)))
+     (letstub (stub (anthropic-stub/canned fixture/response/text))
+       (apply anthropic/converse msgs options)
+       (⊦= (list (expected #f)) (anthropic-stub/requests stub)))
+     (letstub (stub (anthropic-stub/canned fixture/sse/text
+                                           headers: '(("content-type" "text/event-stream"))))
+       (apply anthropic/stream msgs stream: #f options)          ; and a streaming one always does
+       (⊦= (list (expected #t)) (anthropic-stub/requests stub))))
+   `(doc (p "The request options are defined once, by " (code/inline "anthropic-request/body")
+            ", and the entry points forward them as they came. This pins that every one of "
+            "them reaches the wire from each entry point, so an option added to the body "
+            "cannot be silently dropped by one of them.")))
+
   ((test/anthropic/messages/create _)
    (letstub (stub (anthropic-stub/canned fixture/response/text))
      (let1 (r (anthropic/messages (list (anthropic-message/user "capital of France?"))))
