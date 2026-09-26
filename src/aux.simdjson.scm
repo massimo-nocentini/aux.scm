@@ -58,6 +58,12 @@
   (define simdjson-parse-ondemand-callback (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_parse_ondemand_callback" (const c-string) size_t))
   (define simdjson-load-ondemand-callback (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_load_ondemand_callback" (const c-string)))
 
+  ; the callback wants the length of the text in BYTES, where string-length counts characters;
+  ; CHICKEN refuses to marshal a string holding a NUL as a c-string, so strlen is exact
+  (define simdjson-parse-ondemand-string
+    (foreign-lambda* (c-pointer "chicken_simdjson_dom_element_t") (((const c-string) str))
+      "C_return(chicken_simdjson_parse_ondemand_callback(str, strlen(str)));"))
+
   (define (simdjson->scheme w)
     (let1 (t (simdjson-get-type w))
           (cond
@@ -97,7 +103,7 @@
   (define simdjson-load simdjson-load/ondemand)
 
   (define (simdjson-parse/ondemand str)
-    (simdjson->scheme/free (simdjson-parse-ondemand-callback str (string-length str))))
+    (simdjson->scheme/free (simdjson-parse-ondemand-string str)))
 
   (define (->string/json w)
     (letport/output-string port

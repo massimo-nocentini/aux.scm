@@ -54,9 +54,9 @@
 ; Both are commented at the call site; please do not "fix" them.
 ;
 ; Two JSON procedures live here rather than in (aux simdjson), and both should eventually move
-; upstream.  `anthropic-json/parse`, because `simdjson-parse/ondemand` (aux.simdjson.scm:93) hands
-; the C side `string-length`, a CHARACTER count, where simdjson wants BYTES -- so the first
-; accented response truncates and then fails to parse.  And
+; upstream.  `anthropic-json/parse`, because `simdjson-parse/ondemand` used to hand the C side
+; `string-length`, a CHARACTER count, where simdjson wants BYTES -- so the first accented response
+; was truncated and failed to parse; it passes the byte count now.  And
 ; `anthropic-json/write`, because `->string/json` escapes strings with Scheme `write`, which emits
 ; CHICKEN's `\x01;` for control characters, prints ratnums as `1/3`, and truncates flonums to 15
 ; significant digits -- none of which is JSON.  EVERY parse in this module is gated behind

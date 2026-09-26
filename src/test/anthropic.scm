@@ -442,9 +442,9 @@
    (⊦= 3 (anthropic-json/utf8-length "一"))
    (⊦= 0 (anthropic-json/utf8-length ""))
    (⊦≠ (string-length "caffè 一 ok") (anthropic-json/utf8-length "caffè 一 ok"))
-   `(doc (p (code/inline "simdjson-parse/ondemand") " (aux.simdjson.scm:93) hands the C side "
+   `(doc (p (code/inline "simdjson-parse/ondemand") " used to hand the C side "
             (code/inline "string-length") ", a CHARACTER count, where simdjson wants BYTES. "
-            "This is the number that has to replace it.")))
+            "This is the number that replaces it.")))
 
   ((test/anthropic/json/round-trip _)
    (let1 (v `((text "caffè 一 ok")
@@ -1844,8 +1844,9 @@
            'content)))
    `(doc (p "A tool result with characters outside ASCII goes through the encoder, back "
             "through the byte-length-correct parser, and comes out identical. With "
-            (code/inline "simdjson-parse/ondemand") ", which passes a character count, this "
-            "case would fail: the body it parses stops short of its end.")))
+            "a character count in place of the byte count, as "
+            (code/inline "simdjson-parse/ondemand") " used to pass, this case would fail: the "
+            "body parsed would stop short of its end.")))
 
   ; -- redaction ---------------------------------------------------------------------------------
 

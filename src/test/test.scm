@@ -247,6 +247,13 @@
              "Literals are checked in full: " (code/inline "nul") " is an error, not " (code/inline "null") ". "
              "Nothing but white space may follow the root value, be it a scalar, an array or an object.")))
 
+  ((test/simdjson/parse/utf-8 _)
+    (⊦= '((k "cafè")) (simdjson-parse/ondemand "{\"k\": \"cafè\"}"))
+    (⊦= #("一" "😋" "è") (simdjson-parse/ondemand "[\"一\", \"😋\", \"\\u00e8\"]"))
+    (⊦= '((è 1)) (simdjson-parse/ondemand "{\"è\":1}"))
+    `(doc (p "The parser is given the length of the text in bytes, not in characters: "
+             "counting characters, each multi-byte one cut a byte off the end of the document.")))
+
   ((test/simdjson/frees-the-tree _)
     (⊨ (eq? simdjson-load/ondemand simdjson-load))
     (⊨ (< (resident-growth (λ () (simdjson-load "twitter.json"))) 16384))

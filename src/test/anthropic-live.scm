@@ -76,8 +76,9 @@
      (⊦= "end_turn" (anthropic-response-stop-reason r))
      (⊦≠ #f (substring-index "caffè" (anthropic-response/text r))))
    `(doc (p "The one case that proves the byte-length fix against real network bytes: an "
-            "accented response decoded through " (code/inline "simdjson-parse/ondemand")
-            " truncates and fails to parse.")))
+            "accented response decoded with a character count in place of the byte count, as "
+            (code/inline "simdjson-parse/ondemand") " used to pass, is truncated and fails to "
+            "parse.")))
 
   ((test/anthropic/live/tool-roundtrip _)
    (receive (r transcript)
