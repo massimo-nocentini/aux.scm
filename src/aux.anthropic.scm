@@ -401,6 +401,12 @@
                                     (else (S (+ k 6))))))
                                (else #f))))
                           ((char<? c #\space) #f)          ; a raw control byte is not legal JSON
+                          ; CHICKEN decodes each byte of invalid UTF-8 to #xDC00 + byte, a
+                          ; surrogate no valid UTF-8 can yield, while the FFI hands simdjson the
+                          ; original bytes -- UTF8_ERROR.  This one test covers every such byte.
+                          ; Two 2-argument comparisons, which csc inlines: the 3-argument
+                          ; char<=? is a variadic call per character, ~22 ms per MB of body.
+                          ((and (char>=? c #\xD800) (char<=? c #\xDFFF)) #f)
                           (else (S (add1 k)))))))))
            (value
              (λ (i)

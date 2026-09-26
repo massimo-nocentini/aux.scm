@@ -468,6 +468,22 @@
             "followed by a low one; simdjson throws " (code/inline "STRING_ERROR")
             " on anything else, which was an abort until (aux simdjson) caught its exceptions.")))
 
+  ((test/anthropic/json/invalid-utf8-bytes _)
+   (let* ((bytes->string (λ bs (read-string #f (open-input-bytevector (apply bytevector bs)))))
+          (latin1 (bytes->string 123 34 97 34 58 34 #xC3 40 34 125))       ; {"a":"<C3>("}
+          (cesu (bytes->string 91 34 #xED #xA0 #x80 34 93))                 ; an encoded surrogate
+          (utf8 (bytes->string 91 34 #xC3 #xA8 34 93)))                     ; ["è"]
+     (⊦= #\xDCC3 (string-ref latin1 6))
+     (⊭ (anthropic-json/well-formed? latin1))
+     (⊭ (anthropic-json/well-formed? cesu))
+     (⊦raises (anthropic-decode-error) (anthropic-json/parse latin1))
+     (⊦= #("è") (anthropic-json/parse utf8)))
+   `(doc (p "A proxy error page in Latin-1 is not UTF-8. CHICKEN reads each invalid byte B as "
+            "the character " (code/inline "#xDC00 + B") ", which is at or above "
+            (code/inline "#\\space") " and so passed the gate, while the FFI hands simdjson "
+            "the original bytes and it throws " (code/inline "UTF8_ERROR") ". No valid UTF-8 "
+            "decodes to a surrogate, so the gate rejects the whole range.")))
+
   ((test/anthropic/json/utf8-length _)
    (⊦= 1 (anthropic-json/utf8-length "a"))
    (⊦= 6 (anthropic-json/utf8-length "caffè"))
