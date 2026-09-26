@@ -17,7 +17,12 @@ using namespace simdjson;
 // own: some 35000 nested arrays, a valid 70 kB document, would overflow the C stack and kill the
 // process with SIGSEGV.  depth counts the arrays and objects enclosing element, and one more level
 // than simdjson's DEFAULT_MAX_DEPTH, the limit of its DOM parser, raises DEPTH_ERROR.
-chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(ondemand::value element, size_t depth)
+//
+// The walk starts from the ondemand::document itself, not from the ondemand::value it converts
+// to: that conversion throws SCALAR_DOCUMENT_AS_VALUE when the root is a scalar ("5", "true",
+// "null", "\"s\""), which is valid JSON, and a document answers the same getters as a value.
+template <typename V>
+static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &element, size_t depth)
 {
   chicken_simdjson_dom_element_t *res = (chicken_simdjson_dom_element_t *)malloc(sizeof(chicken_simdjson_dom_element_t));
 
@@ -93,7 +98,8 @@ chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(ondemand::value 
         raw->copy(res->value->as_object->keys[i], key_length);
         res->value->as_object->keys[i][key_length] = '\0';
 
-        res->value->as_object->elements[i] = chicken_simdjson_visit_ondemand(field.value(), depth + 1);
+        ondemand::value field_value = field.value();
+        res->value->as_object->elements[i] = chicken_simdjson_visit_ondemand(field_value, depth + 1);
 
         i++;
       }
@@ -157,6 +163,10 @@ chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(ondemand::value 
     }
     case ondemand::json_type::null:
     {
+      // type() looks at the first character only, is_null() checks the whole literal
+      if (!element.is_null())
+        throw simdjson_error(N_ATOM_ERROR);
+
       res->type = CHICKEN_SIMDJSON_TYPE_NULL;
       break;
     }
@@ -248,6 +258,23 @@ extern chicken_simdjson_dom_element_t *chicken_simdjson_get_object_ref_value(chi
   return element->value->as_object->elements[index];
 }
 
+// Walks the whole document.  On demand parsing looks past the root value only when asked: a
+// scalar getter on the document does, but after an array or an object "[1][2]", "[1]]" or
+// "{\"a\":1} {\"b\":2}" would silently decode as their first value.  A root of unknown type (an
+// integer beyond 64 bits) was never consumed, and keeps its own error.
+static chicken_simdjson_dom_element_t *chicken_simdjson_visit_document(ondemand::document &ddoc)
+{
+  chicken_simdjson_dom_element_t *res = chicken_simdjson_visit_ondemand(ddoc, 0);
+
+  if (res->type != CHICKEN_SIMDJSON_TYPE_UNKNOWN && !ddoc.at_end())
+  {
+    chicken_simdjson_free(res);
+    throw simdjson_error(TRAILING_CONTENT);
+  }
+
+  return res;
+}
+
 extern chicken_simdjson_dom_element_t *chicken_simdjson_load_ondemand_callback(const char *filename)
 {
   try
@@ -256,7 +283,7 @@ extern chicken_simdjson_dom_element_t *chicken_simdjson_load_ondemand_callback(c
     auto json = padded_string::load(filename);
     ondemand::document ddoc = parser.iterate(json);
 
-    return chicken_simdjson_visit_ondemand(ddoc, 0);
+    return chicken_simdjson_visit_document(ddoc);
   }
   catch (const std::exception &e)
   {
@@ -272,7 +299,7 @@ extern chicken_simdjson_dom_element_t *chicken_simdjson_parse_ondemand_callback(
     simdjson::padded_string my_padded_data(data, length);
     ondemand::document ddoc = parser.iterate(my_padded_data);
 
-    return chicken_simdjson_visit_ondemand(ddoc, 0);
+    return chicken_simdjson_visit_document(ddoc);
   }
   catch (const std::exception &e)
   {

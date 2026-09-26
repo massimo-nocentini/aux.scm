@@ -426,9 +426,8 @@
    (⊭ (anthropic-json/well-formed? "{\"a\":1}trailing"))
    (⊭ (anthropic-json/well-formed? "{\"a\":01}"))
    (⊭ (anthropic-json/well-formed? (conc "{\"a\":\"" (string (integer->char 1)) "\"}")))
-   `(doc (p "A bare scalar document is rejected on purpose: simdjson's on-demand walker "
-            "refuses " (code/inline "42") " with " (code/inline "SCALAR_DOCUMENT_AS_VALUE")
-            " just as surely as it refuses a truncated object. "
+   `(doc (p "A bare scalar document is rejected on purpose: no API response is one, "
+            "although (aux simdjson) decodes " (code/inline "42") " as a number. "
             "Sniffing for a leading " (code/inline "{") " -- which the truncated fixture "
             "passes -- is not a guard.")))
 

@@ -219,6 +219,25 @@
     (⊦= #(((a 1) (b #(2 5)) (c #t)) ((c 3) (d 4))) (simdjson-parse/ondemand "[{\"a\":1,\"b\":[2,5],\"c\":true},{\"c\":3,\"d\":4}]"))
     `(doc (p "Test for simdjson-parse/ondemand, which parses a JSON string into a Scheme representation on demand.")))
 
+  ((test/simdjson/parse/scalar _)
+    (⊦= 5 (simdjson-parse/ondemand "5"))
+    (⊦= -3.5 (simdjson-parse/ondemand " -3.5 "))
+    (⊦= 18446744073709551615 (simdjson-parse/ondemand "18446744073709551615"))
+    (⊦= "s" (simdjson-parse/ondemand "\"s\""))
+    (⊦= #t (simdjson-parse/ondemand "true"))
+    (⊦= #f (simdjson-parse/ondemand "false"))
+    (⊦= (void) (simdjson-parse/ondemand "null"))
+    (⊦= "TRAILING_CONTENT" (simdjson-error-code (λ () (simdjson-parse/ondemand "5 6"))))
+    (⊦= "INCORRECT_TYPE" (simdjson-error-code (λ () (simdjson-parse/ondemand "nul"))))
+    (⊦= "INCORRECT_TYPE" (simdjson-error-code (λ () (simdjson-parse/ondemand "[nul]"))))
+    (⊦= '("TRAILING_CONTENT" "TRAILING_CONTENT" "TRAILING_CONTENT" "TRAILING_CONTENT" "TRAILING_CONTENT")
+        (map (λ (s) (simdjson-error-code (λ () (simdjson-parse/ondemand s))))
+             (list "[1][2]" "[1]]" "{}}" "{\"a\":1} {\"b\":2}" "{\"a\":{}},\"b\":1,\"c\":2}")))
+    (⊦= '(#(1) ((a 1)) 5) (map simdjson-parse/ondemand (list " [1] " "{\"a\":1}\n" "5\n")))
+    `(doc (p "A JSON text may be a bare scalar, and it decodes like the same scalar inside an array. "
+             "Literals are checked in full: " (code/inline "nul") " is an error, not " (code/inline "null") ". "
+             "Nothing but white space may follow the root value, be it a scalar, an array or an object.")))
+
   ((test/simdjson/errors _)
     (⊦= "INCOMPLETE_ARRAY_OR_OBJECT" (simdjson-error-code (λ () (simdjson-parse/ondemand "{bad json"))))
     (⊦= "INCOMPLETE_ARRAY_OR_OBJECT" (simdjson-error-code (λ () (simdjson-parse/ondemand "[1,2,{\"a\":[1,"))))
@@ -226,9 +245,9 @@
     (⊦= "IO_ERROR" (simdjson-error-code (λ () (simdjson-load/ondemand "no-such-file.json"))))
     (⊦= "TAPE_ERROR" (simdjson-error-code (λ () (simdjson-parse/ondemand "[[}],1,2,3,4,5,6,7,8]"))))
     (⊦= "TAPE_ERROR" (simdjson-error-code (λ () (simdjson-parse/ondemand "{\"\":[[}],\"\":\"\"}"))))
-    (⊦= '("TAPE_ERROR" "TAPE_ERROR" "TAPE_ERROR")
+    (⊦= '("TAPE_ERROR" "TAPE_ERROR" "TAPE_ERROR" "TAPE_ERROR" "TAPE_ERROR" "TAPE_ERROR")
         (map (λ (s) (simdjson-error-code (λ () (simdjson-parse/ondemand s))))
-             (list "[1, x, 2]" "{\"a\": x}" "[1, ], 2]")))
+             (list "x" "]" "] [1]" "[1, x, 2]" "{\"a\": x}" "[1, ], 2]")))
     (⊦= #(1 2 ((a "x"))) (simdjson-parse/ondemand "[1,2,{\"a\":\"x\"}]"))
     (let1 (nested (λ (n) (string-append (make-string n #\[) (make-string n #\]))))
       (⊦= 1 (vector-length (simdjson-parse/ondemand (nested 1024))))
@@ -239,7 +258,7 @@
     `(doc (p "A document simdjson rejects raises a Scheme error carrying simdjson's own message, "
              "instead of letting the C++ exception reach " (code/inline "std::terminate") ". "
              "A value starting with a character no JSON value starts with, as " (code/inline "x")
-             " or " (code/inline "]") " inside an array or an object, is an improper structure too. "
+             " or " (code/inline "]") ", is an improper structure too, at the root as inside a container. "
              "On a broken structure, the children simdjson counted ahead of an array or an object "
              "may be fewer than those the walk then meets; they are checked, not written past the end "
              "of the heap block, which glibc found corrupted at a later free. "

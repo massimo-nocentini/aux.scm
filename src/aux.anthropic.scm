@@ -274,8 +274,8 @@
   ;
   ; (aux simdjson) signals a malformed document as a plain Scheme error, not as an
   ; `anthropic-decode-error`.  Sniffing for a leading `{` is not enough: a truncated body starts
-  ; with `{` too, and simdjson refuses a bare scalar document such as `42` with
-  ; SCALAR_DOCUMENT_AS_VALUE.  So this is a complete validator, and nothing is parsed without it.
+  ; with `{` too, and a bare scalar document such as `42`, which (aux simdjson) decodes, is no API
+  ; response.  So this is a complete validator, and nothing is parsed without it.
 
   (define (anthropic-char/digit? c) (and (char>=? c #\0) (char<=? c #\9)))
 
