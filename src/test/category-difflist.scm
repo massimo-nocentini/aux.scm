@@ -1,4 +1,4 @@
-(import (aux unittest) (aux base) (aux category difflist) (aux category monad difflist))
+(import (aux unittest) (aux base) (aux category difflist) (aux category monad difflist) (prefix (aux category writer difflist) W:))
 
 (define-suite category-difflist-suite
 
@@ -29,6 +29,11 @@
       (⊦= '(3 2 1 4 5) (difflist->list (mappend (reverse/difflist (list->difflist '(1 2 3))) (list->difflist '(4 5)))))
       (⊦= '(4 5 3 2 1) (difflist->list (mappend (list->difflist '(4 5)) (reverse/difflist (list->difflist '(1 2 3))))))
       `(doc "Reversing a difflist reverses its own content only, not the tail it is later given."))
+
+  ((test/mlog _)
+      (⊦= '(a) (difflist->list (mlog 'a)))
+      (⊦= '(1 2) (difflist->list (W:category-writer-log (W:>>= (W:tell 1) (λ (_) (W:tell 2))))))
+      `(doc "Logging a value appends it as it is, as the list monoid does, so a writer logs the same over both."))
 )
 
 (unittest/✓ category-difflist-suite)

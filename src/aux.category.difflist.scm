@@ -27,7 +27,7 @@
   (define mempty (make-category-difflist (λ (lst) lst)))
   (define (mappend l1 l2) (make-category-difflist (o (category-difflist-f l1) (category-difflist-f l2))))
 
-  (define (mlog x) (make-category-difflist (λ (xs) (cons `(got ,x) xs))))
+  (define (mlog x) (make-category-difflist (λ (xs) (cons x xs))))
 
   (define (list->difflist l1) (make-category-difflist (λ (l2) (append l1 l2))))
   (define (difflist->list dl) ((category-difflist-f dl) '()))
