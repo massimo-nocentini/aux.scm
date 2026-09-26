@@ -31,28 +31,31 @@
                                    (cond
                                      ((procedure? t) (set-cdr! stats (add1 (cdr stats))) (t))
                                      (else (fail))))))))
+             ; Both capture the continuation `kk` of the choice once: the thunk that the pool keeps
+             ; for the remaining choices hands the next one straight to `kk`, rather than choosing
+             ; again from within `fail`, which would nest one more pending application of the
+             ; previous `kk` for every exhausted alternative and make the enumeration quadratic.
              (chooseD (lambda (choices #!optional (continue? (λ (v) #t)))
-                        (cond
-                          ((null? choices) (fail))
-                          ((promise? choices) (chooseD (force choices) continue?))
-                          ((pair? choices) (letcc kk
-                                                  (let1 (v (car choices))
-                                                        (when (continue? v) 
-                                                          (push! (τ (kk (chooseD (cdr choices) continue?))) pool))
-                                                        (push! (τ (kk v)) pool))
-                                                  (fail)))
-                          (else (fail)))))
+                        (letcc kk
+                          (let next ((choices choices))
+                            (cond
+                              ((promise? choices) (next (force choices)))
+                              ((pair? choices) (let1 (v (car choices))
+                                                 (when (continue? v) (push! (τ (next (cdr choices))) pool))
+                                                 (push! (τ (kk v)) pool)
+                                                 (fail)))
+                              (else (fail)))))))
              (chooseB (lambda (choices)
-                        (cond
-                          ((promise? choices) (letcc kk
-                                                     (append-right! (list (τ (kk (chooseB (force choices))))) pool)
-                                                     (chooseB '())))
-                          ((pair? choices) (letcc kk
-                                                  (append-right! (list (τ (kk (car choices))) 
-                                                                       (τ (kk (chooseB (cdr choices))))) 
-                                                                 pool)
-                                                  (chooseB '())))
-                          (else (fail)))))
+                        (letcc kk
+                          (let next ((choices choices))
+                            (cond
+                              ((promise? choices) (append-right! (list (τ (next (force choices)))) pool)
+                                                  (fail))
+                              ((pair? choices) (append-right! (list (τ (kk (car choices)))
+                                                                    (τ (next (cdr choices))))
+                                                              pool)
+                                               (fail))
+                              (else (fail)))))))
              (markD (τ (letgensym (flag) (push! flag pool) flag)))
              (cutD (lambda (flag)
                      (cond
