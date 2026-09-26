@@ -199,12 +199,19 @@
       (args (condition `(exn message "assert failed") 
                        `(unittest-assert-equal comparison ((got ,@args)))))))
 
+  ; tolerates a condition of the given kinds: with a body that raises nothing it is the body's value
   (define-syntax ⊦⧳
     (syntax-rules ()
       ((_ ((exn ...) ...) body ...)
        (condition-case (begin body ...)
          ((exn ...) (void)) ...
          ))))
+
+  ; requires a condition of the given kinds: it fails when body raises nothing
+  (define-syntax ⊦raises
+    (syntax-rules ()
+      ((_ (kind ...) body ...)
+       (⊦= 'raised (condition-case (begin body ... 'not-raised) ((kind ...) 'raised))))))
 
   )
 

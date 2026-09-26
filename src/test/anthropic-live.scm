@@ -24,8 +24,9 @@
   (aux unittest)
   (aux anthropic))
 
-; ⊦⧳ (aux.unittest.scm:160) is a TOLERATE form: with a body that never raises it returns the
-; body's value and the case passes.  This one requires the raise.
+; ⊦⧳ of (aux unittest) is a TOLERATE form: with a body that never raises it returns the
+; body's value and the case passes.  Like ⊦raises of (aux unittest), this one requires the
+; raise, and also checks the error's status and type.
 ;
 ; NOTE the pattern variables are `s` and `t`, NOT `status` and `type`.  syntax-rules
 ; substitutes pattern variables inside quote, so `status` would rewrite the template's

@@ -23,10 +23,6 @@
 
 ; helpers ---------------------------------------------------------------------------------------
 
-; ⊦⧳ tolerates a condition, this one requires it
-(define-syntax-rule (⊦raises (kind ...) body ...)
-  (⊦= 'raised (condition-case (begin body ... 'not-raised) ((kind ...) 'raised))))
-
 ; the value of body, or 'raised when a condition of the given kinds escapes it
 (define-syntax-rule (raised-or (kind ...) body ...)
   (condition-case (begin body ...) ((kind ...) 'raised)))

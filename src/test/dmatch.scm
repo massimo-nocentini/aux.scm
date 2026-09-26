@@ -17,7 +17,7 @@
       (⊦= 3 (match/non-overlapping #(3 2) (#(,r 2) r)))
       (⊦= '(3 2) (match/non-overlapping #(3 2) (#(,r ,s) (list r s))))
       (⊦= '(3 2 ()) (match/non-overlapping (vector->list #(3 2)) ((,r ,s . ,t) (list r s t))))
-      (⊦⧳ ((exn)) (match/non-overlapping #(3 2) ((,r 2 ,t) r)))
+      (⊦raises (exn) (match/non-overlapping #(3 2) ((,r 2 ,t) r)))
       (⊦= 3 (match/non-overlapping #(3 2) (#(,r ,e) r)))
       (⊦= 3 (match/non-overlapping (make-record-instance 'hello 3 2) (#(hello ,r ,e) r)))
   )
@@ -41,7 +41,7 @@
         ((,a . ,b) (+ a b))
         (((,a ,b ,c) ⊣ (and (number? a) (number? b) (number? c))) (+ a b c))))
 
-    (⊦⧳ ((exn)) (list (w 3 4) (apply w '(1 (3 4)))))
+    (⊦raises (exn) (list (w 3 4) (apply w '(1 (3 4)))))
     
   )
 
@@ -74,7 +74,7 @@
     (⊦ equal? 'x (dint 'x))
     (⊦ void? (dint (display 'x)))
     (⊦ equal? 'x (dint (identity 'x)))
-    (⊦⧳ ((exn)) (dint (display x))) ; error: unbound x
+    (⊦raises (exn) (dint (display x))) ; error: unbound x
     (⊦ equal? 6 (dint (let (x (+ 1 2 3)) x)))
     (⊦ equal? 1 (let1 (t (dint (τ 1))) (t)))
     (⊦ equal? 1 ((dint (λ (x) x)) 1))

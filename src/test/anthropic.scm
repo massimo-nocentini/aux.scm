@@ -6,7 +6,7 @@
 ;
 ; Two harness facts drive the shape of this file.  (aux unittest) has no skip -- so the live
 ; cases cannot live here -- and ⊦⧳ TOLERATES a condition rather than requiring one, so every
-; negative-path case uses the hand-rolled ⊦raises / ⊦raises/api below instead.
+; negative-path case uses ⊦raises of (aux unittest) or the ⊦raises/api / ⊦raises/loop below.
 
 (import
   (scheme base)                       ; open-input-string and parameterize are NOT in (chicken base)
@@ -25,17 +25,15 @@
   srfi-1
   srfi-69)                            ; hash-table-ref/default, in the tool-registry cases
 
-; the two assertions (aux unittest) does not have ------------------------------------------
+; the assertions on anthropic conditions -------------------------------------------------
 ;
-; ⊦⧳ (aux.unittest.scm:160) is a TOLERATE form: with a body that never raises it returns the
-; body's value and the case passes.  These require the raise.
+; ⊦⧳ of (aux unittest) is a TOLERATE form: with a body that never raises it returns the
+; body's value and the case passes.  Like ⊦raises of (aux unittest), these require the raise
+; and also check the condition's properties.
 ;
 ; NOTE the pattern variables are `s` and `t`, NOT `status` and `type`.  syntax-rules
 ; substitutes pattern variables inside quote, so `status` would rewrite the template's
 ; 'status into '400 and the assertion would die with "condition has no such property: 400".
-
-(define-syntax-rule (⊦raises (kind ...) body ...)
-  (⊦= 'raised (condition-case (begin body ... 'not-raised) ((kind ...) 'raised))))
 
 (define-syntax-rule (⊦raises/api (s t) body ...)
   (⊦= (list s t)

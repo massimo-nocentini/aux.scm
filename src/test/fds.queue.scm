@@ -52,8 +52,8 @@
 
   ((test-empty-car _)
    (letqueue ((q '()))
-             (⊦⧳ ((exn)) (fds-queue-car q))
-             (⊦⧳ ((exn)) (fds-queue-cdr q))))
+             (⊦raises (exn) (fds-queue-car q))
+             (⊦raises (exn) (fds-queue-cdr q))))
   )
 
 (unittest/✓ queue-suite)

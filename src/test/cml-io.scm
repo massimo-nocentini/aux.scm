@@ -26,10 +26,6 @@
 
 ; helpers ---------------------------------------------------------------------------------------
 
-; ⊦⧳ tolerates a condition, this one requires it
-(define-syntax-rule (⊦raises (kind ...) body ...)
-  (⊦= 'raised (condition-case (begin body ... 'not-raised) ((kind ...) 'raised))))
-
 ; run thunk under CML, returning (status . log) where log is what (note! x) collected, in order
 (define cml-test/log '())
 (define (note! x) (set! cml-test/log (cons x cml-test/log)))

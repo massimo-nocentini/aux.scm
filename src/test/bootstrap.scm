@@ -163,6 +163,16 @@
    (condition-case (⊦⧳ ((exn)) (signal 99))
      (() (void)))
    (⊦⧳ () 99))
+
+  ((test-should-raise tc _ _)
+   (⊦raises (exn) (car '()))
+   (⊦raises (exn-a) (signal (condition '(exn-a message "useless"))))
+   (⊦= '((expected raised) (got not-raised))
+       (condition-case (⊦raises (exn) 99)
+         (c (unittest-assert-equal) (get-condition-property c 'unittest-assert-equal 'comparison))))
+   (⊦= 'escaped
+       (condition-case (⊦raises (exn) (signal (condition '(exn-a message "useless"))))
+         ((exn-a) 'escaped))))
   )
 
 (unittest/✓ bootstrap-sut)
