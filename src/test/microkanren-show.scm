@@ -83,6 +83,13 @@
    (⊦= '(absento closure α) (μkanren-form->constraint '(assert (absent? (quote closure) α))))
    (⊦= '(absento (1 2) (1 . α)) (μkanren-form->constraint '(assert (absent? (quote (1 2)) (cons 1 α))))))
 
+  ((test/string/short _)
+   ; whitespace runs between tokens collapse, those inside strings and |symbols| are content
+   (⊦= "(\"a  b\" sym)" (->string/short (list "a  b" 'sym)))
+   (⊦= "(#\\\" \"a  b\" |x   y| \"q\\\"  \")" (->string/short (list #\" "a  b" (string->symbol "x   y") "q\"  ")))
+   (⊦= "'quote" (->string/short '(quote quote)))
+   (⊨ (and (substring-index "| 1 | `\"a  \\|  b\"` |" (μkanren-run/markdown (q 3) (=° q "a  |  b"))) #t)))
+
   ((test/occurrences _)
    (⊦= 2 (μkanren-datum-occurrences '((α z) z (α β)) 'α))
    (⊦= 1 (μkanren-datum-occurrences '((α z) z (α β)) 'β))

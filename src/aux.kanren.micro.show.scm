@@ -104,13 +104,20 @@
   (define (->string/write v) (call-with-output-string (λ (p) (write v p))))
 
   ; The datum on one line, but with the reader's abbreviations: `(quote quote)` shows up as `'quote`,
-  ; which is how a Schemer reads a term.
+  ; which is how a Schemer reads a term.  A run of whitespace between tokens becomes one space; inside
+  ; a string or a |symbol| (`in` is its closing delimiter) it is content, and is kept as is.
   (define (->string/short v)
-    (let C ((cs (string->list (->string/pretty-print v))) (space #f) (acc '()))
+    (let C ((cs (string->list (->string/pretty-print v))) (in #f) (space #f) (acc '()))
+      (define (emit . cs*) (append (reverse cs*) (if (and space (pair? acc)) (cons #\space acc) acc)))
       (cond
         ((null? cs) (list->string (reverse acc)))
-        ((char-whitespace? (car cs)) (C (cdr cs) #t acc))
-        (else (C (cdr cs) #f (cons (car cs) (if (and space (pair? acc)) (cons #\space acc) acc)))))))
+        (in (match/first cs
+              ((#\\ ,c . ,cs*) (C cs* in #f (emit #\\ c)))   ; an escape, eg. \" inside a string.
+              ((,c . ,cs*) (C cs* (and (not (char=? c in)) in) #f (emit c)))))
+        ((char-whitespace? (car cs)) (C (cdr cs) #f #t acc))
+        (else (match/first cs
+                ((#\# #\\ ,c . ,cs*) (C cs* #f #f (emit #\# #\\ c)))    ; a character, eg. #\" or #\|.
+                ((,c . ,cs*) (C cs* (and (memv c '(#\" #\|)) c) #f (emit c))))))))
 
   (define (μkanren-markdown-escape s) (string-translate* s '(("|" . "\\|") ("\n" . " "))))
   (define (μkanren-mermaid-escape s) (string-translate* s '(("&" . "#amp;") ("\"" . "#quot;") ("<" . "#lt;") (">" . "#gt;") ("\n" . " "))))
