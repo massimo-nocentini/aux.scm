@@ -55,6 +55,28 @@
    (define E/equal ((extend E₀) (cons "s" 1)))
    (⊦= 1 (E/equal (string #\s))))
 
+  ; new: the hidden tables are `equal?` ones, so a lookup under a finer `same?:` must not be
+  ; cached, in the environment itself nor in its extensions, else a miss on an `equal?` alias
+  ; hides the binding, or a hit answers for the alias.
+  ((test/extend-same?-untabled _)
+   (define s "s")
+   (define E/miss-first ((extend E₀ same?: eq?) (cons s 1)))
+   (⊨ (void? (E/miss-first (string #\s))))
+   (⊦= 1 (E/miss-first s))
+   (define E/hit-first ((extend E₀ same?: eq?) (cons s 1)))
+   (⊦= 1 (E/hit-first s))
+   (⊨ (void? (E/hit-first (string #\s))))
+   (define E/child ((extend ((extend E₀ same?: eq?) (cons s 1))) '(a . 2)))
+   (⊨ (void? (E/child (string #\s))))
+   (⊦= 1 (E/child s))
+   (⊦= 2 (E/child 'a))
+   (⊦=/alist '() (E->alist E/child))
+   ; the tabled ancestors of an untabled environment still cache, and `E->alist` shows them.
+   (define E/tabled ((extend E₀) '(b . 3)))
+   (define E/over ((extend E/tabled same?: eq?) (cons s 1)))
+   (⊦= 3 (E/over 'b))
+   (⊦=/alist '(((b) . 3)) (E->alist E/over)))
+
   )
 
 (unittest/✓ machine-env-suite)

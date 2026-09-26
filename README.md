@@ -879,7 +879,9 @@ procedure from an identifier to its value, where `(void)` means unbound.
 given associations and falls back to `E` for everything else. Every
 environment made by `extend` is tabled (see `(aux tabling)`): lookups are cached
 in a hidden hash table, and `E->alist` gathers the cached entries of the whole
-chain.
+chain. The hidden tables compare identifiers with `equal?`, so an environment
+extended with a `same?:` other than `equal?`, and every extension of it, caches
+nothing.
 
 Exported entry points include:
 
