@@ -1066,15 +1066,29 @@
               "2025-04-31T00:00:00Z" "2025-10-09T25:00:00Z" "2025-10-09T00:60:00Z"
               "2025-10-09T00:00:60Z" "1969-12-31T23:59:59Z" "2025-10-09 08:53:20Z"
               "2025-10-09T08:53:20"  "2025-10-09T08:53:20+01:00" "not a date at all!!" "")))
+   (⊦= '(#f #f #f #f #f #f #f)
+       (map iso->instant
+            '("2025x10-09T08:53:20Z" "2025-10x09T08:53:20Z" "2025-10-09T08!53:20Z"
+              "2025-10-09T08:53?20Z" "2025-+1-09T08:53:20Z" "+025-10-09T08:53:20Z"
+              "2025-10-09T08:53:2.Z")))
+   (⊦= '() (μkanren-run (t 2 #t) (iso° t "2025-+1-09T08:53:20Z")))
    (⊦= #f (iso->instant 1760000000))
    `(doc (p "What happens on malformed input, said once and for all: "
             (code/inline "#f") ", never a condition and never a neighbouring instant. The "
             "thirteen strings are one row each of the three checks the parser makes, and the "
-            "distinction between them is the interesting part. SHAPE is decided by three "
-            "constants -- length 20, " (code/inline "T") " at 10, " (code/inline "Z")
-            " at 19 -- and that is what refuses a space separator, a missing "
+            "distinction between them is the interesting part. SHAPE is decided by one "
+            "template, " (code/inline "iso-shape") " = " (code/inline "\"dddd-dd-ddTdd:dd:ddZ\"")
+            " -- an ASCII digit at every " (code/inline "d") ", that exact separator elsewhere "
+            "-- and that is what refuses a space separator, a missing "
             (code/inline "Z") ", an offset of " (code/inline "\"+01:00\"")
-            ", a truncated string and the empty one. Everything here is UTC by construction, so "
+            ", a truncated string and the empty one. The second row is the same check on the "
+            "strings that have the right LENGTH and the wrong characters: a stray separator, a "
+            "sign, a decimal point. " (code/inline "string->number") " would read "
+            (code/inline "+1") " as a month and " (code/inline "2.") " as a second, so a "
+            "parser that checked only the length, the " (code/inline "T")
+            " and the " (code/inline "Z") " turned " (code/inline "\"2025-+1-09T08:53:20Z\"")
+            " into 2025-01-09 -- a neighbouring instant, the one outcome this case forbids. "
+            "Everything here is UTC by construction, so "
             "an offset is not converted, it is rejected; that is a design decision and this line "
             "is where it is written down. RANGE refuses hour 25, minute 60 and second 60 before "
             "any calendar arithmetic runs, so a leap second has no representation.")

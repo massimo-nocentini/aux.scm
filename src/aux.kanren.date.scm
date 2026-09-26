@@ -294,11 +294,19 @@
   ;;; The round trip through `civil-from-days` is what decides that, because the
   ;;; calendar is a bijection and a tuple the forward map does not return is not
   ;;; a date.  A pre-epoch string is rejected here too.
+  ;;;
+  ;;; SHAPE comes first, character by character against `iso-shape`: an ASCII
+  ;;; digit wherever it has a `d`, that very separator everywhere else.  Only
+  ;;; then are the fields handed to `string->number`, which on its own reads a
+  ;;; sign, a point or an exponent -- "2025-+1-09T08:53:20Z" would be January.
+  (define iso-shape "dddd-dd-ddTdd:dd:ddZ")
+
   (define (iso->instant s)
     (and (string? s)
-         (= 20 (string-length s))
-         (char=? #\T (string-ref s 10))
-         (char=? #\Z (string-ref s 19))
+         (= (string-length iso-shape) (string-length s))
+         (every (lambda (k c) (if (char=? k #\d) (char<=? #\0 c #\9) (char=? k c)))
+                (string->list iso-shape)
+                (string->list s))
          (let ((f (lambda (a b) (string->number (substring s a b)))))
            (let ((y (f 0 4)) (m (f 5 7)) (d (f 8 10))
                  (hh (f 11 13)) (mi (f 14 16)) (ss (f 17 19)))
