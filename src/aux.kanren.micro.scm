@@ -175,9 +175,9 @@
         ((μkanren-var-working? v*) (μkanren-state-update v* u* s assocs))
         ((and (μkanren-structure? u*) (μkanren-structure? v*))
           (μkanren-state-unify (μkanren-structure->list u*) (μkanren-structure->list v*) s assocs))
-        ((and (pair? u*) (pair? v*))  (match/non-overlapping (μkanren-state-unify (car u*) (car v*) s assocs)
-                                        ((,s* ,assocs*) (μkanren-state-unify (cdr u*) (cdr v*) s* assocs*))
-                                        (#f #f)))
+        ; the hottest path: a unification answers `(s* assocs*)` or #f, no need for a checked match.
+        ((and (pair? u*) (pair? v*))  (let1 (r (μkanren-state-unify (car u*) (car v*) s assocs))
+                                        (and r (μkanren-state-unify (cdr u*) (cdr v*) (car r) (cadr r)))))
         (else #f))))
 
   (define (μkanren-state-find/value v s)
