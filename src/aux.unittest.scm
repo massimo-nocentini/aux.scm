@@ -55,26 +55,20 @@
                     (guarded (lambda () (call-with-values (lambda () ((car setup) testcase)) list)))
                     '())))
         (let-values (((f code) (apply values (alist-ref testcase-name methods))))
-          (let* ((no-outsrt "")
+          (let* ((v witness)
                  (eta-time 0)
-                 (pair (if (eq? args witness)
-                         witness
-                         (guarded (lambda ()
-                                    (let* ((res (void))
-                                           (outstr no-outsrt)
-                                           (errstr (with-error-output-to-string
-                                                     (lambda ()
-                                                       (set! outstr (with-output-to-string
-                                                                      (lambda () 
-                                                                        (let-values (((u s) (cpu-time)))
-                                                                          (set! res (apply f testcase args))
-                                                                          (let-values (((uu ss) (cpu-time)))
-                                                                            (set! eta-time (- (+ uu ss) (+ u s))))))))))))
-                                      (list res outstr errstr))))))
-                 (pair (if (eq? pair witness) (list witness no-outsrt no-outsrt) pair))
-                 (v (first pair))
-                 (outstr (second pair))
-                 (errstr (third pair))
+                 (outstr "")
+                 ; the guard runs inside the capture, so a failing case keeps what it printed
+                 (errstr (if (eq? args witness)
+                           ""
+                           (with-error-output-to-string
+                             (lambda ()
+                               (set! outstr (with-output-to-string
+                                              (lambda () 
+                                                (let-values (((u s) (cpu-time)))
+                                                  (set! v (guarded (lambda () (apply f testcase args))))
+                                                  (let-values (((uu ss) (cpu-time)))
+                                                    (set! eta-time (- (+ uu ss) (+ u s))))))))))))
                  (hasdoc (and (pair? v) (eq? (car v) 'doc)))
                  (torn (cond
                          ((or (not teardown) (eq? args witness)) (void))

@@ -1,6 +1,6 @@
 
 (import (aux unittest) (chicken base) (chicken pretty-print) (chicken condition)
-        (chicken file) (chicken process) (chicken process-context))
+        (chicken file) (chicken process) (chicken process-context) (only srfi-1 last))
 
 ; the exit status of a csi process running a suite whose one case asserts `assertion`
 (define (suite-exit-status assertion)
@@ -21,7 +21,11 @@
   ((teardown tc _)    (unittest/testcase-logcons! tc 'teardown))
   ((test-method tc _) (unittest/testcase-logcons! tc 'test-method))
   ((test-unbound-variable tc _) unbound-v)
-  ((test-broken tc _) (signal (unittest/condition-expected-actual 'useless '_))))
+  ((test-broken tc _) (signal (unittest/condition-expected-actual 'useless '_)))
+  ((test-printing-broken tc _)
+   (print "printed before failing")
+   (display "warned before failing" (current-error-port))
+   (⊦= 1 2)))
 
 (define-suite raising-setup-sut
   ((setup tc)         (error "setup exploded"))
@@ -102,6 +106,14 @@
   ((test-exit-status tc _ _)
    (⊦= 0 (suite-exit-status "(⊦= 1 1)"))
    (⊦= 1 (suite-exit-status "(⊦= 1 2)")))
+
+  ((test-failed-output tc _ r)
+   (lettest ((t 'test-printing-broken))
+            (let ((report (cadr (last (unittest/testcase-run t r wasrun-sut)))))
+              (⊦= '("printed before failing\n") (alist-ref 'stdout report))
+              (⊦= '("warned before failing") (alist-ref 'stderr report))
+              (⊦= '((ran 1) (failed 1 (test-printing-broken (expected 1) (got 2))))
+                  (unittest/result-summary r)))))
 
   ((test-failed-result tc _ r)
    (unittest/result-started! r)
