@@ -419,16 +419,16 @@
     (with-output-to-file (conc filename ".md") (τ (display markdown) (newline))))
 
   ; `(μkanren-run/markdown (q 10) g ...)` mirrors `μkanren-run`, answering with a Markdown report
-  ; that quotes the query itself.
+  ; that quotes the query itself, as the `μkanren-run` form (not grounded) that gives its answers.
   (define-syntax-rule (μkanren-run/markdown (v n) g ...)
-    (°->markdown (take° n (fresh° (v) g ...)) query: '(μkanren-run (v n) g ...) var: 'v))
+    (°->markdown (take° n (fresh° (v) g ...)) query: '(μkanren-run (v n #f) g ...) var: 'v))
 
   ; `headers` names the columns when the answers are ground tuples, as in a relational query.
   (define-syntax-rule (μkanren-run/markdown/table (v n) headers g ...)
-    (°->markdown (take° n (fresh° (v) g ...)) query: '(μkanren-run (v n) g ...) var: 'v headers: headers diagram: #f))
+    (°->markdown (take° n (fresh° (v) g ...)) query: '(μkanren-run (v n #f) g ...) var: 'v headers: headers diagram: #f))
 
   (define-syntax-rule (μkanren-run/markdown/profiled (v n) g ...)
-    (°->markdown (take° n (fresh° (v) g ...)) query: '(μkanren-run (v n) g ...) var: 'v profile: #t))
+    (°->markdown (take° n (fresh° (v) g ...)) query: '(μkanren-run (v n #f) g ...) var: 'v profile: #t))
 
   (define-syntax-rule (μkanren-run/display (v n) g ...) (display (μkanren-run/markdown (v n) g ...)))
 
@@ -467,11 +467,11 @@
         ,@(if (pair? profile) `((mermaid ,(μkanren-profile->mermaid profile))) '()))))
 
   (define-syntax-rule (μkanren-run/sxml (v n) g ...)
-    `((code/scheme (μkanren-run (v n) g ...))
+    `((code/scheme (μkanren-run (v n #f) g ...))
       ,@(μkanren-answers->sxml (°->answers (take° n (fresh° (v) g ...))) var: 'v)))
 
   (define-syntax-rule (μkanren-run/sxml/profiled (v n) g ...)
     (match1/first ((,answers ,prof) (°->answers/profiled (take° n (fresh° (v) g ...))))
-      `((code/scheme (μkanren-run (v n) g ...))
+      `((code/scheme (μkanren-run (v n #f) g ...))
         ,@(μkanren-answers->sxml answers var: 'v profile: prof))))
 )

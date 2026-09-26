@@ -1,6 +1,6 @@
 
 (import
-  scheme (chicken base) (chicken memory representation) (chicken sort) (chicken string)
+  scheme (chicken base) (chicken memory representation) (chicken port) (chicken sort) (chicken string)
   srfi-1
   (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux kanren micro show))
 
@@ -184,6 +184,14 @@
      (⊨ (and (substring-index "classDef query" md) #t))   ; the variables view
      (⊨ (and (substring-index "|car|" md) #t))            ; and the cells view
      (μkanren-markdown->file! md "microkanren-show")))
+
+  ((test/markdown/query _)
+   ; the quoted query is a form that gives the answers of the report
+   (let* ((md (μkanren-run/markdown (q 3) (=° q 1)))
+          (query (with-input-from-string (substring md (+ 10 (substring-index "```scheme\n" md))) read)))
+     (⊦= '(μkanren-run (q 3 #f) (=° q 1)) query)
+     (⊦= '((λ () 1)) (eval query)))
+   (⊦= '(code/scheme (μkanren-run (q 3 #f) (=° q 1))) (car (μkanren-run/sxml (q 3) (=° q 1)))))
 )
 
 (unittest/✓ microkanren-show-suite)
