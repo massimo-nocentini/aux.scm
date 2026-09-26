@@ -100,6 +100,9 @@
                                (curryfy `(cond ,@clauses))))
                           ((λ (,x) ,body) (Lambda x (curryfy body)))
                           (((λ (,x . ,ys) ,body) ⊣ (pair? ys)) (Lambda x (curryfy `(λ ,ys ,body))))
+                          ; any other `λ` form, e.g. with no formals or many bodies, is malformed
+                          ; and must not reach the application clauses below.
+                          ((λ . _) (error "match error for" sexp))
                           ((,rator ,rand) (Comb (curryfy rator) (curryfy rand)))
                           (((,rator ,rand . ,rands) ⊣ (pair? rands))
                            (Comb (curryfy (drop-right sexp 1)) (curryfy (last sexp))))
