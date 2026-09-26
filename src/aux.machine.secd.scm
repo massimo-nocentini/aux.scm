@@ -166,6 +166,15 @@
     (λ (s out)
       (format out "~a" ((status-printer 0) s))))
 
+  ; the dump discipline of every SECD transition: when the control is over, the status saved in
+  ; the dump `D` is resumed with the value on top of the stack `S` pushed onto its own stack.
+  (define pop-dump
+    (λ (S D)
+      ((dbind/status
+         (λ (_ S₁ E₁ C₁ D₁)
+           (make-status (cons (car S) S₁) E₁ C₁ D₁)))
+       D)))
+
   (define-record closure C₁ var E)
 
   (define dbind/closure
@@ -186,12 +195,7 @@
         (λ (s S E C D)
           (cond
             ((and (null? C) (void? D)) s) ; termination condition for fixed-point
-            ((null? C)
-             (let1 (extend-dump (dbind/status
-                                  (λ (_ S₁ E₁ C₁ D₁)
-                                    (let1 (S₂ (cons (car S) S₁))
-                                      (make-status S₂ E₁ C₁ D₁)))))
-               (extend-dump D)))
+            ((null? C) (pop-dump S D))
             (else (match1/first ((,C₀ . ,C₊) C)
                     (cond
                       ((is-apply? C₀) (match1/first ((,f ,y . ,S₊) S)
@@ -364,12 +368,7 @@
           (λ (s S E C D)
             (cond
               ((and (null? C) (void? D)) s) ; termination condition for fixed-point
-              ((null? C)
-               (let1 (extend-dump (dbind/status
-                                    (λ (_ S₁ E₁ C₁ D₁)
-                                      (let1 (S₂ (cons (car S) S₁))
-                                        (make-status S₂ E₁ C₁ D₁)))))
-                 (extend-dump D)))
+              ((null? C) (pop-dump S D))
               (else (match1/first ((,C₀ . ,C₊) C)
                       (cond
                         ((%Load? C₀) (let1 (S₁ (cons ((%Load-selector C₀) E₀) S))
