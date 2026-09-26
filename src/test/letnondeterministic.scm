@@ -1,5 +1,5 @@
 
-(import (only (scheme base) make-parameter parameterize) (aux unittest) (aux base) (aux nondeterministic) (aux stream) (chicken sort))
+(import (only (scheme base) make-parameter parameterize) (aux unittest) (aux base) (aux nondeterministic) (aux stream) (chicken sort) (only (chicken port) with-output-to-string with-input-from-string))
 
 (define-suite letnondeterministic-suite
 
@@ -57,6 +57,12 @@
 
   ((test/letnondeterministic/choose+fair _)
    (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3)) (letnondeterministic (? ¿ ⊦ • !) (? (append§/interleaved '((a 1) (a 2) (a 3)) '((b 1) (b 2)))))))
+
+  ((test/letnondeterministic/statistics _)
+   (define stats (with-input-from-string
+                   (with-output-to-string (τ (letnondeterministic (? ¿ ⊦ • !) (? '(1 2)))))
+                   read))
+   (⊦= '((tried 5) (accepted 2) #f) (list (assq 'tried stats) (assq 'accepted stats) (assq 'left stats))))
 
   ((test/letnondeterministic/parameterize _)
    (define q (make-parameter 'outer))

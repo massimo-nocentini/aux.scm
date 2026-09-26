@@ -17,8 +17,7 @@
              (P (make-hash-table))
              (describe (τ
                          (letcar&cdr (((accepted tried) stats))
-                                     `((left ,(length pool))
-                                       (tried ,tried)
+                                     `((tried ,tried)
                                        (accepted ,accepted)
                                        (ratio ,(exact->inexact (/ accepted tried)))
                                        (distribution ,(sort (hash-table-map P (λ (value count) 
