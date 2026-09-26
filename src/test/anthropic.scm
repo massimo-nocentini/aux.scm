@@ -276,6 +276,16 @@
     "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":64}}\n\n"
     "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
 
+; a well-formed input that holds an integer simdjson cannot type
+(define fixture/sse/big-integer-input
+  (string-append
+    "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s6\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n\n"
+    "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_06\",\"name\":\"count\",\"input\":{}}}\n\n"
+    "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"n\\\":123456789012345678901234567890}\"}}\n\n"
+    "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":12}}\n\n"
+    "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+
 (define fixture/sse/cut
   (string-append
     "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s5\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":1}}}\n\n"
@@ -466,6 +476,42 @@
             "more. The grammar alone passed " (code/inline "{\"a\":1e309}") ", so the gate "
             "decides the magnitude too, on the digits: the boundary is the midpoint between "
             "the largest double and 2^1024, which rounds up.")))
+
+  ((test/anthropic/json/integers-beyond-64-bits _)
+   (let1 (big "123456789012345678901234567890")
+     (⊭ (anthropic-json/well-formed? (string-append "{\"a\":" big "}")))
+     (⊭ (anthropic-json/well-formed? (string-append "[1" (make-string 400 #\0) "]")))
+     (⊭ (anthropic-json/well-formed? "[18446744073709551616]"))            ; 2^64
+     (⊭ (anthropic-json/well-formed? "[-9223372036854775809]"))            ; -2^63 - 1
+     (⊦raises (anthropic-decode-error) (anthropic-json/parse (string-append "{\"a\":" big "}")))
+     (⊦= #(18446744073709551615 9223372036854775808 -9223372036854775808 0)
+         (anthropic-json/parse "[18446744073709551615,9223372036854775808,-9223372036854775808,-0]"))
+     ; the callers that fall back on a body the gate refuses: an error body is left undecoded,
+     ; so its type is the default, but it still raises the API error, with its status and retry
+     (let1 (w (make-anthropic-wire 529 '() '(curl)
+                                   (open-input-string
+                                     (string-append "{\"type\":\"error\",\"error\":{\"type\":"
+                                                    "\"overloaded_error\",\"message\":\"x\"},"
+                                                    "\"n\":" big "}"))
+                                   (τ (values 0 ""))))
+       (⊦raises/api (529 "api_error") (anthropic-wire->body! w)))
+     ; an SSE frame is kept, with no data
+     (⊦= (void) (anthropic-event-data (anthropic-sse/frame "ping" (list (string-append "[" big "]")))))
+     ; and a streamed tool input holding one is recorded, not raised out of the whole turn
+     (receive (message errors)
+         (anthropic-sse->message
+           (anthropic-sse/events (open-input-string fixture/sse/big-integer-input)))
+       (⊦= '(("toolu_06" "{\"n\":123456789012345678901234567890}")) errors)
+       (⊦= "tool_use" (anthropic-json/ref message 'stop_reason))))
+   `(doc (p "An integer literal beyond 64 bits is valid JSON, but the binding refuses simdjson's "
+            (code/inline "big_integer") " with " (code/inline "BIGINT_ERROR")
+            " (it used to leave it untyped), so " (code/inline "simdjson->scheme")
+            " raised a bare error that escaped the " (code/inline "anthropic-error")
+            " taxonomy -- and leaked the parsed document. The gate refuses it now, so every "
+            "caller that falls back on what the gate refuses does so for it too: an error body "
+            "keeps its API error and its retry, a frame keeps the stream, a streamed tool input "
+            "is recorded. Should the conversion still raise, the document is freed and a decode "
+            "error re-signalled.")))
 
   ((test/anthropic/json/unpaired-surrogate-escapes _)
    (⊭ (anthropic-json/well-formed? "{\"a\":\"\\ud800\"}"))

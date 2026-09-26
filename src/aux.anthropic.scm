@@ -338,6 +338,23 @@
                                                          (string->list (substring s f e))))
                                    anthropic-json/overflow-digits)))))))))
 
+  ; An integer literal -- no fraction, no exponent -- never throws, but one beyond 64 bits,
+  ; below -2^63 or above 2^64 - 1, is simdjson's big_integer, which the binding refuses with
+  ; BIGINT_ERROR (it used to leave it untyped, and `simdjson->scheme` raised a bare "Unknown
+  ; simdjson type"): a (simdjson) error outside this module's taxonomy.  Rejecting it HERE,
+  ; and not only in `anthropic-json/parse`, keeps the gate's promise that what it passes
+  ; parses, which the callers that fall back on a body the gate refuses rely on: an API error
+  ; body keeps its status and retry, an SSE frame keeps the stream alive, a streamed tool input
+  ; is recorded as an input error rather than losing the turn.  JSON forbids leading zeros, so
+  ; digit runs of equal length compare as strings exactly as they do as numbers.  `s[m, b)` are
+  ; the digits.
+  (define (anthropic-json/integer-fits? s negative? m b)
+    (let* ((bound (if negative? "9223372036854775808" "18446744073709551615"))
+           (k (string-length bound))
+           (n (fx- b m)))
+      (or (fx< n k)
+          (and (fx= n k) (not (string<? bound (substring s m b)))))))
+
   ; simdjson's binding visits the document by C++ recursion, one frame per level: it used to
   ; SEGFAULT on deep enough input (20,000 nested arrays parsed, 40,000 killed the process) and now
   ; refuses nesting past simdjson's default of 1024 with DEPTH_ERROR, while this validator, riding
@@ -385,7 +402,9 @@
                                                         (add1 e)))
                                             e)))
                                (and j
-                                    (or (= dot j) (anthropic-json/finite? s m dot e j))
+                                    (if (fx= dot j)
+                                        (anthropic-json/integer-fits? s (fx> m i) m j)
+                                        (anthropic-json/finite? s m dot e j))
                                     j))))))))
            (text
              (λ (i)
@@ -491,8 +510,16 @@
   (define (anthropic-json/parse s)
     (unless (anthropic-json/well-formed? s)
       (anthropic-raise/decode "not a well-formed JSON object or array" s))
+    ; The gate refuses what the binding cannot type -- an integer beyond 64 bits, simdjson's
+    ; big_integer, used to pass it and make simdjson->scheme raise a bare "Unknown simdjson
+    ; type" between the parse and the free.  Should the conversion raise all the same, the dom
+    ; is freed rather than leaked and the caller sees this module's decode error.
     (let* ((dom (simdjson-parse-ondemand-callback s (anthropic-json/utf8-length s)))
-           (v (simdjson->scheme dom)))
+           (v (handle-exceptions e
+                (begin
+                  (simdjson-free dom)
+                  (anthropic-raise/decode "a value the simdjson binding cannot represent" s))
+                (simdjson->scheme dom))))
       (simdjson-free dom)
       v))
 
