@@ -102,7 +102,7 @@
       (else (append§/interleaved/2 (δ (f (car $))) (append-map§ f (cdr $))))))
 
   (define (const§ s) (rec N (cons§ s N)))
-  (define (nats§ s) (rec N (cons§ s (map§ add1 N))))
+  (define (nats§ s) (cons§ s (nats§ (add1 s)))) ; linear, whereas (rec N (cons§ s (map§ add1 N))) stacks a map§ per element
   (define ℕ (nats§ 0))
   (define (gfibs§ f m n) (rec F (cons§ m (cons§ n (zip§ f F (cdr§ F))))))
   (define (fibs§ m n) (gfibs§ + m n))
