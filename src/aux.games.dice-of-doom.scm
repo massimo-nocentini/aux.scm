@@ -18,7 +18,8 @@
 ;     lists never terminates. The key keeps the whole turn order, as the original did, so two
 ;     games with the same first player but different turn orders get different trees.
 ;     Hence it uses `hash-table-ref/store` from (aux tabling) instead of `define-tabled` (whose key
-;     is the whole argument list); `neighbors` still uses `define-tabled`;
+;     is the whole argument list); `neighbors` is tabled with `define-tabled` on `(pos size)`, as
+;     `neighbors/size`, since it reads nothing else from the board;
 ;   - `winners` uses `remove-duplicates/last` from (aux commons), that keeps the original tie order;
 ;   - `game-tree->sexp` is new: it forces the moves recursively, so a tree can be compared;
 ;   - dropped as dead code: `game`, `num-players`, `add-new-dice₀` and `rate-position/tabled`.
@@ -130,10 +131,17 @@
                      (else stream:empty))))))
         ((stream:append-map S) (list->stream (iota (board-hexnum board)))))))
 
-  (define-tabled neighbors
-    (lambda (pos board)
-      (let* ((size (board-size board))
-             (up (- pos size))
+  ; the neighbors of a cell depend only on the size of the board, so they are tabled on
+  ; `(pos size)`: keyed on the board, the table kept every board ever seen, and `equal?-hash`,
+  ; which gives up a few levels deep and so never reaches the cells inside the board record,
+  ; sent all of them to one bucket per `pos`.
+  (define neighbors
+    (λ (pos board)
+      (neighbors/size pos (board-size board))))
+
+  (define-tabled neighbors/size
+    (lambda (pos size)
+      (let* ((up (- pos size))
              (down (+ pos size))
              (divisible-by-size? (λ (v) (zero? (modulo v size))))
              (l₁ (cond
@@ -143,7 +151,7 @@
                    ((not (divisible-by-size? (add1 pos))) (list (add1 pos) (add1 down)))
                    (else '())))
              (l (append (list up down) l₁ l₂))
-             (hexnum (board-hexnum board)))
+             (hexnum (² size)))
         (list->stream
           (let F ((l l))
             (cond

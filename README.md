@@ -772,8 +772,9 @@ Exported entry points include:
 
 - `make-board`, `board-cells`, `board-size`, `board-hexnum`, `gen-board`
   (random, via `pseudo-random-integer`)
-- `game-tree`, `game-tree->sexp`, `players-rotation`, `neighbors`,
-  `board-attack`, `add-new-dice`
+- `game-tree`, `game-tree->sexp`, `players-rotation`, `neighbors` (and
+  `neighbors/size`, the same on a board size, tabled), `board-attack`,
+  `add-new-dice`
 - `winners`, `announce-winner`
 - `rate-position`, `get-ratings`, `score-board`, `threatened`,
   `limit-tree-depth`, `rate-position/αβ`
