@@ -14,6 +14,12 @@
       (else (list-tail/or-false (cdr lst) (sub1 i)))))
 
   ; Monad instance
+  ;
+  ; `return` repeats its value forever, as a one-element circular list, so that a
+  ; pure value zips with a list of any length. A do/monad whose clauses are all
+  ; pure therefore yields a circular list too: `write`, `display` and `print` never
+  ; return on it (only the csi REPL prints it, as #0=(12 . #0#)). Look at such a
+  ; value through srfi-1's `take`, or zip it with a finite list first.
   (define (return x) (list/circular x))
   (define (>>= m g)
     (match/first m
@@ -34,7 +40,7 @@
 (module (aux category monad ziplist) = ((aux category monad) (aux category ziplist)))
 
 #|
-(import  (aux category ziplist) (aux category monad ziplist))
+(import  (aux category ziplist) (aux category monad ziplist) (only srfi-1 take))
 
 (define l (do/monad
   (← x ,3)
@@ -42,7 +48,7 @@
   (← z ,5)
   ,(+ x y z)))
 
-  l
+(take l 3) ; => (12 12 12), since `l` is circular: (write l) never returns
 
 (do/monad
   (← x '(1 2 3))

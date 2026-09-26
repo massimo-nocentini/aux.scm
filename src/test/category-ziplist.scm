@@ -11,6 +11,14 @@
 
              (code/scheme/file "../aux.category.ziplist.scm")))
 
+  ((test/pure _)
+      (let ((l (do/monad (← x ,3) (← y ,4) (← z ,5) ,(+ x y z))))
+        (⊨ (eq? l (cdr l)))
+        (⊦= 12 (car l))
+        (⊦= '(12 13 14) (do/monad (← x l) (← y '(0 1 2)) ,(+ x y))))
+      `(doc "A pure value repeats forever as a one-element circular list, so " (code write) " never returns on it; "
+            "zipping it with a finite list gives a finite result."))
+
   ((test/diagonal _)
       (⊦= '((1 a) (2 b)) (do/monad (← x '(1 2 3)) (← y '(a b)) ,(list x y)))
       (⊦= '(2 1 2) (<*> (list add1 sub1 sub1) (list 1 2 3)))
