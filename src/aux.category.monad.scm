@@ -83,7 +83,7 @@
       (← x mx)
       ,(f x)))
   
-  (define (<$> f m) (<*> (M:return f) m))
+  (define <$> map/monad) ; fmap, in one bind rather than (<*> (M:return f) m)'s two
 
   (define (o/monad . f*) (λ (x) (foldr (λ (f m) (▷ m f)) (M:return x) f*))) ; Kleisli composition
   (define (◇ . f*) (apply o/monad (reverse f*))) ; Reverse Kleisli composition

@@ -95,6 +95,11 @@
       `(doc "The " (code map/monad) " function is the functor operation for the list monad, which applies a function to each value in the list.  So the above is equivalent to "
       (code "(map add1 (return/⊕ 1 2 3)).")))
 
+  ((test/<$> _)
+      (⊦= '(2 3 4) (<$> add1 (return/⊕ 1 2 3)))
+      (⊦= '() (<$> add1 '()))
+      `(doc "The " (code <$>) " function is Haskell's name for " (code map/monad) ", the functor operation, which maps over the monad with a single bind."))
+
   ((test/<*> _)
       (⊦= '(2 3 4 0 1 2) (<*> (return/⊕ add1 sub1) (return/⊕ 1 2 3)))
       `(doc "The " (code <*>) " function is the applicative functor operation.  It takes a list of functions and a list of values, and applies each function to each value, returning the combined results.  So the above is equivalent to "))
