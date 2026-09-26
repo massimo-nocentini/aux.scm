@@ -277,6 +277,10 @@
   (define %idle-poll-interval-ms 5)
 
   (define %running #f)                   ; Running.isRunning
+  ; The srfi-18 thread running run-cml.  (aux continuation delimited) reads it, and calls
+  ; make-thread-property, by name (aux.cml#%host-thread, aux.cml#make-thread-property) without
+  ; importing this module: keep both names and meanings, see AUX-CML.md, "Delimited continuations".
+  (define %host-thread #f)
   (define %run-id 0)                     ; one per run-cml session
   (define %tid-count 0)
   (define %dummy-tid #f)                 ; ML dummyTid, id -1: idle loop, temp threads, root context
@@ -2130,6 +2134,7 @@
     (set! %cleanup-lock (make-mvar (void)))
     (set! %base-k #f)
     (set! %shutdown-k #f)
+    (set! %host-thread #f)
     (%switched-in!)
     (set! %commit-hook #f))
 
@@ -2145,6 +2150,7 @@
     (set! %quantum quantum)
     (set! %ticks %quantum)
     (set! %running #t)
+    (set! %host-thread ##sys#current-thread)
     ; every thread runs within this dynamic extent, so the after thunk only runs when the session
     ; ends: normally, by an exception, or by a continuation escaping from it (then it resets)
     (dynamic-wind

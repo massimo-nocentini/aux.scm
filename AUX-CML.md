@@ -796,7 +796,9 @@ thread-death code knows which switch it interrupted ([4.3](#43-thread-death)).
 
 **State.** `%rdy-q1`, `%rdy-q2` (two-list FIFO queues, `rear` reversed as in `RepTypes.Q`),
 `%cur-tid`, `%atomic-state` (`non-atomic` | `atomic`), `%ticks` and
-`%quantum` (default 64), `%base-k`, `%shutdown-k`, `%running`, `%run-id`. ML's third state,
+`%quantum` (default 64), `%base-k`, `%shutdown-k`, `%running`, `%run-id`, `%host-thread` (the
+srfi-18 thread running `run-cml`, `#f` outside a session; no ML counterpart, see
+[Delimited continuations](#delimited-continuations) below). ML's third state,
 `signal-pending`, is set only by its SIGALRM handler; there are no signals here, so the state
 and the branches of `atomicEnd`, `atomicDispatch` and `atomicSwitchTo` that test for it are
 left out.
@@ -907,6 +909,7 @@ blocked on channels, SyncVars, mailboxes, barriers or `never-evt` do not count a
     (error "run-cml: quantum must be a positive exact integer" quantum))
   (%reset!)
   (set! %quantum quantum) (set! %ticks %quantum) (set! %running #t)
+  (set! %host-thread ##sys#current-thread)
   (dynamic-wind
     void
     (τ (handle-exceptions e
@@ -929,11 +932,30 @@ blocked on channels, SyncVars, mailboxes, barriers or `never-evt` do not count a
 
 `%reset!` increments `%run-id`, restarts tid numbering, makes a new dummy thread, empties the
 ready queues, the timeout heap and the I/O waiters, moves the pending child pids to the orphan
-list, resets the tie-break counter, the cleanup lock, the continuations, the switch state and
-the commit hook. Because a transaction records its session (`%trans-live?` checks
+list, resets the tie-break counter, the cleanup lock, the continuations, the host thread, the
+switch state and the commit hook. Because a transaction records its session (`%trans-live?` checks
 `%running`, the tid's run and that the tid is not dead), a waiter left in a channel, SyncVar
 or mailbox by an earlier session, or by a failed call outside `run-cml`, is stale and can never
 resume a dead continuation.
+
+<a id="delimited-continuations"></a>**Delimited continuations.** `(aux continuation delimited)`
+keeps the current `resetcc` of each CML thread apart, since all CML threads run within one
+srfi-18 thread and switch by call/cc, and it does so without importing or loading this module:
+it looks up two of its toplevel bindings by their qualified names, with
+`##sys#symbol-has-toplevel-binding?` and `##sys#slot`,
+
+- `aux.cml#%host-thread`, compared with `##sys#current-thread` to tell whether the running
+  srfi-18 thread is the one running `run-cml` (only there is `%cur-tid` meaningful, other
+  srfi-18 threads see it change under them), and
+- `aux.cml#make-thread-property`, called once with an `init` thunk; its `get` is then the
+  current CML thread's cell.
+
+This is a contract by name that no compiler checks: renaming, removing or changing the meaning
+of either binding (or of `make-thread-property`'s `(values clear! get peek set!)`) makes the
+lookup fail quietly, and delimited continuations fall back to one cell per srfi-18 thread,
+which lets CML threads deliver their shifts to each other's `resetcc`. `test/delimcc/cml` in
+`src/test/delimcc.scm` is the test that catches it. `%host-thread` must be set before the first
+CML thread runs and cleared by `%reset!`, which `run-cml` calls on every exit.
 
 ### 4.3 Thread death
 

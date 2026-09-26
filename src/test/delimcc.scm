@@ -1,5 +1,5 @@
 
-(import (only (scheme base) make-parameter parameterize) (only (chicken condition) handle-exceptions get-condition-property) (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
+(import (only (scheme base) make-parameter parameterize) (only srfi-18 make-thread thread-start! thread-join! thread-sleep! thread-yield!) (only (chicken condition) handle-exceptions get-condition-property) (only (chicken gc) gc set-finalizer!) (only (aux cml) run-cml spawn sync join-evt cml/yield cml/exit) (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
 
 (define www-expected '((0 6 2 6 2)
            (0 6 2 6 4)
@@ -2544,6 +2544,58 @@
   ((test/delimcc/tutorial/λ _)
    (define-resetcc p (append '(hello) (λ-shift (x) (list x)) '(world)))
    (⊦= '(hello 4 world) (p 4)))
+
+  ((test/delimcc/threads _)
+   (define a (make-thread (τ (resetcc (thread-sleep! 0.05) (letcc/shift k 'a-shifted)))))
+   (define b (make-thread (τ (resetcc (thread-sleep! 0.2) 'b-normal))))
+   (thread-start! a)
+   (thread-sleep! 0.01)
+   (thread-start! b)
+   (⊦= 'a-shifted (thread-join! a))
+   (⊦= 'b-normal (thread-join! b))
+   (⊦= '(parent child-shifted)
+       (resetcc (list 'parent (thread-join! (thread-start! (make-thread (τ (letcc/shift k 'child-shifted))))))))
+   (define g #f)
+   (thread-join! (thread-start! (make-thread (τ (set! g (resetcc (list 'a (letcc/shift k k))))))))
+   (⊦= '(a 1) (g 1))
+   (⊦= '(a 2) (thread-join! (thread-start! (make-thread (τ (g 2))))))
+   `(doc (p "Each srfi-18 thread has its own meta-continuation: a thread shifting while another one sits in its "
+            (code/inline "resetcc") " does not return to it, and a thread started inside a "
+            (code/inline "resetcc") " body is not inside it.  A shift continuation captured in a thread"
+            " returns to the " (code/inline "resetcc") " of the thread that resumes it.")))
+
+  ((test/delimcc/cml _)
+   (define ra #f)
+   (define rb #f)
+   (run-cml (τ (let ((a (spawn (τ (set! ra (resetcc (cml/yield) (cml/yield) (letcc/shift k 'a-shifted))))))
+                     (b (spawn (τ (set! rb (resetcc (cml/yield) (cml/yield) (cml/yield) (cml/yield) 'b-normal))))))
+                 (sync (join-evt a))
+                 (sync (join-evt b)))))
+   (⊦= 'a-shifted ra)
+   (⊦= 'b-normal rb)
+   (define results '())
+   (define worker (make-thread (τ (do ((i 0 (add1 i))) ((= i 50))
+                                    (push! (resetcc (thread-yield!) (letcc/shift k 'shifted)) results)))))
+   (thread-start! worker)
+   (run-cml (τ (for-each (λ (t) (sync (join-evt t)))
+                         (map (λ (n) (spawn (τ (do ((i 0 (add1 i))) ((= i 200)) (thread-yield!) (cml/yield)))))
+                              '(1 2)))))
+   (thread-join! worker)
+   (⊦= 50 (length results))
+   (⊦= results (map (λ (r) 'shifted) results))
+   (define freed 0)
+   (define (dying i)
+     (let1 (v (make-vector 10 i))
+       (set-finalizer! v (λ (v) (set! freed (add1 freed))))
+       (list (resetcc (cml/yield) (if (even? i) (cml/exit) (error "dying inside a resetcc"))) v)))
+   (run-cml (τ (do ((i 0 (add1 i))) ((= i 100)) (sync (join-evt (spawn (τ (dying i))))))
+               (gc #t)))
+   (gc #t)
+   (⊨ (<= 90 freed))
+   `(doc (p "Each thread of " (code/inline "(aux cml)") ", although all of them run within one srfi-18 thread,"
+            " has its own meta-continuation too, and another srfi-18 thread, running no CML while"
+            " CML threads switch in the first one, keeps one for all its resets; the one of a CML thread"
+            " goes with the thread, also when it dies inside a resetcc.")))
 
   ((test/delimcc/dynamic-wind _)
    (define q (make-parameter 'outer))

@@ -2,6 +2,7 @@
 (module (aux continuation delimited) *
 
   (import scheme
+          (only (scheme base) make-parameter)
           (chicken base)
           srfi-1
           (aux base)
@@ -28,21 +29,55 @@
   (define-record delimcc-frame escape parent winds)
   (define delimcc-root-frame (make-delimcc-frame delimcc-missing-reset #f #f))
 
-  ; The frame of the innermost resetcc.
-  (define *meta-continuation* delimcc-root-frame)
+  ; The current frame is kept in the cdr of a cell, one per srfi-18 thread, so that a thread never
+  ; delivers its shifts to another thread's resetcc, and, in the srfi-18 thread that runs (aux cml),
+  ; one per CML thread: CML runs all its threads within that srfi-18 thread, switching among them
+  ; by call/cc.  The cell of a srfi-18 thread is kept in a parameter, whose value CHICKEN keeps per
+  ; srfi-18 thread, with the thread owning it in its car: a new thread starts with a copy of its
+  ; creator's parameters, not inside the creator's resetcc.  The cell of a CML thread is a thread
+  ; property of (aux cml), so that it goes with the thread when the thread dies (in a resetcc or
+  ; not) and with the session; its `get` is made at the first use, by name, so that this module
+  ; does not load (aux cml), and it is used only in the srfi-18 thread that runs `run-cml`, which
+  ; (aux cml) keeps in `%host-thread`: the current CML thread is one global, which other srfi-18
+  ; threads see change under them.  AUX-CML.md ("Delimited continuations") records these two
+  ; names that this module reads; test/delimcc/cml fails if they stop resolving.  The
+  ; frame is only ever mutated, never parameterized nor kept by a `dynamic-wind`: a continuation
+  ; captured by `letcc` inside a resetcc may be resumed from within a later resumption of one of
+  ; its shift continuations, and then it must still return to the resetcc of that resumption.
+  (define delimcc-meta-continuation-thread-cell (make-parameter #f))
+  (define delimcc-meta-continuation-cml-cell #f)
+
+  (define (delimcc-meta-continuation-cell)
+    (let1 (host 'aux.cml#%host-thread)
+      (cond
+        ((and (##sys#symbol-has-toplevel-binding? host) (eq? (##sys#slot host 0) ##sys#current-thread))
+         (unless delimcc-meta-continuation-cml-cell
+           (receive (clear! get peek put!) ((##sys#slot 'aux.cml#make-thread-property 0) (τ (cons 'cml delimcc-root-frame)))
+             (set! delimcc-meta-continuation-cml-cell get)))
+         (delimcc-meta-continuation-cml-cell))
+        (else (let1 (cell (delimcc-meta-continuation-thread-cell))
+                (if (and cell (eq? (car cell) ##sys#current-thread))
+                  cell
+                  (let1 (cell (cons ##sys#current-thread delimcc-root-frame))
+                    (delimcc-meta-continuation-thread-cell cell)
+                    cell)))))))
+
+  (define (delimcc-current-frame) (cdr (delimcc-meta-continuation-cell)))
 
   ; Give the values of a resetcc body to the resetcc current now, which is not the lexically
-  ; enclosing one when the body is part of a resumed shift continuation.
-  (define (delimcc-return args) (apply (delimcc-frame-escape *meta-continuation*) args))
+  ; enclosing one when the body is part of a resumed shift continuation (in this thread or in
+  ; another one).
+  (define (delimcc-return args) (apply (delimcc-frame-escape (delimcc-current-frame)) args))
 
   (define (delimcc-reset thunk)
-    (letcc k
-      (let* ((parent *meta-continuation*)
-             (frame (make-delimcc-frame (λ args (set! *meta-continuation* parent) (apply k args))
-                                        parent
-                                        ##sys#dynamic-winds)))
-        (set! *meta-continuation* frame)
-        (receive args (thunk) (delimcc-return args)))))
+    (let1 (cell (delimcc-meta-continuation-cell))
+      (letcc k
+        (let* ((parent (cdr cell))
+               (frame (make-delimcc-frame (λ args (set-cdr! cell parent) (apply k args))
+                                          parent
+                                          ##sys#dynamic-winds)))
+          (set-cdr! cell frame)
+          (receive args (thunk) (delimcc-return args))))))
 
   ; The `dynamic-wind` frames of the current winds above `base`, outermost first, leaving them
   ; after thunk by after thunk, innermost first; and entering them again on top of the current
@@ -91,14 +126,16 @@
   ; left, for the rest of the resumed code, and its later shifts capture their whole context.
   ; Values still go to the resetcc of the resume.
   (define (delimcc-shift f)
-    (let1 (base (delimcc-frame-winds *meta-continuation*))
-      (if (delimcc-within? base)
-        (##sys#call-with-current-continuation
-          (λ (c)
-            (let1 (segment (delimcc-unwind! base))
-              (receive vs (f (λ args (resetcc (delimcc-rewind! segment) (apply c args)))) (delimcc-return vs)))))
-        (letcc k
-          (receive vs (f (λ args (resetcc (apply k args)))) (delimcc-return vs))))))
+    (let1 (cell (delimcc-meta-continuation-cell))
+      (define (return vs) (apply (delimcc-frame-escape (cdr cell)) vs))
+      (let1 (base (delimcc-frame-winds (cdr cell)))
+        (if (delimcc-within? base)
+          (##sys#call-with-current-continuation
+            (λ (c)
+              (let1 (segment (delimcc-unwind! base))
+                (receive vs (f (λ args (resetcc (delimcc-rewind! segment) (apply c args)))) (return vs)))))
+          (letcc k
+            (receive vs (f (λ args (resetcc (apply k args)))) (return vs)))))))
 
   (define (delimcc-extract) (letcc/shift k k))
   (define (delimcc-discard . args) (letcc/shift _ (apply values args)))
