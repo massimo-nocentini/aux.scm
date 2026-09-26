@@ -338,6 +338,13 @@
                                                          (string->list (substring s f e))))
                                    anthropic-json/overflow-digits)))))))))
 
+  ; simdjson's binding visits the document by C++ recursion, one frame per level: it used to
+  ; SEGFAULT on deep enough input (20,000 nested arrays parsed, 40,000 killed the process) and now
+  ; refuses nesting past simdjson's default of 1024 with DEPTH_ERROR, while this validator, riding
+  ; CHICKEN's stack, would pass a million.  So nesting is bounded here, below simdjson's 1024, and
+  ; too deep a body is an anthropic-decode-error like any other; no API body comes anywhere near it.
+  (define anthropic-json/max-depth 512)
+
   (define (anthropic-json/well-formed? s)
     (and
       (string? s)
@@ -409,26 +416,28 @@
                           ; char<=? is a variadic call per character, ~22 ms per MB of body.
                           ((and (char>=? c #\xD800) (char<=? c #\xDFFF)) #f)
                           (else (S (add1 k)))))))))
+           ; `d` counts the containers enclosing position i
            (value
-             (λ (i)
+             (λ (i d)
                (let1 (i (skip i))
                  (let1 (c (at i))
                    (cond
                      ((not c) #f)
-                     ((char=? c #\{) (object (add1 i)))
-                     ((char=? c #\[) (array (add1 i)))
+                     ((and (memv c (list #\{ #\[)) (>= d anthropic-json/max-depth)) #f)
+                     ((char=? c #\{) (object (add1 i) (add1 d)))
+                     ((char=? c #\[) (array (add1 i) (add1 d)))
                      ((char=? c #\") (text i))
                      ((char=? c #\t) (word i "true"))
                      ((char=? c #\f) (word i "false"))
                      ((char=? c #\n) (word i "null"))
                      (else (number i)))))))
            (array
-             (λ (i)
+             (λ (i d)
                (let1 (i (skip i))
                  (if (eqv? #\] (at i))
                      (add1 i)
                      (let A ((i i))
-                       (let1 (j (value i))
+                       (let1 (j (value i d))
                          (and j
                               (let1 (j (skip j))
                                 (cond
@@ -436,7 +445,7 @@
                                   ((eqv? #\] (at j)) (add1 j))
                                   (else #f))))))))))
            (object
-             (λ (i)
+             (λ (i d)
                (let1 (i (skip i))
                  (if (eqv? #\} (at i))
                      (add1 i)
@@ -445,7 +454,7 @@
                          (and k
                               (let1 (k (skip k))
                                 (and (eqv? #\: (at k))
-                                     (let1 (v (value (add1 k)))
+                                     (let1 (v (value (add1 k) d))
                                        (and v
                                             (let1 (v (skip v))
                                               (cond
@@ -454,7 +463,7 @@
                                                 (else #f)))))))))))))))
           (let1 (i (skip 0))
             (and (memv (at i) (list #\{ #\[))
-                 (let1 (j (value i))
+                 (let1 (j (value i 0))
                    (and j (= n (skip j))))))))))
 
   ; parsing ---------------------------------------------------------------------------------

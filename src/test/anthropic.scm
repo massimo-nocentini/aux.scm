@@ -485,6 +485,20 @@
             "the original bytes and it throws " (code/inline "UTF8_ERROR") ". No valid UTF-8 "
             "decodes to a surrogate, so the gate rejects the whole range.")))
 
+  ((test/anthropic/json/nesting-depth _)
+   (let* ((arrays (λ (n) (string-append (make-string n #\[) "0" (make-string n #\]))))
+          (objects (λ (n) (let L ((k n) (acc "0"))
+                            (if (zero? k) acc (L (sub1 k) (string-append "{\"a\":" acc "}")))))))
+     (⊨ (anthropic-json/well-formed? (arrays anthropic-json/max-depth)))
+     (⊨ (anthropic-json/well-formed? (objects anthropic-json/max-depth)))
+     (⊭ (anthropic-json/well-formed? (arrays (add1 anthropic-json/max-depth))))
+     (⊭ (anthropic-json/well-formed? (objects (add1 anthropic-json/max-depth))))
+     (⊦raises (anthropic-decode-error) (anthropic-json/parse (arrays 40000))))
+   `(doc (p "simdjson's binding recurses in C++ once per nesting level and segfaulted on deep "
+            "enough input -- 40,000 nested arrays, about 80 KB -- which the gate used to pass; "
+            "it now refuses nesting past 1024 on its own. "
+            "Nesting is now bounded at " (code/inline "anthropic-json/max-depth") ".")))
+
   ((test/anthropic/json/utf8-length _)
    (⊦= 1 (anthropic-json/utf8-length "a"))
    (⊦= 6 (anthropic-json/utf8-length "caffè"))
