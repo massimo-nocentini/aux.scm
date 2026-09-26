@@ -1943,7 +1943,10 @@
     (unless (equal? "user" (anthropic-message-role (last messages)))
       (anthropic-raise/config "the initial transcript must end with a user message"
                               (last messages)))
-    (let1 (table (anthropic-tools->table tools))
+    ; a VECTOR of tools, which anthropic/messages accepts, is normalized once, here: the table
+    ; walks a list, and the `pair?` test below would otherwise drop the tools from the request
+    (let* ((tools (if (vector? tools) (vector->list tools) tools))
+           (table (anthropic-tools->table tools)))
       (let L ((transcript messages) (request 1) (pauses 0))
         (when (> request max-iterations)
           ; #f, not an alist: this fires BEFORE the request, so there is no response to carry.

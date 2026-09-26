@@ -1884,6 +1884,21 @@
             "(the text block is not dropped), and " (code/inline "tools")
             " is repeated on the follow-up request -- omitting it there is a 400.")))
 
+  ((test/anthropic/loop/a-vector-of-tools _)
+   (letstub (stub (anthropic-stub/canned fixture/response/tool-use)
+                  (anthropic-stub/canned fixture/response/text))
+     (receive (r transcript)
+         (anthropic/converse (list (anthropic-message/user "weather in Paris?"))
+                             tools: (vector get_weather/tool))
+       (⊦= "Paris." (anthropic-response/text r))
+       (⊦= '(#t #t) (map (λ (body) (anthropic-json/has? body 'tools))
+                         (anthropic-stub/requests stub)))
+       (⊦= #(((type "tool_result") (tool_use_id "toolu_01") (content "22 celsius in Paris")))
+           (anthropic-message-content (caddr transcript)))))
+   `(doc (p (code/inline "anthropic/messages") " accepts " (code/inline "tools:")
+            " as a vector; the loop died on one with a bare \"not a list\", and would then "
+            "have sent its requests with no tools at all.")))
+
   ((test/anthropic/loop/parallel-tools-in-one-user-message _)
    (letstub (stub (anthropic-stub/canned fixture/response/parallel-tool-use)
                   (anthropic-stub/canned fixture/response/text))
