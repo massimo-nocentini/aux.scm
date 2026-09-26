@@ -1,5 +1,10 @@
 
-(import (aux unittest) (aux base) (aux fds queue))
+(import (aux unittest) (aux base) (aux fds queue) (chicken condition))
+
+; the message of the error raised by thunk, or 'not-raised: like ⊦raises it requires a condition, and it also exposes the message
+(define (error-message thunk)
+  (condition-case (begin (thunk) 'not-raised)
+    (e (exn) ((condition-property-accessor 'exn 'message) e))))
 
 (define-suite queue-suite
 
@@ -52,8 +57,9 @@
 
   ((test-empty-car _)
    (letqueue ((q '()))
-             (⊦raises (exn) (fds-queue-car q))
-             (⊦raises (exn) (fds-queue-cdr q))))
+             (⊦= "fds-queue-car: empty queue" (error-message (λ () (fds-queue-car q))))
+             (⊦= "fds-queue-cdr: empty queue" (error-message (λ () (fds-queue-cdr q))))
+             (⊦= "fds-queue-car: empty queue" (error-message (λ () (fds-queue-car (fds-queue-cdr (fds-queue-cons 'a q))))))))
   )
 
 (unittest/✓ queue-suite)

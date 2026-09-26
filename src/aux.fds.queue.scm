@@ -9,7 +9,10 @@
 
   (define (fds-queue-empty? q) (null? (cadr q)))
 
-  (define (fds-queue-car q) (caadr q))
+  (define (fds-queue-car q)
+    (cond
+      ((fds-queue-empty? q) (error "fds-queue-car: empty queue"))
+      (else (caadr q))))
 
   (define (fds-queue-check size front rear)
     (cons size (cond
@@ -26,7 +29,9 @@
 
   (define (fds-queue-cdr q)
     (letqueuefront&rear (((size front rear) q))
-                        (fds-queue-check (sub1 size) (cdr front) rear)))
+                        (cond
+                          ((null? front) (error "fds-queue-cdr: empty queue"))
+                          (else (fds-queue-check (sub1 size) (cdr front) rear)))))
 
   (define (fds-queue-cons x q)
     (letqueuefront&rear (((size front rear) q))
