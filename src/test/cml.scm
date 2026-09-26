@@ -222,6 +222,26 @@
                                                    (λ (e) 'handled))))
                         (cml/shutdown))))))
 
+  ((test/guard/not-an-event _)
+   ; a guard or with-nack body that returns no event raises the same condition wrapped or not, and
+   ; the combinators check their events (all of these used to be a record type error, but the
+   ; first one)
+   (define (message thunk) (condition-case (begin (thunk) 'not-raised) (e (exn) (get-condition-property e 'exn 'message))))
+   (⊦= '("cml: guard did not return an event" "cml: guard did not return an event"
+         "cml: guard did not return an event" "cml: with-nack did not return an event"
+         "cml: with-nack did not return an event"
+         "not an event" "not an event" "not an event" "not an event")
+       (run/value (τ (map message
+                          (list (τ (sync (guard (τ 42))))
+                                (τ (sync (wrap (guard (τ 42)) add1)))
+                                (τ (sync (wrap-handler (guard (τ 42)) (λ (e) 'handled))))
+                                (τ (sync (with-nack (λ (n) 42))))
+                                (τ (select (wrap (with-nack (λ (n) 42)) add1) never-evt))
+                                (τ (choose 42 (always-evt 1)))
+                                (τ (select (always-evt 1) 42))
+                                (τ (wrap 42 add1))
+                                (τ (wrap-handler 42 void))))))))
+
   ((test/wrap-handler/nesting _)
    (define (boom x) (error "boom"))
    (⊦= '(inner outer 1 raised (msg "boom"))

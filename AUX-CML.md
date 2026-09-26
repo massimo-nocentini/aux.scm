@@ -61,7 +61,7 @@ everything it defines (`(module (aux cml) * ...)`). The file has three parts:
 
 Each part starts with a `;;` header comment that holds its design notes and its deviations from
 ML. The test suites are `src/test/cml.scm`, `src/test/cml-lib.scm` and `src/test/cml-io.scm`
-(212 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
+(213 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
 `src/aux.egg` as `(extension aux.cml)` and the suites run with `make test-cml` in `src/`.
 
 The port targets CHICKEN **6** (it was developed against 6.0.1pre1, binary version 12). It
@@ -1836,11 +1836,11 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 
 ### 7.3 Inventory
 
-212 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
+213 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
 
 | File | Suite | Cases | What it covers |
 |---|---|---|---|
-| `cml.scm` | `cml-events-suite` | 36 | version, run status, not-running, bad `run-cml` arguments, escaping `run-cml`, internal names, rendezvous both ways and as events, polls and their ticks, `choose` flattening, `select/case`, guards per sync, `wrap-handler` nesting and scoping, `with-nack` (losers only, blocked, nested, forcing raising/escaping/re-entered, killed forcing thread, set when `sync` returns, preempted handler, raising poll), continuable conditions, wrap loops that do not nest, priorities (prio 0, reset, tie-break) |
+| `cml.scm` | `cml-events-suite` | 37 | version, run status, not-running, bad `run-cml` arguments, escaping `run-cml`, internal names, rendezvous both ways and as events, polls and their ticks, `choose` flattening, `select/case`, guards per sync, guard and `with-nack` bodies returning no event (wrapped too) and non-event arguments, `wrap-handler` nesting and scoping, `with-nack` (losers only, blocked, nested, forcing raising/escaping/re-entered, killed forcing thread, set when `sync` returns, preempted handler, raising poll), continuable conditions, wrap loops that do not nest, priorities (prio 0, reset, tie-break) |
 | | `cml-threads-suite` | 27 | tids, independent runs, child first, non-procedure spawn, `join-evt` (all deaths, FIFO), exception handlers, every `dynamic-wind` death case of [4.3](#43-thread-death), mailbox redelivery only for switch-in deaths, yield, thread properties and flags, fairness (producers, preemption, yield promotion, no phase-lock, channel ping-pong ticks) |
 | | `cml-time-suite` | 10 | timeout order, duration, zero and past deadlines, LIFO ties, `sync/timeout` (and 0 as a poll), a yield loop cannot starve timeouts, many sleepers (ratio), losing timeouts dropped, cancelled waits not woken |
 | | `cml-syncvar-suite` | 10 | ivar and mvar semantics, predicates, kind checks, condition predicates, relay chains, losing waiters dropped, many waiters in linear time, many deaths in linear time, `Result` |

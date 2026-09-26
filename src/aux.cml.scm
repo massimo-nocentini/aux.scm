@@ -617,24 +617,30 @@
   ; CML.withNack: f receives the nack event
   (define (with-nack f) (make-%event 'nack f))
 
-  (define (%map-event evt fpoll)
-    (let recur ((evt evt))
+  ; the arguments of the combinators, and the events that guard thunks and with-nack bodies
+  ; return, are checked before their tag or payload is read, which would raise a record type error
+  (define (%check-event who x) (unless (event? x) (error who "not an event" x)) x)
+  (define (%guard-result e) (if (event? e) e (error "cml: guard did not return an event" e)))
+  (define (%nack-result e) (if (event? e) e (error "cml: with-nack did not return an event" e)))
+
+  (define (%map-event who evt fpoll)
+    (let recur ((evt (%check-event who evt)))
       (let1 (p (%event-payload evt))
         (case (%event-tag evt)
           ((base) (make-%event 'base (map fpoll p)))
           ((choose) (make-%event 'choose (map recur p)))
-          ((guard) (make-%event 'guard (τ (recur (p)))))
-          ((nack) (make-%event 'nack (λ (n) (recur (p n)))))
+          ((guard) (make-%event 'guard (τ (recur (%guard-result (p))))))
+          ((nack) (make-%event 'nack (λ (n) (recur (%nack-result (p n))))))
           (else (%impossible 'map-event))))))
 
   ; CML.wrap: f runs after the commit, outside the atomic region
   (define (wrap evt f)
-    (%map-event evt (λ (poll)
-                      (τ (let1 (s (poll))
-                           (if (%enabled? s)
-                             (let1 (d (%enabled-do s)) (make-%enabled (%enabled-prio s) (τ (f (d)))))
-                             (let1 (p (%blocked-post s))
-                               (make-%blocked* (%blocked-block s) (λ (th) (f (p th)))))))))))
+    (%map-event 'wrap evt (λ (poll)
+                            (τ (let1 (s (poll))
+                                 (if (%enabled? s)
+                                   (let1 (d (%enabled-do s)) (make-%enabled (%enabled-prio s) (τ (f (d)))))
+                                   (let1 (p (%blocked-post s))
+                                     (make-%blocked* (%blocked-block s) (λ (th) (f (p th)))))))))))
 
   ; CML.wrapHandler: h takes the condition and returns the event's value (event-sig.sml, not mldoc);
   ; h also covers the wrap functions inside it, which therefore do not run in tail position: a loop
@@ -644,12 +650,12 @@
   ; time over n iterations (ML's handlers cost nothing at a switch): recurse outside the wrap-handler
   (define (wrap-handler evt h)
     (define (protect thunk) (condition-case (thunk) (e () (h e))))
-    (%map-event evt (λ (poll)
-                      (τ (let1 (s (poll))
-                           (if (%enabled? s)
-                             (let1 (d (%enabled-do s)) (make-%enabled (%enabled-prio s) (τ (protect d))))
-                             (let1 (p (%blocked-post s))
-                               (make-%blocked* (%blocked-block s) (λ (th) (protect (τ (p th))))))))))))
+    (%map-event 'wrap-handler evt (λ (poll)
+                                    (τ (let1 (s (poll))
+                                         (if (%enabled? s)
+                                           (let1 (d (%enabled-do s)) (make-%enabled (%enabled-prio s) (τ (protect d))))
+                                           (let1 (p (%blocked-post s))
+                                             (make-%blocked* (%blocked-block s) (λ (th) (protect (τ (p th))))))))))))
 
   ; CML.choose (gatherBEvts / gather)
   (define (choose* evts)
@@ -662,6 +668,7 @@
           (gather (cdr el) (cons (make-%event 'base (append (%event-payload (car el)) (%event-payload (car evts))))
                                  (cdr evts))))
         (else (gather (cdr el) (cons (car el) evts)))))
+    (for-each (λ (e) (%check-event 'choose e)) evts)
     (let gather-b ((el (reverse evts)) (l '()))
       (cond
         ((null? el) (make-%event 'base l))
@@ -678,12 +685,10 @@
   (define (%force* evt nacks)
     (let1 (p (%event-payload evt))
       (case (%event-tag evt)
-        ((guard) (let1 (e (p)) (unless (event? e) (error "cml: guard did not return an event" e)) (%force* e nacks)))
+        ((guard) (%force* (%guard-result (p)) nacks))
         ((nack) (let1 (cv (%new-cvar))
                   (set-cdr! nacks (cons cv (cdr nacks)))
-                  (let1 (e (p (%cvar-get-evt cv)))
-                    (unless (event? e) (error "cml: with-nack did not return an event" e))
-                    (list 'nack cv (%force* e nacks)))))
+                  (list 'nack cv (%force* (%nack-result (p (%cvar-get-evt cv))) nacks))))
         ((base) (cons 'base p))
         ((choose) (%force-bl p '() nacks))
         (else (%impossible 'force)))))
@@ -917,6 +922,7 @@
   ; CML.select, taking a list
   (define (select* evts)
     (%check-running 'select)
+    (for-each (λ (e) (%check-event 'select e)) evts)
     (%sync-group (%force-group (λ (nacks) (%force-bl evts '() nacks)))))
 
   ; CML.select
