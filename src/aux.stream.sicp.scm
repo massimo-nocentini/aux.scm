@@ -8,6 +8,8 @@
 ;     combinators may yield a promise of a promise, like `map§` or `take§`) can be consumed too;
 ;   - `car+cdr` (srfi-1) is replaced by `letcar&cdr` from (aux base);
 ;   - `stream:0s` is added (the original tests referenced it without a definition).
+;   - `stream:scan` folds left in stream order with an accumulator, (op (op a₀ a₁) a₂), whereas the
+;     original applied `op` to each reversed prefix, (op a₂ a₁ a₀), in quadratic time.
 ;   - since `stream:empty` is '(), the tree-recursive `stream:map` (`*: #t`) treats a '() element as
 ;     a nested empty stream (as the original did for its promise `stream:empty`), hence a '() datum
 ;     is no longer passed to `func` as a leaf in that mode.
@@ -20,7 +22,7 @@
           (aux base)
           (only (aux stream) cons§)
           (only srfi-1 any every)
-          (only (aux commons) ○ fmap fapply collect-values identity* within?))
+          (only (aux commons) ○ fmap collect-values identity* within?))
 
   (define stream:force*
     (λ (s)
@@ -211,9 +213,15 @@
   (define stream:prefixes
     (○ (stream:map (fmap stream:car)) stream:tails))
 
-  (define stream:scan
+  (define stream:scan ; left scan: a₀, (op a₀ a₁), (op (op a₀ a₁) a₂), ...
     (λ (op)
-       (○ (stream:map (fapply op)) stream:prefixes)))
+       (letrec ((S (λ§ (acc s)
+                       (stream:dest/car+cdr (s ∅)
+                                            ((a d) (let ((acc (op acc a)))
+                                                     (stream:cons acc (S acc d))))))))
+         (λ§ (s)
+             (stream:dest/car+cdr (s ∅)
+                                  ((a d) (stream:cons a (S a d))))))))
 
   (define list->
     (λ (tail)

@@ -628,7 +628,9 @@ Exported entry points include:
   `stream:zip-with` stop at the end of the shortest stream, unless
   `stream:zip-with` is given a `pad:` value: then an exhausted stream reads as
   that value and zipping stops only when every stream has ended
-- `stream:tails`, `stream:prefixes`, `stream:scan`, `stream:tableau`
+- `stream:tails`, `stream:prefixes`, `stream:scan`, `stream:tableau`;
+  `stream:scan` is a left scan in stream order, `a₀`, `(op a₀ a₁)`,
+  `(op (op a₀ a₁) a₂)`, ..., so it also suits non-commutative operators
 - `stream:enumerate-upper`, `stream:enumerate-lower`, `stream:enumerate-all`,
   `stream:enumerate-weighted`
 - `stream:§₂`, `stream:§` (fair interleaving, monadic `mplus`), `stream:>>=`
@@ -648,6 +650,9 @@ Example:
 
 ((list○take 6) ((stream:scan +) nats))
 ;; => (0 1 3 6 10 15)
+
+((list○take 4) ((stream:scan -) (list->stream '(100 1 2 3))))
+;; => (100 99 97 94)
 
 ((list○take 6) (stream:§ (stream:repeat 'a) (list->stream '(1 2 3))))
 ;; => (a 1 a 2 a 3)

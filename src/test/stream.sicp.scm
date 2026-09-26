@@ -333,7 +333,11 @@
    (⊦≡
      ((list○take 10) numbers/fibs/+scan)
      ((list○take 10) ((stream:zip-with -) (stream:cddr numbers/fibs/∞) stream:1s)))
-   (⊦≡ '(1 1 2 6 30 240 3120 65520 2227680 122522400) ((list○take 10) numbers/fibs/∙scan)))
+   (⊦≡ '(1 1 2 6 30 240 3120 65520 2227680 122522400) ((list○take 10) numbers/fibs/∙scan))
+   ; a left scan, in stream order, that ends with its (finite) stream
+   (⊦≡ '(100 99 97 94) (stream:->list ((stream:scan -) (list->stream '(100 1 2 3)))))
+   (⊦≡ '(a (a b) ((a b) c)) (stream:->list ((stream:scan list) (list->stream '(a b c)))))
+   (⊦≡ '() (stream:->list ((stream:scan +) stream:empty))))
 
   ((test/stream-series/series-basics _)
    (⊦≡ '(1 1/2 3/8 5/16 35/128 63/256 231/1024 429/2048 6435/32768 12155/65536)
