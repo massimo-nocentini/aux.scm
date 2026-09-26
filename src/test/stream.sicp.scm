@@ -378,6 +378,10 @@
    (⊦≡ '(0 1 0 0 0) ((list○take 5) (series:√/∞ (list->poly '(0 0 1))))) ; √(x²)
    (⊨ (condition-case (begin ((list○take 5) (series:√/∞ (list->poly '(0 1)))) #f) ((exn) #t))) ; √x is no power series
    (⊦≡ '(1 2 3 4 5 6 7 8 9 10) ((list○take 10) (series:× stream:1s stream:1s)))
+   ; ∫ and ∂ of a finite stream (a polynomial with its trailing zeros left implicit) end with it
+   (⊦≡ '(0 1 1 1) (stream:->list (series:∫ (list->stream '(1 2 3)))))
+   (⊦≡ '(2 6) (stream:->list (series:∂ (list->stream '(1 2 3)))))
+   (⊦≡ '() (stream:->list (series:∂ (list->stream '(1)))))
    (⊦≡ '(0 1 3 6 10 15 21 28 36 45) ((list○take 10) (series:× numbers/nats/∞ stream:1s))))
 
   ((test/stream-series/series-exp-and-composition _)

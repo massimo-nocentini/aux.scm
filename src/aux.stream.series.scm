@@ -67,23 +67,11 @@
 
   (define series:∫
     (λ§ (s)
-        (letrec ((I (λ§ (s n)
-                        (stream:dest/car+cdr (s ∅)
-                                             ((scar scdr) (stream:dest/car+cdr (n ∅)
-                                                                               ((ncar ncdr) (stream:cons
-                                                                                              (/ scar ncar)
-                                                                                              (I scdr ncdr)))))))))
-          (stream:cons 0 (I s (series:from 1))))))
+        (stream:cons 0 ((stream:zip-with /) s (series:from 1)))))
 
   (define series:∂
     (λ§ (s)
-        (letrec ((D (λ§ (s n)
-                        (stream:dest/car+cdr (s ∅)
-                                             ((scar scdr) (stream:dest/car+cdr (n ∅)
-                                                                               ((ncar ncdr) (stream:cons
-                                                                                              (* scar ncar)
-                                                                                              (D scdr ncdr)))))))))
-          (D (stream:cdr s) (series:from 1)))))
+        ((stream:zip-with *) (stream:cdr s) (series:from 1))))
 
   (define series:× (stream:convolution * series:* series:+))
 
