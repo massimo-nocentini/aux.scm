@@ -64,10 +64,10 @@
       (else (error "sbral-ref: index out of bounds" i))))
 
   (define (update/sbral i y sbral)
-    (match1/first (((,size . ,tree) . ,sbral*) sbral)
-      (cond
-        ((< -1 i size) `((,size . ,(sbral-tree-update size i y tree)) . ,sbral*))
-        (else `(,(car sbral) . ,(update/sbral (- i size) y sbral*))))))
+    (match/first sbral
+      ((((,size . ,tree) . ,sbral*) ⊣ (< -1 i size)) `((,size . ,(sbral-tree-update size i y tree)) . ,sbral*))
+      (((,entry . ,sbral*) ⊣ (<= (car entry) i)) `(,entry . ,(update/sbral (- i (car entry)) y sbral*)))
+      (else (error "update/sbral: index out of bounds" i))))
 
   (define (foldr/sbral f init sbral)
     (let loop ((l (sub1 (length/sbral sbral))) (out init))

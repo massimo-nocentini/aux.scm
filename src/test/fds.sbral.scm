@@ -108,6 +108,13 @@
          (⊦= '((7 a (b (c) (d)) (e (f) (g)))) q)
          (⊦= '((7 a (b (c) (d)) (hello (f) (g)))) (update/sbral 4 'hello q))))
 
+  ((test-update-out-of-bounds _)
+   (let1 (q (list->sbral '(a b c d e)))
+         (⊦= '((1 a) (1 b) (3 c (d) (hello))) (update/sbral 4 'hello q))
+         (⊦= "update/sbral: index out of bounds" (error-message (λ () (update/sbral 5 'x q))))
+         (⊦= "update/sbral: index out of bounds" (error-message (λ () (update/sbral -1 'x q))))
+         (⊦= "update/sbral: index out of bounds" (error-message (λ () (update/sbral 0 'x empty/sbral))))))
+
   ((test-identity _)
    (let1 (l '(a b c d e f g))
          (⊦= l (sbral->list (list->sbral l)))))
