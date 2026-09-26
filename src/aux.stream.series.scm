@@ -143,15 +143,17 @@
 
   (define series:√/∞
     (λ§ (α)
-        (cond
-          ((and (zero? (stream:car α)) (zero? (stream:cadr α)))
-           (stream:cons 0 (series:√/∞ (stream:cddr α))))
-          (else (letdelay ((Q (series:+
-                                stream:1
-                                (series:∫ (series:/
-                                            (series:∂ α)
-                                            ((series:* 2) Q))))))
-                          Q)))))
+        (let ((α₀ (stream:car α)))
+          (cond
+            ((and (zero? α₀) (zero? (stream:cadr α)))
+             (stream:cons 0 (series:√/∞ (stream:cddr α))))
+            ((zero? α₀) (error "series:√/∞" "α₀ zero but α₁ not zero: no power series square root"))
+            (else (letdelay ((Q (series:+
+                                  (series:const (sqrt α₀)) ; Q(0)² = α₀
+                                  (series:∫ (series:/
+                                              (series:∂ α)
+                                              ((series:* 2) Q))))))
+                            Q))))))
 
   (define series:exp
     (λ§ (α)

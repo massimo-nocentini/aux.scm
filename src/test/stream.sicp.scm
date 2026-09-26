@@ -298,6 +298,10 @@
    (⊦≡ '(1 1/2 3/8 5/16 35/128 63/256 231/1024 429/2048 6435/32768 12155/65536)
        ((list○take 10) (series:√/∞ stream:1s)))
    (⊦≡ ((list○take 10) stream:1s) ((list○take 10) ((compose (series:expt 2) series:√/∞) stream:1s)))
+   (⊦≡ '(2 1/4 -1/64 1/512 -5/16384) ((list○take 5) (series:√/∞ (list->poly '(4 1))))) ; √(4 + x)
+   (⊦≡ '(4 1 0 0 0) ((list○take 5) ((compose (series:expt 2) series:√/∞) (list->poly '(4 1)))))
+   (⊦≡ '(0 1 0 0 0) ((list○take 5) (series:√/∞ (list->poly '(0 0 1))))) ; √(x²)
+   (⊨ (condition-case (begin ((list○take 5) (series:√/∞ (list->poly '(0 1)))) #f) ((exn) #t))) ; √x is no power series
    (⊦≡ '(1 2 3 4 5 6 7 8 9 10) ((list○take 10) (series:× stream:1s stream:1s)))
    (⊦≡ '(0 1 3 6 10 15 21 28 36 45) ((list○take 10) (series:× numbers/nats/∞ stream:1s))))
 
