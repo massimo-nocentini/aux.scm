@@ -26,10 +26,16 @@ extern "C"
 
     typedef struct chicken_simdjson_dom_element_s chicken_simdjson_dom_element_t;
 
+    typedef struct chicken_simdjson_string_s
+    {
+        size_t length;
+        char chars[];   /* length bytes and a NUL, but a JSON string may hold \u0000 too */
+    } chicken_simdjson_string_t;
+
     typedef struct chicken_simdjson_many_s
     {
         size_t length;
-        char **keys;
+        chicken_simdjson_string_t **keys;
         chicken_simdjson_dom_element_t **elements;
     } chicken_simdjson_many_t;
 
@@ -39,7 +45,7 @@ extern "C"
         uint64_t as_uint64;
         double as_double;
         int as_boolean;
-        char *as_string;
+        chicken_simdjson_string_t *as_string;
         chicken_simdjson_many_t *as_array;
         chicken_simdjson_many_t *as_object;
 
@@ -58,10 +64,14 @@ extern "C"
     double chicken_simdjson_get_floating_point_number(chicken_simdjson_dom_element_t *element);
     C_word chicken_simdjson_get_boolean(chicken_simdjson_dom_element_t *element);
     char *chicken_simdjson_get_string(chicken_simdjson_dom_element_t *element);
+    size_t chicken_simdjson_get_string_length(chicken_simdjson_dom_element_t *element);
+    void chicken_simdjson_get_string_copy(chicken_simdjson_dom_element_t *element, unsigned char *to);
     size_t chicken_simdjson_get_array_length(chicken_simdjson_dom_element_t *element);
     chicken_simdjson_dom_element_t * chicken_simdjson_get_array_ref(chicken_simdjson_dom_element_t *element, size_t i);
     size_t chicken_simdjson_get_object_length(chicken_simdjson_dom_element_t *element);
     char *chicken_simdjson_get_object_ref_key(chicken_simdjson_dom_element_t *element, size_t i);
+    size_t chicken_simdjson_get_object_ref_key_length(chicken_simdjson_dom_element_t *element, size_t i);
+    void chicken_simdjson_get_object_ref_key_copy(chicken_simdjson_dom_element_t *element, size_t i, unsigned char *to);
     chicken_simdjson_dom_element_t * chicken_simdjson_get_object_ref_value(chicken_simdjson_dom_element_t *element, size_t i);
     
     void chicken_simdjson_free(chicken_simdjson_dom_element_t *element);

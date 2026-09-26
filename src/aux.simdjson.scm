@@ -4,6 +4,7 @@
   (import
     scheme 
     (chicken base) 
+    (chicken bytevector)
     (chicken foreign) 
     (chicken pretty-print)
     srfi-1
@@ -46,12 +47,33 @@
   (define simdjson-get-unsigned-integer (foreign-lambda unsigned-integer64 "chicken_simdjson_get_unsigned_integer" (c-pointer "chicken_simdjson_dom_element_t")))  
   (define simdjson-get-floating-point-number (foreign-lambda double "chicken_simdjson_get_floating_point_number" (c-pointer "chicken_simdjson_dom_element_t")))
   (define simdjson-get-boolean (foreign-lambda scheme-object "chicken_simdjson_get_boolean" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-get-string (foreign-lambda c-string "chicken_simdjson_get_string" (c-pointer "chicken_simdjson_dom_element_t")))
+  (define simdjson-get-c-string (foreign-lambda c-string "chicken_simdjson_get_string" (c-pointer "chicken_simdjson_dom_element_t")))
+  (define simdjson-get-string-length (foreign-lambda size_t "chicken_simdjson_get_string_length" (c-pointer "chicken_simdjson_dom_element_t")))
+  (define simdjson-get-string-copy! (foreign-lambda void "chicken_simdjson_get_string_copy" (c-pointer "chicken_simdjson_dom_element_t") bytevector))
   (define simdjson-get-array-length (foreign-lambda size_t "chicken_simdjson_get_array_length" (c-pointer "chicken_simdjson_dom_element_t")))
   (define simdjson-get-array-ref (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_get_array_ref" (c-pointer "chicken_simdjson_dom_element_t") size_t))
   (define simdjson-get-object-length (foreign-lambda size_t "chicken_simdjson_get_object_length" (c-pointer "chicken_simdjson_dom_element_t")))
-  (define simdjson-get-object-ref-key (foreign-lambda symbol "chicken_simdjson_get_object_ref_key" (c-pointer "chicken_simdjson_dom_element_t") size_t))
+  (define simdjson-get-object-ref-c-key (foreign-lambda c-string "chicken_simdjson_get_object_ref_key" (c-pointer "chicken_simdjson_dom_element_t") size_t))
+  (define simdjson-get-object-ref-key-length (foreign-lambda size_t "chicken_simdjson_get_object_ref_key_length" (c-pointer "chicken_simdjson_dom_element_t") size_t))
+  (define simdjson-get-object-ref-key-copy! (foreign-lambda void "chicken_simdjson_get_object_ref_key_copy" (c-pointer "chicken_simdjson_dom_element_t") size_t bytevector))
   (define simdjson-get-object-ref-value (foreign-lambda (c-pointer "chicken_simdjson_dom_element_t") "chicken_simdjson_get_object_ref_value" (c-pointer "chicken_simdjson_dom_element_t") size_t))
+
+  ; A JSON string may hold \u0000, where a c-string return value would stop.  So the C getters
+  ; answer NULL, that is #f, for such a string, whose bytes are then copied by length and the
+  ; buffer made a string in place, as the c-string conversion itself does: simdjson has already
+  ; validated them as UTF-8.  Every other string keeps the one-call c-string path.
+  (define (simdjson-get-string w)
+    (or (simdjson-get-c-string w)
+        (let* ((n (simdjson-get-string-length w)) (bv (make-bytevector (add1 n) 0)))
+          (simdjson-get-string-copy! w bv)
+          (##sys#buffer->string! bv n))))
+
+  (define (simdjson-get-object-ref-key w i)
+    (string->symbol
+      (or (simdjson-get-object-ref-c-key w i)
+          (let* ((n (simdjson-get-object-ref-key-length w i)) (bv (make-bytevector (add1 n) 0)))
+            (simdjson-get-object-ref-key-copy! w i bv)
+            (##sys#buffer->string! bv n)))))
 
   (define simdjson-free (foreign-lambda void "chicken_simdjson_free" (c-pointer "chicken_simdjson_dom_element_t")))
 

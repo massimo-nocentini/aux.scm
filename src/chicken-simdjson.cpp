@@ -8,6 +8,25 @@
 using namespace std;
 using namespace simdjson;
 
+// A JSON string may hold \u0000, so its length is kept next to its bytes rather than implied by
+// the terminating NUL, which is there for the c-string fast path of the getters below.
+static chicken_simdjson_string_t *chicken_simdjson_string(const char *chars, size_t length)
+{
+  chicken_simdjson_string_t *res = (chicken_simdjson_string_t *)malloc(sizeof(chicken_simdjson_string_t) + length + 1);
+
+  res->length = length;
+  memcpy(res->chars, chars, length);
+  res->chars[length] = '\0';
+
+  return res;
+}
+
+// the bytes as a C string, or NULL when a NUL inside them would cut the C string short
+static char *chicken_simdjson_c_string(chicken_simdjson_string_t *str)
+{
+  return memchr(str->chars, '\0', str->length) == NULL ? str->chars : NULL;
+}
+
 // On demand parsing finds malformed input only when the walk reaches it, so a simdjson_error can
 // be thrown from anywhere below.  A node therefore gets its type only once its payload is in
 // place, and child arrays are calloc'd, so that chicken_simdjson_free can release a half-built
@@ -81,7 +100,7 @@ static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &elemen
       res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
       res->value->as_object = (chicken_simdjson_many_t *)malloc(sizeof(chicken_simdjson_many_t));
       res->value->as_object->length = length;
-      res->value->as_object->keys = (char **)calloc(length, sizeof(char *));
+      res->value->as_object->keys = (chicken_simdjson_string_t **)calloc(length, sizeof(chicken_simdjson_string_t *));
       res->value->as_object->elements = (chicken_simdjson_dom_element_t **)calloc(length, sizeof(chicken_simdjson_dom_element_t *));
       res->type = CHICKEN_SIMDJSON_TYPE_OBJECT;
 
@@ -92,11 +111,8 @@ static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &elemen
         if (i >= length)
           throw simdjson_error(TAPE_ERROR);
 
-        auto raw = field.unescaped_key();
-        size_t key_length = raw->length();
-        res->value->as_object->keys[i] = (char *)malloc(key_length + 1);
-        raw->copy(res->value->as_object->keys[i], key_length);
-        res->value->as_object->keys[i][key_length] = '\0';
+        std::string_view key = field.unescaped_key();
+        res->value->as_object->keys[i] = chicken_simdjson_string(key.data(), key.size());
 
         ondemand::value field_value = field.value();
         res->value->as_object->elements[i] = chicken_simdjson_visit_ondemand(field_value, depth + 1);
@@ -145,12 +161,9 @@ static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &elemen
     {
 
       std::string_view str = element.get_string();
-      size_t length = str.size();
 
       res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-      res->value->as_string = (char *)malloc(length + 1);
-      str.copy(res->value->as_string, length);
-      res->value->as_string[length] = '\0';
+      res->value->as_string = chicken_simdjson_string(str.data(), str.size());
       res->type = CHICKEN_SIMDJSON_TYPE_STRING;
 
       break;
@@ -194,12 +207,10 @@ static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &elemen
 // it into a Scheme error.
 static chicken_simdjson_dom_element_t *chicken_simdjson_error(const char *message)
 {
-  size_t length = strlen(message);
   chicken_simdjson_dom_element_t *res = (chicken_simdjson_dom_element_t *)malloc(sizeof(chicken_simdjson_dom_element_t));
 
   res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-  res->value->as_string = (char *)malloc(length + 1);
-  memcpy(res->value->as_string, message, length + 1);
+  res->value->as_string = chicken_simdjson_string(message, strlen(message));
   res->type = CHICKEN_SIMDJSON_TYPE_ERROR;
 
   return res;
@@ -212,7 +223,17 @@ extern chicken_simdjson_type_t chicken_simdjson_get_type(chicken_simdjson_dom_el
 
 extern char *chicken_simdjson_get_string(chicken_simdjson_dom_element_t *element)
 {
-  return element->value->as_string;
+  return chicken_simdjson_c_string(element->value->as_string);
+}
+
+extern size_t chicken_simdjson_get_string_length(chicken_simdjson_dom_element_t *element)
+{
+  return element->value->as_string->length;
+}
+
+extern void chicken_simdjson_get_string_copy(chicken_simdjson_dom_element_t *element, unsigned char *to)
+{
+  memcpy(to, element->value->as_string->chars, element->value->as_string->length);
 }
 
 extern int64_t chicken_simdjson_get_signed_integer(chicken_simdjson_dom_element_t *element)
@@ -252,7 +273,17 @@ extern size_t chicken_simdjson_get_object_length(chicken_simdjson_dom_element_t 
 
 extern char *chicken_simdjson_get_object_ref_key(chicken_simdjson_dom_element_t *element, size_t index)
 {
-  return element->value->as_object->keys[index];
+  return chicken_simdjson_c_string(element->value->as_object->keys[index]);
+}
+
+extern size_t chicken_simdjson_get_object_ref_key_length(chicken_simdjson_dom_element_t *element, size_t index)
+{
+  return element->value->as_object->keys[index]->length;
+}
+
+extern void chicken_simdjson_get_object_ref_key_copy(chicken_simdjson_dom_element_t *element, size_t index, unsigned char *to)
+{
+  memcpy(to, element->value->as_object->keys[index]->chars, element->value->as_object->keys[index]->length);
 }
 
 extern chicken_simdjson_dom_element_t *chicken_simdjson_get_object_ref_value(chicken_simdjson_dom_element_t *element, size_t index)

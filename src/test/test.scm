@@ -254,6 +254,14 @@
     `(doc (p "The parser is given the length of the text in bytes, not in characters: "
              "counting characters, each multi-byte one cut a byte off the end of the document.")))
 
+  ((test/simdjson/parse/nul _)
+    (let1 (nul (string (integer->char 0)))
+      (⊦= `((k ,(string-append "a" nul "b"))) (simdjson-parse/ondemand "{\"k\": \"a\\u0000b\"}"))
+      (⊦= `#(,(string-append "caffè" nul "一") ,nul) (simdjson-parse/ondemand "[\"caffè\\u0000一\", \"\\u0000\"]"))
+      (⊦= `((,(string->symbol (string-append "a" nul "b")) 1)) (simdjson-parse/ondemand "{\"a\\u0000b\": 1}")))
+    `(doc (p "A JSON string may hold " (code/inline "\\u0000") ", in values and in keys alike; "
+             "the characters after it are kept, where a C string would end there.")))
+
   ((test/simdjson/frees-the-tree _)
     (⊨ (eq? simdjson-load/ondemand simdjson-load))
     (⊨ (< (resident-growth (λ () (simdjson-load "twitter.json"))) 16384))
