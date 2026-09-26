@@ -77,7 +77,7 @@
      (⊦≠ #f (substring-index "caffè" (anthropic-response/text r))))
    `(doc (p "The one case that proves the byte-length fix against real network bytes: an "
             "accented response decoded through " (code/inline "simdjson-parse/ondemand")
-            " truncates and then aborts the process.")))
+            " truncates and fails to parse.")))
 
   ((test/anthropic/live/tool-roundtrip _)
    (receive (r transcript)

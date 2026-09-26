@@ -246,7 +246,7 @@
     "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
 
 ; a parameterless tool streams content_block_start with "input":{} and NO input_json_delta at
-; all.  A stop that parsed its (empty) buffer unconditionally would abort the process.
+; all.  A stop that parsed its (empty) buffer unconditionally would raise an anthropic-decode-error.
 (define fixture/sse/no-input
   (string-append
     "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s3\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n\n"
@@ -389,11 +389,9 @@
         (code/inline "->string/json") " would emit CHICKEN's " (code/inline "\\x01;")
         " -- not JSON, and a body this parser then refuses.")
      (p "Nothing is ever handed to simdjson without passing "
-        (code/inline "anthropic-json/well-formed?") " first: "
-        (code/inline "src/chicken-simdjson.cpp") " contains no " (code/inline "try")
-        "/" (code/inline "catch") ", so a malformed body reaches "
-        (code/inline "std::terminate") " and kills the process with SIGABRT, which no Scheme "
-        "handler can catch.")
+        (code/inline "anthropic-json/well-formed?") " first: (aux simdjson) signals a "
+        "malformed document as a plain Scheme error, and the gate is what makes every "
+        "malformed body an " (code/inline "anthropic-decode-error") ".")
      (structure/section "The recorded transcripts")
      (p "A tool-using turn, verbatim off the wire. Three block indices, a thinking block whose "
         "signature arrives on its own " (code/inline "signature_delta") ", and "
@@ -429,8 +427,8 @@
    (⊭ (anthropic-json/well-formed? "{\"a\":01}"))
    (⊭ (anthropic-json/well-formed? (conc "{\"a\":\"" (string (integer->char 1)) "\"}")))
    `(doc (p "A bare scalar document is rejected on purpose: simdjson's on-demand walker "
-            "throws " (code/inline "SCALAR_DOCUMENT_AS_VALUE") " on " (code/inline "42")
-            " just as surely as on a truncated object, and both aborts are uncatchable. "
+            "refuses " (code/inline "42") " with " (code/inline "SCALAR_DOCUMENT_AS_VALUE")
+            " just as surely as it refuses a truncated object. "
             "Sniffing for a leading " (code/inline "{") " -- which the truncated fixture "
             "passes -- is not a guard.")))
 
@@ -1224,12 +1222,9 @@
    (parameterize ((anthropic/retries 0))
      (letstub (stub (anthropic-stub/canned fixture/error/truncated status: 200))
        (⊦raises (anthropic-decode-error) (anthropic/messages (list (anthropic-message/user "hi"))))))
-   `(doc (p "A proxy's HTML page and a connection cut mid-body must both become Scheme "
-            "conditions. Neither may reach the parser: "
-            (code/inline "src/chicken-simdjson.cpp") " has no " (code/inline "try")
-            "/" (code/inline "catch") " anywhere, so a " (code/inline "simdjson_error")
-            " reaches " (code/inline "std::terminate") " and the process dies with SIGABRT -- "
-            "which would take down " (code/inline "make test") " rather than fail a case.")))
+   `(doc (p "A proxy's HTML page and a connection cut mid-body must both become this "
+            "module's conditions. Neither may reach the parser, whose own errors are plain "
+            "Scheme errors that no " (code/inline "anthropic-error") " handler would see.")))
 
   ; -- retry over the stub -----------------------------------------------------------------------
 
@@ -1466,8 +1461,8 @@
             (code/inline "input_json_delta") " fragments split "
             (code/inline "{\"location\": \"Paris\"}") " mid-token and are buffered as raw "
             "TEXT, parsed exactly once at " (code/inline "content_block_stop") " -- feeding "
-            "fragments to the parser incrementally cannot work, and with this binding it "
-            "would abort the process. " (code/inline "id") " and " (code/inline "name")
+            "fragments to the parser incrementally cannot work: each fragment would only "
+            "raise a decode error. " (code/inline "id") " and " (code/inline "name")
             " come from " (code/inline "content_block_start") ", not from any delta, and a "
             "thinking block's " (code/inline "signature") " arrives on its own "
             (code/inline "signature_delta") ".")))
@@ -1481,7 +1476,8 @@
    `(doc (p "A parameterless tool streams " (code/inline "content_block_start") " with "
             (code/inline "\"input\":{}") " and NO " (code/inline "input_json_delta")
             " at all. A stop that parsed its empty buffer unconditionally would hand "
-            (code/inline "\"\"") " to simdjson and take the process down.")))
+            (code/inline "\"\"") " to the parser, which refuses it, and turn a valid call "
+            "into an input error.")))
 
   ((test/anthropic/sse/unparseable-tool-input-is-recorded-not-raised _)
    (receive (message errors)
@@ -1849,8 +1845,8 @@
            'content)))
    `(doc (p "A tool result with characters outside ASCII goes through the encoder, back "
             "through the byte-length-correct parser, and comes out identical. With "
-            (code/inline "simdjson-parse/ondemand") " this case would not fail -- it would "
-            "ABORT the whole " (code/inline "csi") " process with SIGABRT.")))
+            (code/inline "simdjson-parse/ondemand") ", which passes a character count, this "
+            "case would fail: the body it parses stops short of its end.")))
 
   ; -- redaction ---------------------------------------------------------------------------------
 

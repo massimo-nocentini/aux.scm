@@ -20,7 +20,8 @@ extern "C"
         CHICKEN_SIMDJSON_TYPE_BOOLEAN,
         CHICKEN_SIMDJSON_TYPE_SIGNED_INTEGER,
         CHICKEN_SIMDJSON_TYPE_UNSIGNED_INTEGER,
-        CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER
+        CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER,
+        CHICKEN_SIMDJSON_TYPE_ERROR     /* as_string holds the message of the simdjson_error */
     } chicken_simdjson_type_t;
 
     typedef struct chicken_simdjson_dom_element_s chicken_simdjson_dom_element_t;

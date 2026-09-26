@@ -26,6 +26,7 @@
   (define-foreign-variable simdjson-type-null int "CHICKEN_SIMDJSON_TYPE_NULL")
   (define-foreign-variable simdjson-type-boolean int "CHICKEN_SIMDJSON_TYPE_BOOLEAN")
   (define-foreign-variable simdjson-type-unknown int "CHICKEN_SIMDJSON_TYPE_UNKNOWN")
+  (define-foreign-variable simdjson-type-error int "CHICKEN_SIMDJSON_TYPE_ERROR")
 
   (define (simdjson-signed-integer? t) (= t simdjson-type-signed-integer))
   (define (simdjson-unsigned-integer? t) (= t simdjson-type-unsigned-integer))
@@ -36,6 +37,7 @@
   (define (simdjson-null? t) (= t simdjson-type-null))
   (define (simdjson-boolean? t) (= t simdjson-type-boolean))
   (define (simdjson-unknown? t) (= t simdjson-type-unknown))
+  (define (simdjson-error? t) (= t simdjson-type-error))
 
   (define simdjson-get-version (foreign-lambda (const c-string) "chicken_simdjson_get_version"))
 
@@ -79,6 +81,7 @@
                                             (else lst)))))
             ((simdjson-null? t) (void))
             ((simdjson-boolean? t) (simdjson-get-boolean w))
+            ((simdjson-error? t) (error 'simdjson (simdjson-get-string w)))
             (else (error "Unknown simdjson type" t w)))))
 
   (define (simdjson-load filename) (simdjson->scheme (simdjson-load-ondemand-callback filename)))

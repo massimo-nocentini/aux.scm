@@ -56,13 +56,13 @@
 ; Two JSON procedures live here rather than in (aux simdjson), and both should eventually move
 ; upstream.  `anthropic-json/parse`, because `simdjson-parse/ondemand` (aux.simdjson.scm:93) hands
 ; the C side `string-length`, a CHARACTER count, where simdjson wants BYTES -- so the first
-; accented response truncates and then ABORTS the process with an uncatchable C++ exception.  And
+; accented response truncates and then fails to parse.  And
 ; `anthropic-json/write`, because `->string/json` escapes strings with Scheme `write`, which emits
 ; CHICKEN's `\x01;` for control characters, prints ratnums as `1/3`, and truncates flonums to 15
-; significant digits -- none of which is JSON.  src/chicken-simdjson.cpp contains no try/catch at
-; all, so EVERY parse in this module is gated behind `anthropic-json/well-formed?`, a complete
-; pure-Scheme JSON validator.  That gate is load bearing: without it one malformed proxy page takes
-; down `make test` with SIGABRT rather than failing a case.
+; significant digits -- none of which is JSON.  EVERY parse in this module is gated behind
+; `anthropic-json/well-formed?`, a complete pure-Scheme JSON validator.  (aux simdjson) signals a
+; malformed document as a plain Scheme error; the gate is what turns every malformed body, a proxy
+; page or a cut connection alike, into an `anthropic-decode-error` a caller can dispatch on.
 ;
 ; The module uses `display` rather than `write-string` throughout.  Not because `write-string` is
 ; unavailable -- it is in (scheme base), which is imported, and would work -- but because it is
@@ -272,9 +272,9 @@
 
   ; the JSON validator ----------------------------------------------------------------------
   ;
-  ; src/chicken-simdjson.cpp has no try/catch, so a simdjson_error reaches std::terminate and the
-  ; whole process dies with SIGABRT -- uncatchable from Scheme.  Sniffing for a leading `{` is not
-  ; enough: a truncated body starts with `{` too, and a bare scalar document such as `42` throws
+  ; (aux simdjson) signals a malformed document as a plain Scheme error, not as an
+  ; `anthropic-decode-error`.  Sniffing for a leading `{` is not enough: a truncated body starts
+  ; with `{` too, and simdjson refuses a bare scalar document such as `42` with
   ; SCALAR_DOCUMENT_AS_VALUE.  So this is a complete validator, and nothing is parsed without it.
 
   (define (anthropic-char/digit? c) (and (char>=? c #\0) (char<=? c #\9)))
@@ -1466,7 +1466,7 @@
   ; block, and a real turn has thinking at 0, text at 1 and tool_use at 2.  `text` and `signature`
   ; are reversed lists of fragments; `json` is a reversed list of partial_json fragments that stays
   ; a STRING until content_block_stop, because feeding fragments to a JSON parser incrementally
-  ; cannot work and, with this binding, would abort the process.
+  ; cannot work: anthropic-json/parse rejects each fragment with an anthropic-decode-error.
 
   (define-record anthropic-sse-block index template text json signature)
   (define-record anthropic-sse-state message open done errors stopped)
