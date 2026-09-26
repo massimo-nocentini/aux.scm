@@ -115,8 +115,14 @@
     (define (occur? v*)
       (cond
         ((μkanren-var? v*) (equal? α v*))
-        ((pair? v*) (or (occur? (μkanren-state-find (car v*) s)) (occur? (μkanren-state-find (cdr v*) s))))
-        ((μkanren-structure? v*) (occur? (μkanren-structure->list v*)))
+        ((μkanren-compound? v*)
+          (let* ((S (μkanren-state-S s)) (l (length/sbral S)))
+            (let O ((w v*))
+              (cond
+                ((μkanren-var? w) (equal? α w))
+                ((pair? w) (or (O (μkanren-state-find/SL (car w) S l)) (O (μkanren-state-find/SL (cdr w) S l))))
+                ((μkanren-structure? w) (O (μkanren-structure->list w)))
+                (else #f)))))
         (else #f)))
     
     (and
@@ -127,17 +133,19 @@
                (assocs* (cons `(,α . ,v) assocs)))
           `(,s* ,assocs*)))))
 
+  ; the walk of α in the substitution S of length l: a variable beyond S (deferred) or unbound is
+  ; answered as is. `(length/sbral S)` folds over the whole spine, so a walk over every node of a
+  ; term computes it once and calls this, rather than `μkanren-state-find`, on each node.
+  (define (μkanren-state-find/SL α S l)
+    (let F ((β0 α) (β α))
+      (cond
+        ((and (μkanren-var? β) (<= l (μkanren-var-index>=0 β))) β)
+        ((μkanren-var-working? β) (F β (sbral-ref S (- l 1 (μkanren-var-index>=0 β)))))
+        ((μkanren-unbound? β) β0)
+        (else β))))
+
   (define (μkanren-state-find α s)
-    (let* ((S (μkanren-state-S s))
-           (l (length/sbral S))
-           (var-deferred? (μ α (and (μkanren-var? α) (<= l (μkanren-var-index>=0 α)))))
-           (ref-var (μ β (sbral-ref S (- l 1 (μkanren-var-index>=0 β))))))
-      (let F ((β0 α) (β α))
-        (cond
-          ((var-deferred? β) β)
-          ((μkanren-var-working? β) (F β (ref-var β)))
-          ((μkanren-unbound? β) β0)
-          (else β)))))
+    (let1 (S (μkanren-state-S s)) (μkanren-state-find/SL α S (length/sbral S))))
 
   ; `eqv?`, but reflexive on NaN: CHICKEN's `eqv?` compares flonums with `=`, so a NaN would never unify with an
   ; equal NaN. Only two flonum NaNs are equal (`nan?` is #t for a complex number with a NaN part too, so it alone
@@ -173,29 +181,32 @@
         (else #f))))
 
   (define (μkanren-state-find/value v s)
-    (let A ((w v))
-      (let1 (w* (μkanren-state-find w s))
-        (cond
-          ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
-          ((vector? w*) (list->vector (map A (μkanren-structure->list w*))))
-          ((and (record-instance? w*) (not (μkanren-var? w*))) (apply make-record-instance (map A (μkanren-structure->list w*))))
-          (else w*)))))
+    (let* ((S (μkanren-state-S s)) (l (length/sbral S)))
+      (let A ((w v))
+        (let1 (w* (μkanren-state-find/SL w S l))
+          (cond
+            ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
+            ((vector? w*) (list->vector (map A (μkanren-structure->list w*))))
+            ((and (record-instance? w*) (not (μkanren-var? w*))) (apply make-record-instance (map A (μkanren-structure->list w*))))
+            (else w*))))))
 
   (define (μkanren-state-find/repr v s)
-    (let A ((w v))
-      (let1 (w* (μkanren-state-find w s))
-        (cond
-          ((μkanren-var? w*) (μkanren-var->symbol w*))
-          ((symbol? w*) (list 'quote w*))
-          ((null? w*) (list 'quote '()))
-          ((pair? w*) (list 'cons (A (car w*)) (A (cdr w*))))
-          ((vector? w*) (cons 'vector (map A (μkanren-structure->list w*))))
-          ((record-instance? w*) (cons 'make-record-instance (map A (μkanren-structure->list w*))))
-          (else w*)))))
+    (let* ((S (μkanren-state-S s)) (l (length/sbral S)))
+      (let A ((w v))
+        (let1 (w* (μkanren-state-find/SL w S l))
+          (cond
+            ((μkanren-var? w*) (μkanren-var->symbol w*))
+            ((symbol? w*) (list 'quote w*))
+            ((null? w*) (list 'quote '()))
+            ((pair? w*) (list 'cons (A (car w*)) (A (cdr w*))))
+            ((vector? w*) (cons 'vector (map A (μkanren-structure->list w*))))
+            ((record-instance? w*) (cons 'make-record-instance (map A (μkanren-structure->list w*))))
+            (else w*))))))
 
+  ; `l` is the length of the substitution of `r`, recomputed only when reifying a variable changes `r`.
   (define (μkanren-state-reify v s)
-    (let R ((w v) (r s) (c -1) (vars '()) (assocs '()))
-      (let1 (w* (μkanren-state-find w r))
+    (let R ((w v) (r s) (l (length/sbral (μkanren-state-S s))) (c -1) (vars '()) (assocs '()))
+      (let1 (w* (μkanren-state-find/SL w (μkanren-state-S r) l))
         (cond
           ((μkanren-var-working? w*)  (let* ((v* (make-μkanren-var c))
                                              (r*+assocs* (μkanren-state-update w* v* r assocs))
@@ -203,9 +214,11 @@
                                              (assocs* (cadr r*+assocs*))
                                              (c* (sub1 c))
                                              (vars* (cons v* vars)))
-                                        (R (void) r* c* vars* assocs*))) ; `(void)` will stop the recursion in the next call.
-          ((pair? w*) (match1/first ((,r* ,c* ,vars* ,assocs*) (R (car w*) r c vars assocs)) (R (cdr w*) r* c* vars* assocs*)))
-          ((μkanren-structure? w*) (R (μkanren-structure->list w*) r c vars assocs))
+                                        (list r* c* vars* assocs*)))
+          ((pair? w*) (match1/first ((,r* ,c* ,vars* ,assocs*) (R (car w*) r l c vars assocs))
+                        (let1 (l* (if (eq? r* r) l (length/sbral (μkanren-state-S r*))))
+                          (R (cdr w*) r* l* c* vars* assocs*))))
+          ((μkanren-structure? w*) (R (μkanren-structure->list w*) r l c vars assocs))
           (else (list r c vars assocs))))))
 
   (define (μkanren-drop-dot-D D s)
