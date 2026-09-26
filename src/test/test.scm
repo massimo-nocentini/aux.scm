@@ -157,6 +157,11 @@
    (⊦= #t (nan? (foldr/stddev '(5))))
    `(doc (p "Degenerate inputs yield " (code "+nan.0") " instead of a division by zero.")))
 
+  ((test/foldr/concat-strings _)
+   (⊦= "" (foldr/concat-strings '()))
+   (⊦= "abc" (foldr/concat-strings '("a" "" "bc")))
+   (⊦= 40000 (string-length (foldr/concat-strings (map (K "ab") (ι 20000))))))
+
   ((test/simdjson/version _)
     (let1 (v (simdjson-get-version))
       (⊦= "4.6.6" v)

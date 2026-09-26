@@ -344,7 +344,8 @@
              (sub1 n))))))
   (define (foldr/stddev lst) (sqrt (foldr/var lst)))
   (define (foldr/concat lst) (concatenate lst))
-  (define (foldr/concat-strings lst) (foldr string-append "" lst))
+  ; one allocation and one copy per character; `(foldr string-append "" lst)` was quadratic.
+  (define (foldr/concat-strings lst) (string-intersperse lst ""))
   (define (foldr/max lst) (foldr (λ (a b) (if (> a b) a b)) -inf.0 lst))
   (define (foldr/min lst) (foldr (λ (a b) (if (< a b) a b)) +inf.0 lst))
   (define (foldr/and lst) (not (memq #f lst)))
