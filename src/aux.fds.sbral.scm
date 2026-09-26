@@ -69,9 +69,21 @@
       (((,entry . ,sbral*) ⊣ (<= (car entry) i)) `(,entry . ,(update/sbral (- i (car entry)) y sbral*)))
       (else (error "update/sbral: index out of bounds" i))))
 
+  ; folds the tree of weight w whose root sits at index i, right subtree first, so that
+  ; `f` sees the indices in decreasing order: O(w) instead of one `sbral-ref` per element.
+  (define (sbral-tree-foldr f w i tree out)
+    (match/first tree
+      ((,v) (f i v out))
+      ((,v ,α ,β) (let1 (w/2 (quotient w 2))
+                    (f i v (sbral-tree-foldr f w/2 (+ i 1) α (sbral-tree-foldr f w/2 (+ i 1 w/2) β out)))))
+      (else (error "sbral-tree-foldr: not a valid sbral"))))
+
   (define (foldr/sbral f init sbral)
-    (let loop ((l (sub1 (length/sbral sbral))) (out init))
-      (if (< l 0) out (loop (sub1 l) (f l (sbral-ref sbral l) out)))))
+    (let loop ((sbral sbral) (i 0))
+      (match/first sbral
+        (() init)
+        (((,size . ,tree) . ,sbral*) (sbral-tree-foldr f size i tree (loop sbral* (+ i size))))
+        (else (error "foldr/sbral: not a valid sbral")))))
 
   (define (length/sbral sbral) (foldr (λ (each l) (+ (car each) l)) 0 sbral))
   (define (list->sbral lst) (foldr cons/sbral empty/sbral lst))
@@ -83,7 +95,10 @@
   (define (filter/sbral pred? sbral)
     (foldr/sbral (λ (i each sbral*) (if (pred? i each) (cons/sbral each sbral*) sbral*)) empty/sbral sbral))
   
+  ; the first truthy `(pred? i each)` in the fold's order (last index first); the walk stops there.
   (define (exists?/sbral pred? sbral)
-    (foldr/sbral (λ (i each exists) (or exists (pred? i each))) #f sbral))
+    (call-with-current-continuation
+      (λ (return)
+        (foldr/sbral (λ (i each _) (let1 (x (pred? i each)) (if x (return x) #f))) #f sbral))))
 
 )

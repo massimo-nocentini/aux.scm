@@ -117,7 +117,31 @@
 
   ((test-identity _)
    (let1 (l '(a b c d e f g))
-         (⊦= l (sbral->list (list->sbral l)))))
+         (⊦= l (sbral->list (list->sbral l))))
+   (do ((n 0 (add1 n))) ((> n 64))
+     (⊦= (iota n) (sbral->list (list->sbral (iota n))))))
+
+  ((test-foldr _)
+   (let1 (q (list->sbral '(a b c d e f g h i j)))      ; trees of sizes 3 and 7
+         (⊦= '((0 . a) (1 . b) (2 . c) (3 . d) (4 . e) (5 . f) (6 . g) (7 . h) (8 . i) (9 . j))
+             (foldr/sbral (λ (i each out) (cons (cons i each) out)) '() q))
+         ; `f` is called last index first, as `foldr` does
+         (let1 (seen '())
+               (foldr/sbral (λ (i each out) (set! seen (cons i seen))) (void) q)
+               (⊦= (iota 10) seen))
+         (⊦= '((0 a) (1 b) (2 c) (3 d) (4 e) (5 f) (6 g) (7 h) (8 i) (9 j))
+             (sbral->list (map/sbral (λ (i each) (list i each)) q)))
+         (⊦= '(b d f h j) (sbral->list (filter/sbral (λ (i each) (odd? i)) q)))
+         (⊦= 0 (foldr/sbral (λ (i each out) (add1 out)) 0 empty/sbral))))
+
+  ((test-exists _)
+   (let1 (q (list->sbral '(a b c d e f g h i j)))
+         (⊭ (exists?/sbral (λ (i each) #f) q))
+         (⊭ (exists?/sbral (λ (i each) #t) empty/sbral))
+         ; the value of the first hit from the end, and `pred?` is not called after it
+         (let1 (calls 0)
+               (⊦= '(7 h) (exists?/sbral (λ (i each) (set! calls (add1 calls)) (and (< i 8) (list i each))) q))
+               (⊦= 3 calls))))
 
   )
 
