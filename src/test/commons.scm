@@ -93,6 +93,14 @@
    (⊦= 'num (cond/λ 3 (symbol? (K 'sym)) (number? (K 'num)) (else identity)))
    (⊦= "s" (cond/λ "s" (symbol? (K 'sym)) (number? (K 'num)) (else identity))))
 
+  ((test/cond/λ/single-evaluation _)
+   (define c 0)
+   (define (v) (set! c (add1 c)) 5)
+   (⊦= 6 (cond/λ (v) (symbol? identity) (string? identity) (number? add1) (else identity)))
+   (⊦= 1 c)
+   (⊦= 5 (cond/λ (v) (symbol? identity) (else identity)))
+   (⊦= 2 c))
+
   ((test/numeric-and-strings _)
    (⊦= 3 (sub2 5))
    (⊨ (≠ 'a 'b))

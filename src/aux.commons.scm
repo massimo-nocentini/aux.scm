@@ -65,14 +65,16 @@
     (λ args
       (apply eternity args)))
 
+  ; `v` is evaluated once, not once per predicate tried plus once for the chosen branch.
   (define-syntax cond/λ
     (syntax-rules (else)
       ((cond/λ v
          (p? then) ...
          (else otherwise))
-       (cond
-         ((p? v) (then v)) ...
-         (else (otherwise v))))))
+       (let1 (v* v)
+         (cond
+           ((p? v*) (then v*)) ...
+           (else (otherwise v*)))))))
 
   (define map/with-index
     (λ (f s)
