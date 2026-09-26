@@ -177,15 +177,21 @@
 
   ; only a *working* root gets a name: on a second occurrence of a variable `↑` answers the ▢ₙ it
   ; was already given, and uniting that with a new ▢ would add an edge, hence skip an index.
+  ; Each name adds exactly one edge, so the next index is counted here, starting from the edges
+  ; already in `U`, rather than recomputed per variable by `R/unionfind-size`, which walks the
+  ; whole table and made reifying k variables quadratic.
   (define reify/status
     (λ (v s)
-      (let1 (U (status-≡ s))
+      (let* ((U (status-≡ s))
+             (n (unionfind-edges U)))
         (unionfind-accessors U
           (λ (↑ ↑! ∪ →)
             (letrec ((R/S (λ (v)
                             (let1 (v₀ (↑ v))
                               (cond
-                                ((variable/working? v₀) (∪ v₀ (R/unionfind-size U)))
+                                ((variable/working? v₀) (begin
+                                                          (∪ v₀ (R '▢ n))
+                                                          (set! n (add1 n))))
                                 ((pair? v₀) (begin
                                               (R/S (car v₀))
                                               (R/S (cdr v₀))))
