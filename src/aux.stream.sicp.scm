@@ -357,17 +357,21 @@
   (define stream:map-consecutive-pairs
     (λ (func)
        (letrec ((P (λ§ (s)
-                       (stream:cons
-                         (func (stream:car s) (stream:cadr s))
-                         (P (stream:cddr s)))))) ; disjoint consecutive pairs
+                       (stream:dest/car+cdr (s ∅)
+                                            ((a d) (stream:dest/car+cdr (d ∅)
+                                                                        ((b r) (stream:cons
+                                                                                 (func a b)
+                                                                                 (P r))))))))) ; disjoint consecutive pairs
          P)))
 
   (define stream:map-overlapping-pairs
     (λ (func)
        (letrec ((P (λ§ (s)
-                       (stream:cons
-                         (func (stream:car s) (stream:cadr s))
-                         (P (stream:cdr s)))))) ; consecutive overlapping pairs
+                       (stream:dest/car+cdr (s ∅)
+                                            ((a d) (stream:dest/car+cdr (d ∅)
+                                                                        ((b r) (stream:cons
+                                                                                 (func a b)
+                                                                                 (P d))))))))) ; consecutive overlapping pairs
          P)))
 
   (define stream:§₂ ; binary `mplus`, for pure recursion.

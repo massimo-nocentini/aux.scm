@@ -211,6 +211,14 @@
      (⊦≡ '((1 1) (1 2) (2 2)) (stream:->list ((stream:enumerate-weighted +) five two)))
      (⊦≡ '(1 2) (stream:->list (stream:enumerate-upper two)))))
 
+  ((test/stream-sicp/map-pairs _)
+   (⊦≡ '(3 7) (stream:->list ((stream:map-consecutive-pairs +) (list->stream '(1 2 3 4)))))
+   (⊦≡ '(3 7) (stream:->list ((stream:map-consecutive-pairs +) (list->stream '(1 2 3 4 5)))))
+   (⊦≡ '(3 5 7) (stream:->list ((stream:map-overlapping-pairs +) (list->stream '(1 2 3 4)))))
+   (⊦≡ '() (stream:->list ((stream:map-overlapping-pairs +) (list->stream '(1)))))
+   (⊦≡ '(1 5 9 13 17) ((list○take 5) ((stream:map-consecutive-pairs +) numbers/nats)))
+   (⊦≡ '(1 3 5 7 9) ((list○take 5) ((stream:map-overlapping-pairs +) numbers/nats))))
+
   ((test/stream-sicp/weighted-enumerations _)
    (⊦≡ '((4 3 5) (3 4 5) (8 6 10) (6 8 10) (12 5 13) (12 9 15) (15 8 17) (5 12 13) (16 12 20) (9 12 15))
        ((list○take 10) (Pythagorean-triples 2)))
