@@ -11,7 +11,7 @@
       (let ((lst (difflist->list d))
             (D (display/port port)))
         (D "⸨")
-        (map (μ v (D " ") (D v)) lst)
+        (for-each (μ v (D " ") (D v)) lst)
         (D " ⸩"))))
 
   ; Monad instance

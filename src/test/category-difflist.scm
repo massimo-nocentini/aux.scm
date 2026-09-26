@@ -1,4 +1,4 @@
-(import (aux unittest) (aux base) (aux category difflist) (aux category monad difflist) (prefix (aux category writer difflist) W:))
+(import (aux unittest) (aux base) (only (chicken port) with-output-to-string) (aux category difflist) (aux category monad difflist) (prefix (aux category writer difflist) W:))
 
 (define-suite category-difflist-suite
 
@@ -34,6 +34,11 @@
       (⊦= '(a) (difflist->list (mlog 'a)))
       (⊦= '(1 2) (difflist->list (W:category-writer-log (W:>>= (W:tell 1) (λ (_) (W:tell 2))))))
       `(doc "Logging a value appends it as it is, as the list monoid does, so a writer logs the same over both."))
+
+  ((test/printer _)
+      (⊦= "⸨ 1 2 3 ⸩" (with-output-to-string (λ () (display (list->difflist '(1 2 3))))))
+      (⊦= "⸨ ⸩" (with-output-to-string (λ () (display mempty))))
+      `(doc "A difflist prints its content, left to right."))
 )
 
 (unittest/✓ category-difflist-suite)
