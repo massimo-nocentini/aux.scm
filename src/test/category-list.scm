@@ -29,6 +29,14 @@
       `(doc "Multiple return statements in a do/monad block are implicitly combined with >>=, so the above is equivalent to "
       (code "(return 1) >>= (λ x (let y x) (return (+ x y))).")))
 
+  ((test/pattern-mismatch _)
+      (⊦= '((1 2) (3 4)) 
+      (do/monad
+            (← (,x . ,xs) '((1 2) () (3 4)))
+            ,(cons x xs)))
+      `(doc "A value that does not match the pattern of a " (code ←) " clause is handed to " (code fail) 
+            ", which is the empty list in the list monad, so non-matching shapes are skipped instead of raising an error."))
+
   ((test/return/⊕ _)
       (⊦= '(((1 4) 5 -3)
            ((1 5) 6 -4)

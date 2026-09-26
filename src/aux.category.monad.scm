@@ -32,7 +32,13 @@
   (define-syntax do/monad
     (syntax-rules (let ← unquote)
       ((do/monad (← (pat ...) (unquote expr)) body body* ...) (do/monad (← (pat ...) (M:return expr)) body body* ...))
-      ((do/monad (← (pat ...) expr) body body* ...) (▷ expr (λ1-match/first ((pat ...) (do/monad body body* ...)))))
+      ; a value that does not match a refutable pattern goes to M:fail (Haskell's MonadFail):
+      ; the list, prob and ziplist instances drop it, maybe turns the whole computation into
+      ; nothing, and identity, reader, writer and continuation raise their own failure error.
+      ((do/monad (← (pat ...) expr) body body* ...)
+        (▷ expr (λ (v) (match/first v
+                         ((pat ...) (do/monad body body* ...))
+                         (else (M:fail "do/monad: pattern mismatch" '(pat ...) v))))))
       ((do/monad (← var (unquote expr)) body body* ...) (do/monad (← var (M:return expr)) body body* ...))
       ((do/monad (← var expr) body body* ...) (▷ expr (λ (var) (do/monad body body* ...))))
       ((do/monad (let (p ...) expr) body body* ...) (match/first (((p ...) expr) (do/monad body body* ...))))
