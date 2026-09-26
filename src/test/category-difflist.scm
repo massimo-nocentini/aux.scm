@@ -23,6 +23,12 @@
       (⊦= '(1 3 9 9) (difflist->list (mappend (>>= (list->difflist '(1 2 3)) (λ (x) (if (= x 2) (fail) (return x))))
                                               (list->difflist '(9 9)))))
       `(doc "A failure is the empty difflist, so it drops only its own branch, as " (code "'()") " does in the list monad."))
+
+  ((test/reverse _)
+      (⊦= '(3 2 1) (difflist->list (reverse/difflist (list->difflist '(1 2 3)))))
+      (⊦= '(3 2 1 4 5) (difflist->list (mappend (reverse/difflist (list->difflist '(1 2 3))) (list->difflist '(4 5)))))
+      (⊦= '(4 5 3 2 1) (difflist->list (mappend (list->difflist '(4 5)) (reverse/difflist (list->difflist '(1 2 3))))))
+      `(doc "Reversing a difflist reverses its own content only, not the tail it is later given."))
 )
 
 (unittest/✓ category-difflist-suite)

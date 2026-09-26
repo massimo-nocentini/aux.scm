@@ -2,7 +2,7 @@
 
 (module (aux category difflist) *
 
-  (import scheme (chicken base) (chicken pretty-print) (only srfi-1 append-map) (aux base))
+  (import scheme (chicken base) (chicken pretty-print) (only srfi-1 append-map append-reverse) (aux base))
 
   (define-record category-difflist f)
 
@@ -32,8 +32,8 @@
   (define (list->difflist l1) (make-category-difflist (λ (l2) (append l1 l2))))
   (define (difflist->list dl) ((category-difflist-f dl) '()))
 
-  (define (reverse/difflist dl)
-    (make-category-difflist (λ (xs) (reverse ((category-difflist-f dl) xs)))))
+  (define (reverse/difflist dl) ; reverses its own content onto the tail, which stays as it is
+    (make-category-difflist (λ (xs) (append-reverse ((category-difflist-f dl) '()) xs))))
 
 )
 
