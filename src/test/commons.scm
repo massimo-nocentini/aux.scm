@@ -66,7 +66,10 @@
    (⊭ ((within? 1 3) 0)))
 
   ((test/map/tree _)
-   (⊦= '(2 (3 4) ((5)) 6) ((map/tree add1) '(1 (2 3) ((4)) 5))))
+   (⊦= '(2 (3 4) ((5)) 6) ((map/tree add1) '(1 (2 3) ((4)) 5)))
+   ; an empty subtree is kept as it is, not passed to f as a leaf.
+   (⊦= '((2) () 3 (())) ((map/tree add1) '((1) () 2 (()))))
+   (⊦= '(() (1 1)) ((map/tree (λ (x) (list x x))) '(() 1))))
 
   ((test/map/with-index _)
    (⊦= '((10 a) (11 b) (12 c)) ((map/with-index (λ (i) (λ (x) (list i x))) 10) '(a b c))))

@@ -101,6 +101,7 @@
       (letrec ((T (λ (sexp)
                     (cond
                       ((null? sexp) '())
+                      ((null? (car sexp)) (cons '() (T (cdr sexp))))  ; an empty subtree, not a leaf
                       ((pair? (car sexp)) (cons (T (car sexp)) (T (cdr sexp))))
                       (else (cons (f (car sexp)) (T (cdr sexp))))))))
         T)))
