@@ -19,12 +19,20 @@
   (define-record luaR state)
 
   (define luaL-newstate (foreign-lambda (c-pointer "lua_State") "luaL_newstate"))
-  (define lua-close (foreign-lambda void "lua_close" (c-pointer "lua_State")))
+  (define %lua-close (foreign-lambda void "lua_close" (c-pointer "lua_State")))
+
+  ; closes the state of `L', a luaR, exactly once: the slot is cleared first, so a second
+  ; close -- explicit, or the finalizer's at collection time -- does nothing.
+  (define (lua-close L)
+    (let1 (state (luaR-state L))
+      (when state
+        (luaR-state-set! L #f)
+        (%lua-close state))))
 
   (define (lua-make-empty)
-    (let* ((state (luaL-newstate))
-           (state* (make-luaR state)))
-      (set-finalizer! state* (o lua-close luaR-state))))
+    (let1 (state (luaL-newstate))   ; #f is NULL: out of memory
+      (unless state (error 'lua-make-empty "luaL_newstate cannot allocate a state"))
+      (set-finalizer! (make-luaR state) lua-close)))
 
 )
 
