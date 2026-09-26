@@ -20,7 +20,7 @@
   |#
 
   ; Monad instance
-  (define (return v) (list (cons v 1.0)))
+  (define (return v) (list (cons v 1))) ; exact 1 keeps exact distributions exact, floats stay floats
 
   (define (>>= m f) 
     (consolidate 
