@@ -21,7 +21,7 @@
            (xs (map g (f '()))))
       (make-category-difflist (λ (xs*) (foldr (λ (m* lst) ((category-difflist-f m*) lst)) xs* xs)))))
 
-  (define (fail . args) (make-category-difflist (λ (xs) '())))
+  (define (fail . args) mempty) ; the empty difflist keeps the tail it receives
 
   ; Monoid instance
   (define mempty (make-category-difflist (λ (lst) lst)))
