@@ -1107,13 +1107,23 @@
 
   ; draining and retry -------------------------------------------------------------------------
 
+  ; The close is in a dynamic-wind after-thunk, exactly as on the streaming path: the read can
+  ; raise -- EIO on the pipe, a custom port whose reader fails -- and anthropic-send catches only
+  ; anthropic-error, so without it the raw error escaped with the wire still open, which for the
+  ; curl backend is a live or zombie child and its descriptors per failed request.  Closing
+  ; twice is harmless: anthropic-wire/close! memoises.
   (define (anthropic-wire/drain! w)
-    (let1 (text (anthropic-port->string (anthropic-wire-port w)))
-      (receive (exit-status diagnostics) (anthropic-wire/close! w)
-        (unless (zero? exit-status)
-          (anthropic-raise/transport (anthropic-transport/diagnosis exit-status)
-                                     (anthropic-wire-origin w) exit-status diagnostics))
-        text)))
+    (let ((text #f) (exit-status 0) (diagnostics ""))
+      (dynamic-wind
+        (τ (void))
+        (τ (set! text (anthropic-port->string (anthropic-wire-port w))))
+        (τ (receive (s d) (anthropic-wire/close! w)
+             (set! exit-status s)
+             (set! diagnostics d))))
+      (unless (zero? exit-status)
+        (anthropic-raise/transport (anthropic-transport/diagnosis exit-status)
+                                   (anthropic-wire-origin w) exit-status diagnostics))
+      text))
 
   (define (anthropic-wire->body! w)
     (let1 (text (anthropic-wire/drain! w))

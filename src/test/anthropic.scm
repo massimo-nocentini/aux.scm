@@ -1298,6 +1298,35 @@
             (code/inline "read-bytevector:") " part of the transport contract rather than "
             "advice.")))
 
+  ((test/anthropic/transport/drain-closes-the-wire-when-the-read-raises _)
+   (let* ((closes 0)
+          (failing-port (τ (make-input-port (τ (error "simulated EIO on body read"))
+                                            (τ #t)
+                                            (τ (void))
+                                            read-bytevector:
+                                            (λ (bv start n) (error "simulated EIO on body read")))))
+          (transport (λ (status)
+                       (λ (url headers body stream?)
+                         (make-anthropic-wire status '(("content-type" "application/json"))
+                                              '(failing) (failing-port)
+                                              (τ (add1! closes) (values 0 ""))))))
+          (raw-error? (λ (thunk) (condition-case (begin (thunk) #f)
+                                   ((anthropic-error) #f)
+                                   ((exn) #t)))))
+     (parameterize ((anthropic/api-key anthropic-test/key) (anthropic/retries 0))
+       ; the 2xx body, read by anthropic/messages
+       (parameterize ((anthropic/transport (transport 200)))
+         (⊨ (raw-error? (τ (anthropic/messages (list (anthropic-message/user "hi"))))))
+         (⊦= 1 closes))
+       ; the error body, read inside anthropic-send
+       (parameterize ((anthropic/transport (transport 500)))
+         (⊨ (raw-error? (τ (anthropic/messages (list (anthropic-message/user "hi"))))))
+         (⊦= 2 closes))))
+   `(doc (p "A raise from the body read -- not an " (code/inline "anthropic-error")
+            ", so it passes the retry loop untouched -- used to skip the close, leaving the "
+            "curl child and its descriptors behind. The blocking drain now closes in a "
+            (code/inline "dynamic-wind") " after-thunk, like the streaming path.")))
+
   ; -- the blocking call over the stub ----------------------------------------------------------
 
   ((test/anthropic/messages/create _)
