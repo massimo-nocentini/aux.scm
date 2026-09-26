@@ -693,7 +693,9 @@
 
   ; API ------------------------------------------------------------------------
 
-  (define-syntax-rule (define-relation (name arg ...) g ...) (define (name arg ...) (and° g ...)))
+  ; a relation is inverse-η-delayed: calling it builds a goal that builds its body only when applied to
+  ; a state, and then suspends, so a recursive relation without `fresh°` does not loop at construction.
+  (define-syntax-rule (define-relation (name arg ...) g ...) (define (name arg ...) (λ (s) (δ ((and° g ...) s)))))
 
   (define (°->§ g)
     (let* ((§ (δ (g μkanren-state-empty)))

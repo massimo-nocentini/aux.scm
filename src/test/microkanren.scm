@@ -85,6 +85,11 @@
     (⊦= 'syntax-error (condition-case (eval '(μkanren-run (q 3 #f) (fresh° x (null° x) (=° q x)))) ((exn syntax) 'syntax-error)))
     (⊦= '(()) (μkanren-run (q 3 #t) (fresh° (x) (null° x) (=° q x)))))
 
+  ((test/define-relation/recursive _)
+    ; a relation is delayed, so its recursion needs no `fresh°` to stop at construction
+    (define-relation (ones° x) (or° (=° x 1) (ones° x)))
+    (⊦= '(1 1 1) (°->list/ground (take° 3 (fresh° (q) (ones° q))))))
+
   ((test/peano° _)
    (define-relation (peano° n) (or° (=° n 'z) (fresh° (r) (=° n `(s ,r)) (peano° r))))
    (define-relation (church° n) (fresh° (b) (=° n `(λ (s) (λ (z) ,b))) (peano° b)))

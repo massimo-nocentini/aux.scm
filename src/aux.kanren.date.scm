@@ -110,12 +110,12 @@
           (aux kanren micro)
           (aux kanren arith))
 
-  ;;; Goal construction in (aux kanren micro) is EAGER, exactly as
-  ;;; (aux kanren arith) explains: a recursive call sharing a `cond°` clause
-  ;;; with other goals is evaluated while the tree is being built and never
-  ;;; returns.  `δ°` is the protection, and it is needed here for the same
-  ;;; reason and in the same places -- it comes in with (aux kanren arith),
-  ;;; which exports it, and is deliberately NOT redefined.
+  ;;; The recursive calls below are wrapped in `δ°`, as (aux kanren arith)
+  ;;; explains: `define-relation` already delays every relation call, so the
+  ;;; wrappers are not what makes construction terminate; they are kept
+  ;;; because removing one can shift the interleaving of the answers.  `δ°`
+  ;;; comes in with (aux kanren arith), which exports it, and is deliberately
+  ;;; NOT redefined.
 
 
   ;;; ==============================================================

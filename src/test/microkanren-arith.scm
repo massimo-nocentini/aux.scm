@@ -64,43 +64,32 @@
         (code/inline "<l°") ", " (code/inline "bound-*°") " -- and the cases below are written "
         "to pin exhaustion, not just correctness: a query that asks for more answers than exist "
         "asserts that the stream closes.")
-     (structure/section "Goal construction here is eager")
-     (p "This is the one fact a reader of this repository needs before changing anything in "
-        (code/inline "(aux kanren arith)")
-        ", and it is the single respect in which the translation could not be literal. In "
-        (code/inline "(aux kanren micro)") ", " (code/inline "and°") ", " (code/inline "or°")
+     (structure/section "Goal construction and δ°")
+     (p "In " (code/inline "(aux kanren micro)") ", " (code/inline "and°") ", " (code/inline "or°")
         " and " (code/inline "cond°") " are macros that expand into calls to the procedures "
         (code/inline "andª") " and " (code/inline "orª") " -- so every goal sub-expression of "
         "every clause is evaluated while the goal tree is being built, long before any "
-        "substitution exists to search over. A recursive call that is the sole goal of its "
-        "clause is fine, and so is one inside a " (code/inline "fresh°") " body, because that "
-        "body is a λ and a λ is a natural delay. A recursive call sitting next to other goals "
-        "in a conjunction is not: building the tree for " (code/inline "adder°") " builds the "
-        "tree for " (code/inline "adder°") " builds the tree for " (code/inline "adder°")
-        ", and the call never returns. Not at load time, though: " (code/inline "define-relation")
-        " expands to a plain " (code/inline "define") ", so every definition in the module installs "
-        "and every query that never reaches " (code/inline "adder°") " -- "
-        (code/inline "append°") ", " (code/inline "bit-xor°") ", " (code/inline "<l°")
-        " -- still runs and answers. The divergence is inside the first query that does reach it, "
-        "directly or through " (code/inline "plus°") ", " (code/inline "*°") " or "
-        (code/inline "odd-*°") ", while that query's goal tree is being built. The symptom is not "
-        "a wrong answer or a long search: running the whole file prints nothing at all, because "
-        "the suite reports only once every case has finished. So the question to ask is which "
-        "relation the first hanging query touches, not what the load order was.")
-     (p "The cure is an eta-expansion around a " (code/inline "δ") ", which is exactly what the "
-        "book's " (code/inline "defrel") " does for free and what the module has to write by hand:")
-     (code/lang "scheme" "(define-syntax-rule (δ° g) (μ s (δ (g s))))\n\n; hangs while the tree is built -- the call is a clause-level conjunct:\n((=° 1 b) (=° '() m) (adder° 0 n '(1) r))\n\n; terminates -- the call is now a λ awaiting a substitution:\n((=° 1 b) (=° '() m) (δ° (adder° 0 n '(1) r)))")
-     (p "Three calls need it, all of them self-calls of " (code/inline "adder°") ": the two that "
-        "discharge a carry against an empty addend and the one that commutes "
-        (code/inline "'(1)") " into the first position. What decides is the callee's body, not "
-        "the call site -- the two calls to " (code/inline "gen-adder°") " are clause-level "
-        "conjuncts too, but " (code/inline "gen-adder°") " is a single " (code/inline "fresh°")
-        ", that is " (code/inline "(freshª (λ ...))") ", so the call hands back a goal without "
-        "evaluating its body. Everywhere else the recursion is already under a "
-        (code/inline "fresh°") " -- " (code/inline "*°") ", " (code/inline "split°") ", "
-        (code/inline "=l°") ", " (code/inline "exp2°") " and the rest are unchanged from the "
-        "book. The wrapper is applied where eagerness would bite and nowhere else, so its "
-        "presence in a clause is a statement about that clause.")
+        "substitution exists to search over. That used to be the one respect in which the "
+        "translation could not be literal: " (code/inline "define-relation") " expanded to a plain "
+        (code/inline "define") ", so a recursive call sitting next to other goals in a conjunction "
+        "was built while its caller was, building the tree for " (code/inline "adder°")
+        " built the tree for " (code/inline "adder°") ", and the first query reaching it never "
+        "returned. Now " (code/inline "define-relation") " is inverse-η-delayed, exactly as the "
+        "book's " (code/inline "defrel") ": calling a relation only returns a λ that builds the "
+        "body when it is applied to a state, and then suspends. No call site needs a hand-written "
+        "delay to terminate any more.")
+     (p "The module still carries the explicit delay it once needed, an eta-expansion around a "
+        (code/inline "δ") ":")
+     (code/lang "scheme" "(define-syntax-rule (δ° g) (μ s (δ (g s))))\n\n((=° 1 b) (=° '() m) (δ° (adder° 0 n '(1) r)))")
+     (p "Three self-calls of " (code/inline "adder°") " wear it: the two that discharge a carry "
+        "against an empty addend and the one that commutes " (code/inline "'(1)")
+        " into the first position; " (code/inline "(aux kanren date)") " wraps its recursive "
+        "calls the same way. Around a relation made by " (code/inline "define-relation")
+        " the wrapper is redundant for termination. It is kept "
+        "because removing it drops a suspension, which can shift where answers of a disjunction "
+        "interleave -- the expectations below were read off runs with the wrappers in place. It "
+        "is still required around a goal-returning procedure written with a plain "
+        (code/inline "define") ", which nothing delays.")
      (structure/section "Reading the expected values")
      (p "Every expectation below was read off a real run. The third argument of "
         (code/inline "μkanren-run") " is the grounding flag, and it is " (code/inline "#t")
@@ -437,11 +426,9 @@
             (code/inline "'(1)") ".  Those two self-calls, together with "
             (code/inline "(adder° b '(1) n r)") ", are exactly the calls this file wraps in "
             (code/inline "δ°") ": they are clause-level conjuncts of a " (code/inline "cond°")
-            ", and goal construction here is eager, so without the wrapper the goal tree for "
-            (code/inline "adder°") " never finishes being built -- not at load time, but inside "
-            "the first query that calls it.  Deleting a single wrapper leaves every definition "
-            "and every adder-free case working, and still yields no output whatsoever from a run "
-            "of this file, not a wrong answer.  The last two lines ground the sum and leave the "
+            ", which this port once had to delay by hand; since " (code/inline "define-relation")
+            " delays every relation, the wrappers only pin the interleaving, they no longer "
+            "decide termination.  The last two lines ground the sum and leave the "
             "carry fresh: the "
             "bit is recovered, uniquely, from 3+4 against 8 rather than 7.")))
 

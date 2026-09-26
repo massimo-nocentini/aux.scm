@@ -35,19 +35,23 @@
   ;;; the appropriate definition of '/°' as you encounter it while reading
   ;;; this chapter.
 
-  ;;; Nothing else has to be loaded: (aux kanren micro) is the implementation,
-  ;;; and `δ°` below is what keeps a goal tree finite -- goal construction in
-  ;;; this µKanren is *eager*, so a recursive call sharing a clause with other
-  ;;; goals is evaluated while the tree is being built and never returns.
+  ;;; Nothing else has to be loaded: (aux kanren micro) is the implementation;
+  ;;; `δ°` below is an explicit delay, kept although `define-relation` now
+  ;;; delays every relation call on its own (see the note on `δ°`).
 
   (import scheme (chicken base) (aux base) (aux kanren micro))
 
-  ;;; Goal construction in (aux kanren micro) is *eager*: `and°`/`or°`/`cond°`
-  ;;; expand into calls to the procedures `andª`/`orª`, so every goal sub-expression of a
-  ;;; clause is evaluated while the goal tree is being built.  A direct recursive
-  ;;; call therefore has to be protected by an eta-expansion plus a `δ` (delay),
-  ;;; unless it already sits inside a `fresh°` body (which is a λ, hence a
-  ;;; natural delay).  `δ°` is that protection.
+  ;;; `and°`/`or°`/`cond°` expand into calls to the procedures `andª`/`orª`, so
+  ;;; every goal sub-expression of a clause is evaluated while the goal tree is
+  ;;; being built.  That is harmless for a relation made by `define-relation`:
+  ;;; it is inverse-η-delayed, so calling it only builds a λ that builds its
+  ;;; body when applied to a state, and then suspends.  `δ°`, an eta-expansion
+  ;;; plus a `δ` (delay), was once the protection a direct recursive call
+  ;;; needed to terminate; around such a call it is now redundant for
+  ;;; termination, and it is kept because removing it drops a suspension,
+  ;;; which can shift where answers of a disjunction interleave.  It is still
+  ;;; needed around a goal-returning procedure written with plain `define`,
+  ;;; which is not delayed.
   (define-syntax-rule (δ° g) (μ s (δ (g s))))
 
 
@@ -148,13 +152,13 @@
     (fresh° (a ad dd)
       (=° `(,a ,ad . ,dd) n)))
 
-  ; `adder°`'s body is a bare `cond°`, i.e. an ordinary call, so the three
-  ; self-calls below are evaluated while `adder°` is building its own goal tree
-  ; and each one must be delayed with `δ°`; without that the very first call to
-  ; `adder°` would never finish.  The two calls to `gen-adder°` need no wrapper:
-  ; what decides is the callee's body, not the call site, and `gen-adder°`'s body
-  ; is a single `fresh°`, i.e. `(freshª (λ ...))`, so calling it merely builds a λ
-  ; and returns.
+  ; `adder°`'s body is a bare `cond°`, so the three self-calls below are
+  ; evaluated while `adder°`'s body is being built, and each is wrapped in `δ°`.
+  ; Since `define-relation` delays every relation, calling `adder°` builds
+  ; nothing and each self-call only returns a λ, so the wrappers are no longer
+  ; what makes the first call finish; they are kept because removing one can
+  ; shift the interleaving of `adder°`'s answers.  The two calls to `gen-adder°`
+  ; never had a wrapper.
   (define-relation (adder° b n m r)
     (cond°
       ((=° 0 b) (=° '() m) (=° n r))
