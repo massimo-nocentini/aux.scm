@@ -49,8 +49,10 @@
   (define-record dmatch-pkg clause thunk)
 
   (define-syntax dmatch-aux
-    (syntax-rules (⊣ =>)
+    (syntax-rules (else ⊣ =>)
       ((dmatch-aux v) '())
+      ((dmatch-aux v (else e ...) clause ...)
+        (syntax-error "match/non-overlapping: else clauses are not supported"))
       ((dmatch-aux v ((pat ⊣ g) => λexpr) clause ...) 
         (let1 (fk (τ (dmatch-aux v clause ...)))
           (match-pattern v pat  (let1 (g* g)
@@ -88,6 +90,9 @@
                                   (else (error (string-append "match/first: uncaught value.\n\n" 
                                                               (->string/pretty-print val))))))
       ((match-case-simple* val (else expr ...)) (begin expr ...))
+      ; otherwise the generic rule below would take `else` as a literal symbol pattern.
+      ((match-case-simple* val (else expr ...) clause0 clause ...)
+        (syntax-error "match/first: else clause must be last"))
       ; a guarded clause may also be ((pat ⊣ g) => receiver): receiver gets g's value (cond semantics)
       ((match-case-simple* val ((pattern ⊣ g) => receiver) clause ...)
         (let1 (fk (τ (match-case-simple* val clause ...)))

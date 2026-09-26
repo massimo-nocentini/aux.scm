@@ -105,6 +105,15 @@
     (⊦= 4 (match/first '(1 2) (((,a ,b) ⊣ (+ a b)) => add1) (else 'no)))
   )
 
+  ((test/match/else-not-last _)
+    ; a non-final `else` used to compile as the literal pattern `else`, silently skipping the catch-all.
+    (⊦= 'syntax-error (condition-case (eval '(match/first 5 (else 'fallback) (,x (list 'var x))))
+                        ((exn syntax) 'syntax-error)))
+    (⊦= 'syntax-error (condition-case (eval '(match/non-overlapping 5 (else 'fallback)))
+                        ((exn syntax) 'syntax-error)))
+    (⊦= 'fallback (match/first 5 ((,x ⊣ (symbol? x)) 'sym) (else 'fallback)))
+  )
+
   ((test/non-overlapping/single-evaluation _)
 
     (define c 0)
