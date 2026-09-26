@@ -61,7 +61,7 @@ everything it defines (`(module (aux cml) * ...)`). The file has three parts:
 
 Each part starts with a `;;` header comment that holds its design notes and its deviations from
 ML. The test suites are `src/test/cml.scm`, `src/test/cml-lib.scm` and `src/test/cml-io.scm`
-(215 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
+(216 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
 `src/aux.egg` as `(extension aux.cml)` and the suites run with `make test-cml` in `src/`.
 
 The port targets CHICKEN **6** (it was developed against 6.0.1pre1, binary version 12). It
@@ -256,6 +256,7 @@ datatype 'a event = BEVT of 'a base_evt list | CHOOSE of 'a event list
 | `trace-cml.sml` watcher | After a watched thread dies, the watcher server blocks forever on a `send` nobody receives, so every later `watch`/`unwatch` hangs; `watch` returns before the watch is registered, so an immediate `unwatch` may miss it; the death message lacks a space before the tid. | TraceCML has no servers; all three are fixed. |
 | `trace-cml.sml` module names | A full name is the parent's full name followed by the label, without a separator (`"/ThreadWatcher"`), while the documentation writes `/`-separated paths. | Each label is followed by `/` (`"/ThreadWatcher/"`). |
 | `sync-var.sml` priorities | The doFns of `mTakeEvt`, `mGetEvt` and `mSwapEvt` never reset the mvar's priority, so it grows at every enabled poll: once a full mvar has won a select against another variable or channel (reset by their commits), it wins every later one and the other branches starve (a take too, as the put that refills it resets it only when it wakes a waiter). | The three do-thunks reset it to 1, as `iGetEvt`'s does. |
+| `cleanup.sml` | `clean` gives every cleaner 1 second, so the servers' cleaner, which gives each server's shutdown function 2 seconds, is abandoned after 1 second in all. | The servers' cleaner is given 2 seconds per server plus 1 at shutdown. |
 | `simple-rpc.sml` | If the server function raises, the caller stays blocked forever. | The caller gets the exception through a `Result`. |
 | IO: imperative `input1` / `inputLine` at end of file | They take the stream mvar and never put it back: the next operation on the stream deadlocks. | Not applicable (no functional streams); port events never lose their lock. |
 | IO: `PrimIO` `eventWrap` | Loses the lock when the nack fires, and runs `f` without the lock in the busy case. | The helper thread holds a per-port lock, released on the nack and after the offer. |
@@ -544,12 +545,14 @@ bad `whens` raises an `(exn)` error at registration.
 **`(cml/remove-cleaner! name)`** (ML `removeCleaner`): returns the removed `(whens proc)` as an
 option.
 
-Cleaners run each in its own thread and are given at most 1 second each; at-init cleaners run
+Cleaners run each in its own thread and are given at most 1 second each (but `"Servers"` at
+shutdown, see below); at-init cleaners run
 oldest first, at-shutdown cleaners newest first. Standard cleaners registered at load time, in
 this order: `"Channels&Mailboxes"` (at-init, at-shutdown: resets the logged channels and
 mailboxes), `"TraceCML"` (at-shutdown: closes trace files) and `"Servers"` (all: runs the init
 thunks of logged servers at init, their shutdown thunks at shutdown, each shutdown thunk in its
-own thread given at most 2 seconds). Because shutdown runs newest first, the trace files are
+own thread given at most 2 seconds, the cleaner itself being given 2 seconds per server plus
+1). Because shutdown runs newest first, the trace files are
 closed after the servers are shut down.
 
 **`(cml/log-channel! name ch)`**, **`(cml/log-mailbox! name mb)`** (ML `logChannel`,
@@ -1273,8 +1276,10 @@ module is the close-watch sweep of port waiters ([4.12](#412-port-input-events))
 
 `%cleanup-run when` takes the cleanup lock, selects the hooks registered for `when` (reversed,
 i.e. oldest first, for the init times), drops the non-`at-exit` hooks for `at-init-fn`, gives
-the lock back, and runs each cleaner as `(select (join-evt (spawn/call proc when)) (timeout-evt 1))`:
-a cleaner that takes longer is not waited for. At init the standard `"Channels&Mailboxes"`
+the lock back, and runs each cleaner as `(select (join-evt (spawn/call proc when)) (timeout-evt secs))`:
+a cleaner that takes longer is not waited for. `secs` is 1, but for `"Servers"` at shutdown,
+`1 + 2n` for n logged servers (`%cleaner-secs`): with 1 second for the whole cleaner, as in ML,
+the 2 seconds it gives each shutdown thunk were cut at 1, shared by all the servers. At init the standard `"Channels&Mailboxes"`
 cleaner resets the logged channels and mailboxes and `"Servers"` runs the logged servers' init
 thunks in registration order; at shutdown `"Servers"` spawns each shutdown thunk and waits at
 most 2 seconds for it. The cleaners registered at load time make the user's thunk thread
@@ -1528,6 +1533,7 @@ All are deliberate; most are also listed in the header comments of `src/aux.cml.
 | ivar and mvar are different types | One record, every operation checks the kind (an `(exn)` error) | Scheme is untyped |
 | Puts outside `RunCML` | SyncVar puts and polls work outside and wake nobody; blocking operations raise `(exn cml not-running)` | No scheduler outside |
 | Cleaner registration with bad arguments | Checked at registration (non-procedure, bad `whens`, wrong-typed logged object) | A bad entry broke every later `run-cml` |
+| `clean` gives every cleaner 1 second, the servers' one too | `"Servers"` at shutdown is given 2 seconds per logged server plus 1 | ML bug (the 2 seconds given to each server's shutdown function were cut at 1 in all) |
 | Trace files closed by TraceCML's server | `"TraceCML"` cleaner registered before `"Servers"`, so it runs after them at shutdown | Servers may trace while shutting down |
 
 ### 5.3 IO / OS layer
@@ -1847,7 +1853,7 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 
 ### 7.3 Inventory
 
-215 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
+216 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
 
 | File | Suite | Cases | What it covers |
 |---|---|---|---|
@@ -1857,7 +1863,7 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 | | `cml-syncvar-suite` | 10 | ivar and mvar semantics, predicates, kind checks, condition predicates, relay chains, losing waiters dropped, many waiters in linear time, many deaths in linear time, `Result` |
 | | `cml-mailbox-suite` | 3 | ordering, blocking receive, predicates |
 | | `cml-barrier-suite` | 10 | rounds (and in linear time), wake order, resignation completing a round, raising update, the ML documentation example, predicates, one sync counted once, a wait event losing a choice, misuse raising whatever the other branches (and past a `wrap-handler`) |
-| | `cml-cleanup-suite` | 9 | cleaners and their times, logged channels (against a control), `cml/unlog-all!`, stale entries across runs, stale waiters of blocking operations, bad registrations, the registration lock given back by a dying thread, logged servers, `cml/debug` |
+| | `cml-cleanup-suite` | 10 | cleaners and their times, logged channels (against a control), `cml/unlog-all!`, stale entries across runs, stale waiters of blocking operations, bad registrations, the registration lock given back by a dying thread, logged servers (and the 2 seconds of their shutdown), `cml/debug` |
 | | `cml-os-suite` | 7 | `io-evt` on a pipe, `poll-evt`, a yield loop cannot starve I/O, idle waiters do not slow others (timing), `process-evt` (and bad pids), a pending child keeps the run alive |
 | | `cml-examples-suite` | 2 | a prime sieve of threads and channels, a server with `with-nack` |
 | `cml-lib.scm` | `cml-multicast-suite` | 8 | predicates, readers at independent speeds, new ports see later messages, copy ports, `multicast-recv-evt`, a port shared by readers, many messages, a producer kept to its readers' pace |
@@ -1921,7 +1927,8 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 
 - The cleaner times `at-exit` and `at-init-fn` are accepted but never triggered (there is no
   `exportFn`).
-- A cleaner that runs longer than 1 second (a server shutdown longer than 2 seconds) is not
+- A cleaner that runs longer than 1 second (a server shutdown longer than 2 seconds, the
+  `"Servers"` cleaner being given 2 seconds per server plus 1) is not
   waited for, but its thread keeps running until the session ends.
 - `make-rpc/out`'s entry event re-raises the server function's condition in the server thread
   (as ML does), so a server loop that does not handle it dies, although the caller gets the

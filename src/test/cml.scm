@@ -1518,6 +1518,16 @@
        (τ (cml/unlog-channel! "test-ch") (cml/unlog-mailbox! "test-mb")))
      (⊦raises (exn cml unlog) (cml/unlog-channel! "test-ch"))))
 
+  ((test/logged-server-shutdown-gets-2-seconds _)
+   ; a logged server's shut thunk is given 2 seconds at shutdown: the "Servers" cleaner that runs
+   ; it was itself given 1 second, like every cleaner, which cut the thunk off at 1
+   (let1 (done #f)
+     (dynamic-wind
+       (τ (cml/log-server! "test-slow-server" void (τ (cml/sleep 1.3) (set! done #t))))
+       (τ (⊦= 'first (run-cml (τ (cml/shutdown 'first))))
+          (⊨ done))
+       (τ (cml/unlog-server! "test-slow-server")))))
+
   ((test/unlog-all _)
    (let1 (mb (make-mailbox))
      (cml/log-mailbox! "test-mb-all" mb)

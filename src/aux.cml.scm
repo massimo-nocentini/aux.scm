@@ -60,6 +60,8 @@
 ;; the commits of mvar-take-evt, mvar-get-evt and mvar-swap-evt reset the variable's polling
 ;; priority to 1, as ivar-get-evt's does (sync-var.sml's mTakeEvt, mGetEvt and mSwapEvt never do,
 ;; so a full mvar that won a select once won every later one, starving the other branches);
+;; at shutdown the "Servers" cleaner is given 1 + 2n seconds for n logged servers (CleanUp.clean
+;; gives every cleaner 1 second, cutting the 2 seconds it gives each server's shutdown at 1 in all);
 ;; a queue entry left by a previous run-cml session is stale (the transaction records its run), so
 ;; channels & co. that were not logged with the CleanUp registry cannot resume dead continuations;
 ;; the block functions of a blocked sync still run nested (event.sml's `log`) but the wrappers of an
@@ -2083,14 +2085,22 @@
                    (set! %hooks (%delete-named name %hooks))
                    (if old (list (cdr old)) '())))))
 
-  ; CleanUp.clean: each cleaner runs in its own thread, given at most 1 second
+  ; CleanUp.clean: each cleaner runs in its own thread, given at most 1 second, but the servers'
+  ; at shutdown (see %clean-servers), given 2 seconds for each server, plus 1: as in ML the whole
+  ; cleaner was given 1 second, which cut the 2 seconds it gives each server's shut thunk at 1,
+  ; shared by all of them
+  (define (%cleaner-secs proc w)
+    (if (and (eq? proc %clean-servers) (memq w '(at-shutdown at-exit)))
+      (add1 (* 2 (length %server-list)))
+      1))
+
   (define (%cleanup-run w)
     (mvar-take! %cleanup-lock)
     (let1 (fns (let1 (l (filter (λ (h) (memq w (cadr h))) %hooks))
                  (if (memq w '(at-init at-init-fn)) (reverse l) l)))
       (when (eq? w 'at-init-fn) (set! %hooks (filter (λ (h) (memq 'at-exit (cadr h))) %hooks)))
       (mvar-put! %cleanup-lock (void))
-      (for-each (λ (h) (select (join-evt (spawn/call (caddr h) w)) (timeout-evt 1))) fns)))
+      (for-each (λ (h) (select (join-evt (spawn/call (caddr h) w)) (timeout-evt (%cleaner-secs (caddr h) w)))) fns)))
 
   (define (%unlog-item l name)
     (unless (assoc name l) (%cml-raise 'unlog "unlog: no such name" name))
