@@ -158,7 +158,7 @@
   (define-syntax-rule (λ_ body ...) (λ useless body ...))
   (define-syntax μ
     (syntax-rules ()
-      ((μ () body ...) (λ (v) body ...))
+      ((μ () body ...) (τ body ...))
       ((μ (v) body ...) (λ (v) body ...))
       ((μ (v v* ...) body ...) (λ (v) (μ (v* ...) body ...)))
       ((μ v body ...) (μ (v) body ...))))

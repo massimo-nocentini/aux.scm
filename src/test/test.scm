@@ -39,6 +39,13 @@
    (⊦= 5 ((λ (x) ((λ (y) (+ x y)) 2)) 3))
    (⊦= 5 ((λ (x y) (+ x y)) 2 3)))
 
+  ((test/μ _)
+   (⊦= 42 ((μ () 42)))
+   (⊦= 5 ((μ x (+ x 2)) 3))
+   (⊦= 5 (((μ (x y) (+ x y)) 2) 3))
+   `(doc (p "Curried: one variable per application, so no variables at all is a thunk, as with "
+            (code "τ") ".")))
+
   ((test/letmaptensor _)
    (⊦= '((((2 a #t) (2 a #t)) ((2 1 #t) (2 1 #f)))
            (((3 a #f) (3 a #t)) ((3 2 #f) (3 2 #f)))
