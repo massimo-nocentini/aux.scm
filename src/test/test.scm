@@ -224,6 +224,36 @@
     (⊦= test/simdjson/->string/expected (->string/json (simdjson-load "twitter.json")))
     `(doc (p "Test for simdjson-load, which loads and parses a JSON file into a Scheme representation.")))
 
+  ((test/simdjson/->string/valid-json _)
+    (⊦= "[\"\\u0001\",\"\\u001f\",\"tab\\there\",\"q\\\"b\\\\s\",\"caffè\"]"
+        (->string/json (vector (string (integer->char 1)) (string (integer->char 31)) "tab\there" "q\"b\\s" "caffè")))
+    (⊦= "{\"ke\\\"y\":1,\"a\\\\b\":2}" (->string/json `((,(string->symbol "ke\"y") 1) ("a\\b" 2))))
+    (⊦= "[0.25,-3,22.0]" (->string/json #(1/4 -3 22.0)))
+    (⊦= '(raised raised raised raised)
+        (map (λ (n) (condition-case (->string/json (vector n)) ((exn) 'raised))) (list +inf.0 -inf.0 +nan.0 1+2i)))
+    (⊦= '(raised raised raised raised)
+        (map (λ (s) (condition-case (->string/json (vector s)) ((exn) 'raised)))
+             (list (string (integer->char #xD800)) (string #\a (integer->char #xDFFF))
+                   (string #\c #\a #\f #\f (integer->char #xDCC3)) `((,(string->symbol (string (integer->char #xDC80))) 1)))))
+    (let1 (v (vector (string (integer->char #xD7FF) (integer->char #xE000) (integer->char #xFFFF) (integer->char #x10FFFF))
+                     "caffè 一 😋"))
+      (⊦= v (simdjson-parse/ondemand (->string/json v))))
+    (let1 (v `((text ,(string #\a (integer->char 1) #\" (integer->char 0) #\\ #\newline #\一))
+               (,(string->symbol "k\"ey") #(0.5 "caffè"))))
+      (⊦= v (simdjson-parse/ondemand (->string/json v))))
+    (⊦= "[0.30000000000000004,1.7976931348623157e+308,4.94065645841247e-324,0.1,-0.0,1e+100]"
+        (->string/json (vector (+ 0.1 0.2) 1.7976931348623157e308 5e-324 0.1 -0.0 1e100)))
+    (let1 (v (vector (+ 0.1 0.2) 1.7976931348623157e308 5e-324 2.2250738585072014e-308 (/ 1.0 3.0)
+                     -1234.5678e-90 123456789012345678901.0 1e15 4503599627370497.0 -7.0))
+      (⊦= v (simdjson-parse/ondemand (->string/json v))))
+    `(doc (p "Strings and keys are escaped the JSON way, control characters as "
+             (code/inline "\\u00XX") ", an exact ratio is written as the nearest flonum, "
+             "and a number JSON cannot spell, infinite, not a number or not real, is an error, "
+             "as is a string holding a surrogate code point, which is how CHICKEN reads a byte of invalid UTF-8. "
+             "A flonum is written with the fewest digits, 15 to 17, that read back as the same double, "
+             "where the default 15 would print the largest double out of range; "
+             "so every text " (code/inline "->string/json") " writes parses back to what it wrote.")))
+
   ((test/simdjson/parse _)
     (⊦= #(((a 1) (b #(2 5)) (c #t)) ((c 3) (d 4))) (simdjson-parse/ondemand "[{\"a\":1,\"b\":[2,5],\"c\":true},{\"c\":3,\"d\":4}]"))
     `(doc (p "Test for simdjson-parse/ondemand, which parses a JSON string into a Scheme representation on demand.")))

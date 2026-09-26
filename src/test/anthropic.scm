@@ -386,8 +386,8 @@
         (code/inline "'()") " as " (code/inline "{}") " and only " (code/inline "#()")
         " as " (code/inline "[]") ", so every JSON array on the wire is a Scheme vector; and "
         "it escapes C0 control characters as " (code/inline "\\u00XX") ", where "
-        (code/inline "->string/json") " would emit CHICKEN's " (code/inline "\\x01;")
-        " -- not JSON, and a body this parser then refuses.")
+        (code/inline "->string/json") " used to emit CHICKEN's " (code/inline "\\x01;")
+        " -- not JSON, and a body this parser refuses.")
      (p "Nothing is ever handed to simdjson without passing "
         (code/inline "anthropic-json/well-formed?") " first: (aux simdjson) signals a "
         "malformed document as a plain Scheme error, and the gate is what makes every "
@@ -464,9 +464,9 @@
    (⊦= "{\"t\":\"l1\\nl2\\tx\\\"q\\\"\\\\z\"}" (anthropic-json/write '((t "l1\nl2\tx\"q\"\\z"))))
    (⊦= "{\"text\":\"caffè 一 ok\"}" (anthropic-json/write '((text "caffè 一 ok"))))
    `(doc (p "Tool results are arbitrary program output. "
-            (code/inline "->string/json") " escapes with Scheme " (code/inline "write")
-            " and would put " (code/inline "\\x01;") " on the wire, which the API rejects "
-            "and which this parser then refuses.")))
+            (code/inline "->string/json") " used to escape with Scheme " (code/inline "write")
+            " and put " (code/inline "\\x01;") " on the wire, which the API rejects "
+            "and which this parser refuses.")))
 
   ((test/anthropic/json/numbers _)
    (⊦= "{\"a\":3.141592653589793}" (anthropic-json/write '((a 3.141592653589793))))

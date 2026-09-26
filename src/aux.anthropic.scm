@@ -53,16 +53,17 @@
 ; write the child's stdin to, `process-output-port` is the INPUT port you read its stdout from.
 ; Both are commented at the call site; please do not "fix" them.
 ;
-; Two JSON procedures live here rather than in (aux simdjson), and both should eventually move
-; upstream.  `anthropic-json/parse`, because `simdjson-parse/ondemand` used to hand the C side
-; `string-length`, a CHARACTER count, where simdjson wants BYTES -- so the first accented response
-; was truncated and failed to parse; it passes the byte count now.  And
-; `anthropic-json/write`, because `->string/json` escapes strings with Scheme `write`, which emits
-; CHICKEN's `\x01;` for control characters, prints ratnums as `1/3`, and truncates flonums to 15
-; significant digits -- none of which is JSON.  EVERY parse in this module is gated behind
-; `anthropic-json/well-formed?`, a complete pure-Scheme JSON validator.  (aux simdjson) signals a
-; malformed document as a plain Scheme error; the gate is what turns every malformed body, a proxy
-; page or a cut connection alike, into an `anthropic-decode-error` a caller can dispatch on.
+; Two JSON procedures live here rather than in (aux simdjson), whose own were broken when this
+; module was written.  `anthropic-json/parse`, because `simdjson-parse/ondemand` used to hand the
+; C side `string-length`, a CHARACTER count, where simdjson wants BYTES -- so the first accented
+; response was truncated and failed to parse; it passes the byte count now.  And
+; `anthropic-json/write`, because `->string/json` escaped strings with Scheme `write`, which emits
+; CHICKEN's `\x01;` for control characters, printed ratnums as `1/3`, and truncated flonums to 15
+; significant digits -- none of which is JSON; it emits valid JSON now.  EVERY parse in this
+; module is gated behind `anthropic-json/well-formed?`, a complete pure-Scheme JSON validator.
+; (aux simdjson) signals a malformed document as a plain Scheme error; the gate is what turns
+; every malformed body, a proxy page or a cut connection alike, into an `anthropic-decode-error` a
+; caller can dispatch on.
 ;
 ; The module uses `display` rather than `write-string` throughout.  Not because `write-string` is
 ; unavailable -- it is in (scheme base), which is imported, and would work -- but because it is
