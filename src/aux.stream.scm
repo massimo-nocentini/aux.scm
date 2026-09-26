@@ -20,7 +20,7 @@
 
   #;(define-syntax delimcc-foldr§
     (syntax-rules ()
-      ((delimcc-fold body ...)
+      ((delimcc-foldr§ body ...)
        (let1 (witness (gensym))
              (define (L r)
                (cond

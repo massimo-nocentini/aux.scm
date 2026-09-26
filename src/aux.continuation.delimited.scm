@@ -280,7 +280,7 @@
 
   (define-syntax delimcc-foldr
     (syntax-rules ()
-      ((delimcc-fold bexpr ((each acc) fbody ...) body ...)
+      ((delimcc-foldr bexpr ((each acc) fbody ...) body ...)
        (let* ((witness (gensym))
               (b bexpr)
               (f (λ (each acc) fbody ...)))
