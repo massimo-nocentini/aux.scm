@@ -81,6 +81,7 @@
           (chicken file posix)
           (only (chicken fixnum) fx= fx< fx> fx>= fx+ fx- fx* fxneg)   ; the JSON number gate
           (chicken flonum)
+          (chicken foreign)                 ; the SIGPIPE guard in §4.8
           (chicken io)
           (chicken keyword)
           (chicken port)
@@ -700,6 +701,50 @@
   ; hold, rather than a literal buried in a closure.
   (define (anthropic-transport/still-running? pid) (eqv? 0 pid))
 
+  ; Writing to a pipe whose reader has exited raises SIGPIPE, and its DEFAULT action kills the
+  ; whole process: no handler runs, and the 0600 header file holding the key stays on disk,
+  ; because the on-exit sweep does not run on a signal death.  That is what a transport program
+  ; that cannot be executed does to a request body larger than the 64K pipe buffer -- measured,
+  ; exit 141 and the key file left behind.  So the body write runs with SIGPIPE ignored, which
+  ; turns the signal into an ordinary EPIPE error.  Only when the disposition IS the default: an
+  ; ignored one (the tcp unit ignores it at load) or a Scheme handler already keeps the process
+  ; alive and is left alone.  (chicken process signal) cannot tell those apart -- the deprecated
+  ; `signal-handler` answers #f for both SIG_DFL and SIG_IGN -- hence the sigaction query.
+  ;
+  ; The disposition is process-wide and srfi-18 threads share it, so a save-and-restore per call
+  ; races: thread A ignores SIGPIPE, B enters, sees it ignored and does nothing, A leaves and
+  ; restores SIG_DFL while B is still writing -- and B's dead child kills the process, key file
+  ; and all (measured, exit 141).  So the entries are COUNTED: the first ignores the signal if it
+  ; is the default, and only the last to leave restores it, and only if an entry here ignored it.
+  ; Both steps are single foreign calls, which no thread switch can split.  A thread terminated
+  ; inside the extent never leaves; SIG_IGN then stays installed, the direction that is safe.
+  (foreign-declare "#include <signal.h>\n"
+                   "static int anthropic_sigpipe_depth = 0;\n"
+                   "static int anthropic_sigpipe_ignored = 0;\n")
+
+  (define anthropic-signal/pipe-kills?
+    (foreign-lambda* bool ()
+      "struct sigaction sa;"
+      "C_return(sigaction(SIGPIPE, NULL, &sa) == 0 && sa.sa_handler == SIG_DFL);"))
+
+  (define anthropic-signal/enter!
+    (foreign-lambda* void ()
+      "struct sigaction sa;"
+      "if (anthropic_sigpipe_depth++ == 0"
+      "    && sigaction(SIGPIPE, NULL, &sa) == 0 && sa.sa_handler == SIG_DFL"
+      "    && signal(SIGPIPE, SIG_IGN) != SIG_ERR)"
+      "  anthropic_sigpipe_ignored = 1;"))
+
+  (define anthropic-signal/leave!
+    (foreign-lambda* void ()
+      "if (--anthropic_sigpipe_depth == 0 && anthropic_sigpipe_ignored) {"
+      "  anthropic_sigpipe_ignored = 0;"
+      "  signal(SIGPIPE, SIG_DFL);"
+      "}"))
+
+  (define (anthropic-signal/without-sigpipe thunk)
+    (dynamic-wind anthropic-signal/enter! thunk anthropic-signal/leave!))
+
   (define (anthropic-transport/diagnosis code)
     (match/first code
       (1   "the transport rejected its own arguments (a bad option, or an unsupported protocol)")
@@ -928,8 +973,14 @@
               ; Content-Length, so writing the body from this thread cannot deadlock.  Measured
               ; against a server that accepts and never reads: `display` of a 16 MB body returned
               ; in 28 ms, single-threaded, no srfi-18 pump.
-              (display body stdin)
-              (close-output-port stdin)
+              ;
+              ; A write that fails is SWALLOWED: it fails only because the child is gone -- it
+              ; could not be executed, or it died -- and then its stdout is at eof, so the
+              ; no-status branch below closes the wire and raises the transport error with the
+              ; exit status's diagnosis.  Re-raising the raw EPIPE would lose exactly that.
+              (anthropic-signal/without-sigpipe
+                (τ (condition-case (begin (display body stdin) (close-output-port stdin))
+                     ((exn) (handle-exceptions e (void) (close-output-port stdin))))))
               (receive (status response-headers) (anthropic-curl/read-headers stdout)
                 ; The header file dies HERE, not at close.  curl parses every option before it
                 ; connects, so by the time a response header block has come back it is long done

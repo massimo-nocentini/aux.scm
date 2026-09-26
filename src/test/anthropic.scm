@@ -18,6 +18,7 @@
   (chicken file posix)
   (chicken io)
   (chicken port)                      ; make-input-port, for the custom-port case
+  (chicken process)                   ; create-pipe, for the SIGPIPE case
   (chicken string)
   (aux base)
   (aux unittest)
@@ -1082,6 +1083,36 @@
             "and any local proxy need it, and the "
             (code/inline "https://") "-only decision belongs to the caller who sets "
             (code/inline "anthropic/base-url") ".")))
+
+  ((test/anthropic/transport/body-write-survives-a-dead-reader _)
+   ; a pipe, not a child: the suite spawns no process.  The end-to-end shape -- anthropic/curl
+   ; set to a program that cannot be executed, and a 200 KB body -- was measured by hand: exit
+   ; 141 with the key file left in $TMPDIR before, an anthropic-transport-error after.
+   (receive (in out) (create-pipe)
+     (file-close in)                                    ; the reader is gone before any write
+     ; file-write, not a port from open-output-file*: that one is a stdio port and never
+     ; reports the failed write, where process*'s pipe ports do
+     (let1 (kills? (anthropic-signal/pipe-kills?))
+       (⊦= 'epipe (anthropic-signal/without-sigpipe
+                    (τ (condition-case (begin (file-write out (make-bytevector 100000 120)) 'written)
+                         ((exn) 'epipe)))))
+       (file-close out)
+       (⊦= kills? (anthropic-signal/pipe-kills?))
+       ; two threads' extents may CROSS -- A enters, B enters, A leaves while B still writes --
+       ; which no nesting of dynamic-winds can show, so the entries are driven directly: the
+       ; signal stays ignored until the last one leaves
+       (anthropic-signal/enter!)
+       (anthropic-signal/enter!)
+       (anthropic-signal/leave!)
+       (⊦= #f (anthropic-signal/pipe-kills?))
+       (anthropic-signal/leave!)
+       (⊦= kills? (anthropic-signal/pipe-kills?))))
+   `(doc (p "SIGPIPE's default action kills the process, so a body written to a transport "
+            "child that already exited took the whole program down -- no handler ran and the "
+            "0600 header file with the key stayed on disk. The write now runs with SIGPIPE "
+            "ignored, which leaves an ordinary error the transport swallows before reading the "
+            "child's exit status. The disposition is restored when the last of the concurrent "
+            "writers leaves, not the first, so one thread cannot unguard another.")))
 
   ((test/anthropic/transport/wire-record _)
    (let1 (w (make-anthropic-wire 200 '(("content-type" "application/json"))
