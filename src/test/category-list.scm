@@ -29,6 +29,14 @@
       `(doc "Multiple return statements in a do/monad block are implicitly combined with >>=, so the above is equivalent to "
       (code "(return 1) >>= (λ x (let y x) (return (+ x y))).")))
 
+  ((test/let-pattern _)
+      (⊦= '(3 12)
+      (do/monad
+            (← x (return/⊕ 1 4))
+            (let (,a . ,b) (cons x (* 2 x)))
+            ,(+ a b)))
+      `(doc "A " (code let) " clause may destructure a pure value with a pattern, binding its variables for the rest of the block."))
+
   ((test/pattern-mismatch _)
       (⊦= '((1 2) (3 4)) 
       (do/monad
