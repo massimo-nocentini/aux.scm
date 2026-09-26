@@ -1,5 +1,7 @@
 
-(import (aux unittest) (aux timsort) scheme (chicken sort) (chicken syntax) srfi-1)
+(import (aux unittest) (aux timsort) scheme (chicken sort) (chicken syntax) (chicken condition) (only (scheme base) guard raise raise-continuable)
+        (rename (only (scheme base) with-exception-handler) (with-exception-handler r7rs-with-exception-handler))
+        srfi-1)
 
 (define n 1000000)
 (define r (iota n))
@@ -168,6 +170,214 @@
    (let ((v (vector (cons 1 'a) (cons 0 'b) (cons 1 'c))))
      (⊦= (vector (cons 0 'b) (cons 1 'a) (cons 1 'c)) (timsort/vector/key v car))
      (⊦= (vector (cons 1 'a) (cons 0 'b) (cons 1 'c)) v)))
+
+  ;; A comparator that catches what a NESTED sort's comparator raised.  Had
+  ;; the raise escaped through the inner sort's C frames, the runtime would
+  ;; resume that abandoned sort when the outer callback returns: its error
+  ;; resurfaced outside the handler that caught it and killed the outer sort,
+  ;; or, once the inner comparator stopped raising, the process panicked with
+  ;; "callback returned twice".
+  ((test/nested-raise _)
+   (let* ((seen '())
+          (inner (timsort/gen (lambda (a b) (error "boom")) #f #f #f #t TIMSORT_USE_COMPARATOR))
+          (outer (timsort/gen (lambda (a b)
+                                (handle-exceptions e
+                                  (set! seen (cons (get-condition-property e 'exn 'message) seen))
+                                  (inner '(3 1 2)))
+                                (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7)))
+     (⊨ (and (pair? seen) (every (lambda (m) (equal? m "boom")) seen)))
+     ;; one inner raise per outer comparison, and each handler body ran once
+     (⊦= (length seen)
+         (let ((n 0))
+           ((timsort/gen (lambda (a b) (set! n (add1 n)) (< a b)) #f #f #f #t TIMSORT_USE_COMPARATOR) '(5 2 9 1 7))
+           n)))
+   (let* ((count 0)
+          (inner (timsort/gen (lambda (a b) (set! count (add1 count)) (if (= count 1) (abort 'once) (< a b)))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR))
+          (outer (timsort/gen (lambda (a b) (handle-exceptions e e (inner '(3 1 2))) (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7))))
+   (let* ((inner (timsort/vector/gen (lambda (a b) (abort 'inner)) #t #f #f #t TIMSORT_USE_COMPARATOR))
+          (v (vector 3 1 2))
+          (outer (timsort/vector/gen (lambda (a b) (handle-exceptions e e (inner v)) (< a b))
+                                     #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '#(1 2 5 7 9) (outer (vector 5 2 9 1 7)))
+     ;; a failed in-place sort writes nothing back
+     (⊦= '#(3 1 2) v))
+   ;; uncaught, the inner raise still reaches whoever called the outer sort
+   (let* ((inner (timsort/gen (lambda (a b) (abort 'inner)) #f #f #f #t TIMSORT_USE_COMPARATOR))
+          (outer (timsort/gen (lambda (a b) (inner '(3 1 2)) (< a b)) #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= 'inner (handle-exceptions e e (outer '(5 2 9 1 7)))))
+   ;; a handler that returns resumes a continuable raise in the nested sort's
+   ;; comparator, R7RS's and CHICKEN's alike, exactly as in a top-level sort
+   (let* ((got '())
+          (sorted '())
+          (inner (timsort/gen (lambda (a b) (set! got (cons (raise-continuable 'c) got)) (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR))
+          (outer (timsort/gen (lambda (a b)
+                                (set! sorted (cons (with-exception-handler (lambda (e) 'resumed) (lambda () (inner '(3 1 2))))
+                                                   sorted))
+                                (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7)))
+     (⊨ (and (pair? sorted) (every (lambda (l) (equal? l '(1 2 3))) sorted)))
+     (⊨ (and (pair? got) (every (lambda (x) (eq? x 'resumed)) got))))
+   (let* ((inner (timsort/vector/gen (lambda (a b) (+ 1 (signal 'c)) (< a b)) #f #f #f #t TIMSORT_USE_COMPARATOR))
+          (outer (timsort/gen (lambda (a b)
+                                (with-exception-handler (lambda (e) 0) (lambda () (inner (vector 3 1 2))))
+                                (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7))))
+   ;; a `guard' whose clauses do not match re-raises, from inside its
+   ;; handler, to the next handler out: here another `guard'
+   (let* ((seen '())
+          (inner (timsort/gen (lambda (a b) (raise 'x)) #f #f #f #t TIMSORT_USE_COMPARATOR))
+          (outer (timsort/gen (lambda (a b)
+                                (set! seen (cons (guard (e (#t (list 'outer e)))
+                                                   (guard (e ((eq? e 'never) 'no)) (inner '(3 1 2))))
+                                                 seen))
+                                (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7)))
+     (⊨ (and (pair? seen) (every (lambda (x) (equal? x '(outer x))) seen))))
+   ;; A handler reached from a nested sort's comparator is entered once, with
+   ;; the handlers around it exactly as in a top-level sort, and what it does
+   ;; there -- escaping, raising again, returning -- comes out the same.  So
+   ;; each scenario runs at top level, nested in one comparison of an outer
+   ;; sort, and both again after a caught top-level raise, which leaves an
+   ;; abandoned frame on the runtime's callback continuation stack for good
+   ;; and must not make later top-level sorts look nested.
+   (let* ((cmp (lambda (lt?) (timsort/gen lt? #f #f #f #t TIMSORT_USE_COMPARATOR)))
+          (nested (lambda (thunk)
+                    (let ((res 'unset))
+                      ((cmp (lambda (a b) (when (eq? res 'unset) (set! res (thunk))) (< a b))) '(3 1 2))
+                      res)))
+          (message (lambda (e) (if (condition? e) (get-condition-property e 'exn 'message) e)))
+          ;; CHICKEN's handler, escaping through a continuation
+          (escaping (lambda ()
+                      (let ((calls 0))
+                        (list (call-with-current-continuation
+                                (lambda (k)
+                                  (with-exception-handler
+                                    (lambda (e) (set! calls (add1 calls)) (k (message e)))
+                                    (lambda () ((cmp (lambda (a b) (error "x"))) '(3 1 2))))))
+                              calls))))
+          ;; R7RS's handler raising a wrapped condition to the `guard' around
+          ;; it: it runs with the guard's handler installed, not its own
+          (wrapping (lambda ()
+                      (let ((calls 0))
+                        (guard (e (#t (list e calls)))
+                          (r7rs-with-exception-handler
+                            (lambda (e) (set! calls (add1 calls)) (if (> calls 5) (raise 'gave-up) (raise (list 'wrapped e))))
+                            (lambda () ((cmp (lambda (a b) (raise 'x))) '(3 1 2))))))))
+          ;; R7RS's handler returning from a non-continuable raise: the next
+          ;; handler out gets the secondary error, the comparator is not resumed
+          (returning (lambda ()
+                       (guard (e (#t (list 'outer (message e))))
+                         (r7rs-with-exception-handler
+                           (lambda (e) 'ret)
+                           (lambda () ((cmp (lambda (a b) (raise 'x))) '(3 1 2)))))))
+          (expected (list '("x" 1) '((wrapped x) 1) '(outer "exception handler returned")))
+          (scenarios (list escaping wrapping returning)))
+     (⊦= expected (map (lambda (s) (s)) scenarios))
+     (⊦= expected (map nested scenarios))
+     (⊦= 'caught (handle-exceptions e 'caught ((cmp (lambda (a b) (error "boom"))) '(2 1))))
+     (⊦= expected (map (lambda (s) (s)) scenarios))
+     (⊦= expected (map nested scenarios)))
+   ;; a nested sort's comparator resumed through a continuation captured in
+   ;; it, after the sort has answered, gets an error rather than answering
+   ;; to a sort that no longer waits for it
+   (let* ((msgs '())
+          (outer (timsort/gen (lambda (a b)
+                                (set! msgs
+                                  (cons (handle-exceptions e (get-condition-property e 'exn 'message)
+                                          (let* ((saved #f)
+                                                 (l ((timsort/gen (lambda (x y)
+                                                                    (call-with-current-continuation
+                                                                      (lambda (k) (unless saved (set! saved k))))
+                                                                    (< x y))
+                                                                  #f #f #f #t TIMSORT_USE_COMPARATOR)
+                                                     '(3 1 2))))
+                                            (if (procedure? saved)
+                                                (let ((k saved)) (set! saved 'done) (k #f))
+                                                l)))
+                                        msgs))
+                                (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7)))
+     (⊨ (and (pair? msgs)
+             (every (lambda (m) (equal? m "a comparator was resumed after it had answered or its nested sort had failed"))
+                    msgs))))
+   (⊦= 0 (timsort-depth))
+   (⊦= '(1 2 3) ((timsort/gen < #f #f #f #t TIMSORT_USE_COMPARATOR) '(3 1 2))))
+
+  ;; A NESTED sort's comparator that escapes through a continuation captured
+  ;; in the enclosing comparator, with no raise involved.  Escaping through
+  ;; the inner sort's C frames, it panicked the process with "callback
+  ;; returned twice" when the outer callback returned.
+  ((test/nested-escape _)
+   (let* ((got '())
+          (winds '())
+          (outer (timsort/gen (lambda (a b)
+                                (set! got
+                                  (cons (call-with-current-continuation
+                                          (lambda (k)
+                                            (dynamic-wind
+                                              (lambda () (set! winds (cons 'in winds)))
+                                              (lambda ()
+                                                ((timsort/gen (lambda (x y)
+                                                                (dynamic-wind
+                                                                  (lambda () (set! winds (cons 'cin winds)))
+                                                                  (lambda () (k 'esc))
+                                                                  (lambda () (set! winds (cons 'cout winds)))))
+                                                              #f #f #f #t TIMSORT_USE_COMPARATOR)
+                                                 '(3 1 2)))
+                                              (lambda () (set! winds (cons 'out winds))))))
+                                        got))
+                                (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7)))
+     (⊨ (and (pair? got) (every (lambda (x) (eq? x 'esc)) got)))
+     ;; every wind of the caller's, inside the inner comparator or around the
+     ;; inner sort, ran once per escape
+     (⊦= (map (lambda (w) (length got)) '(in cin cout out))
+         (map (lambda (w) (count (lambda (x) (eq? x w)) winds)) '(in cin cout out))))
+   ;; three sorts deep, escaping from the innermost comparator to the outermost
+   (let ((outer (timsort/gen (lambda (a b)
+                               (call-with-current-continuation
+                                 (lambda (k)
+                                   ((timsort/gen (lambda (c d)
+                                                   ((timsort/gen (lambda (e f) (k 'deep)) #f #f #f #t TIMSORT_USE_COMPARATOR)
+                                                    '(3 1 2))
+                                                   (< c d))
+                                                 #f #f #f #t TIMSORT_USE_COMPARATOR)
+                                    '(9 8 7))))
+                               (< a b))
+                             #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7))))
+   ;; a failed in-place inner sort writes nothing back
+   (let* ((v (vector 3 1 2))
+          (outer (timsort/gen (lambda (a b)
+                                (call-with-current-continuation
+                                  (lambda (k)
+                                    ((timsort/vector/gen (lambda (x y) (k 0)) #t #f #f #t TIMSORT_USE_COMPARATOR) v)))
+                                (< a b))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)))
+     (⊦= '(1 2 5 7 9) (outer '(5 2 9 1 7)))
+     (⊦= '#(3 1 2) v))
+   ;; an escape past the outer sort as well reaches its target
+   (⊦= 'out
+       (call-with-current-continuation
+         (lambda (k)
+           ((timsort/gen (lambda (a b)
+                           ((timsort/gen (lambda (x y) (k 'out)) #f #f #f #t TIMSORT_USE_COMPARATOR) '(3 1 2))
+                           (< a b))
+                         #f #f #f #t TIMSORT_USE_COMPARATOR)
+            '(5 2 9 1 7)))))
+   (⊦= 0 (timsort-depth))
+   (⊦= '(1 2 3) ((timsort/gen < #f #f #f #t TIMSORT_USE_COMPARATOR) '(3 1 2))))
 
   )
 

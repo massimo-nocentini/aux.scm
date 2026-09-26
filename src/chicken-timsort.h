@@ -90,4 +90,10 @@ C_word C_timsort_vector(C_word src,
 size_t C_timsort_depth(void);
 void C_timsort_unwind(size_t depth);
 
+/* Fail the sort in flight at `depth' (what `C_timsort_depth' answered before
+   it started) at its next comparison, which answers -1 to the sort; the entry
+   point then returns #f.  For a comparator wrapper that stopped an escape
+   inside the callback.  See chicken-timsort.c. */
+void C_timsort_fail(size_t depth);
+
 #endif

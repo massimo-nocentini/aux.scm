@@ -66,6 +66,7 @@ typedef struct timsort_roots_s
     void *buffer;
     void *keys;
     void *ob_item;
+    int failed; /* set by `C_timsort_fail': the next comparison fails the sort */
 } timsort_roots_t;
 
 static timsort_roots_t *timsort_roots_pool = NULL;     /* free list */
@@ -103,6 +104,7 @@ static timsort_roots_t *timsort_roots_acquire(void)
     }
 
     r->ob_item = NULL;
+    r->failed = 0;
 
     r->next = timsort_inflight;
     timsort_inflight = r;
@@ -112,12 +114,19 @@ static timsort_roots_t *timsort_roots_acquire(void)
 }
 
 /* The normal path: drop the Scheme references, free the working array and
-   return the root set to the pool. */
-static void timsort_roots_release(void)
+   return the root set to the pool.  It is `r' that is unlinked, wherever it
+   sits, and not blindly the innermost set: one abandoned by an escape above
+   it is not this sort's to recycle.  A set already unwound is not on the
+   stack at all, and is left alone like every other unwound one. */
+static void timsort_roots_release(timsort_roots_t *r)
 {
-    timsort_roots_t *r = timsort_inflight;
+    timsort_roots_t **p = &timsort_inflight;
 
-    timsort_inflight = r->next;
+    while (*p != NULL && *p != r) p = &(*p)->next;
+
+    if (*p == NULL) return;
+
+    *p = r->next;
     timsort_inflight_depth--;
 
     timsort_roots_clear(r);
@@ -168,6 +177,25 @@ void C_timsort_unwind(size_t depth)
 
         timsort_roots_clear(r);
     }
+}
+
+/* Called from Scheme, inside a comparator callback, by the wrapper that a
+   sort nested in another puts around its comparator (see
+   `%timsort-catching'): the comparator escaped, the wrapper stopped the
+   escape before it could leave through these C frames, and the sort `depth'
+   levels deep -- the one that callback belongs to -- must now fail at once
+   rather than go on comparing.  The callback then returns normally,
+   `timsort_comparator' answers -1, and the sort unwinds through its own error
+   path. */
+void C_timsort_fail(size_t depth)
+{
+    timsort_roots_t *r = timsort_inflight;
+    size_t d;
+
+    /* The innermost set is the one at depth `timsort_inflight_depth - 1'. */
+    for (d = timsort_inflight_depth; r != NULL && d > depth + 1; d--) r = r->next;
+
+    if (r != NULL && d == depth + 1) r->failed = 1;
 }
 
 typedef struct
@@ -360,6 +388,9 @@ static int timsort_comparator(timsort_object_t *a, timsort_object_t *b, void *ar
     result = C_callback(CHICKEN_gc_root_ref(ctx->roots->comparator), 2);
 
     /* aw, bw and vector are stale from here on and must not be reused. */
+
+    /* -1 is `list_sort_impl''s error answer: it stops and returns -1 too. */
+    if (ctx->roots->failed) return -1;
 
     return C_truep(result) ? 1 : 0;
 }
@@ -582,7 +613,7 @@ C_word C_timsort(C_word in,
 
     if (list.ob_item == NULL)
     {
-        timsort_roots_release();
+        timsort_roots_release(ctx.roots);
         C_return(C_SCHEME_FALSE);
     }
 
@@ -626,7 +657,7 @@ C_word C_timsort(C_word in,
        wrapper already turns into an error. */
     if (res != 0)
     {
-        timsort_roots_release();
+        timsort_roots_release(ctx.roots);
         C_return(C_SCHEME_FALSE);
     }
 
@@ -661,7 +692,7 @@ C_word C_timsort(C_word in,
 
     result = inplace ? C_SCHEME_UNDEFINED : CHICKEN_gc_root_ref(ctx.roots->buffer);
 
-    timsort_roots_release();
+    timsort_roots_release(ctx.roots);
 
     C_return(result);
 }
@@ -820,7 +851,7 @@ C_word C_timsort_vector(C_word src,
 
     if (list.ob_item == NULL)
     {
-        timsort_roots_release();
+        timsort_roots_release(ctx.roots);
         C_return(C_SCHEME_FALSE);
     }
 
@@ -857,7 +888,7 @@ C_word C_timsort_vector(C_word src,
 
     if (res != 0)
     {
-        timsort_roots_release();
+        timsort_roots_release(ctx.roots);
         C_return(C_SCHEME_FALSE);
     }
 
@@ -927,7 +958,7 @@ C_word C_timsort_vector(C_word src,
 
     result = CHICKEN_gc_root_ref(ctx.roots->buffer);
 
-    timsort_roots_release();
+    timsort_roots_release(ctx.roots);
 
     C_return(result);
 }

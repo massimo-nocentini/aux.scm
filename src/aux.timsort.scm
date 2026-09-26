@@ -16,6 +16,118 @@
 
   (define timsort-depth (foreign-lambda size_t "C_timsort_depth"))
   (define timsort-unwind (foreign-lambda void "C_timsort_unwind" size_t))
+  (define timsort-fail (foreign-lambda void "C_timsort_fail" size_t))
+
+  ;; ------------------------------------------------------------------------
+  ;; An exit out of a sort that itself runs inside another sort's comparator.
+  ;;
+  ;; A comparator that raises, or that escapes through a continuation, leaves
+  ;; through the sort's C frames, which the runtime never unwinds.  That is
+  ;; harmless while no C frame is waiting for a callback of its own to return
+  ;; -- the exit just abandons ours -- but not when the sort runs inside
+  ;; another sort's comparator, and the handler that catches the raise, or the
+  ;; continuation the comparator escapes to, is inside that comparator too.
+  ;; Saved callback frames are strictly LIFO: when the outer callback returns,
+  ;; the runtime resumes the ABANDONED inner `C_callback' instead and hands it
+  ;; the outer result.  The inner sort then either raises again, outside the
+  ;; handler that already caught it, or completes into its finished
+  ;; continuation and the outer callback returns twice -- "[panic] callback
+  ;; returned twice".
+  ;;
+  ;; So a sort started while another is in flight (`timsort-depth' is not 0,
+  ;; which can only mean that we are in that sort's comparator) wraps its
+  ;; comparator in `%timsort-catching', which stops such an exit before it
+  ;; leaves the callback, fails the sort, and completes the exit from the sort
+  ;; call, in the caller's own continuation, where it is safe.
+  ;;
+  ;; Nesting is judged by this module's own count of the sorts in flight, and
+  ;; not by the runtime's `##sys#callback-continuation-stack': that stack is
+  ;; never popped when a callback is left by an exit, so after one caught raise
+  ;; out of any top-level sort it would stay non-empty for good.  The count
+  ;; is exact: an outermost sort's exit unwinds it to 0 (see `timsort/call'),
+  ;; and a nested one, wrapped, always returns through C.  The price is that a
+  ;; sort run inside some OTHER library's callback is not wrapped and keeps
+  ;; the runtime's own behaviour.
+  ;;
+  ;; Raises need nothing of their own.  The wrapper installs no exception
+  ;; handler: whatever the comparator raises, with whatever primitive, reaches
+  ;; its handlers exactly as it would in a top-level sort, is entered once,
+  ;; and a handler that RETURNS resumes the raise -- or not -- exactly as it
+  ;; would there, since a handler's return is not an exit.  Only an ESCAPE is
+  ;; an exit, whether the comparator invokes a continuation itself or a
+  ;; handler does (`handle-exceptions', `condition-case' and `guard' all
+  ;; escape).  It meets the after thunk of a `dynamic-wind' around the
+  ;; comparator once the winds inside the comparator are unwound and before
+  ;; any outside it are.  That thunk captures the rest of the escape as a
+  ;; continuation, and the wrapper fails the sort through `C_timsort_fail' and
+  ;; returns normally from the callback; the sort takes its error path (roots
+  ;; released, working array freed, nothing written back) and answers #f, and
+  ;; the sort call then invokes the captured continuation: the escape goes on
+  ;; from where it was stopped and reaches its target.  The winds between the
+  ;; comparator and the sort call -- the sort's own, which restores the
+  ;; call-chain buffer -- are unwound, re-entered by that invocation and
+  ;; unwound again, so theirs run twice; no wind of the caller's does.  An
+  ;; escape out of a sort nested several comparators deep is stopped and
+  ;; resumed that way once per nested sort it leaves.
+  ;;
+  ;; What cannot be kept is a RESUMPTION of the comparator once its sort has
+  ;; failed, or once it has answered: a continuation captured inside it and
+  ;; invoked afterwards.  The usual way to make one is a `guard' none of
+  ;; whose clauses matches: it re-raises, with `raise-continuable', from
+  ;; inside the handler it has already escaped from.  That re-raise reaches
+  ;; the next handler out as usual; if it escapes, fine -- the wind lets any
+  ;; exit through once the sort is gone.  If it returns, the comparator would
+  ;; answer to a sort that no longer waits for it, so an error is raised
+  ;; instead, at the point where it would answer.  In a sort not nested in
+  ;; another nothing detects such a resumption, and a comparator must not
+  ;; make one.
+  ;;
+  ;; A sort not nested in another pays nothing: only nested ones pay a
+  ;; `call/cc' and a `dynamic-wind' per comparison.
+  ;;
+  ;; `escape' is #f for a sort not nested in another, else a one-slot box:
+  ;; #f until an escape fails the sort, then the rest of that escape.  The
+  ;; box itself is what the wrapper's `call/cc' answers on an escape, so it
+  ;; cannot be mistaken for anything the comparator answers.
+  (define (%timsort-escape depth)
+    (and (> depth 0) (vector #f)))
+
+  (define ((%timsort-catching lt? escape depth) a b)
+    ;; True once the comparator has answered or has escaped: any later exit
+    ;; through the wind is let through, and any later answer refused.
+    (let* ((left #f)
+           (r (call-with-current-continuation
+                (lambda (stop)
+                  (dynamic-wind
+                    void
+                    (lambda ()
+                      (let ((v (lt? a b)))
+                        (when left
+                          (error 'timsort "a comparator was resumed after it had answered or its nested sort had failed" a b))
+                        (set! left #t)
+                        v))
+                    (lambda ()
+                      (unless left
+                        (set! left #t)
+                        ;; Invoked later from the sort call, this returns
+                        ;; from the thunk and the escape goes on.
+                        (call-with-current-continuation
+                          (lambda (rest)
+                            (vector-set! escape 0 rest)
+                            (timsort-fail depth)
+                            (stop escape))))))))))
+      ;; An escape answers #f to a sort that `timsort-fail' has already
+      ;; failed; C ignores the answer.
+      (if (eq? r escape) #f r)))
+
+  ;; What a sort whose foreign call answered #f does: complete the escape
+  ;; that failed it, if one did, else raise the allocation failure that #f
+  ;; otherwise means.
+  (define (%timsort-failed escape who n)
+    (let ((rest (and escape (vector-ref escape 0))))
+      (if rest
+          (rest #f) ; never returns: the escape reaches its target from here
+          (error who "cannot allocate the working array" n))))
 
   ;; ------------------------------------------------------------------------
   ;; The call-chain buffer, and why it is a sort parameter.
@@ -81,7 +193,8 @@
   ;; inner sort inside an outer one -- but two sorts that OVERLAP without
   ;; nesting can restore each other's sizes in the wrong order.  That needs a
   ;; comparator that yields to another thread, or one that escapes through a
-  ;; continuation into a second sort and back; a comparator must do neither.
+  ;; continuation into a second sort and is then re-entered, which the note
+  ;; on nested sorts above forbids too; a comparator must do neither.
   ;; Nothing here can detect it, so it is stated rather than guarded.
   ;; ------------------------------------------------------------------------
 
@@ -213,20 +326,25 @@
            (requested (and (eq? comparator_type TIMSORT_USE_COMPARATOR)
                            (timsort-trace-buffer-size)))
            (previous #f)
-           (depth (timsort-depth)))
+           (depth (timsort-depth))
+           (escape (%timsort-escape depth)))
       ;; A comparator that raises, or that escapes through a continuation
       ;; captured outside the sort, never lets C_timsort return and drop the
-      ;; roots holding `elements'; they are dropped here instead.  The trace
-      ;; buffer is restored from the same thunk and after that unwind, so all
-      ;; three exits -- returning, raising, and a continuation captured
-      ;; outside the sort -- put back the size this level observed.  Nesting
-      ;; is then correct by construction: each level restores what it saw.
+      ;; roots holding `elements'; they are dropped here instead.  (Unless
+      ;; the sort is nested in another: then `%timsort-catching' fails it,
+      ;; C_timsort returns #f, and `%timsort-failed' completes the exit
+      ;; after this wind has been left.)  The trace buffer is restored from
+      ;; the same thunk and after that unwind, so all three exits --
+      ;; returning, raising, and a continuation captured outside the sort --
+      ;; put back the size this level observed.  Nesting is then correct by
+      ;; construction: each level restores what it saw.
       (or (dynamic-wind
             (lambda ()
               (when (and requested (not (eq? requested (timsort-trace-buffer-size/current))))
                 (set! previous (%timsort-resize-trace-buffer requested))))
             (lambda ()
-              (timsort-foreign lst size lt? new-lst elements keys inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type))
+              (timsort-foreign lst size (if escape (%timsort-catching lt? escape depth) lt?)
+                               new-lst elements keys inplace reverse use-insertion-sort be-unpredictable-on-random-data comparator_type))
             (lambda ()
               (timsort-unwind depth)
               (when previous
@@ -235,9 +353,10 @@
           ;; Nothing but the call's own result may be named after the foreign
           ;; call: whatever this continuation closes over is pinned for the
           ;; life of the process when a comparator escapes non-locally, since
-          ;; CHICKEN never unwinds such a frame.  `size' is a fixnum and
-          ;; `previous' a fixnum or #f; neither reaches the elements.
-          (error 'timsort "cannot allocate the working array" size))))
+          ;; CHICKEN never unwinds such a frame.  `size' is a fixnum,
+          ;; `previous' a fixnum or #f, and `escape' #f whenever the sort
+          ;; can be abandoned that way: only a sort not nested in another can.
+          (%timsort-failed escape 'timsort size))))
 
   (define TIMSORT_USE_COMPARATOR (foreign-value "TIMSORT_USE_COMPARATOR" int))
   (define TIMSORT_USE_LESS_THAN (foreign-value "TIMSORT_USE_LESS_THAN" int))
@@ -312,17 +431,19 @@
   ;; message mentions a fixnum it already had.  This is NOT the GC-safety
   ;; rule; see the note at the top of chicken-timsort.c.
   (define (%timsort/vector-call lt? src dst keys n reverse use-insertion-sort be-unpredictable-on-random-data comparator_type)
-    (let ((depth (timsort-depth)))
+    (let* ((depth (timsort-depth))
+           (escape (%timsort-escape depth)))
       ;; Same escape unwind as the list path: a comparator that raises or
       ;; escapes never lets C drop the roots holding `src', `dst' and `keys'.
+      ;; And the same catching of an escape when the sort is nested in another.
       (or (dynamic-wind
             void
             (lambda ()
-              (timsort-vector-foreign src n lt? dst keys
+              (timsort-vector-foreign src n (if escape (%timsort-catching lt? escape depth) lt?) dst keys
                                       reverse use-insertion-sort
                                       be-unpredictable-on-random-data comparator_type))
             (lambda () (timsort-unwind depth)))
-          (error 'timsort/vector "cannot allocate the working array" n))))
+          (%timsort-failed escape 'timsort/vector n))))
 
   ;; A `!' variant sorts `v' in place and RETURNS it, the way `sort!' does; the
   ;; others return a FRESH vector and leave `v' untouched.  Sorting in place
