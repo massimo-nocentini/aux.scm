@@ -1986,16 +1986,19 @@
                 ws)
       r))
 
-  (define (%barrier-error msg e) (τ (%atomic-end) (%cml-raise 'barrier msg e)))
+  ; a misuse raises from the poll itself, which abandons the sync (setting its nacks, see
+  ; %sync-on-grp) whatever its other branches: an enabled event raising at its commit was only
+  ; chosen when no other branch was enabled, so the misuse went unnoticed otherwise
+  (define (%barrier-error msg e) (set! %atomic-state 'non-atomic) (%cml-raise 'barrier msg e))
 
   ; the event form of Barrier.wait: its value is the new state
   (define (barrier-wait-evt e)
     (%base-evt
       (τ (let1 (b (%enrollment-barrier e))
            (cond
-             ((eq? 'resigned (%enrollment-status e)) (make-%enabled -1 (%barrier-error "barrier wait after resignation" e)))
+             ((eq? 'resigned (%enrollment-status e)) (%barrier-error "barrier wait after resignation" e))
              ((or (%enrollment-waiting? e) (eqv? %sync-count (%enrollment-polled e)))
-               (make-%enabled -1 (%barrier-error "multiple barrier waits" e)))
+               (%barrier-error "multiple barrier waits" e))
              ((begin (%enrollment-polled-set! e %sync-count) (%barrier-last-arrival? b))
                (make-%enabled -1 (τ (let1 (r (%barrier-complete! b)) (%atomic-end) (%result-value r)))))
              (else (make-%blocked

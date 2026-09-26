@@ -1385,6 +1385,27 @@
                           (note! (raised-or (exn cml barrier) (sync (barrier-wait-evt ea))))
                           (cml/shutdown)))))))
 
+  ((test/barrier/misuse-raises-whatever-the-other-branches _)
+   ; a misused wait raises even when another branch of its sync is enabled (it was an enabled event
+   ; raising at its commit, so the other branch was chosen as often as not): two waits on one
+   ; enrollment that is the last arrival (the round did complete), and a resigned enrollment's
+   ; wait next to an always event, either way round; the sync is abandoned, its nacks set, and
+   ; the round is left as it was.  A poll raises outside every wrap-handler of the event (which
+   ; covers its commit and wraps only), so the handler does not see the misuse
+   (⊦= '(raised raised raised raised raised nacked 1)
+       (cdr (run/log (τ (let* ((b (make-barrier 0 add1)) (e (barrier-enroll b)) (b2 (make-barrier 0 add1)) (r (barrier-enroll b2)))
+                          (note! (raised-or (exn cml barrier) (select (barrier-wait-evt e) (barrier-wait-evt e))))
+                          (barrier-resign r)
+                          (note! (raised-or (exn cml barrier) (select (barrier-wait-evt r) (always-evt 'ok))))
+                          (note! (raised-or (exn cml barrier) (select (always-evt 'ok) (barrier-wait-evt r))))
+                          (note! (raised-or (exn cml barrier) (sync (wrap-handler (barrier-wait-evt r) (λ (x) 'handled)))))
+                          (note! (raised-or (exn cml barrier)
+                                   (select (barrier-wait-evt r)
+                                           (with-nack (λ (nack) (spawn (τ (sync nack) (note! 'nacked))) (always-evt 'ok))))))
+                          (cml/sleep 0.01)
+                          (note! (barrier-wait e))
+                          (cml/shutdown)))))))
+
   ((test/barrier/update-raises _)
    (⊦= '((b raised) (a raised) 5 (b 6) (a 6))
        (cdr (run/log (τ (let* ((b (make-barrier 5 (let1 (n 0) (λ (x) (set! n (add1 n)) (if (= n 1) (error "no") (add1 x))))))

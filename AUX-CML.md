@@ -61,7 +61,7 @@ everything it defines (`(module (aux cml) * ...)`). The file has three parts:
 
 Each part starts with a `;;` header comment that holds its design notes and its deviations from
 ML. The test suites are `src/test/cml.scm`, `src/test/cml-lib.scm` and `src/test/cml-io.scm`
-(214 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
+(215 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
 `src/aux.egg` as `(extension aux.cml)` and the suites run with `make test-cml` in `src/`.
 
 The port targets CHICKEN **6** (it was developed against 6.0.1pre1, binary version 12). It
@@ -363,10 +363,11 @@ outside the atomic region, at the continuation of the `sync` (deviation: see
 commit or the wrap functions inside it raise a condition `e`, the value is `(h e)`. The handler
 covers only its own branch (deviation: in ML it also caught what other branches' wraps raised
 after a blocked sync). Nested handlers apply innermost first. A handler does not cover guard or
-`with-nack` bodies. Each handler is a `condition-case` frame around the wrap functions inside
-it, so those do not run in tail position: a loop that recurses from a wrap under a
-`wrap-handler` nests one frame per iteration and costs O(depth) per thread switch (recurse
-outside the handler).
+`with-nack` bodies, nor a poll that raises (a bad argument, a misused barrier wait: see
+[4.8](#48-barriers-the-fixed-algorithm)), which `sync` itself raises. Each handler is a
+`condition-case` frame around the wrap functions inside it, so those do not run in tail
+position: a loop that recurses from a wrap under a `wrap-handler` nests one frame per iteration
+and costs O(depth) per thread switch (recurse outside the handler).
 
 **`(guard thunk)`** (ML `guard`): `thunk` runs at every sync on the event, before any polling,
 and must return an event (else an `(exn)` error is raised).
@@ -1200,9 +1201,16 @@ distinct transactions in `waiting`, stale ones included: an upper bound on the l
 
 The poll of `barrier-wait-evt e`:
 
-1. `e` resigned: enabled with a do-thunk that raises "barrier wait after resignation".
+1. `e` resigned: the poll raises "barrier wait after resignation".
 2. `e` already has a live entry, or was already polled by this sync (`polled` = `%sync-count`):
-   enabled, raising "multiple barrier waits".
+   the poll raises "multiple barrier waits".
+
+   A poll that raises abandons the sync, setting its nacks ([4.4](#44-the-sync-algorithm)),
+   whatever its other branches: an enabled event raising at its commit (as in earlier versions)
+   was chosen only when it won the selection, so next to another enabled branch the misuse went
+   unnoticed as often as not. The misuse is thus a poll-time error, raised by `sync` itself: a
+   `wrap-handler` on the wait event never sees it (it covers the commit and the wraps only;
+   earlier versions, raising at the commit, gave the handler's value).
 3. Otherwise record the sync number and ask `%barrier-last-arrival?`: the round is complete if
    the other enrolled threads all wait. The exact count (the distinct live transactions, an
    O(waiters) scan that also drops stale entries) is done only when the bound `distinct + 1`
@@ -1839,7 +1847,7 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 
 ### 7.3 Inventory
 
-214 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
+215 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
 
 | File | Suite | Cases | What it covers |
 |---|---|---|---|
@@ -1848,7 +1856,7 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 | | `cml-time-suite` | 10 | timeout order, duration, zero and past deadlines, LIFO ties, `sync/timeout` (and 0 as a poll), a yield loop cannot starve timeouts, many sleepers (ratio), losing timeouts dropped, cancelled waits not woken |
 | | `cml-syncvar-suite` | 10 | ivar and mvar semantics, predicates, kind checks, condition predicates, relay chains, losing waiters dropped, many waiters in linear time, many deaths in linear time, `Result` |
 | | `cml-mailbox-suite` | 3 | ordering, blocking receive, predicates |
-| | `cml-barrier-suite` | 9 | rounds (and in linear time), wake order, resignation completing a round, raising update, the ML documentation example, predicates, one sync counted once, a wait event losing a choice |
+| | `cml-barrier-suite` | 10 | rounds (and in linear time), wake order, resignation completing a round, raising update, the ML documentation example, predicates, one sync counted once, a wait event losing a choice, misuse raising whatever the other branches (and past a `wrap-handler`) |
 | | `cml-cleanup-suite` | 9 | cleaners and their times, logged channels (against a control), `cml/unlog-all!`, stale entries across runs, stale waiters of blocking operations, bad registrations, the registration lock given back by a dying thread, logged servers, `cml/debug` |
 | | `cml-os-suite` | 7 | `io-evt` on a pipe, `poll-evt`, a yield loop cannot starve I/O, idle waiters do not slow others (timing), `process-evt` (and bad pids), a pending child keeps the run alive |
 | | `cml-examples-suite` | 2 | a prime sieve of threads and channels, a server with `with-nack` |
