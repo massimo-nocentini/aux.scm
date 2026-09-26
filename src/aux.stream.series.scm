@@ -195,9 +195,9 @@
                           Y)))))
 
   (define series:log₂
-    (letrec ((summands (λ§ (n)
-                           (stream:cons (⁻¹ n) ((stream:map -) (summands (add1 n)))))))
-      ((stream:scan +) (summands 1))))
+    (letrec ((summands (λ§ (n sign) ; carrying the sign, not a stream:map - per term, keeps it linear
+                           (stream:cons (* sign (⁻¹ n)) (summands (add1 n) (- sign))))))
+      ((stream:scan +) (summands 1 1))))
 
   (define series:Euler-transform
     (λ§ (s)
@@ -454,9 +454,9 @@
                        (series:× t taylor/fibonacci)))))
 
   (define taylor/π
-    (letrec ((summands (λ§ (n)
-                           (stream:cons (⁻¹ n) ((stream:map -) (summands (+ n 2)))))))
-      ((series:* 4) ((stream:scan +) (summands 1)))))
+    (letrec ((summands (λ§ (n sign) ; carrying the sign, not a stream:map - per term, keeps it linear
+                           (stream:cons (* sign (⁻¹ n)) (summands (+ n 2) (- sign))))))
+      ((series:* 4) ((stream:scan +) (summands 1 1)))))
 
 
   )
