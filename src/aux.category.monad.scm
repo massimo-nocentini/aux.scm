@@ -46,6 +46,16 @@
       ((do/monad (let (p ...) expr) body body* ...) (match1/first ((p ...) expr) (do/monad body body* ...)))
       ((do/monad (let var (unquote expr)) body body* ...) (do/monad (let var expr) body body* ...))
       ((do/monad (let var expr) body body* ...) (let1 (var expr) (do/monad body body* ...)))
+      ; a trailing binder would otherwise fall to the catch-all below and be emitted verbatim,
+      ; failing at run time as an application of the unbound ← or as a malformed named let;
+      ; only a trailing (let ((v init) ...) body) is left alone, being an ordinary Scheme let,
+      ; unless its first element is ,x or starts with ,x: no Scheme let binds that, so it is a
+      ; pattern binder; any other trailing (let binder body), such as (let (_ . ,b) body), is one too.
+      ((do/monad (← clause ...)) (syntax-error "do/monad: a binding clause cannot end the block" (← clause ...)))
+      ((do/monad (let ((unquote x) . p) expr)) (syntax-error "do/monad: a binding clause cannot end the block" (let ((unquote x) . p) expr)))
+      ((do/monad (let (((unquote x) . q) . p) expr)) (syntax-error "do/monad: a binding clause cannot end the block" (let (((unquote x) . q) . p) expr)))
+      ((do/monad (let ((v init) ...) expr)) (let ((v init) ...) expr))
+      ((do/monad (let binder expr)) (syntax-error "do/monad: a binding clause cannot end the block" (let binder expr)))
       ((do/monad (unquote expr)) (do/monad (M:return expr)))
       ((do/monad (unquote expr) body ...) (do/monad (← _ (unquote expr)) body ...))
       ((do/monad expr) expr)

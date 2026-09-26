@@ -1,5 +1,5 @@
 
-(import (aux unittest) (aux base) (aux stream) (aux category list) (aux category monad list) (aux category monad plus list))
+(import (chicken condition) (chicken string) (aux unittest) (aux base) (aux stream) (aux category list) (aux category monad list) (aux category monad plus list))
 
 (define-suite category-list-suite
 
@@ -45,6 +45,24 @@
             ,(list c a b)))
       `(doc "As in " (code ←) " clauses, the right-hand side of a " (code let) " clause may be written " (code ",expr") 
             "; since " (code let) " binds a pure value, " (code ",expr") " is the same as " (code expr) "."))
+
+  ((test/trailing-binding _)
+      (let ((rejected? (λ (form) 
+                         (condition-case (begin (eval form) #f)
+                           (e (exn syntax) (and (substring-index "do/monad: a binding clause cannot end the block"
+                                                                 ((condition-property-accessor 'exn 'message) e))
+                                                #t))))))
+        (⊨ (rejected? '(do/monad (← x (list 1 2)))))
+        (⊨ (rejected? '(do/monad (← (,x) ,1))))
+        (⊨ (rejected? '(do/monad (← x ,1) (let y x))))
+        (⊨ (rejected? '(do/monad (← x ,1) (let (,a . ,b) (cons x 2)))))
+        (⊨ (rejected? '(do/monad (← x ,1) (let (,a ,b) (list x 2)))))
+        (⊨ (rejected? '(do/monad (← x ,1) (let ((,a ,b) . ,c) (list (list x 2) 3)))))
+        (⊨ (rejected? '(do/monad (← x ,1) (let (_ . ,b) (cons x 2)))))
+        (⊨ (rejected? '(do/monad (← x ,1) (let (a ,b) (list x 2)))))
+        (⊦= '(2) (do/monad (← x ,1) (let ((y x)) (list (+ x y))))))
+      `(doc "A " (code ←) " or " (code let) " clause binds variables for the clauses that follow it, "
+            "so ending a block with one is rejected when the block is expanded; a trailing ordinary " (code let) " form is still just an expression."))
 
   ((test/pattern-mismatch _)
       (⊦= '((1 2) (3 4)) 
