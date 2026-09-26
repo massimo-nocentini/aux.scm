@@ -63,7 +63,13 @@
          (Comb
            (Comb (Id 'p) (Id 'b))
            (Id 'a))))
-     (curryfy '(p (f a c) (m c (p b a))))))
+     (curryfy '(p (f a c) (m c (p b a)))))
+
+   ; new: a combination in operator position, as the printer writes `(p a b)` back.
+   (⊦= (Comb (Comb (Id 'p) (Id 'a)) (Id 'b)) (curryfy '((p a) b)))
+   (⊦= (curryfy '(p a b)) (curryfy '((p a) b)))
+   (⊦= (Comb (Comb (Comb (Id 'm) (Id 'c)) (Comb (Id 'f) (Id 'a))) (Id 'b))
+       (curryfy '((m c (f a)) b))))
 
   ((test/printer _)
    (⊦= "((p a) b)"

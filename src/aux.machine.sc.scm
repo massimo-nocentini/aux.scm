@@ -55,12 +55,13 @@
   (set-record-printer! %Id (λ (c out) (format out "~a" (%Id-identifier c))))
   (set-record-printer! %Comb (λ (c out) (format out "(~a ~a)" (%Comb-rator c) (%Comb-rand c))))
 
-  (define curryfy (foldl1
-                    (λ (acc c)
-                      (cond
-                        ((list? c) (Comb acc (curryfy c)))
-                        (else (Comb acc (Id c)))))
-                    H₀: (λ (i) (Id i))))
+  ; the operator is curried as any operand is, so `((p a) b)` reads back as `(p a b)`.
+  (define curryfy
+    (let1 (C (λ (c)
+               (cond
+                 ((list? c) (curryfy c))
+                 (else (Id c)))))
+      (foldl1 (λ (acc c) (Comb acc (C c))) H₀: C)))
 
   (define value
     (λ (E)
