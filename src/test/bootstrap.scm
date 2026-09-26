@@ -125,6 +125,14 @@
              (unittest/testsuite-run suite r bootstrap-sut)
              (⊦= '((ran 2) (failed 0)) (unittest/result-summary r))))
 
+  ((test-⊦=-infinities tc _ _)
+   (⊦= +inf.0 +inf.0)
+   (⊦= -inf.0 -inf.0)
+   (⊦= '(1 +inf.0) (list 1.0000001 +inf.0))
+   (⊭ ((equal-approx? 0.000001) +inf.0 -inf.0))
+   (⊭ ((equal-approx? 0.000001) +inf.0 1e300))
+   (⊭ ((equal-approx? 0.000001) +nan.0 +nan.0)))
+
   ((test-⊨ tc _ _) (⊨ #t))
 
   ((test-⊭ tc _ _) (⊭ #f))

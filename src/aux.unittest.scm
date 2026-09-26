@@ -134,7 +134,8 @@
   (define (equal-approx? p) 
     (letrec ((? (lambda (a b)
                   (cond
-                    ((and (real? a) (real? b)) (< (abs (- a b)) p))
+                    ; = first: equal infinities differ by +nan.0, which is not < p
+                    ((and (real? a) (real? b)) (or (= a b) (< (abs (- a b)) p)))
                     ((and (pair? a) (pair? b)) (and (? (car a) (car b)) (? (cdr a) (cdr b))))
                     (else (equal=? a b))))))
       ?))
