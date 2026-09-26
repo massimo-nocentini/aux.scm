@@ -1486,6 +1486,32 @@
          (⊦= 1 (anthropic-stub/count stub))
          (⊦= '() waits)))))
 
+  ((test/anthropic/retry/truncated-2xx-body _)
+   ; a 200 whose connection dies mid-body -- the close answers curl's exit 18 -- and then a
+   ; clean 200.  The first used to escape as a retryable transport error, budget unused.
+   (let ((calls 0) (waits '()))
+     (parameterize ((anthropic/api-key anthropic-test/key)
+                    (anthropic/sleep (λ (s) (push! s waits)))
+                    (anthropic/retries 3)
+                    (anthropic/backoff-jitter #f)
+                    (anthropic/transport
+                      (λ (url headers body stream?)
+                        (add1! calls)
+                        (if (= calls 1)
+                            (make-anthropic-wire 200 '(("content-type" "application/json")) '(cut)
+                                                 (open-input-string "{\"id\":\"msg_01\",\"ty")
+                                                 (τ (values 18 "curl: (18) transfer closed")))
+                            (make-anthropic-wire 200 '(("content-type" "application/json")) '(ok)
+                                                 (open-input-string fixture/response/text)
+                                                 (τ (values 0 "")))))))
+       (⊦= "Paris." (anthropic-response/text
+                      (anthropic/messages (list (anthropic-message/user "hi")))))
+       (⊦= 2 calls)
+       (⊦= '(1.0) waits)))
+   `(doc (p "curl's exit 18, a transfer that ended prematurely, is marked retryable -- and a "
+            "5xx wire carrying it was retried -- but a 2xx body was read only after the retry "
+            "loop had returned. It is now read inside the loop.")))
+
   ; -- define-tool -------------------------------------------------------------------------------
 
   ((test/anthropic/tools/schema/required-and-enum _)

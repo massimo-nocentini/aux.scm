@@ -1148,6 +1148,12 @@
   ; The retry loop catches only `anthropic-error` on purpose: a bug inside a user-supplied
   ; transport is not a network failure and must surface raw.  It also resolves the key once per
   ; call rather than per attempt, so a key rotated mid-retry is not picked up -- deliberate.
+  ;
+  ; A blocking 2xx body is drained HERE, inside the loop, and the wire handed back reads it from
+  ; a string.  Drained later, a connection that died mid-body -- curl exit 18, which the table
+  ; above calls transient -- escaped with the whole budget unused, while the same exit on a 5xx
+  ; was retried; re-POSTing after a truncated 2xx is no less safe than after a 5xx.  A streaming
+  ; wire is returned undrained: a stream is never retried (see anthropic/stream).
   (define (anthropic-send body #!key (stream #f) (betas (anthropic/betas)))
     (let ((transport (anthropic/transport))
           (url (anthropic/base-url))
@@ -1158,11 +1164,15 @@
         (let1 (outcome
                 (condition-case
                   (let1 (w (transport url headers body stream))
-                    (if (anthropic-status/ok? (anthropic-wire-status w))
-                        (list 'ok w)
-                        (let1 (text (anthropic-wire/drain! w))
-                          (anthropic-raise/api (anthropic-wire-status w)
-                                               (anthropic-wire-headers w) text))))
+                    (cond
+                      ((not (anthropic-status/ok? (anthropic-wire-status w)))
+                       (let1 (text (anthropic-wire/drain! w))
+                         (anthropic-raise/api (anthropic-wire-status w)
+                                              (anthropic-wire-headers w) text)))
+                      (stream (list 'ok w))
+                      (else
+                        (anthropic-wire-port-set! w (open-input-string (anthropic-wire/drain! w)))
+                        (list 'ok w))))
                   (c (anthropic-error) (list 'raised c))))
           (match/first outcome
             ((ok ,w) w)
