@@ -572,6 +572,7 @@
    (⊦= 6 (anthropic-json/utf8-length "caffè"))
    (⊦= 3 (anthropic-json/utf8-length "一"))
    (⊦= 0 (anthropic-json/utf8-length ""))
+   (⊦= 4 (anthropic-json/utf8-length "😀"))
    (⊦≠ (string-length "caffè 一 ok") (anthropic-json/utf8-length "caffè 一 ok"))
    `(doc (p (code/inline "simdjson-parse/ondemand") " used to hand the C side "
             (code/inline "string-length") ", a CHARACTER count, where simdjson wants BYTES. "

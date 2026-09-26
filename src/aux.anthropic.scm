@@ -493,19 +493,14 @@
 
   ; parsing ---------------------------------------------------------------------------------
   ;
-  ; The byte count is hand-computed rather than taken from the FFI because the callback wants
-  ; BYTES and `string-length` answers in CHARACTERS -- not because the FFI is out of reach.  This
-  ; very procedure drives `simdjson-parse-ondemand-callback`, a foreign-lambda, from the same
-  ; interpreted `csi -s` suite: a compiled extension loads into csi perfectly well.
+  ; The callback wants BYTES and `string-length` answers in CHARACTERS.  A CHICKEN 6 string is
+  ; UTF-8 inside, so the byte count is the length of its UTF-8 copy: one primitive copy instead of
+  ; a walk summing per-codepoint widths, which cost ~30 ms on a 1 MB body -- and this runs on
+  ; every response body and every SSE frame.  This very procedure drives
+  ; `simdjson-parse-ondemand-callback`, a foreign-lambda, from the same interpreted `csi -s`
+  ; suite: a compiled extension loads into csi perfectly well.
 
-  (define (anthropic-json/utf8-length s)
-    (let1 (n (string-length s))
-      (let L ((i 0) (acc 0))
-        (if (= i n)
-            acc
-            (let1 (u (char->integer (string-ref s i)))
-              (L (add1 i)
-                 (+ acc (cond ((< u #x80) 1) ((< u #x800) 2) ((< u #x10000) 3) (else 4)))))))))
+  (define (anthropic-json/utf8-length s) (bytevector-length (string->utf8 s)))
 
   (define (anthropic-json/parse s)
     (unless (anthropic-json/well-formed? s)
