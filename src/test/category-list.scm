@@ -37,6 +37,15 @@
             ,(+ a b)))
       `(doc "A " (code let) " clause may destructure a pure value with a pattern, binding its variables for the rest of the block."))
 
+  ((test/let-unquote _)
+      (⊦= '((3 1 2))
+      (do/monad
+            (let a ,1)
+            (let (,b . ,c) ,(cons 2 3))
+            ,(list c a b)))
+      `(doc "As in " (code ←) " clauses, the right-hand side of a " (code let) " clause may be written " (code ",expr") 
+            "; since " (code let) " binds a pure value, " (code ",expr") " is the same as " (code expr) "."))
+
   ((test/pattern-mismatch _)
       (⊦= '((1 2) (3 4)) 
       (do/monad

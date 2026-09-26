@@ -41,7 +41,10 @@
                          (else (M:fail "do/monad: pattern mismatch" '(pat ...) v))))))
       ((do/monad (← var (unquote expr)) body body* ...) (do/monad (← var (M:return expr)) body body* ...))
       ((do/monad (← var expr) body body* ...) (▷ expr (λ (var) (do/monad body body* ...))))
+      ; a let binds a pure value, so its ,expr right-hand side is just expr
+      ((do/monad (let (p ...) (unquote expr)) body body* ...) (do/monad (let (p ...) expr) body body* ...))
       ((do/monad (let (p ...) expr) body body* ...) (match1/first ((p ...) expr) (do/monad body body* ...)))
+      ((do/monad (let var (unquote expr)) body body* ...) (do/monad (let var expr) body body* ...))
       ((do/monad (let var expr) body body* ...) (let1 (var expr) (do/monad body body* ...)))
       ((do/monad (unquote expr)) (do/monad (M:return expr)))
       ((do/monad (unquote expr) body ...) (do/monad (← _ (unquote expr)) body ...))
