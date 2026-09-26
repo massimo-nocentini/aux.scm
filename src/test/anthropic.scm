@@ -649,8 +649,25 @@
    (⊦= '((a 1) (b 2)) (anthropic-json/set '((a 1)) 'b 2))
    (⊦= '((a 1) (b 3) (c 4)) (anthropic-json/merge '((a 1) (b 2)) '((b 3) (c 4))))
    (⊦= '((a 1)) (anthropic-json/merge '((a 1)) '()))
+   ; a string key replaces its symbol twin, and another string, instead of duplicating it
+   (⊦= "{\"output_config\":2}"
+       (anthropic-json/write (anthropic-json/set (anthropic-json/set '() "output_config" 1)
+                                                 "output_config" 2)))
+   (⊦= "{\"model\":\"x\",\"max_tokens\":5}"
+       (anthropic-json/write (anthropic-json/merge '((model "m") (max_tokens 100))
+                                                   '(("model" "x") (max_tokens 5)))))
+   (⊦= "{\"model\":\"claude-haiku-4-5\",\"max_tokens\":16000,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
+       (anthropic-json/write (anthropic-request/body (list (anthropic-message/user "hi"))
+                                                     extra: '(("model" "claude-haiku-4-5")))))
+   ; and the replaced entry keeps its ORIGINAL key, so assq-based ref and has? still find it
+   (let1 (o (anthropic-json/set '((model "m") (max_tokens 1)) "model" "x"))
+     (⊦= '((model "x") (max_tokens 1)) o)
+     (⊦= "x" (anthropic-json/ref o 'model 'missing))
+     (⊦= #t (anthropic-json/has? o 'model)))
    `(doc (p "Replacement is in place so that key ORDER survives, which is what makes a "
-            "streamed message land in the same shape as a blocking one.")))
+            "streamed message land in the same shape as a blocking one. Keys match by NAME: "
+            "the encoder accepts string keys, and an " (code/inline "extra") " spelled with "
+            "them used to be appended as a duplicate key, of which the server keeps one.")))
 
   ; -- request building ---------------------------------------------------------------------
 

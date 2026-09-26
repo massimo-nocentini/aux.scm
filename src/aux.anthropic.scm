@@ -624,11 +624,21 @@
 
   (define (anthropic-json/vector->list v) (if (vector? v) (vector->list v) '()))
 
+  ; A key is compared by NAME, not with eq?: the encoder takes a string key as readily as a
+  ; symbol, and "model" is not eq? to model -- nor to another "model" -- so an `extra` spelled
+  ; with strings would be appended as a SECOND key, which the server resolves by silently
+  ; keeping only one of the two.  A hit keeps the key it found, so that setting "model" on a
+  ; decoded object leaves the symbol `model` in place for `ref` and `has?`, which use assq.
+  (define (anthropic-json/key=? a b)
+    (or (eq? a b)
+        (equal? (if (symbol? a) (symbol->string a) a) (if (symbol? b) (symbol->string b) b))))
+
   (define (anthropic-json/set obj key val)
     (let L ((o obj) (acc '()) (hit #f))
       (cond
         ((not (pair? o)) (reverse (if hit acc (cons (list key val) acc))))
-        ((eq? key (car (car o))) (L (cdr o) (cons (list key val) acc) #t))
+        ((anthropic-json/key=? key (car (car o)))
+         (L (cdr o) (cons (list (car (car o)) val) acc) #t))
         (else (L (cdr o) (cons (car o) acc) hit)))))
 
   ; `foldl` in CHICKEN passes the ACCUMULATOR first -- verified -- so (λ (o kv) ...) is the order.
