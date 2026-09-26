@@ -243,6 +243,9 @@
                "before 1970-01-01T00:00:00Z: the numeral of (aux kanren arith) is unsigned" n)
         (build-num n)))
 
+  ;;; The day-count numeral a stride over the weekday `w` starts from.
+  (define (weekday-anchor w) (number->numeral (vector-ref weekday-epoch-day (weekday-index w))))
+
   ;;; Duration builders, so that a shift reads as a duration and not as a
   ;;; multiplication.  The arithmetic is done in Scheme at goal-construction
   ;;; time precisely BECAUSE `*°` at this magnitude costs seconds.
@@ -433,6 +436,9 @@
 
   (define DAY (build-num 86400))
 
+  ;;; Its counterpart in day-space, the step of every weekday stride in layer 3.
+  (define WEEK (build-num days/week))
+
   ;;; `t = d·86400 + sod`, with `0 <= sod < 86400`.
   ;;;
   ;;; The PURE definition of this relation is the `else` branch:
@@ -593,9 +599,7 @@
           ((never-numeral? day*) ✗°)
           (Z (=° w (weekday-of-day Z)))
           ((weekday-name? w*)
-           (stride° (number->numeral (vector-ref weekday-epoch-day (weekday-index w*)))
-                    (number->numeral days/week)
-                    day))
+           (stride° (weekday-anchor w*) WEEK day))
           ((μkanren-var? w*) (and° (numeral° day) (δ° (day-of-week° day w))))
           (else ✗°)))))
 
@@ -638,15 +642,12 @@
            (stride/≤° (number->numeral
                         (+ L (modulo (- (weekday-index w*) (weekday-index (weekday-of-day L)))
                                      days/week)))
-                      (number->numeral days/week)
+                      WEEK
                       hi
                       day))
           ((weekday-name? w*)
            (and° (not-before° day lo)
-                 (stride/≤° (number->numeral (vector-ref weekday-epoch-day (weekday-index w*)))
-                            (number->numeral days/week)
-                            hi
-                            day)))
+                 (stride/≤° (weekday-anchor w*) WEEK hi day)))
           ;;; `w` is what the two fast branches need, so `w` is what the
           ;;; fallback must generate.  Generating `day` instead -- the obvious
           ;;; move, since `day` is the answer -- LOOPS: the re-entry still finds
