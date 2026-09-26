@@ -79,6 +79,7 @@
           (chicken condition)
           (chicken file)
           (chicken file posix)
+          (only (chicken fixnum) fx= fx< fx> fx>= fx+ fx- fx* fxneg)   ; the JSON number gate
           (chicken flonum)
           (chicken io)
           (chicken keyword)
@@ -285,6 +286,57 @@
         (and (char>=? c #\a) (char<=? c #\f))
         (and (char>=? c #\A) (char<=? c #\F))))
 
+  ; The JSON number grammar is not enough.  simdjson reads a literal with a `.` or an exponent as
+  ; a double and THROWS NUMBER_ERROR when it rounds to infinity -- `1e309`, `-1e999` -- and also
+  ; when the exponent field has twenty or more digits, leading zeros included, whatever its value.
+  ; A literal without either is read as an integer, never as a double, and never throws here.
+  ;
+  ; `string->number` cannot decide the rounding: it is not correctly rounded on this CHICKEN --
+  ; it answers +inf.0 for 1.7976931348623158e308, which simdjson reads as the largest finite
+  ; double -- and on a huge exponent it builds the exact power of ten.  So the magnitude is
+  ; decided on the digits instead.  Writing the value as 0.DDD * 10^q with D1 non-zero, it
+  ; overflows exactly when it reaches 2^1024 - 2^970, the midpoint between the largest double
+  ; and 2^1024 (the midpoint rounds up, to even); that bound has 309 digits, so only q = 309 needs
+  ; the digits themselves, and there a string comparison of the two digit runs is the numeric one.
+  (define anthropic-json/overflow-digits (number->string (- (expt 2 1024) (expt 2 970))))
+
+  ; `s[m, b)` is a literal that already matched the number grammar, less its sign, with a
+  ; fraction or an exponent: its integer digits end at `dot` and its exponent marker is at `e`
+  ; (`e` = `b` without one, `dot` = `e` without a fraction).  It runs on every such literal of
+  ; every body, so it allocates nothing on the way to its answer and uses fixnum arithmetic:
+  ; the generic `min`, `*` and `+` tripled its cost, measured.
+  (define (anthropic-json/finite? s m dot e b)
+    (if (and (fx= e b) (fx< (fx- dot m) 309))
+        #t                                                  ; no exponent, few integer digits
+        (let* ((sign (and (fx< e b) (let1 (c (string-ref s (fx+ e 1)))
+                                      (and (or (char=? c #\+) (char=? c #\-)) c))))
+               (x (cond (sign (fx+ e 2)) ((fx< e b) (fx+ e 1)) (else b)))   ; exponent digits
+               (f (let F ((k m))                            ; the first significant digit
+                    (if (and (fx< k e)
+                             (let1 (c (string-ref s k)) (or (char=? c #\0) (char=? c #\.))))
+                        (F (fx+ k 1))
+                        k))))
+          (cond
+            ((fx> (fx- b x) 19) #f)                         ; simdjson gives up on the exponent
+            ((fx>= f e) #t)                                 ; every digit is zero
+            (else
+              ; the exponent saturates far above any string length, so it stays a fixnum
+              (let1 (q (fx+ (if (fx< f dot) (fx- dot f) (fx- (fx+ dot 1) f))
+                            (let X ((k x) (v 0))
+                              (cond
+                                ((fx< k b)
+                                 (X (fx+ k 1)
+                                    (if (fx< v 100000000000000)
+                                        (fx+ (fx* 10 v) (fx- (char->integer (string-ref s k)) 48))
+                                        v)))
+                                ((eqv? sign #\-) (fxneg v))
+                                (else v)))))
+                (or (fx< q 309)
+                    (and (fx= q 309)
+                         (string<? (list->string (remove (λ (c) (char=? c #\.))
+                                                         (string->list (substring s f e))))
+                                   anthropic-json/overflow-digits)))))))))
+
   (define (anthropic-json/well-formed? s)
     (and
       (string? s)
@@ -300,18 +352,23 @@
                                 (and (> k i) k)))))
            (number
              (λ (i)
-               (let* ((i (if (eqv? #\- (at i)) (add1 i) i))
-                      (i (cond
-                           ((eqv? #\0 (at i)) (add1 i))
-                           ((and (at i) (anthropic-char/digit? (at i))) (digits i))
-                           (else #f))))
-                 (and i
-                      (let1 (i (if (eqv? #\. (at i)) (digits (add1 i)) i))
-                        (and i
-                             (if (memv (at i) (list #\e #\E))
-                                 (let1 (j (add1 i))
-                                   (digits (if (memv (at j) (list #\+ #\-)) (add1 j) j)))
-                                 i)))))))
+               (let* ((m (if (eqv? #\- (at i)) (add1 i) i))
+                      (dot (cond
+                             ((eqv? #\0 (at m)) (add1 m))
+                             ((and (at m) (anthropic-char/digit? (at m))) (digits m))
+                             (else #f))))
+                 (and dot
+                      (let1 (e (if (eqv? #\. (at dot)) (digits (add1 dot)) dot))
+                        (and e
+                             (let1 (j (let1 (c (at e))
+                                        (if (memv c '(#\e #\E))
+                                            (digits (if (memv (at (add1 e)) '(#\+ #\-))
+                                                        (+ e 2)
+                                                        (add1 e)))
+                                            e)))
+                               (and j
+                                    (or (= dot j) (anthropic-json/finite? s m dot e j))
+                                    j))))))))
            (text
              (λ (i)
                (and (eqv? #\" (at i))

@@ -436,6 +436,25 @@
    (⊦raises (anthropic-decode-error) (anthropic-json/parse fixture/error/non-json))
    (⊦raises (anthropic-decode-error) (anthropic-json/parse "42")))
 
+  ((test/anthropic/json/numbers-that-overflow-a-double _)
+   (⊭ (anthropic-json/well-formed? "{\"a\":1e309}"))
+   (⊭ (anthropic-json/well-formed? "[-1e999]"))
+   (⊭ (anthropic-json/well-formed? "[1000e306]"))
+   (⊭ (anthropic-json/well-formed? "[1.797693134862315808e308]"))
+   (⊭ (anthropic-json/well-formed? "[1e+00000000000000000308]"))
+   (⊨ (anthropic-json/well-formed? "[1.797693134862315807e308]"))
+   (⊨ (anthropic-json/well-formed? "[1e+0000000000000000308]"))
+   (⊨ (anthropic-json/well-formed? "[0.0001e312]"))
+   (⊨ (anthropic-json/well-formed? "[0e99999, 1e-999]"))
+   (⊦= #(0.0 0.0) (anthropic-json/parse "[0e99999, 1e-999]"))
+   (⊦raises (anthropic-decode-error) (anthropic-json/parse "{\"a\":1e309}"))
+   `(doc (p "simdjson reads a literal with a fraction or an exponent as a double and throws "
+            (code/inline "NUMBER_ERROR") " -- an uncatchable abort until (aux simdjson) caught its exceptions -- "
+            "when it rounds to infinity, or when its exponent field has twenty digits or "
+            "more. The grammar alone passed " (code/inline "{\"a\":1e309}") ", so the gate "
+            "decides the magnitude too, on the digits: the boundary is the midpoint between "
+            "the largest double and 2^1024, which rounds up.")))
+
   ((test/anthropic/json/utf8-length _)
    (⊦= 1 (anthropic-json/utf8-length "a"))
    (⊦= 6 (anthropic-json/utf8-length "caffè"))
