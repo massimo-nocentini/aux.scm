@@ -118,6 +118,27 @@
       (μkanren-run (l 10 #f) (fresh° (a d) (append° a d l))))
   )
   
+  ((test/=°/nan _)
+    ; unification is reflexive on NaN too, although CHICKEN's (eqv? +nan.0 +nan.0) is #f
+    (⊦= 1 (length (μkanren-run (q 2 #f) (=° q (/ 0. 0.)) (=° q (/ 0. 0.)))))
+    (⊦= 1 (length (μkanren-run (q 2 #f) (=° q (list 1 (/ 0. 0.))) (=° q (list 1 (/ 0. 0.))))))
+    (⊦= '() (μkanren-run (q 2 #f) (=° q (/ 0. 0.)) (≠° q (/ 0. 0.))))
+    (⊦= '() (μkanren-run (q 2 #f) (=° q (/ 0. 0.)) (=° q 1.)))
+    ; absent° finds a NaN tag in a NaN, bare or nested, in both goal orders, as it finds a NaN inside a compound tag
+    (⊦= '() (μkanren-run (q 2 #f) (absent° (/ 0. 0.) q) (=° q (/ 0. 0.))))
+    (⊦= '() (μkanren-run (q 2 #f) (=° q (/ 0. 0.)) (absent° (/ 0. 0.) q)))
+    (⊦= '() (μkanren-run (q 2 #f) (absent° (/ 0. 0.) q) (=° q (list 1 (/ 0. 0.)))))
+    (⊦= '() (μkanren-run (q 2 #f) (absent° (list (/ 0. 0.)) q) (=° q (list (/ 0. 0.)))))
+    (⊦= 1 (length (μkanren-run (q 2 #f) (absent° (/ 0. 0.) q) (=° q (list 1. 2)))))
+    ; a complex number with a NaN part equals only one with the same parts, although nan? is #t on both
+    (let1 (c (λ (s) (string->number s)))
+      (⊦= 1 (length (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (=° q (c "+nan.0+1i")))))
+      (⊦= '() (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (=° q (c "+nan.0+2i"))))
+      (⊦= '() (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (=° q (c "1+nan.0i"))))
+      (⊦= '() (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (=° q (/ 0. 0.))))
+      (⊦= '() (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (≠° q (c "+nan.0+1i"))))
+      (⊦= 1 (length (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (≠° q (c "7+nan.0i")))))))
+
   ((test/=°/structure _)
     (define-record person name age)
     (define p (make-person 'alice 30))

@@ -139,6 +139,16 @@
           ((μkanren-unbound? β) β0)
           (else β)))))
 
+  ; `eqv?`, but reflexive on NaN: CHICKEN's `eqv?` compares flonums with `=`, so a NaN would never unify with an
+  ; equal NaN. Only two flonum NaNs are equal (`nan?` is #t for a complex number with a NaN part too, so it alone
+  ; would equate distinct complex numbers); a non-real number is compared part by part.
+  (define (μkanren-number-eqv? u v)
+    (or (eqv? u v)
+        (and (flonum? u) (flonum? v) (nan? u) (nan? v))
+        (and (not (real? u)) (not (real? v))
+             (μkanren-number-eqv? (real-part u) (real-part v))
+             (μkanren-number-eqv? (imag-part u) (imag-part v)))))
+
   (define (μkanren-state-unify u v s assocs)
     (let ((return (τ `(,s ,assocs)))
           (u* (μkanren-state-find u s))
@@ -146,7 +156,7 @@
       (cond
         ((eq? u* v*) (return))
         ((and (string? u*) (string? v*) (string=? u* v*)) (return))
-        ((and (number? u*) (number? v*) (eqv? u* v*)) (return))
+        ((and (number? u*) (number? v*) (μkanren-number-eqv? u* v*)) (return))
         ((and (μkanren-var-working? u*) (μkanren-var-working? v*))
           (let ((i (μkanren-var-index>=0 u*)) (j (μkanren-var-index>=0 v*)))
             (cond
@@ -584,7 +594,8 @@
 
   (define ((absent° tag u) s)
     (μkanren-state-match ((vc S D A T tags) s)
-      (let* ((pred? (λ (v) (not (equal? tag v))))
+      ; an atomic tag is found at the leaves: compare numbers as unification does, so a NaN tag is found in a NaN.
+      (let* ((pred? (λ (v) (not (if (and (number? tag) (number? v)) (μkanren-number-eqv? tag v) (equal? tag v)))))
              (tag* (make-μkanren-tag tag 'no-def pred?)))
         (cond
           ((μkanren-absento+ u tag* D A T s) => ✓°)
