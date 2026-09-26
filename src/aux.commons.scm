@@ -120,8 +120,9 @@
           ((null? l) '())
           (else (foldl f (H₀ (car l)) (cdr l)))))))
 
+  ; H₀ returns the seed and the selector of the tail to fold over; the default behaves as foldl1.
   (define foldl1/lshift
-    (λ (f #!key (H₀ identity))
+    (λ (f #!key (H₀ (λ (a) (values a cdr))))
       (λ (l)
         (cond
           ((null? l) '())

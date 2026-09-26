@@ -56,7 +56,10 @@
    (⊦= '() ((foldl1 +) '()))
    (⊦= 10 ((foldl1 +) '(1 2 3 4)))
    (⊦= 20 ((foldl1 + H₀: (λ (x) (* 11 x))) '(1 2 3 4)))
-   (⊦= 8 ((foldl1/lshift + H₀: (λ (x) (values x cddr))) '(1 2 3 4))))
+   (⊦= 8 ((foldl1/lshift + H₀: (λ (x) (values x cddr))) '(1 2 3 4)))
+   ; the default H₀ seeds with the first element and folds over the rest, as foldl1 does.
+   (⊦= 10 ((foldl1/lshift +) '(1 2 3 4)))
+   (⊦= '((1 . 2) . 3) ((foldl1/lshift cons) '(1 2 3))))
 
   ((test/within? _)
    (⊨ ((within? 1 3) 1))
