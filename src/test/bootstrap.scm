@@ -1,5 +1,20 @@
 
-(import (aux unittest) (chicken base) (chicken pretty-print) (chicken condition))
+(import (aux unittest) (chicken base) (chicken pretty-print) (chicken condition)
+        (chicken file) (chicken process) (chicken process-context))
+
+; the exit status of a csi process running a suite whose one case asserts `assertion`
+(define (suite-exit-status assertion)
+  (let* ((dir (create-temporary-directory))
+         (script (string-append dir "/suite.scm")))
+    (with-output-to-file script
+      (lambda ()
+        (display (string-append "(import (aux unittest)) (define-suite exit-sut ((t _) "
+                                assertion ")) (unittest/✓ exit-sut)"))))
+    (let-values (((pid normal? status)
+                  (process-wait (process-run (string-append "cd " (qs dir) " && " (qs (executable-pathname))
+                                                            " -s suite.scm >/dev/null 2>&1")))))
+      (delete-directory dir #t)
+      status)))
 
 (define-suite wasrun-sut
   ((setup tc)         (unittest/testcase-logcons! tc 'setup))
@@ -83,6 +98,10 @@
                          dup-sut)
          (c (exn) (list (get-condition-property c 'exn 'message)
                         (get-condition-property c 'exn 'arguments))))))
+
+  ((test-exit-status tc _ _)
+   (⊦= 0 (suite-exit-status "(⊦= 1 1)"))
+   (⊦= 1 (suite-exit-status "(⊦= 1 2)")))
 
   ((test-failed-result tc _ r)
    (unittest/result-started! r)

@@ -184,6 +184,11 @@
                                         ,@docs))
                            (symbol-append 'testsuite- sut-name))
         (pretty-print res)
+        ; a red suite makes the process exit with status 1 when it ends (as `csi -s` scripts and
+        ; compiled programs do, through implicit-exit-handler), so `make test` and CI see it;
+        ; the later suites of the same process still run and write their reports.
+        (unless (null? (unittest/result-failed r))
+          (implicit-exit-handler (lambda () (exit 1))))
         r)))
 
   (define (unittest/condition-expected-actual a b)

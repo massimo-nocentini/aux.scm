@@ -2078,13 +2078,11 @@
             "compile error rather than a red case.")))
   )
 
-; House style would end here with a bare `(unittest/✓ anthropic-suite)`. It does not, on
-; purpose: unittest/✓ never exits non-zero (it returns the result record at
-; aux.unittest.scm:154 and nothing inspects it), so a completely broken module would still
-; make `make test` -- and therefore `docker build` -- green. The HTML report is written
-; before the exit, so a local run still produces testsuite-anthropic-suite.html.
-;
-; To opt out, replace the whole form below with `(unittest/✓ anthropic-suite)`.
+; A bare `(unittest/✓ anthropic-suite)` would already fail `make test` -- and therefore
+; `docker build` -- on a red suite: unittest/✓ makes the process exit with status 1 when the
+; script ends.  The form below only adds a one-line pointer to the report and exits at once.
+; The HTML report is written before the exit, so a local run still produces
+; testsuite-anthropic-suite.html.
 
 (let1 (r (unittest/✓ anthropic-suite))
   (unless (null? (unittest/result-failed r))

@@ -1791,9 +1791,10 @@ both ways; keep build products out of the repository.
 
 **Reading the results.** Each suite prints `((ran N) (failed M ...))` and writes a
 `testsuite-<name>.html` report in the current directory (ignored by `.gitignore` in `src/test`).
-The exit status is always 0, so read the summaries. On the development machine the three files
-take about 19 s, 8 s and 26 s interpreted (run in parallel); `cml-io.scm` needs `/bin/sh`,
-`cat`, `tr`, `yes` and a loopback TCP port.
+A suite with failures makes the process exit with status 1 when the script ends, after the later
+suites of the same script have run and written their reports. On the development machine the
+three files take about 19 s, 8 s and 26 s interpreted (run in parallel); `cml-io.scm` needs
+`/bin/sh`, `cat`, `tr`, `yes` and a loopback TCP port.
 
 ### 7.2 Conventions of the suites
 
