@@ -278,8 +278,7 @@
 
   (define ((indicator set) v) (member? v set))
 
-  ; hybrid: the O(n²) scan wins below ~60 elements, the srfi-69 table above. `length/>?`
-  ; returns the element after the prefix, so a `#f` there only picks the scan, which stays correct.
+  ; hybrid: the O(n²) scan wins below ~60 elements, the srfi-69 table above.
   (define (pairwise-different? lst)
     (cond
       ((length/>? lst 60)
@@ -399,11 +398,14 @@
       (cond
         ((null? lst*) (reverse result))
         (else (E (cdr lst*) (fx+ index 1) (cons (list index (car lst*)) result))))))
+  ; the truthy witness is the tail after the first `n` elements (the whole list when `n` < 1,
+  ; so a negative or inexact `n` works too): a pair, so never `#f` even when its car is; the
+  ; walk stops there, hence it also works on circular lists.
   (define (length/>? lst n)
-    (match/first (cons n lst)
-      ((0 . (,v . _)) v)
-      ((_ . ()) #f)
-      ((_ . (_ . ,lst*)) (length/>? lst* (sub1 n)))))
+    (cond
+      ((not (pair? lst)) #f)
+      ((< n 1) lst)
+      (else (length/>? (cdr lst) (sub1 n)))))
   (define (list/circular . args)
     (if (null? args) 
       '()

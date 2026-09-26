@@ -13,7 +13,7 @@
                                     (((,i . ,acc) ,v) (let ((m* (g v))
                                                             (i* (add1 i)))
                                                         (cond
-                                                          ((length/>? m* i) => (λ (v*) (cons i* (cons v* acc))))
+                                                          ((length/>? m* i) => (λ (v*) (cons i* (cons (car v*) acc))))
                                                           (else (cons i* acc))))))
                     `(0 . ()) m))))))
 
