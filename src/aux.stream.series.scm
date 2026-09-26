@@ -233,13 +233,11 @@
                      (+ (expt (car triple) n) (expt (cadr triple) n))
                      (expt (caddr triple) n))))
              (nats (series:from 1))
-             (slow-enumeration stream:enumerate-upper)
              (fast-enumeration (stream:enumerate-weighted
                                  (λ (i j #!optional (k 0))
                                     ((○ abs -)
                                      (+ (expt i n) (expt j n))
-                                     (expt k n))))
-                               ))
+                                     (expt k n))))))
          ((stream:filter F) (fast-enumeration nats nats nats)))))
 
   (define random-numbers
@@ -341,7 +339,6 @@
 
   (define-delay numbers/fibs/∞
     (:⁺ 0 1 ((stream:zip-with +) numbers/fibs/∞ (stream:cdr numbers/fibs/∞))))
-  ;(define-delay numbers/fibs/∞ (stream:cons 0 (stream:cons 1 ((stream:zip-with +) numbers/fibs/∞ (stream:cdr numbers/fibs/∞)))))
 
   (define-delay numbers/lucas/∞
     (:⁺ 2 1 ((stream:zip-with +) numbers/lucas/∞ (stream:cdr numbers/lucas/∞))))
