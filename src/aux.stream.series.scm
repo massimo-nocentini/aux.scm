@@ -9,7 +9,11 @@
 ;   - some exported names are generic and unprefixed: evens, odds, prime?, factorization,
 ;     divisable-by? (sic, kept for compatibility), multiples-of, not-multiples-of,
 ;     random-numbers, riordan-array, formalvar-series, Pythagorean-triples; beware of clashes
-;     when importing this module together with other number-theoretic modules.
+;     when importing this module together with other number-theoretic modules;
+;   - a finite ('()-terminated) stream is a polynomial: series:+ and series:- pad it with zeros, so
+;     the operations built on them (×, /, ⁻¹, exp, expt, √/∞, ...) see its trailing zeros, whereas a
+;     bare stream:zip-with stops at the shortest stream; list->poly builds the infinite zero-padded
+;     stream explicitly.
 
 (module (aux stream series) *
 
@@ -44,8 +48,8 @@
     (λ§ (n)
         (stream:cons n (series:from (add1 n)))))
 
-  (define series:+ (stream:zip-with +))
-  (define series:- (stream:zip-with -))
+  (define series:+ (stream:zip-with + pad: 0)) ; a finite stream is a polynomial: zero-padded
+  (define series:- (stream:zip-with - pad: 0))
 
   (define series:*
     (λ (a)
@@ -95,7 +99,7 @@
               (M (stream:convolution
                    elem*
                    (λ (a) (stream:map (λ (b) (elem* a b)))) ; scales every coefficient by `a`
-                   (stream:zip-with series:+))))
+                   (stream:zip-with series:+ pad: series:0))))
          (foldr M stream:1 series))))
 
   (define series:⁻¹
@@ -160,22 +164,31 @@
 
   (define series:√/∞
     (λ§ (α)
-        (let ((α₀ (stream:car α)))
-          (cond
-            ((and (zero? α₀) (zero? (stream:cadr α)))
-             (stream:cons 0 (series:√/∞ (stream:cddr α))))
-            ((zero? α₀) (error "series:√/∞" "α₀ zero but α₁ not zero: no power series square root"))
-            (else (letdelay ((Q (series:+
-                                  (series:const (sqrt α₀)) ; Q(0)² = α₀
-                                  (series:∫ (series:/
-                                              (series:∂ α)
-                                              ((series:* 2) Q))))))
-                            Q))))))
+        ; an exhausted (finite) stream reads as its trailing zeros, as for series:+ and series:-;
+        ; α₁ is read only when α₀ = 0, so that an implicit definition whose α depends on the
+        ; head of its own square root, as S = √(1 + xS), does not force itself
+        (stream:dest/car+cdr α
+          ((α₀ α₁…)
+           (cond
+             ((zero? α₀)
+              (stream:dest/car+cdr α₁…
+                ((α₁ α₂…)
+                 (if (zero? α₁)
+                     (stream:cons 0 (series:√/∞ α₂…))
+                     (error "series:√/∞" "α₀ zero but α₁ not zero: no power series square root")))
+                (else series:0)))
+             (else (letdelay ((Q (series:+
+                                   (series:const (sqrt α₀)) ; Q(0)² = α₀
+                                   (series:∫ (series:/
+                                               (series:∂ α)
+                                               ((series:* 2) Q))))))
+                             Q))))
+          (else series:0))))
 
   (define series:exp
     (λ§ (α)
         (cond
-          (((○ not equal?) 0 (stream:car α))
+          (((○ not equal?) 0 (stream:dest/car+cdr α ((α₀ α′) α₀) (else 0))) ; the empty stream is 0
            (error "series:exp" "α₀ not zero"))
           (else (letdelay ((Y (series:+ stream:1 (series:∫
                                                    (series:× Y (series:∂ α))))))
@@ -259,10 +272,13 @@
 
   (define riordan-array
     (λ§ (d h)
-        (stream:dest/car+cdr (d ∅)
+        ; a finite d is a polynomial, read with its trailing zeros: dcdr is zero-padded, and an
+        ; exhausted d (d·h is one when h is) is series:0, so that the rows never end
+        (stream:dest/car+cdr d
                              ((dcar dcdr) (stream:cons
                                             (list dcar)
-                                            ((stream:zip-with cons) dcdr (riordan-array (series:× d h) h)))))))
+                                            ((stream:zip-with cons pad: 0) dcdr (riordan-array (series:× d h) h))))
+                             (else (riordan-array series:0 h)))))
 
   (define formalvar-series
     (λ§ (n)

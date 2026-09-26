@@ -49,7 +49,48 @@
 
   ((test/stream-sicp/zip _)
    (⊦≡ '((0 0 0) (1 1 1) (2 1 3) (3 2 6) (4 3 10) (5 5 15) (6 8 21) (7 13 28) (8 21 36) (9 34 45))
-       ((list○take 10) (stream:zip numbers/nats numbers/fibonacci numbers/triangular))))
+       ((list○take 10) (stream:zip numbers/nats numbers/fibonacci numbers/triangular)))
+   ; zipping stops at the end of the shortest stream
+   (⊦≡ '(11 22) ((list○take 5) ((stream:zip-with +) (list->stream '(1 2)) (list->stream '(10 20)))))
+   (⊦≡ '(101 102 103) ((list○take 5) ((stream:zip-with +) (list->stream '(1 2 3)) (stream:repeat 100))))
+   (⊦≡ '() (stream:->list (stream:zip (list->stream '(1 2 3)) stream:empty)))
+   ; with `pad:` an exhausted stream reads as the pad and zipping stops when all have ended
+   (⊦≡ '(11 2 3) (stream:->list ((stream:zip-with + pad: 0) (list->stream '(1 2 3)) (list->stream '(10)))))
+   (⊦≡ '((1 a) (#f b)) (stream:->list ((stream:zip-with list pad: #f) (list->stream '(1)) (list->stream '(a b)))))
+   (⊦≡ '() (stream:->list ((stream:zip-with + pad: 0) stream:empty stream:empty))))
+
+  ((test/stream-series/finite-polynomials _)
+   ; series:+ and series:- zero-pad a finite stream, so it is a polynomial for all series arithmetic
+   (⊦≡ '(2 2 3) (stream:->list (series:+ (list->stream '(1 2 3)) (list->stream '(1)))))
+   (⊦≡ '(0 1 2 -1 -1) (stream:->list (series:- (list->stream '(1 2 3)) (list->stream '(1 1 1 1 1)))))
+   (⊦≡ '(1 2 1) (stream:->list (series:× (list->stream '(1 1)) (list->stream '(1 1))))) ; (1+x)²
+   (⊦≡ '(1 2 2 1) (stream:->list (series:× (list->stream '(1 1 1)) (list->stream '(1 1)))))
+   (⊦≡ '(1 3 3 1 0 0) ((list○take 6) ((series:expt 3) (list->stream '(1 1))))) ; stream:1 is list->poly-padded
+   (⊦≡ '(1 2 2 2 2 2) ((list○take 6) (series:× (list->stream '(1 1)) stream:1s)))
+   (⊦≡ '(1 1 1 1 1 1) ((list○take 6) (series:/ (list->stream '(1)) (list->stream '(1 -1)))))
+   (⊦≡ '(1 1 1 1 1 1) ((list○take 6) (series:⁻¹ (list->stream '(1 -1)))))
+   (⊦≡ '(1 1 1/2 1/6 1/24 1/120) ((list○take 6) (series:exp (list->stream '(0 1)))))
+   (⊦≡ '(1 0 0 0) ((list○take 4) (series:exp stream:empty)))
+   (⊦≡ '(2 1/4 -1/64 1/512 -5/16384) ((list○take 5) (series:√/∞ (list->stream '(4 1)))))
+   ; √/∞ reads an exhausted stream as zeros while it strips x² factors
+   (⊦≡ '(0 0 0 0) ((list○take 4) (series:√/∞ stream:empty)))
+   (⊦≡ '(0 0 0 0) ((list○take 4) (series:√/∞ (list->stream '(0)))))
+   (⊦≡ '(0 0 0 0) ((list○take 4) (series:√/∞ (list->stream '(0 0)))))
+   (⊦≡ '(0 1 0 0) ((list○take 4) (series:√/∞ (list->stream '(0 0 1)))))
+   ; ... but it reads α₁ only when α₀ = 0, so implicit definitions whose α depends on the head
+   ; of the root itself still work: S = √(1 + xS) and T = √(1 - 2xT)
+   (⊦≡ '(1 1/2 1/8 0 -1/128 0)
+       (letdelay ((S (series:√/∞ (series:+ stream:1 (stream:cons 0 S))))) ((list○take 6) S)))
+   (⊦≡ '(1 -1 1/2 0 -1/8 0)
+       (letdelay ((T (series:√/∞ (series:- stream:1 (stream:cons 0 ((series:* 2) T)))))) ((list○take 6) T)))
+   ; riordan-array pads a finite d with zeros too, and its rows never end
+   (⊦≡ '((1) (1 1) (0 2 1) (0 2 3 1) (0 2 5 4 1)) ((list○take 5) (riordan-array (list->stream '(1 1)) stream:1s)))
+   (⊦≡ ((list○take 5) (riordan-array (list->poly '(1 1)) stream:1s))
+       ((list○take 5) (riordan-array (list->stream '(1 1)) stream:1s)))
+   (⊦≡ ((list○take 6) (riordan-array (list->poly '(1)) (list->poly '(0 1 1))))
+       ((list○take 6) (riordan-array (list->stream '(1)) (list->stream '(0 1 1)))))
+   (⊦≡ '((1) (1 0) (1 0 0) (1 0 0 0)) ((list○take 4) (riordan-array stream:1s stream:empty)))
+   (⊦≡ '((0) (0 0) (0 0 0) (0 0 0 0)) ((list○take 4) (riordan-array stream:empty stream:1s))))
 
   ((test/stream-sicp/foldr-laziness _)
    (⊦≡ 'hello ((stream:foldr
@@ -501,6 +542,7 @@
        ; 1/(1-u) ∘ (y + yx) = Σ yⁿ(1+x)ⁿ, the binomial coefficients C(j, i)
        (⊦≡ '((1 1 1 1) (0 1 2 3) (0 0 1 3) (0 0 0 1)) (rows 4 4 (series:○ geometric (list->poly (list y y)))))
        (⊦≡ '((0 0 1) (0 2 0) (1 0 0)) (rows 3 3 (series:○ (list->poly '(0 0 1)) x+y))) ; u² ∘ (y + x)
+       (⊦≡ '((0 0 1) (0 2 0) (1 0 0)) (rows 3 3 (series:○ (list->stream '(0 0 1)) x+y))) ; a finite α
        ; exp(u) ∘ (y + x) = exp(x)·exp(y)
        (⊦≡ '((1 1 1/2) (1 1 1/2) (1/2 1/2 1/4)) (rows 3 3 (series:○ (series:exp y) x+y)))
        (⊨ (condition-case (begin ((list○take 3) (series:○ geometric (list->poly (list 1 1+y)))) #f) ((exn) #t)))

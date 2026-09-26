@@ -624,7 +624,10 @@ Exported entry points include:
   `stream:append-map`, `stream:foldr` (lazy in its second argument),
   `stream:take`, `stream:take-while`
 - `stream:repeat`, `stream:0s`, `stream:zip`, `stream:zip-with`,
-  `stream:append`, `stream:merge`, `stream:convolution`
+  `stream:append`, `stream:merge`, `stream:convolution`; `stream:zip` and
+  `stream:zip-with` stop at the end of the shortest stream, unless
+  `stream:zip-with` is given a `pad:` value: then an exhausted stream reads as
+  that value and zipping stops only when every stream has ended
 - `stream:tails`, `stream:prefixes`, `stream:scan`, `stream:tableau`
 - `stream:enumerate-upper`, `stream:enumerate-lower`, `stream:enumerate-all`,
   `stream:enumerate-weighted`
@@ -649,6 +652,12 @@ Example:
 ((list○take 6) (stream:§ (stream:repeat 'a) (list->stream '(1 2 3))))
 ;; => (a 1 a 2 a 3)
 
+(stream:->list ((stream:zip-with +) (list->stream '(1 2 3)) (list->stream '(10 20))))
+;; => (11 22)
+
+(stream:->list ((stream:zip-with + pad: 0) (list->stream '(1 2 3)) (list->stream '(10 20))))
+;; => (11 22 3)
+
 ((stream:ref 3) (:⁺ 'x 'y 'z 'w stream:empty))
 ;; => w
 
@@ -671,6 +680,13 @@ importers. Some exported names are generic and unprefixed (`evens`, `odds`,
 `multiples-of`, `not-multiples-of`, `random-numbers`, `riordan-array`,
 `formalvar-series`, `Pythagorean-triples`), so beware of clashes when
 importing this module together with other number-theoretic modules.
+
+A finite (`'()`-terminated) stream, such as one built by `list->stream`, is a
+polynomial: `series:+` and `series:-` pad it with zeros, so the operations built
+on them (`series:×`, `series:/`, `series:⁻¹`, `series:exp`, `series:expt`,
+`series:√/∞`, ...) see its trailing zeros, whereas a bare `stream:zip-with`
+stops at the shortest stream. `list->poly` builds the infinite zero-padded
+stream explicitly.
 
 Exported entry points include:
 
@@ -716,6 +732,9 @@ Example:
 
 ((list○take 5) (series:× (list->poly '(1 1)) (list->poly '(1 1))))
 ;; => (1 2 1 0 0)
+
+((list○take 5) (series:+ (list->stream '(1 2 3)) (list->stream '(1))))
+;; => (2 2 3)
 
 ((list○take 4) (factorization 360))
 ;; => (3 2 1 0)

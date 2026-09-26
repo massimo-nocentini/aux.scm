@@ -19,6 +19,7 @@
           (chicken base)
           (aux base)
           (only (aux stream) cons§)
+          (only srfi-1 any every)
           (only (aux commons) ○ fmap fapply collect-values identity* within?))
 
   (define stream:force*
@@ -168,12 +169,22 @@
   (define stream:0s (stream:repeat 0))
 
   (define stream:zip-with
-    (λ (op)
-       (letrec ((Z (λ§ streams
-                       (stream:cons
-                         (apply op (map stream:car streams))
-                         (apply Z (map stream:cdr streams))))))
-         Z)))
+    (let ((unpadded (list 'unpadded))) ; a fresh sentinel, so that any value (even #f) can be a `pad:`
+      (λ (op #!key (pad unpadded))
+         ; without `pad:` zipping stops at the end of the shortest stream; with it, an exhausted
+         ; stream reads as `pad` and zipping stops only when every stream has ended.
+         (let* ((padded? (not (eq? pad unpadded)))
+                (end? (if padded? (λ (fs) (every null? fs)) (λ (fs) (any null? fs))))
+                (head (λ (f) (cond ((pair? f) (car f)) ((null? f) pad) (else f)))) ; as stream:car, but '() is `pad`
+                (tail (λ (f) (if (pair? f) (cdr f) f))))                           ; as stream:cdr
+           (letrec ((Z (λ§ streams
+                           (let ((fs (map stream:force* streams))) ; each stream forced once per element
+                             (cond
+                               ((end? fs) stream:empty)
+                               (else (stream:cons
+                                       (apply op (map head fs))
+                                       (apply Z (map tail fs)))))))))
+             Z)))))
 
   (define stream:zip (stream:zip-with list))
 
