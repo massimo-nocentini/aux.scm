@@ -1,6 +1,6 @@
 
 (import 
-  scheme (chicken base) (chicken memory representation) (chicken sort)
+  scheme (chicken base) (chicken condition) (chicken memory representation) (chicken sort)
   srfi-1
   (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
 
@@ -76,9 +76,14 @@
 
   ((test/sharing _)
    (⊦= '(((α z) z (α β)))
-         (°->list/ground (fresh° r (n q x)
+         (°->list/ground (fresh° r ← (n q x)
                            (=° q 'z)
                            (fresh° (w r) (=° n (list w q)) (=° x (list w r)))))))
+
+  ((test/fresh°/typo _)
+    ; the destructuring form needs its `←`, so a goal in the place of the variables is an expansion error
+    (⊦= 'syntax-error (condition-case (eval '(μkanren-run (q 3 #f) (fresh° x (null° x) (=° q x)))) ((exn syntax) 'syntax-error)))
+    (⊦= '(()) (μkanren-run (q 3 #t) (fresh° (x) (null° x) (=° q x)))))
 
   ((test/peano° _)
    (define-relation (peano° n) (or° (=° n 'z) (fresh° (r) (=° n `(s ,r)) (peano° r))))
@@ -151,7 +156,7 @@
     (define p (make-person 'alice 30))
     (⊦= #t (record-instance? p))
     (⊦= #(person alice 30) (record->vector p))
-    (⊦= '((person alice 30)) (°->list/ground (fresh° r (t n a) (=° `#(,t ,n ,a) p)))))
+    (⊦= '((person alice 30)) (°->list/ground (fresh° r ← (t n a) (=° `#(,t ,n ,a) p)))))
 
   ((test/=°/structure/vector/answer _)
     (⊦= '((λ () (vector 1 2))) (°->list #f (fresh° (q) (=° q (vector 1 2)))))
@@ -159,7 +164,7 @@
 
   ((test/var->symbol/overflow _)
     (⊦= '((α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω α1 β1))
-        (°->list/ground (fresh° r (a b c d e f g h i j k l m n o p q s t u v w x y z aa)))))
+        (°->list/ground (fresh° r ← (a b c d e f g h i j k l m n o p q s t u v w x y z aa)))))
 
   ((test/ground/constrained _)
     ; grounding drops the constraints instead of re-checking them against the placeholder symbols

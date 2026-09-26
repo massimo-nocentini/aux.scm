@@ -549,12 +549,14 @@
   (define ((orª f g) s) (append§/interleaved/2 (δ (f s)) (δ (g s))))
   (define ((andª f g) s) (append-map§ g (δ (f s))))
 
-  ; `(fresh° (α ...) g ...)` introduces fresh variables; `(fresh° α (β ...) g ...)` moreover binds α to the list `(β ...)`.
+  ; `(fresh° (α ...) g ...)` introduces fresh variables; `(fresh° α ← (β ...) g ...)` moreover binds α to the list `(β ...)`.
+  ; the `←` keeps the latter apart from the typo `(fresh° x (g x) ...)`, which is an expansion error instead of a goal
+  ; that silently takes `(g x)` for the names of fresh variables.
   (define-syntax fresh°
-    (syntax-rules ()
+    (syntax-rules (←)
       ((fresh° () body ...) (and° body ...))
       ((fresh° (α β ...) body ...) (freshª (λ (α) (fresh° (β ...) body ...))))
-      ((fresh° α (β ...) body ...) (fresh° (α) (fresh° (β ...) (=° α (list β ...)) body ...)))))
+      ((fresh° α ← (β ...) body ...) (fresh° (α) (fresh° (β ...) (=° α (list β ...)) body ...)))))
 
   (define-syntax-rule (fresh°/record α (t β ...) body ...)
     (fresh° (α β ...) (=° (make-record-instance t β ...) α) body ...))
