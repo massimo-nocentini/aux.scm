@@ -20,6 +20,29 @@
       (⊦= '(#f #t #f) (do/monad (← x '(1 2 3)) ,(even? x)))
       (⊦= '(#f #f) (>>= '(1 2) (λ (v) (list #f #f))))
       `(doc "A " (code "#f") " element is a value like any other, so predicates zip too."))
+
+  ((test/truncation _)
+      (⊦= '(x) (>>= '(1 2 3) (λ (v) (if (= v 2) '(a) '(x y z w)))))
+      (⊦= '((1 a c d) (2 b c* e)) (do/monad (← x '(1 2 3)) (← y '(a b)) (← z '(c c*)) (← r '(d e f g)) ,(list x y z r)))
+      (⊦= '(1) (do/monad (← (,a . ,b) '((1 . 2) 3 (4 . 5))) ,a))
+      `(doc "The diagonal stops at the first inner list too short to reach it, rather than skipping it and sliding the later elements out of their index; "
+            "a value that does not match the pattern of a " (code ←) " clause goes to " (code fail) ", the empty list, so the diagonal stops there too."))
+
+  ((test/associativity _)
+      (let* ((table '#((1 2 0) (2) (0 1 2 1) (3 0 3 2 1)))
+             (f (λ (v) (vector-ref table v)))
+             (g (λ (v) (reverse (vector-ref table v)))))
+        (for-each (λ (m)
+                    (let ((lhs (>>= (>>= m f) g))
+                          (rhs (>>= m (λ (x) (>>= (f x) g)))))
+                      ; `map` stops at the shorter list, so this compares the common prefix
+                      (⊦= (map (λ (l r) l) lhs rhs) (map (λ (l r) r) lhs rhs))))
+                  '((0 1 2 3) (2 0 1) (0 2 0 1) (1 0 2) (3 3 3 0) (2 2 2) (3 0)))
+        (⊦= '(1 2 3) (>>= (>>= '(3 3 3) f) g))
+        (⊦= '(1 2 3) (>>= '(3 3 3) (λ (x) (>>= (f x) g)))))
+      `(doc "Both sides of the associativity law agree index by index.  On ragged inner lists one side may stop earlier: "
+            "the inner bind on the right truncates at the first index any of its inner lists misses, even when the left side never "
+            "looks at that index, which is why finite zip lists admit no lawful monad (Haskell's ZipList is only an Applicative)."))
 )
 
 (unittest/✓ category-ziplist-suite)

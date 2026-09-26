@@ -18,13 +18,13 @@
   (define (>>= m g)
     (match/first m
       ((,l . ,,m) (g l))
-      (else (reverse (cdr (foldl  (λ-match/first
-                                    (((,i . ,acc) ,v) (let ((m* (g v))
-                                                            (i* (add1 i)))
-                                                        (cond
-                                                          ((list-tail/or-false m* i) => (λ (t) (cons i* (cons (car t) acc))))
-                                                          (else (cons i* acc))))))
-                    `(0 . ()) m))))))
+      ; the diagonal stops at the first (g v) too short to reach it, as zipWith
+      ; does: skipping it would slide the later elements out of their index.
+      (else (let D ((m* m) (i 0) (acc '()))
+              (cond
+                ((null? m*) (reverse acc))
+                ((list-tail/or-false (g (car m*)) i) => (λ (t) (D (cdr m*) (add1 i) (cons (car t) acc))))
+                (else (reverse acc)))))))
 
   (define (fail . args) '())
 )

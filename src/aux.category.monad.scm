@@ -33,8 +33,9 @@
     (syntax-rules (let ← unquote)
       ((do/monad (← (pat ...) (unquote expr)) body body* ...) (do/monad (← (pat ...) (M:return expr)) body body* ...))
       ; a value that does not match a refutable pattern goes to M:fail (Haskell's MonadFail):
-      ; the list, prob and ziplist instances drop it, maybe turns the whole computation into
-      ; nothing, and identity, reader, writer and continuation raise their own failure error.
+      ; the list and prob instances drop it, ziplist ends its diagonal at that index, maybe turns
+      ; the whole computation into nothing, and identity, reader, writer and continuation raise
+      ; their own failure error.
       ((do/monad (← (pat ...) expr) body body* ...)
         (▷ expr (λ (v) (match/first v
                          ((pat ...) (do/monad body body* ...))
