@@ -15,7 +15,7 @@
     (source "chicken-hwy.cpp")
     (csc-options "-I/usr/local/include")
     (link-options "-L" "-lhwy" "-L" "-lhwy_contrib"))
-  (extension aux.sxml)
+  (extension aux.sxml (component-dependencies aux.base))
   (extension aux.unittest)
   (extension aux.base)
   (extension aux.commons)

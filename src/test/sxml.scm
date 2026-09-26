@@ -5,7 +5,8 @@
         (only spiffy current-request)
         (only intarweb make-request request-method headers)
         (only uri-common uri-reference uri-path)
-        (aux unittest) (aux base) (aux sxml))
+        ; no (aux base) here: `define-vhost` must work for a client that imports (aux sxml) only.
+        (aux unittest) (aux sxml))
 
 ; renders `tree` with `SXML->HTML->file!` and answers the markup it wrote, without the
 ; doctype and the newlines the serializer puts between elements.
@@ -13,7 +14,7 @@
   (let* ((filename (create-temporary-file))
          (html (string-append filename ".html")))
     (SXML->HTML->file! tree filename)
-    (let1 (s (with-input-from-file html read-string))
+    (let ((s (with-input-from-file html read-string)))
       (delete-file filename)
       (delete-file html)
       (irregex-replace/all "\n" (substring s (string-length "<!doctype html>")) ""))))
@@ -25,7 +26,7 @@
                                                 method: method
                                                 port: (open-input-string "")
                                                 headers: (headers '((content-length 0))))))
-    (h (λ () 'unrouted))))
+    (h (lambda () 'unrouted))))
 
 (define-vhost (vhost request $)
   (GET (("") 'root)

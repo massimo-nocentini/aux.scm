@@ -21,6 +21,7 @@
     spiffy-request-vars
     intarweb 
     uri-common
+    (only (aux base) match/first)   ; for `define-vhost`'s expansion
     )
 
   (define highlight-version "11.11.1")
