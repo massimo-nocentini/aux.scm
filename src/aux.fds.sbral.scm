@@ -35,7 +35,7 @@
     (match/first sbral
       (((1 _) . ,sbral*) sbral*)
       (((,s _ ,α ,β) . ,sbral*) (let1 (w (quotient s 2)) `((,w . ,α) (,w . ,β) . ,sbral*)))
-      (else error "cdr/sbral: not a valid sbral")))
+      (else (error "cdr/sbral: not a valid sbral"))))
 
   ; fixed-arity procedures: this is the innermost loop of the substitution walk, so the
   ; rest list that `λ-match/first` would cons and destructure at every level is avoided.

@@ -1,5 +1,10 @@
 
-(import (aux unittest) (aux base) (aux fds sbral) (chicken base) srfi-1)
+(import (aux unittest) (aux base) (aux fds sbral) (chicken base) (chicken condition) srfi-1)
+
+; the message of the error raised by thunk, or 'not-raised: ⊦⧳ tolerates a condition, this requires it
+(define (error-message thunk)
+  (condition-case (begin (thunk) 'not-raised)
+    (e (exn) ((condition-property-accessor 'exn 'message) e))))
 
 (define-suite sbral-suite
 
@@ -41,6 +46,11 @@
          (⊦= '((7 g (f (e) (d)) (c (b) (a)))) q)
          (⊦= 'g (car/sbral q))
          (⊦= '((3 f (e) (d)) (3 c (b) (a))) (cdr/sbral q))))
+
+  ((test-cdr-invalid _)
+   (⊦= "cdr/sbral: not a valid sbral" (error-message (λ () (cdr/sbral empty/sbral))))
+   (⊦= "cdr/sbral: not a valid sbral" (error-message (λ () (cdr/sbral 42))))
+   (⊦= "car/sbral: not a valid sbral" (error-message (λ () (car/sbral empty/sbral)))))
 
   ((test-ref _)
 
