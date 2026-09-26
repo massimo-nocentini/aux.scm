@@ -102,11 +102,22 @@
                               (stdout ,outstr)
                               (stderr ,errstr))))))))))
 
+  ; sut itself, unless two of its cases share a name: unittest/testcase-run looks a case up by
+  ; name, so the first one would run twice and the second one never.
+  (define (unittest/suite sut)
+    (let loop ((names (map car (cdr sut))))
+      (cond
+        ((null? names) sut)
+        ((memq (car names) (cdr names))
+         (error 'define-suite "duplicate test case name" (car sut) (car names)))
+        (else (loop (cdr names))))))
+
   (define-syntax define-suite
     (syntax-rules ()
       ((_ sutname ((casename formal ...) body ...) ...)
-       (define sutname `(sutname (casename ,(lambda (formal ...) body ...) 
-                                           ,(quote (define (casename formal ...) body ...))) ...)))))
+       (define sutname (unittest/suite
+                         `(sutname (casename ,(lambda (formal ...) body ...) 
+                                             ,(quote (define (casename formal ...) body ...))) ...))))))
 
   (define-syntax lettest
     (syntax-rules ()

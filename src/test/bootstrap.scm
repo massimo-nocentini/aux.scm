@@ -76,6 +76,14 @@
             (⊦= '((ran 1) (failed 1 (test-method "\nError: teardown exploded\n")))
                   (unittest/result-summary r))))
 
+  ((test-duplicate-case-name tc _ _)
+   (⊦= '("duplicate test case name" (dup-sut t1))
+       (condition-case (let ()
+                         (define-suite dup-sut ((t1 _) (⊦= 1 1)) ((t2 _) (⊦= 1 1)) ((t1 _) (⊦= 1 2)))
+                         dup-sut)
+         (c (exn) (list (get-condition-property c 'exn 'message)
+                        (get-condition-property c 'exn 'arguments))))))
+
   ((test-failed-result tc _ r)
    (unittest/result-started! r)
    (unittest/result-failed! r 'no-reason)
