@@ -314,7 +314,7 @@
                (vars  (reverse vars-reversed))
                (vars* (map μkanren-var->symbol vars))
                (w**   (μkanren-state-find/repr w* s*))
-               (D     (μkanren-state-D s*))
+               (D     (μkanren-verify-D (μkanren-state-D s) s))
                (A     (μkanren-state-A s*))
                (T     (μkanren-state-T s*))
                (D*    (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D))) ; needs more revision the stuff with T.
@@ -366,8 +366,9 @@
                          (else #f))
                        A/T))))
 
+  ; `=°` calls it on the whole D after every binding, so an empty store (the usual case) costs nothing.
   (define (μkanren-subsume A-or-T D)
-    (remove (exists (μkanren-subsumed-pr? A-or-T)) D))
+    (if (null? A-or-T) D (remove (exists (μkanren-subsumed-pr? A-or-T)) D)))
 
   (define (μkanren-verify-T/post D A s)
     (let1 (vars (remove-duplicates (map lhs A)))
@@ -462,6 +463,20 @@
   (define (μkanren-verify-D D s)
     (μkanren-foldr/verify (λ (d D**) (μkanren-verify-D+ d D** s)) D))
 
+  ; `assocs` are the bindings the unification that led to `s` just made. A prefix of D is keyed on
+  ; unbound variables, each paired with a term that is no variable or an unbound one: the trial
+  ; unification of a prefix none of whose variables was just bound would still bind its first key,
+  ; so it cannot have become violated, and only the prefixes that mention one of them are verified
+  ; again. A prefix kept as it is may have become satisfied, by the occurs check deep in its terms:
+  ; `μkanren-project` drops those with a last `μkanren-verify-D`.
+  (define (μkanren-verify-D/touched D s assocs)
+    (let* ((bound (map (o μkanren-var-index lhs) assocs))
+           (bound? (λ (u) (and (μkanren-var? u) (memv (μkanren-var-index u) bound))))
+           (touched? (λ (d) (any (λ (p) (or (bound? (lhs p)) (bound? (rhs p)))) d))))
+      (if (any touched? D)
+          (μkanren-foldr/verify (λ (d D**) (if (touched? d) (μkanren-verify-D+ d D** s) (cons d D**))) D)
+          D)))
+
   (define (μkanren-subsume-A tag vars D A s)
     (let1 (tags* (cons tag (μkanren-state-tags s)))
       (match/first vars
@@ -533,13 +548,13 @@
     (μkanren-state-match ((vc S D A T tags) s)
       (define post°
         (λ1-match/first
-          ((,s* _)  (cond
-                      ((μkanren-state-equal? s s*) (✓° s*))
-                      ((μkanren-verify-D D s*) => (μ D*
-                                                    (cond
-                                                      ((μkanren-verify-D/post D* A T s*) => ✓°)
-                                                      (else (✗° s*)))))
-                      (else (✗° s*))))))
+          ((,s* ,assocs)  (cond
+                            ((μkanren-state-equal? s s*) (✓° s*))
+                            ((μkanren-verify-D/touched D s* assocs) => (μ D*
+                                                                         (cond
+                                                                           ((μkanren-verify-D/post D* A T s*) => ✓°)
+                                                                           (else (✗° s*)))))
+                            (else (✗° s*))))))
       (cond
         ((μkanren-state-unify u v s '()) => post°)
         (else (✗° s)))))

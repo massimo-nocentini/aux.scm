@@ -144,6 +144,16 @@
       (⊦= '() (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (≠° q (c "+nan.0+1i"))))
       (⊦= 1 (length (μkanren-run (q 2 #f) (=° q (c "+nan.0+1i")) (≠° q (c "7+nan.0i")))))))
 
+  ((test/≠°/verify _)
+    ; a disequality is verified again when =° binds one of its variables, after any other unification
+    (⊦= '() (°->list #f (fresh° (q x y) (≠° x y) (=° q 1) (=° x 5) (=° y 5))))
+    (⊦= '() (°->list #f (fresh° (q x y) (≠° (list x y) '(1 2)) (=° q 0) (=° x 1) (=° y 2))))
+    (⊦= '() (°->list #f (fresh° (q x y z) (≠° x (list y)) (=° q 0) (=° y z) (=° x (list z)))))
+    ; one satisfied deep in its terms, by the occurs check, is dropped from the answer
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q x b) (=° q b) (≠° b (list x)) (=° x b))))
+    (⊦= '((λ (α) (begin (deny (equal? α (cons 1 '())))) (cons α (cons 1 '()))))
+        (°->list #f (fresh° (q b x) (=° q (list b x)) (≠° b (list x)) (=° x 1)))))
+
   ((test/=°/structure _)
     (define-record person name age)
     (define p (make-person 'alice 30))
