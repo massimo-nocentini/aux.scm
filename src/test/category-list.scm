@@ -72,6 +72,15 @@
       (⊦= '(2 3 4 0 1 2) (<*> (return/⊕ add1 sub1) (return/⊕ 1 2 3)))
       `(doc "The " (code <*>) " function is the applicative functor operation.  It takes a list of functions and a list of values, and applies each function to each value, returning the combined results.  So the above is equivalent to "))
 
+  ((test/kleisli _)
+      (let ((f (λ (x) (list x (* 10 x))))
+            (g (λ (x) (list (add1 x)))))
+        (⊦= '(4 31) ((o/monad g f) 3))
+        (⊦= '(4 31) ((◇ f g) 3))
+        (⊦= '(3) ((◇) 3)))
+      `(doc "The " (code o/monad) " function composes Kleisli arrows right to left, like function composition, while " 
+            (code ◇) " composes them left to right, so " (code "(◇ f g)") " runs " (code f) " first; with no arrows both are " (code return) "."))
+
   ((test/lift/monad _)
       (⊦= '(5 6 7 6 7 8 7 8 9) (lift/monad + (return/⊕ 1 2 3) (return/⊕ 4 5 6)))
       `(doc "The " (code lift/monad) " function is a convenient way to lift a multi-argument function into the monad.  It takes a function and multiple monadic values, and applies the function to the values inside the monad.  So the above is equivalent to "

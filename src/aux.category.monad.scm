@@ -73,7 +73,7 @@
   (define (<$> f m) (<*> (M:return f) m))
 
   (define (o/monad . f*) (λ (x) (foldr (λ (f m) (▷ m f)) (M:return x) f*))) ; Kleisli composition
-  (define (◇ . f*) (o/monad (reverse f*))) ; Reverse Kleisli composition
+  (define (◇ . f*) (apply o/monad (reverse f*))) ; Reverse Kleisli composition
 
   ; flatten/monad :: (Monad m) => m (m a) -> m a
   (define (flatten/monad mm)
