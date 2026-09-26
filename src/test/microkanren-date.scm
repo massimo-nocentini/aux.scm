@@ -707,8 +707,8 @@
   ;   * `day-of-week°` on a HALF-ground day-count such as `(1 0 . β)` -- sound (it falls to the
   ;     generate-and-test branch, which is the point of `numeral->number`), but the answer
   ;     stream is the whole calendar, so there is nothing finite to pin.  Described in prose.
-  ;   * `day-of-week/within°` and `weekday-midnight°` -- the windowed enumerations; they belong
-  ;     with the window cases, and only their fallback branch is referred to here.
+  ;   * `day-of-week/within°` on its own -- the windowed enumeration; only its fallback branch is
+  ;     referred to here, and test/weekday-midnight° exercises its fast branch end to end.
 
   ((test/weekday°/epoch _)
    ; field 6 of a broken-down UTC time is the weekday, 0 = Sunday.
@@ -908,6 +908,32 @@
             "and it must generate the WEEKDAY and not the day-count: generating the answer "
             "instead leaves " (code/inline "w") " fresh on re-entry, the fallback fires again, "
             "and that version was measured hanging.")))
+
+  ((test/weekday-midnight° _)
+   (define (mondays lo hi)
+     (map (lambda (t) (instant->iso (numeral->number t)))
+          (μkanren-run (t 9 #t) (weekday-midnight° 'monday lo hi t))))
+   (⊦= '("2025-10-06T00:00:00Z" "2025-10-13T00:00:00Z" "2025-10-20T00:00:00Z" "2025-10-27T00:00:00Z")
+       (mondays (build-instant 2025 10 6) (build-instant 2025 10 31)))
+   (⊦= '("2025-10-13T00:00:00Z" "2025-10-20T00:00:00Z" "2025-10-27T00:00:00Z")
+       (mondays (build-instant 2025 10 6 12 0 0) (build-instant 2025 10 31)))
+   (⊦= '("2025-10-13T00:00:00Z")
+       (mondays (build-instant 2025 10 6 0 0 1) (build-instant 2025 10 13)))
+   (⊦= '() (mondays (build-instant 2025 10 6 0 0 1) (build-instant 2025 10 12 23 59 59)))
+   (⊦= '() (μkanren-run (q 3 #t) (=° q 'yes)
+             (weekday-midnight° 'monday (build-instant 2025 10 6 12 0 0) (build-instant 2025 10 31)
+                                (build-instant 2025 10 6))))
+   `(doc (p "The headline query at instant magnitude, and the one place where the two bounds "
+            "of the window cross the seam DIFFERENTLY. " (code/inline "day+second°")
+            " floors, which is right for " (code/inline "hi") " -- the last midnight not after "
+            (code/inline "hi") " falls on " (code/inline "hi") "'s own day -- and wrong for "
+            (code/inline "lo") ": Monday noon floors to Monday, whose midnight is twelve hours "
+            "BEFORE the window opens. So a " (code/inline "lo") " past midnight is ceiled to the "
+            "next day-count, and the rows walk that edge: from midnight itself the Monday is in, "
+            "from noon or from one second past it is out, and a window that opens one second "
+            "after a Monday midnight and closes one second before the next holds no Monday "
+            "midnight at all. The last row is the same fact as a test, and it terminates on "
+            "the miss because the window bounds the stride.")))
 
   ; -- iso: the human-readable surface, plain Scheme under one project° ------------------
   ;

@@ -717,11 +717,20 @@
   ;;; strings, in 78 ms; the same four at 09:00 in 95 ms; as a test, 143 ms for
   ;;; a hit and a miss together, and the MISS TERMINATES, because the window
   ;;; bounds the stride.
+  ;;;
+  ;;; The two bounds do NOT cross the same way.  The seam FLOORS, which is
+  ;;; right for `hi` -- the last midnight not after `hi` is on `hi`'s own day
+  ;;; -- and wrong for `lo`: when `lo` is past midnight its own day's midnight
+  ;;; is BEFORE `lo`, so the first candidate day is the next one.  Hence the
+  ;;; `cond°` on `slo`, which ceils `lo` into day-space.
   (define-relation (weekday-midnight° w lo hi t)
-    (fresh° (dlo dhi slo shi day)
+    (fresh° (dlo dlo* dhi slo shi day)
       (day+second° lo dlo slo)
+      (cond°
+        ((=° slo '()) (=° dlo* dlo))
+        ((pos° slo) (plus° dlo '(1) dlo*)))
       (day+second° hi dhi shi)
-      (day-of-week/within° dlo dhi w day)
+      (day-of-week/within° dlo* dhi w day)
       (midnight° t day)))
 
   ;;; instant <-> "YYYY-MM-DDTHH:MM:SSZ", UTC.
