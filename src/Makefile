@@ -60,6 +60,7 @@ test:
 	cd test && ${CSI} -s machine.secd.scm
 	cd test && ${CSI} -s microkanren-unionfind.scm
 	cd test && ${CSI} -s games.dice-of-doom.scm
+	cd test && ${CSI} -s sxml.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm

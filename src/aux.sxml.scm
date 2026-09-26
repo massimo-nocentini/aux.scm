@@ -157,11 +157,17 @@
                                                            (i ,@quotation)
                                                            (footer (p (@ (class "w3-right-align")) ,author))))))
                  (sxml-handler-math/display (lambda (tag body) `(math (@ (display "block")) ,@body)))
-                 (sxml-handler-math/frac (lambda (tag body) `(mfrac ,(car body) ,(cadr body))))
+                 ; `mfrac` wants exactly two child *elements*: a bare operand goes through `m`,
+                 ; an already rendered one, as in `(frac (m x) 2)`, is kept as it is.
+                 (sxml-handler-math/frac (lambda (tag body)
+                                           `(mfrac ,@(map (lambda (w) (if (pair? w) w (sxml-handler-math/m 'm (list w))))
+                                                          (list (car body) (cadr body))))))
                  (sxml-handler-math/m (lambda (tag body)
                                         (let ((v (car body)))
                                           (cond
-                                            ((rational? v) (sxml-handler-math/frac 'frac (list (numerator v) (denominator v))))
+                                            ; every real is `rational?` in CHICKEN, so only a true ratio is a fraction.
+                                            ((and (rational? v) (exact? v) (not (integer? v)))
+                                             (sxml-handler-math/frac 'frac (list (numerator v) (denominator v))))
                                             ((number? v) `(mn ,v))
                                             ((symbol? v) `(mi ,v))
                                             ((pair? v) `(mrow ,@(map (lambda (w) (sxml-handler-math/m 'm (list w))) v)))
