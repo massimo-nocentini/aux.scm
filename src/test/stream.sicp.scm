@@ -443,16 +443,16 @@
                               (series:/ stream:1 (list->poly '(1 -1)))
                               (list->poly `(, (list->poly '()) ,(stream:cons 0 stream:1s)))))))
          (map (list○take 10) rows)))
-   (⊦≡ '((1 0 0 0 0 0 0 0 0 0)
+   (⊦≡ '((1 0 0 0 0 0 0 0 0 0) ; 1/(1 - (xy/(1-y) + x²y²/(1-y))): the diagonal is Fibonacci
          (0 1 1 1 1 1 1 1 1 1)
-         (0 0 2 4 6 8 10 12 14 16)
-         (0 0 0 2 6 12 20 30 42 56)
-         (0 0 0 0 2 8 20 40 70 112)
-         (0 0 0 0 0 2 10 30 70 140)
-         (0 0 0 0 0 0 2 12 42 112)
-         (0 0 0 0 0 0 0 2 14 56)
-         (0 0 0 0 0 0 0 0 2 16)
-         (0 0 0 0 0 0 0 0 0 2))
+         (0 0 2 3 4 5 6 7 8 9)
+         (0 0 0 3 7 12 18 25 33 42)
+         (0 0 0 0 5 15 31 54 85 125)
+         (0 0 0 0 0 8 30 73 145 255)
+         (0 0 0 0 0 0 13 58 162 361)
+         (0 0 0 0 0 0 0 21 109 344)
+         (0 0 0 0 0 0 0 0 34 201)
+         (0 0 0 0 0 0 0 0 0 55))
        (let ((rows ((list○take 10)
                     (series:○ ; multivariate
                               (series:/ stream:1 (list->poly '(1 -1)))
@@ -471,6 +471,17 @@
          (1 36 210 462 495 286 91 15 1)
          (1 45 330 924 1287 1001 455 120 17 1))
        ((list○take 10) (riordan-array stream:1s (series:from 1)))))
+
+  ((test/stream-series/bivariate-products _)
+   ; a bivariate series is a series in x whose coefficients are numbers or series in y.
+   (let ((rows (λ (n m s) (map (list○take m) ((list○take n) s))))
+         (x+y (list->poly (list (list->poly '(0 1)) 1)))
+         (1+x (list->poly (list (series:const 1) (series:const 1)))))
+     (⊦≡ '((0 0 1) (0 2 0) (1 0 0)) (rows 3 3 (series:×* x+y x+y))) ; y² + 2yx + x²
+     (⊦≡ '((1 0 0 0) (2 0 0 0) (1 0 0 0)) (rows 3 4 (series:×* 1+x 1+x)))
+     ; u² ∘ (x + yx²) = x² + 2yx³ + y²x⁴
+     (⊦≡ '((0 0 0) (0 0 0) (1 0 0) (0 2 0) (0 0 1))
+         (rows 5 3 (series:○ (list->poly '(0 0 1)) (list->poly (list (list->poly '()) 1 (list->poly '(0 1)))))))))
 
   ((test/stream-series/catalan _)
    (⊦≡ '(1 1 2 5 14 42 132 429 1430 4862) ((list○take 10) taylor/catalan))

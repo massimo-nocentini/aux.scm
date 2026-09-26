@@ -85,20 +85,17 @@
 
   (define series:×*
     (λ series
-       (letrec ((M (stream:convolution
-                     (λ (a b)
+       (let* ((elem* (λ (a b) ; product of two coefficients, each a number or a series in y
                         (cond
                           ((and (promise? a) (promise? b)) (series:× a b))
                           ((and (promise? a) (number? b)) ((series:* b) a))
                           ((and (number? a) (promise? b)) ((series:* a) b))
                           ((and (number? a) (number? b)) (series:const (* a b)))
-                          (else (error "series:×" "f₀ not a number" a b))))
-                     (λ (a)
-                        (λ (b)
-                           (cond
-                             ((number? a) ((stream:map (series:* a)) b))
-                             (else ((stream:zip-with series:×) a b)))))
-                     (stream:zip-with series:+))))
+                          (else (error "series:×*" "f₀ not a number" a b)))))
+              (M (stream:convolution
+                   elem*
+                   (λ (a) (stream:map (λ (b) (elem* a b)))) ; scales every coefficient by `a`
+                   (stream:zip-with series:+))))
          (foldr M stream:1 series))))
 
   (define series:⁻¹
