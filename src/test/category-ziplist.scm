@@ -1,4 +1,4 @@
-(import (aux unittest) (aux base) (aux category ziplist) (aux category monad ziplist))
+(import (aux unittest) (aux base) (only srfi-1 take) (aux category ziplist) (aux category monad ziplist))
 
 (define-suite category-ziplist-suite
 
@@ -18,6 +18,21 @@
         (⊦= '(12 13 14) (do/monad (← x l) (← y '(0 1 2)) ,(+ x y))))
       `(doc "A pure value repeats forever as a one-element circular list, so " (code write) " never returns on it; "
             "zipping it with a finite list gives a finite result."))
+
+  ((test/circular _)
+      (⊦= '(1 2) (>>= (list/circular 1 2) (λ (x) (list x x))))
+      (⊦= '((1 a) (2 b) (1 c)) (do/monad (← x (list/circular 1 2)) (← y '(a b c)) ,(list x y)))
+      (let ((r (>>= (list/circular 1 2) return)))
+        (⊦= '(0 . 2) (list-rho r))
+        (⊦= '(1 2) (take r 2)))
+      (let ((r (do/monad (← x (list/circular 1 2 3)) (← y (list/circular 'a 'b)) ,(list x y))))
+        (⊦= '(0 . 6) (list-rho r))
+        (⊦= '((1 a) (2 b) (3 a) (1 b) (2 a) (3 b) (1 a)) (take r 7)))
+      (let ((r (>>= (cons 0 (cons 9 (list/circular 1 2 3))) (λ (x) (cons x (cons x (list/circular x 'y)))))))
+        (⊦= '(2 . 6) (list-rho r))
+        (⊦= '(0 9 1 y 3 y 2 y 1 y) (take r 10)))
+      `(doc "A circular list of any period zips too: the diagonal is finite as soon as an inner list of the cycle is, "
+            "otherwise it is circular again, so " (code "(>>= m return)") " gives back " (code m) "."))
 
   ((test/diagonal _)
       (⊦= '((1 a) (2 b)) (do/monad (← x '(1 2 3)) (← y '(a b)) ,(list x y)))
