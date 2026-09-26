@@ -2,7 +2,12 @@
 
 (module (aux category prob) *
 
-  (import scheme (chicken base) (only srfi-1 append-map find) (aux base))
+  (import scheme
+          (chicken base)
+          (chicken fixnum)
+          (only srfi-1 append-map find) 
+          (only srfi-69 make-hash-table equal?-hash hash-table-ref/default hash-table-set!) 
+          (aux base))
 
   #|
 
@@ -36,20 +41,33 @@
 
   ; Consolidate outcomes that share the same value by summing their
   ; probabilities, so that a distribution like ((#f . 0.25) (#f . 0.25))
-  ; collapses to ((#f . 0.5)).  Preserves first-occurrence order.
+  ; collapses to ((#f . 0.5)).  Preserves first-occurrence order and never
+  ; mutates m: the summed cells are fresh pairs.
+  ;
+  ; hybrid, as `pairwise-different?` in (aux base): scanning the cells found so far wins
+  ; while they are fewer than ~60, then an equal?-keyed srfi-69 table from value to cell
+  ; takes over, so a bind costs O(pairs) instead of O(pairs × distinct values).
   (define (consolidate m)
-    (let loop ((m m) (acc '()))
-      (if (null? m)
-          (reverse acc)
+    (let loop ((m m) (acc '()) (n 0) (cells #f))
+      (cond
+        ((null? m) (reverse acc))
+        ((and (not cells) (fx> n 60))
+          (let1 (cells (make-hash-table equal? equal?-hash))
+            (for-each (λ (cell) (hash-table-set! cells (car cell) cell)) acc)
+            (loop m acc n cells)))
+        (else
           (let* ((vp (car m))
                  (v  (car vp))
                  (p  (cdr vp))
-                 (cell (find (λ1-match/first ((,v* . _) (equal? v v*))) acc)))
-            (if cell
-                (begin
-                  (set-cdr! cell (+ (cdr cell) p))
-                  (loop (cdr m) acc))
-                (loop (cdr m) (cons (cons v p) acc)))))))
+                 (cell (if cells
+                         (hash-table-ref/default cells v #f)
+                         (find (λ1-match/first ((,v* . _) (equal? v v*))) acc))))
+            (cond
+              (cell (set-cdr! cell (+ (cdr cell) p))
+                    (loop (cdr m) acc n cells))
+              (else (let1 (cell (cons v p))
+                      (when cells (hash-table-set! cells v cell))
+                      (loop (cdr m) (cons cell acc) (fx+ n 1) cells)))))))))
 
 )
 
