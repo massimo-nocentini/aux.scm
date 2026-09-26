@@ -246,12 +246,23 @@
     "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":45}}\n\n"
     "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
 
-; a parameterless tool streams content_block_start with "input":{} and NO input_json_delta at
+; a parameterless tool can stream content_block_start with "input":{} and NO input_json_delta at
 ; all.  A stop that parsed its (empty) buffer unconditionally would raise an anthropic-decode-error.
 (define fixture/sse/no-input
   (string-append
     "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s3\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n\n"
     "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_02\",\"name\":\"now\",\"input\":{}}}\n\n"
+    "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":9}}\n\n"
+    "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+
+; ... and the same turn as the documented streams send it: the input opens with an empty
+; partial_json, which for a parameterless tool is the only input_json_delta there is
+(define fixture/sse/empty-input-delta
+  (string-append
+    "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_s6\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":7,\"output_tokens\":1}}}\n\n"
+    "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_04\",\"name\":\"now\",\"input\":{}}}\n\n"
+    "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\"}}\n\n"
     "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
     "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":9}}\n\n"
     "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
@@ -1581,6 +1592,32 @@
             " at all. A stop that parsed its empty buffer unconditionally would hand "
             (code/inline "\"\"") " to the parser, which refuses it, and turn a valid call "
             "into an input error.")))
+
+  ((test/anthropic/sse/tool-use-with-an-empty-input-delta _)
+   (receive (message errors)
+       (anthropic-sse->message
+         (anthropic-sse/events (open-input-string fixture/sse/empty-input-delta)))
+     (⊦= '() errors)
+     (⊦= #(((type "tool_use") (id "toolu_04") (name "now") (input ())))
+         (anthropic-json/ref message 'content)))
+   (letstub (stub (anthropic-stub/canned fixture/sse/empty-input-delta
+                                         headers: '(("content-type" "text/event-stream"))))
+     (let1 (r (anthropic/stream (list (anthropic-message/user "time?")) tools: (list now/tool)))
+       (⊦= '() (anthropic-response-input-errors r))
+       (⊦= "2026-09-16T00:00:00Z"
+           (anthropic-json/ref
+             (anthropic-tool-use->result (car (anthropic-response/tool-uses r))
+                                         (anthropic-tools->table (list now/tool))
+                                         anthropic-tool/around
+                                         (anthropic-response-input-errors r))
+             'content))))
+   `(doc (p "The documented streams open every tool input with an "
+            (code/inline "input_json_delta") " whose " (code/inline "partial_json")
+            " is " (code/inline "\"\"") ", and for a parameterless tool that is the only one. "
+            "An accumulation that adds up to nothing is no JSON at all, exactly like no delta: "
+            "it keeps the template's input. Treating it as unparseable answered every "
+            "streamed no-argument call with an " (code/inline "INVALID_JSON") " error instead "
+            "of running the tool.")))
 
   ((test/anthropic/sse/unparseable-tool-input-is-recorded-not-raised _)
    (receive (message errors)

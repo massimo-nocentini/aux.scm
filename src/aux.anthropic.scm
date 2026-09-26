@@ -1619,8 +1619,10 @@
 
   ; The template is the content_block object as it arrived; only the field the deltas were filling
   ; is replaced.  An unknown block type passes through untouched, which is what the
-  ; replay-verbatim rule requires.  A tool_use block with NO input_json_delta events keeps its
-  ; template's `input` ({} -> '()); an unparseable accumulation is recorded on the state and the
+  ; replay-verbatim rule requires.  A tool_use block whose input_json_delta events add up to
+  ; NOTHING keeps its template's `input` ({} -> '()) -- whether it had no delta at all or, as the
+  ; API's documented streams do for a parameterless tool, one `"partial_json":""` -- which is
+  ; the SDKs' `if json_buf:` guard; an unparseable accumulation is recorded on the state and the
   ; input is left empty, because raising here would lose the sibling blocks, the stop_reason and
   ; the usage of the whole turn.
   (define (anthropic-sse-block->json blk st)
@@ -1636,7 +1638,7 @@
         ("redacted_thinking" template)
         (else
           (cond
-            ((null? (anthropic-sse-block-json blk))
+            ((string=? "" raw)
              (if (null? (anthropic-sse-block-text blk))
                  template
                  (anthropic-json/set template 'text text)))
