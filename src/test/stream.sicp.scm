@@ -485,7 +485,27 @@
      (⊦≡ '((1 0 0 0) (2 0 0 0) (1 0 0 0)) (rows 3 4 (series:×* 1+x 1+x)))
      ; u² ∘ (x + yx²) = x² + 2yx³ + y²x⁴
      (⊦≡ '((0 0 0) (0 0 0) (1 0 0) (0 2 0) (0 0 1))
-         (rows 5 3 (series:○ (list->poly '(0 0 1)) (list->poly (list (list->poly '()) 1 (list->poly '(0 1)))))))))
+         (rows 5 3 (series:○ (list->poly '(0 0 1)) (list->poly (list (list->poly '()) 1 (list->poly '(0 1)))))))
+     ; a stream head selects the bivariate composition, even a forced (hence cyclic) one; it must
+     ; have no constant term but it need not be zero.
+     (let ((zeros (stream:repeat 0))
+           (geometric (series:/ stream:1 (list->poly '(1 -1))))
+           (1+y (list->poly '(1 1)))
+           (y (list->poly '(0 1))))
+       (⊦≡ '((1 0 0) (1 1 0) (1 2 1)) (rows 3 3 (series:○ geometric (list->poly (list zeros 1+y)))))
+       ((stream:ref 3) zeros)
+       ((stream:ref 3) series:0)
+       (⊦≡ '((1 0 0) (1 1 0) (1 2 1)) (rows 3 3 (series:○ geometric (list->poly (list zeros 1+y)))))
+       ; 1/(1-u) ∘ (y + x) = 1/(1-x-y), the binomial coefficients C(i+j, i)
+       (⊦≡ '((1 1 1 1) (1 2 3 4) (1 3 6 10) (1 4 10 20)) (rows 4 4 (series:○ geometric x+y)))
+       ; 1/(1-u) ∘ (y + yx) = Σ yⁿ(1+x)ⁿ, the binomial coefficients C(j, i)
+       (⊦≡ '((1 1 1 1) (0 1 2 3) (0 0 1 3) (0 0 0 1)) (rows 4 4 (series:○ geometric (list->poly (list y y)))))
+       (⊦≡ '((0 0 1) (0 2 0) (1 0 0)) (rows 3 3 (series:○ (list->poly '(0 0 1)) x+y))) ; u² ∘ (y + x)
+       ; exp(u) ∘ (y + x) = exp(x)·exp(y)
+       (⊦≡ '((1 1 1/2) (1 1 1/2) (1/2 1/2 1/4)) (rows 3 3 (series:○ (series:exp y) x+y)))
+       (⊨ (condition-case (begin ((list○take 3) (series:○ geometric (list->poly (list 1 1+y)))) #f) ((exn) #t)))
+       (⊨ (condition-case (begin ((list○take 3) (series:○ geometric (list->poly (list (series:const 5) 1+y)))) #f)
+            ((exn) #t))))))
 
   ((test/stream-series/catalan _)
    (⊦≡ '(1 1 2 5 14 42 132 429 1430 4862) ((list○take 10) taylor/catalan))

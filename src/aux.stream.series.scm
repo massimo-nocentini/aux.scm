@@ -130,16 +130,33 @@
 
   (define series:○
     (λ§ (α β)
-        (let-values (((M B) (let ((β₀ (stream:car β)))
-                              (cond
-                                ((equal? β₀ 0)            (values series:× identity))       ; univariate series
-                                ((equal? β₀ series:0)  (values series:×* series:const))  ; bivariate series
-                                (else (error "series:○" "β₀ neither 0 nor series:0" β₀))))))
+        ; β(0) must vanish: β₀ is either 0 (univariate) or a series in y whose constant term is 0
+        ; (bivariate). Never `equal?` a stream here: a forced one is cyclic, like series:0.
+        ;
+        ; The recursion C below is Horner's rule on β = β₀ + x·β′ with β₀ dropped, so it is right as
+        ; it stands only when β₀ = 0. For a bivariate β₀(y) ≠ 0, α is first replaced by its Taylor
+        ; expansion at β₀, α(β₀ + x·β′) = Σₙ (α⁽ⁿ⁾/n!)(β₀)·(x·β′)ⁿ, whose n-th coefficient is a
+        ; univariate composition in y, well defined because β₀(0) = 0. Whether an infinite β₀ is zero
+        ; is undecidable, so only series:0 itself takes the direct way; any other stream takes the
+        ; (lazier, costlier) expansion, which gives the same coefficients when β₀ is zero.
+        (let-values (((M B T) (let ((β₀ (stream:car β)))
+                                (cond
+                                  ((eqv? β₀ 0) (values series:× identity α))       ; univariate series
+                                  ((not (and (promise? β₀) (eqv? (stream:car β₀) 0)))
+                                   (error "series:○" "β₀ neither 0 nor a series in y with no constant term" β₀))
+                                  ((eq? β₀ series:0) (values series:×* series:const α)) ; bivariate, β₀ = 0
+                                  (else (letrec ((E (λ§ (n Δ) ; Δ = α⁽ⁿ⁾/n!, E yields (α⁽ⁿ⁾/n!)(β₀), ...
+                                                        (stream:dest/car+cdr (Δ ∅)
+                                                                             ((Δ₀ Δ′) (stream:cons
+                                                                                        (series:○ Δ β₀)
+                                                                                        (E (add1 n) ((series:* (/ (add1 n)))
+                                                                                                     (series:∂ Δ)))))))))
+                                          (values series:×* identity (E 0 α))))))))
           (letrec ((C (λ§ (α β)
                           (stream:dest/car+cdr (α ∅)
                                                ((a αs) (stream:dest/car+cdr (β ∅)
                                                                             ((b βs) (stream:cons (B a) (M (C αs β) βs)))))))))
-            (C α β)))))
+            (C T β)))))
 
   (define series:√/∞
     (λ§ (α)
