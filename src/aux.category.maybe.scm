@@ -3,7 +3,7 @@
 
   (import scheme (chicken base) (aux base))
 
-  (define (return . args) `(just . ,(car args)))
+  (define (return v) `(just . ,v))
   (define (>>= m f)
     (match/first m
       ((just . ,v) (f v))
