@@ -61,7 +61,7 @@ everything it defines (`(module (aux cml) * ...)`). The file has three parts:
 
 Each part starts with a `;;` header comment that holds its design notes and its deviations from
 ML. The test suites are `src/test/cml.scm`, `src/test/cml-lib.scm` and `src/test/cml-io.scm`
-(211 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
+(212 test cases in 16 suites, see [section 7](#7-testing)). The module is registered in
 `src/aux.egg` as `(extension aux.cml)` and the suites run with `make test-cml` in `src/`.
 
 The port targets CHICKEN **6** (it was developed against 6.0.1pre1, binary version 12). It
@@ -1357,10 +1357,12 @@ buffer for the next event); escaping `run-cml` right after the commit leaves not
   after some chars were read (a bad value on a channel port), the chars go to the side buffer and
   the condition is raised by the next drain.
 
-**Closed ports.** A reader waiting on a descriptor registers its port in a close-watch list. One
+**Closed ports.** A reader waiting on a descriptor also syncs on `%port-closed-evt`, whose
+blocked waiter goes to a close-watch list with its transaction, as an I/O waiter does (so a wait
+that ends another way leaves nothing to unregister: its entry is dropped at the next sweep). One
 OS poller sweeps that list every 0.1 s, but only when some thread ran since the previous sweep
-(only a thread can close a port), and puts an ivar for each port found closed, which wakes its
-waiter; the idle loop sleeps at most until the next due sweep, and not at all for it once idle.
+(only a thread can close a port), and wakes the waiter of each port found closed; the idle loop
+sleeps at most until the next due sweep, and not at all for it once idle.
 This replaced a 0.1 s timeout per waiter, which kept the process busy with a few thousand idle
 readers (round 8: 2000 waiters went from 1653 ms to 14 ms of CPU over 2 s). A channel port is not
 watched, so a reader blocked on a channel nobody writes to is a deadlock, as in ML.
@@ -1379,8 +1381,11 @@ watched, so a reader blocked on a channel nobody writes to is a deadlock, as in 
   readiness again. CHICKEN's stdio flush drops write errors, and loading `(chicken tcp)` makes
   the process ignore SIGPIPE, so without this a write to a pipe whose reader exited was lost
   silently; now it raises `EPIPE`.
-- A writer waiting between chunks is registered in the close watch too, and raises if the port
-  is closed.
+- A writer waiting for readiness, before the first chunk (`output-evt` and `write-string-evt`
+  themselves) as between chunks, is in the close watch too, and raises if the port is closed:
+  the descriptor number may already belong to a file that never becomes writable. When it does
+  not, `file-select` reports the closed descriptor ready (`POLLNVAL`), usually before the sweep
+  runs, so the readiness branch checks the port too and raises the same error.
 - Output events check at every sync (in a guard) that the port is open.
 
 ### 4.14 Channel ports
@@ -1831,7 +1836,7 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 
 ### 7.3 Inventory
 
-211 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
+212 cases in 16 suites; all pass (`failed 0`), interpreted and compiled.
 
 | File | Suite | Cases | What it covers |
 |---|---|---|---|
@@ -1847,7 +1852,7 @@ Global registrations made by a case are undone in a `dynamic-wind` after thunk.
 | `cml-lib.scm` | `cml-multicast-suite` | 8 | predicates, readers at independent speeds, new ports see later messages, copy ports, `multicast-recv-evt`, a port shared by readers, many messages, a producer kept to its readers' pace |
 | | `cml-rpc-suite` | 11 | the five makers, FIFO answers, several values, select loops, exceptions delivered to the caller (and with state), shared state across servers at several quanta |
 | | `cml-trace-suite` | 12 | the module tree and flag hierarchy, output destinations (and long lists), trace files (closed after the servers), `watch`/`unwatch` (death, exception, after death, many threads by ratio), the uncaught-exception registry |
-| `cml-io.scm` | `cml-io-ports-suite` | 33 | line reading with a slow writer, data already in stdio buffers, char/peek/string/all events, end of file, selecting over two pipes, losing branches keep input, line terminators, readers sharing a port, ports across sessions, timeouts vs input, read errors, writer and reader over a full pipe, `output-evt`, commit surviving an escape, forcing that raises releases the port, `input-evt`, file status flags untouched, encodings, split UTF-8 (writes, after a direct read), no leak while waiting, raising polls, non-interleaving writers, closed ports (and reused descriptors), linear time with small pieces, a flooding stream, `EPIPE`, a dying writer releases the lock, idle waiters cost nothing, bad arguments, polls find available input, not-running |
+| `cml-io.scm` | `cml-io-ports-suite` | 34 | line reading with a slow writer, data already in stdio buffers, char/peek/string/all events, end of file, selecting over two pipes, losing branches keep input, line terminators, readers sharing a port, ports across sessions, timeouts vs input, read errors, writer and reader over a full pipe, `output-evt`, commit surviving an escape, forcing that raises releases the port, `input-evt`, file status flags untouched, encodings, split UTF-8 (writes, after a direct read), no leak while waiting, raising polls, non-interleaving writers, closed ports (and reused descriptors, before the first write too), linear time with small pieces, a flooding stream, `EPIPE`, a dying writer releases the lock, idle waiters cost nothing, bad arguments, polls find available input, not-running |
 | | `cml-io-os-suite` | 13 | `system-evt` exit codes, eagerness, concurrency and `/bin/sh`; bad arguments; `cml/execute` (cat, close-on-exec, closed stdio, missing program, `PATH` and `argv[0]`, environment); reaping after a run; children start with SIGPIPE default |
 | | `cml-io-tcp-suite` | 6 | an echo server, messages sent at once (no Nagle stall, timing), accept with timeout, a losing accept branch, two acceptors and one connection, UTF-8 split across segments |
 | | `cml-io-chanio-suite` | 15 | round trip, a blocked channel-port reader is a deadlock, events on channel ports, `write-string-evt` as a rendezvous and with flushes, no empty strings, order of a thread's output, closed output ports, peek then events, bad values (reaching the syncing thread, keeping earlier chars), dropped ports collected, ports without a descriptor carry their state, many ports in linear time, a pipe-to-channel bridge |

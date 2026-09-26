@@ -18,7 +18,7 @@
         (chicken errno)
         (only (scheme base) open-input-string)
         (only (chicken file) create-temporary-file delete-file)
-        (only (chicken bitwise) bitwise-and)
+        (only (chicken bitwise) bitwise-and bitwise-ior)
         (only srfi-1 iota count filter)
         (aux base)
         (aux unittest)
@@ -486,6 +486,40 @@
                           (note! (= w r2)))))))
        (file-close r)
        (for-each file-close new))))
+
+  ((test/closed-port-with-a-reused-descriptor-before-the-first-write _)
+   ; the same for a writer still waiting for the first readiness of a full pipe, in write-string-evt
+   ; or output-evt (their wait was not watched: it waited forever on the new pipe's read end); and
+   ; without the reuse, where file-select reports the closed descriptor ready before the sweep runs
+   ; (output-evt returned the closed port then)
+   (define (message thunk) (condition-case (begin (thunk) 'not-raised) (e (exn) (get-condition-property e 'exn 'message))))
+   (define (fill! fd)
+     (let1 (flags (file-control fd fcntl/getfl))
+       (file-control fd fcntl/setfl (bitwise-ior flags open/nonblock))
+       (let loop () (when (positive? (condition-case (file-write fd (make-bytevector 4096 65)) (e () 0))) (loop)))
+       (file-control fd fcntl/setfl flags)))
+   (for-each
+     (λ (evt)
+       (for-each
+         (λ (reuse?)
+           (receive (r w) (create-pipe)
+             (fill! w)
+             (let ((out (open-output-file* w)) (new '()))
+               (⊦= (if reuse? '("port is closed" #t) '("port is closed"))
+                   (log-of (τ (let1 (res (make-ivar))
+                                (spawn (τ (ivar-put! res (message (τ (sync (evt out)))))))
+                                (cml/sleep 0.05)
+                                (close-output-port out)
+                                (if reuse?
+                                  (receive (r2 w2) (create-pipe)
+                                    (set! new (list r2 w2))
+                                    (note! (sync/timeout (ivar-get-evt res) 1 'still-waiting))
+                                    (note! (= w r2)))
+                                  (note! (sync/timeout (ivar-get-evt res) 1 'still-waiting)))))))
+               (file-close r)
+               (for-each file-close new))))
+         '(#t #f)))
+     (list (λ (o) (write-string-evt o "hello")) output-evt)))
 
   ((test/input-in-small-pieces-in-linear-time _)
    ; input arriving in many small pieces is not copied again, nor scanned again, at every piece: a

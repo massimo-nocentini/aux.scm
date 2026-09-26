@@ -2562,39 +2562,35 @@
 
   ; ports: waiting for a close -----------------------------------------------------------------------
 
-  ; A reader or writer waiting on a port's descriptor registers the port here while it waits, and
-  ; one sweep, every %port-closed-check-ms, wakes those whose port another thread closed
-  ; meanwhile (its descriptor number may already belong to another file, which may never become
-  ; ready).  An idle waiter costs nothing but its share of that sweep, which is skipped when no
-  ; thread ran since the previous one (a timeout per waiter, re-armed at every check, made a few
-  ; thousand idle readers keep the process busy).  Entries are #(port ivar tid active?); the
-  ; ivar is put when the port is found closed; an entry leaves the list at the first sweep after
-  ; its waiter is done (unwatched, or dead)
+  ; A reader or writer waiting on a port's descriptor also syncs on (%port-closed-evt port), whose
+  ; blocked waiter is kept here, and one sweep, every %port-closed-check-ms, wakes those whose port
+  ; another thread closed meanwhile (its descriptor number may already belong to another file,
+  ; which may never become ready).  An idle waiter costs nothing but its share of that sweep, which
+  ; is skipped when no thread ran since the previous one (a timeout per waiter, re-armed at every
+  ; check, made a few thousand idle readers keep the process busy).  Entries are #(port trans
+  ; cleanup k), as the io manager's: an entry whose sync went another way (its transaction is no
+  ; longer live) leaves at the next sweep, so a wait has nothing to unwatch, whatever ends it
   (define %close-watch '())
-  (define %close-watch-active 0)          ; the number of active entries
   (define %close-watch-run #f)            ; the run-cml session of the entries
   (define %close-watch-next 0)            ; when the next sweep is due, in %now-ms time
 
-  (define (%close-watch! port)
-    (unless (and (eq? %close-watch-run %run-id) (positive? %close-watch-active))
-      (set! %close-watch '())
-      (set! %close-watch-active 0)
-      (set! %close-watch-run %run-id)
-      (set! %close-watch-next (+ (%now-ms) %port-closed-check-ms)))
-    (let1 (w (vector port (make-ivar) %cur-tid #t))
-      (set! %close-watch (cons w %close-watch))
-      (set! %close-watch-active (add1 %close-watch-active))
-      w))
+  ; commits once port is closed, its value is port
+  (define (%port-closed-evt port)
+    (%base-evt
+      (τ (if (port-closed? port)
+           (make-%enabled -1 (τ (%atomic-end) port))
+           (make-%blocked
+             (λ (trans cleanup next)
+               (%letcc/call k
+                 (unless (and (eq? %close-watch-run %run-id) (pair? %close-watch))
+                   (set! %close-watch '())
+                   (set! %close-watch-run %run-id)
+                   (set! %close-watch-next (+ (%now-ms) %port-closed-check-ms)))
+                 (set! %close-watch (cons (vector port trans cleanup k) %close-watch))
+                 (next)
+                 (%impossible 'port-closed-evt))))))))
 
-  (define (%close-unwatch! w)
-    (when (vector-ref w 3)
-      (vector-set! w 3 #f)
-      (set! %close-watch-active (sub1 %close-watch-active))))
-
-  ; commits once the port of w is found closed
-  (define (%close-watch-evt w) (ivar-get-evt (vector-ref w 1)))
-
-  (define (%close-watching?) (and (eq? %close-watch-run %run-id) (positive? %close-watch-active)))
+  (define (%close-watching?) (and (eq? %close-watch-run %run-id) (pair? %close-watch)))
 
   ; the sweep, an os poller (run at every preemption tick and while idle): the idle scheduler
   ; sleeps at most until it is due.  A sweep is needed only when some thread ran since the last
@@ -2611,14 +2607,12 @@
       (set! %close-watch-switches %switch-count)
       (set! %close-watch
         (filter (λ (w)
-                  (and (vector-ref w 3)
-                       (cond
-                         ((%tid-dead? (vector-ref w 2)) (%close-unwatch! w) #f)
-                         ((port-closed? (vector-ref w 0))
-                           (%close-unwatch! w)
-                           (let1 (iv (vector-ref w 1)) (%enqueue-tmp-thread! (τ (ivar-put! iv #t))))
-                           #f)
-                         (else #t))))
+                  (and (%trans-live? (vector-ref w 1))
+                       (or (not (port-closed? (vector-ref w 0)))
+                           (let ((tid (%get-id-from-trans! (vector-ref w 1))) (k (vector-ref w 3)) (port (vector-ref w 0)))
+                             ((vector-ref w 2))
+                             (%enqueue-thread! tid (λ ignored (k port)))
+                             #f))))
                 %close-watch))))
 
   (%add-os-poller! "port-close-watch" %close-sweep! (τ (and (%close-sweep-needed?) (- %close-watch-next (%now-ms)))))
@@ -2738,19 +2732,15 @@
             ((cdr r) (let1 (t (cdr r))
                        (offer (cons 'ok (car t)) (τ (%pdriver-set-buffer! d (cadr t)) (%pdriver-eof-set! d (caddr t))))))
             (else (wait)))))
-      ; the wait on a descriptor also ends when another thread closes the port (see %close-watch!):
+      ; the wait on a descriptor also ends when another thread closes the port (see %port-closed-evt):
       ; the descriptor may have been closed and its number handed to another file, whose readiness
       ; says nothing about the port.  Other ports need no watch: a channel port only waits on its
       ; channel (so a reader blocked on it is a deadlock, as in ML), a custom port polls anyway
       (define (wait)
-        (if fd?
-          (let1 (w (%close-watch! port))
-            (select (wrap ((%pdriver-wait d)) (λ (absorb) (%close-unwatch! w) (loop absorb #f)))
-                    (wrap (%close-watch-evt w) (λ ignored (loop void #f)))
-                    (wrap nack (λ ignored (%close-unwatch! w) (release)))))
-          (select (wrap ((%pdriver-wait d)) (λ (absorb) (loop absorb #f)))
-                  (wrap nack (λ ignored (release))))))
-      (define fd? (and (%port-fileno port) #t))
+        (select (wrap ((%pdriver-wait d)) (λ (absorb) (loop absorb #f)))
+                (wrap closed-evt (λ ignored (loop void #f)))
+                (wrap nack (λ ignored (release)))))
+      (define closed-evt (if (%port-fileno port) (%port-closed-evt port) never-evt))
       ; a helper whose sync went another way before it ran (see %port-input-evt) leaves at once
       (unless (sync/timeout (wrap nack (λ ignored #t)) 0 #f)
         (select (wrap (mvar-take-evt lock) (λ ignored (loop void #t))) nack))))
@@ -2905,13 +2895,24 @@
   (define (%open-output-guard who port thunk)
     (guard (τ (if (port-closed? port) (error who "port is closed" port) (thunk)))))
 
+  ; the readiness wait of fd, the descriptor of port, for the output events: the wait also ends,
+  ; raising, when another thread closes port (see %port-closed-evt), since the number of a
+  ; descriptor that another thread closed may belong to another file by then, whose readiness says
+  ; nothing about port (and which must not get port's output); f takes fd's readiness.  When the
+  ; number is not reused, file-select reports the closed descriptor ready (POLLNVAL) before the
+  ; sweep finds the port closed, so the readiness branch checks the port as well
+  (define (%port-output-evt who port fd f)
+    (define (closed) (error who "port is closed" port))
+    (choose (wrap (io-evt fd 'output) (λ (ready) (if (port-closed? port) (closed) (f ready))))
+            (wrap (%port-closed-evt port) (λ ignored (closed)))))
+
   ; commit when port can take output without blocking the process; the value is port
   (define (output-evt port)
     (unless (output-port? port) (error 'output-evt "not an output port" port))
     (%open-output-guard 'output-evt port
       (τ (let1 (fd (and (not (%chan-out-state port)) (%port-fileno port)))
            (if fd
-             (wrap (io-evt fd 'output) (λ ignored port))
+             (%port-output-evt 'output-evt port fd (λ ignored port))
              (always-evt port))))))
 
   ; the write locks of descriptor-backed ports, #(mvar run) in a %port-table, the mvar full when
@@ -2927,16 +2928,9 @@
                 (%port-table-set! %port-write-locks port fd v)
                 (vector-ref v 0))))))
 
-  ; wait until fd, the descriptor of port, can take output, raising once port is closed: the wait
-  ; also ends when another thread closes port (see %close-watch!), since the number of a
-  ; descriptor that another thread closed may belong to another file by then, whose readiness says
-  ; nothing about port (and which must not get port's output)
+  ; wait until fd, the descriptor of port, can take output, raising once port is closed
   (define (%port-output-wait port fd)
-    (unless (port-closed? port)
-      (let1 (w (%close-watch! port))
-        (sync (choose (wrap (io-evt fd 'output) (λ ignored (%close-unwatch! w)))
-                      (%close-watch-evt w)))))
-    (when (port-closed? port) (error 'write-string-evt "port is closed" port)))
+    (sync (%port-output-evt 'write-string-evt port fd void)))
 
   ; write s on the descriptor-backed port in chunks, each one after a readiness wait, and flush.
   ; The chunks are small on a blocking descriptor (a pipe or tty), which a write of more than
@@ -3012,7 +3006,7 @@
              (%chan-out-send-evt st s)
              (let1 (fd (%port-fileno port))
                (if fd
-                 (wrap (io-evt fd 'output) (λ ignored (%port-write-chunks! port fd s #t)))
+                 (%port-output-evt 'write-string-evt port fd (λ ignored (%port-write-chunks! port fd s #t)))
                  (wrap (always-evt port) (λ ignored (display s port) (flush-output port))))))))))
 
   ; ChanIO (chan-io-fn.sml): ports over channels -----------------------------------------------------
