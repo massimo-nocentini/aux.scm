@@ -435,7 +435,7 @@
                                                       ((equal? n α₀) #t)
                                                       ((< n α₀) #f)
                                                       (else (P α⁺))))))))
-         (P primes/eratosthenes))))
+         (P primes/∞))))
 
   (define-delay ; mutually recursive definition
     (taylor/cosine (series:+ stream:1 ((series:* -1) (series:∫ taylor/sine))))

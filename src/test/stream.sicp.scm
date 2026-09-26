@@ -340,6 +340,9 @@
    (⊦≡ '(3 1 0 0 0 0 0 0 0 0) ((list○take 10) (factorization 24)))
    (⊦≡ #t ((○ not prime?) 55))
    (⊦≡ #t (prime? 17))
+   (⊦≡ #t (prime? 17389)) ; the 2000th prime
+   (⊦≡ #f (prime? 17391))
+   (⊦≡ #f (prime? 1))
    ;(test '() ((list○take 10000) (factorization 248475639))) ; both sexps takes very long time
    ;(test #t (prime? 82825213))
    )
