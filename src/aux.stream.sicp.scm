@@ -72,10 +72,12 @@
        (stream:dest/car+cdr s bind (else stream:empty)))
 
       ((stream:dest/car+cdr s ((a d) body) (else sexp))
-       (cond
-         ((stream:null? s) sexp)
-         (else (let-values (((a d) (values (stream:car s) (stream:cdr s)))) ; inefficient because `force` will be called twice
-                 body))))))
+       (let ((f (stream:force* s))) ; forced once, then as stream:null?, stream:car and stream:cdr would see it
+         (cond
+           ((null? f) sexp)
+           (else (let ((a (if (pair? f) (car f) f))
+                       (d (if (pair? f) (cdr f) f)))
+                   body)))))))
 
   (define-syntax λ§ ; "big-lambda", a functional abstraction that returns a *stream* of values
     (syntax-rules ()

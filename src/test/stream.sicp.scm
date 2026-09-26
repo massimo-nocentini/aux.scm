@@ -27,6 +27,15 @@
    ; therefore `identity`
    )
 
+  ((test/stream-sicp/dest-car+cdr _)
+   ; the stream expression is evaluated, hence forced, once
+   (let* ((n 0)
+          (s (λ () (set! n (add1 n)) (δ (δ (:⁺ 1 2 stream:empty))))))
+     (⊦≡ '(1 1) (stream:dest/car+cdr (s) ((a d) (list a n)) (else 'empty))))
+   (⊦≡ 'empty (stream:dest/car+cdr (δ stream:empty) ((a d) a) (else 'empty)))
+   ; a non-pair is both car and cdr, as with stream:car and stream:cdr
+   (⊦≡ '(7 7) (stream:dest/car+cdr (δ 7) ((a d) (list a d)) (else 'empty))))
+
   ((test/stream-sicp/ref _)
    (⊦≡ 0 ((stream:ref 0) series:range/0-9))
    (⊦≡ 5 ((stream:ref 5) series:range/0-9))
