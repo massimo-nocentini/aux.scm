@@ -239,7 +239,7 @@
 
   (define-syntax letassoc/cdr
     (syntax-rules (else) 
-      ((letassoc (searchexpr lstexpr) (else body ...))
+      ((letassoc/cdr (searchexpr lstexpr) (else body ...))
        (let1 (p (assoc searchexpr lstexpr))
              (if (pair? p) (cdr p) (begin body ...))))))
 

@@ -130,6 +130,11 @@
    `(doc (p "The witness is the tail after the first " (code "n") " elements, so a " (code "#f")
             " element there still answers that the list is longer.")))
 
+  ((test/letassoc _)
+   (⊦= 1 (letassoc ('a '((a 1) (b 2))) (else 'none)))
+   (⊦= '(2) (letassoc/cdr ('b '((a 1) (b 2))) (else 'none)))
+   (⊦= 'none (letassoc/cdr ('c '((a 1) (b 2))) (else 'none))))
+
   ((test/load/string _)
    (⊦= '(+ 3 4) (load/string "(+ 3 4)"))
    `(doc))
