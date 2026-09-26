@@ -946,12 +946,14 @@
 
   ; threads (thread.sml) ---------------------------------------------------------------------------
 
+  ; TraceCML's defaultHandlerFn (see its uncaught exceptions below), the message of the core's
+  ; default-exn-handler, for thread tid
+  (define (uncaught-default-handler tid e)
+    (print-error-message e (current-error-port)
+                         (string-append "cml: thread " (tid->string tid) " died of an uncaught exception")))
+
   ; Thread.defaultExnHandler, copied into each thread at spawn time
-  (define default-exn-handler
-    (make-parameter
-      (λ (e)
-        (print-error-message e (current-error-port)
-                             (string-append "cml: thread " (tid->string %cur-tid) " died of an uncaught exception")))))
+  (define default-exn-handler (make-parameter (λ (e) (uncaught-default-handler %cur-tid e))))
 
   (define (%do-handler tid e) (condition-case ((%tid-exn-handler tid) e) (ignored () (void))))
 
@@ -3568,11 +3570,7 @@
 
   ; TraceCML: uncaught exceptions --------------------------------------------------------------------
 
-  ; TraceCML's defaultHandlerFn: the message of the core's default-exn-handler, for thread tid
-  (define (uncaught-default-handler tid e)
-    (print-error-message e (current-error-port)
-                         (string-append "cml: thread " (tid->string tid) " died of an uncaught exception")))
-
+  ; TraceCML's defaultHandlerFn is uncaught-default-handler, defined with the threads
   (define %uncaught-default uncaught-default-handler)
   (define %uncaught-handlers '())
 

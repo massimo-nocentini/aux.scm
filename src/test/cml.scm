@@ -645,7 +645,11 @@
    (let1 (err (with-error-output-to-string
                 (τ (⊦= '(after) (cdr (run/log (τ (spawn (τ (error "kaboom" 1 2))) (note! 'after) (cml/shutdown))))))))
      (⊨ (and (substring-index "kaboom" err) #t))
-     (⊨ (and (substring-index "[000003]" err) #t)))
+     (⊨ (and (substring-index "[000003]" err) #t))
+     ; the message of TraceCML's uncaught-default-handler, which the default handler calls
+     (⊦= err (with-error-output-to-string
+               (τ (run-cml (τ (uncaught-default-handler (spawn void) (make-property-condition 'exn 'message "kaboom" 'arguments '(1 2)))
+                              (cml/shutdown)))))))
    ; exceptions raised by a handler are swallowed
    (parameterize ((default-exn-handler (λ (e) (error "handler fails too"))))
      (⊦= '(still-running) (cdr (run/log (τ (spawn (τ (car '()))) (note! 'still-running) (cml/shutdown)))))))
