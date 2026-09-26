@@ -272,6 +272,17 @@
      (⊦= 5 (let1 (t ((○ compile⁺ expression->de-bruijn curryfy) J-term))
              ((○ car status-S last →/compiled⁺*) (status-init '() t)))))
 
+   ; new: `k` captures the void top-level dump and is applied inside the call of `g`, so the
+   ; jump must abandon the pending `(+ _ one)` and answer `((λ (z) z) two)` = 2 for the whole
+   ; program; applying a program closure over a void dump used to keep the current dump, and
+   ; the machine resumed the abandoned context, answering 3.
+   (let1 (J-term '((λ (k) ((λ (g) (+ (g two) one)) (λ (x) (k x)))) (J (λ (z) z))))
+     (⊦= 2 (let1 (t ((○ compile⁺ expression->de-bruijn curryfy) J-term))
+             ((○ car status-S last →/compiled⁺*) (status-init '() t)))))
+   (let1 (J-term '((λ (k) ((λ (g) (+ (g two) one)) (λ (x) (² x)))) (J (λ (z) z))))
+     (⊦= 5 (let1 (t ((○ compile⁺ expression->de-bruijn curryfy) J-term))
+             ((○ car status-S last →/compiled⁺*) (status-init '() t)))))
+
    (let1 (J-term '((λ (L x y) (+ (² (L x)) y))
                    (J (λ (z) (- (² z) (² two)))) three two))
      (⊨/error ((○ (value E) curryfy) J-term))))

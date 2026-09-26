@@ -425,10 +425,12 @@
                                    (make-status S₂ E₂ C₂ D₂)))))
                   (program-closure? (dbind/program-closure
                                       (λ (_ body D₀)
+                                        ; as in the `status?` case, the current context is
+                                        ; abandoned: a void dump is the top-level one.
                                         (cond/λ D₀
-                                          (void? (K (let ((S₁ `(,body ,y . ,S))
+                                          (void? (K (let ((S₁ `(,body ,y))
                                                           (C₁ (cons (Apply) '())))
-                                                      (make-status S₁ E C₁ D))))
+                                                      (make-status S₁ E C₁ D₀))))
                                           (status? (dbind/status
                                                      (λ (_ S₁ E₁ C₁ D₁)
                                                        (let ((S₂ `(,body ,y . ,S₁))
