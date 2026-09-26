@@ -996,8 +996,9 @@
        (list (zero-pad 0 2) (zero-pad 5 2) (zero-pad 59 2)
              (zero-pad 1970 4) (zero-pad 999 4) (zero-pad 12345 2)))
    (⊦= "9999-12-31T23:59:59Z" (instant->iso 253402300799))
-   (⊦= "0000-01-01T00:00:00Z" (instant->iso 253402300800))
-   (⊦= #f (iso->instant (instant->iso 253402300800)))
+   (⊦= #f (instant->iso 253402300800))
+   (⊦= #f (instant->iso 317311462800))
+   (⊦= '() (μkanren-run (s 2 #t) (iso° (build-num 317311462800) s)))
    `(doc (p "The epoch is asserted as a literal string because it is the one instant every "
             "other case in this file is measured from: " (code/inline "(instant->iso 0)")
             " is " (code/inline "\"1970-01-01T00:00:00Z\"") " exactly, and the numeral of that "
@@ -1017,16 +1018,18 @@
             "assertion is the cheap standing guard: an ISO instant here is TWENTY characters, "
             (code/inline "T") " at index 10 and " (code/inline "Z") " at index 19, and those "
             "offsets are exactly the ones " (code/inline "iso->instant") " slices at.")
-         (p "The last three lines pin the far edge honestly. "
+         (p "The last four lines pin the far edge honestly. "
             (code/inline "zero-pad") " is " (code/inline "string-pad")
             ", which keeps the RIGHT-hand end of a string too long for the field: "
             (code/inline "(zero-pad 12345 2)") " is " (code/inline "\"45\"") ". So the year is "
-            "four digits or it is a lie, and the year 10000 -- one second past the last "
-            "assertion above -- formats as " (code/inline "\"0000-01-01T00:00:00Z\"") ". That "
-            "is why the line after it re-reads that string: the truncation cannot become a "
-            "wrong instant, because " (code/inline "\"0000\"") " is pre-epoch and the parser "
-            "answers " (code/inline "#f") ". The supported range is [1970, 9999], and it is "
-            "asserted here rather than left to a reader's assumption.")))
+            "four digits or it is a lie: padded blindly, the year 10000 -- one second past the "
+            "last assertion above -- would read " (code/inline "\"0000-01-01T00:00:00Z\"")
+            " and 12025-03-14T09:00:00Z would read " (code/inline "\"2025-03-14T09:00:00Z\"")
+            ", a well-formed string that the parser takes back as a DIFFERENT instant. So the "
+            "formatter answers " (code/inline "#f") " past 9999, as the parser does on a string "
+            "it cannot read, and " (code/inline "iso°") " turns that into zero answers. The "
+            "supported range is [1970, 9999], and it is asserted here rather than left to a "
+            "reader's assumption.")))
 
   ((test/iso->instant _)
    (⊦= 0 (iso->instant "1970-01-01T00:00:00Z"))

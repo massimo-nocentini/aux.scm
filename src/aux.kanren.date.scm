@@ -102,8 +102,8 @@
   ;;;     no negative durations in this representation.  That is a consequence
   ;;;     of the encoding, not a design choice.
   ;;;   * ISO 8601 is the fixed 20-character form "YYYY-MM-DDTHH:MM:SSZ".  A
-  ;;;     year past 9999 has no spelling here and the parser rejects anything
-  ;;;     that is not exactly that shape.
+  ;;;     year past 9999 has no spelling here -- the formatter answers #f for
+  ;;;     it -- and the parser rejects anything that is not exactly that shape.
   ;;;   * ANSWER ORDER is the µKanren interleaving, not chronology.  The
   ;;;     `stride°` family does come out increasing; anything built on
   ;;;     `between°`/`or°` does not.  Read every expectation off a run.
@@ -274,15 +274,20 @@
   ;;; happen at an importer's site.
   (define (zero-pad n w) (string-pad (number->string n) w #\0))
 
+  ;;; The formatter answers #f for a year past 9999, which has no spelling in
+  ;;; the fixed form: `zero-pad` keeps the RIGHT-hand end of a field too long
+  ;;; for it, so 12025 would print as 2025 -- a well-formed string naming
+  ;;; ANOTHER instant, which the parser would then happily read back.
   (define (instant->iso t)
     (let* ((z (floor-quotient t seconds/day))
            (sod (floor-remainder t seconds/day))
            (c (civil-from-days z)))
-      (sprintf "~a-~a-~aT~a:~a:~aZ"
-               (zero-pad (car c) 4) (zero-pad (cadr c) 2) (zero-pad (caddr c) 2)
-               (zero-pad (quotient sod seconds/hour) 2)
-               (zero-pad (quotient (remainder sod seconds/hour) seconds/minute) 2)
-               (zero-pad (remainder sod seconds/minute) 2))))
+      (and (<= (car c) 9999)
+           (sprintf "~a-~a-~aT~a:~a:~aZ"
+                    (zero-pad (car c) 4) (zero-pad (cadr c) 2) (zero-pad (caddr c) 2)
+                    (zero-pad (quotient sod seconds/hour) 2)
+                    (zero-pad (quotient (remainder sod seconds/hour) seconds/minute) 2)
+                    (zero-pad (remainder sod seconds/minute) 2)))))
 
   ;;; The parser VALIDATES and returns #f rather than a neighbouring instant:
   ;;; "2025-02-30T00:00:00Z" is not a date and must not silently become March 2.
@@ -778,7 +783,8 @@
   ;;; purity in the two fast paths -- but the OPEN mode is still defined, by
   ;;; composing with layer 4 and re-entering.
   ;;;
-  ;;;   `t` ground -> the string, 0-1 ms.
+  ;;;   `t` ground -> the string, 0-1 ms; an instant past 9999-12-31T23:59:59Z
+  ;;;      has no spelling and gives ZERO answers, as its string would.
   ;;;   the string ground -> `t`, 0-1 ms, and the parser VALIDATES:
   ;;;      "2025-02-30T00:00:00Z", a pre-epoch instant and plain garbage all
   ;;;      give ZERO answers rather than a wrong instant.
@@ -788,7 +794,8 @@
       (let ((T (numeral->number t*)))
         (cond
           ((never-numeral? t*) ✗°)
-          (T (=° str (instant->iso T)))
+          (T (let ((s (instant->iso T)))
+               (if s (=° str s) ✗°)))
           ((string? s*) (let ((v (iso->instant s*)))
                           (if v (=° t (number->numeral v)) ✗°)))
           (else (fresh° (y mo d hh mm ss)
