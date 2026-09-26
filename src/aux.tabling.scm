@@ -18,13 +18,22 @@
           srfi-69
           (aux base))
 
+  ; a table keeps the value of a call as it is, and the values of a call that returns zero or
+  ; several of them in a `tabled/values` box, so that a table read directly (as through `λH`)
+  ; holds plain values in the usual case, and no value is lost in the others.
+  (define-record tabled/values list)
+
+  (define (tabled/values->entry . vs) (if (and (pair? vs) (null? (cdr vs))) (car vs) (make-tabled/values vs)))
+  (define (tabled/entry->values v) (if (tabled/values? v) (apply values (tabled/values-list v)) v))
+
   (define hash-table-ref/store
     (λ (H)
       (λ (key missing)
-        (cond
-          ((hash-table-exists? H key) (hash-table-ref H key))
-          (else (let1 (v (apply missing key))
-                  (begin1 v (hash-table-set! H key v))))))))
+        (tabled/entry->values
+          (cond
+            ((hash-table-exists? H key) (hash-table-ref H key))
+            (else (let1 (v (call-with-values (τ (apply missing key)) tabled/values->entry))
+                    (begin1 v (hash-table-set! H key v)))))))))
 
   (define hash-table-ref/maybe
     (λ (H key)
@@ -56,9 +65,9 @@
                             (let ((k `(,args ...)))
                               (let-values (((found v) (hash-table-ref/maybe H k)))
                                 (unless (and found (not fresh))
-                                  (set! v (begin body ...))
+                                  (set! v (call-with-values (τ body ...) tabled/values->entry))
                                   (when store (hash-table-set! H k v)))
-                                v)))))
+                                (tabled/entry->values v))))))
              name))))))
 
   (define-syntax letrec-tabled

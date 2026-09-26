@@ -185,6 +185,26 @@
      (⊦= '(#f) (call-with-values (τ (hash-table-ref/maybe H '(3))) (λ (found v) (list found))))
      (⊨ (void? (call-with-values (τ (hash-table-ref/maybe H '(3))) (λ (found v) v))))))
 
+  ((test/multiple-values _)
+   ; every value of a call is tabled, not only the first one, and a single value is stored as it is
+   (define calls 0)
+   (define (divmod a b) (set! calls (add1 calls)) (values (quotient a b) (remainder a b)))
+   (memoize! divmod)
+   (⊦= '(3 1) (call-with-values (τ (divmod 7 2)) list))
+   (⊦= '(3 1) (call-with-values (τ (divmod 7 2)) list))
+   (⊦= 1 calls)
+   (define-tabled dm λH (lambda (a b) (if (eq? a tabled/get-hidden-hash-table) (λH) (values (quotient a b) (remainder a b)))))
+   (⊦= '(3 1) (call-with-values (τ (dm 7 2)) list))
+   (⊦= '(3 1) (call-with-values (τ (dm 7 2)) list))
+   (define-tabled none (lambda (a) (values)))
+   (⊦= '() (call-with-values (τ (none 1)) list))
+   (⊦= '() (call-with-values (τ (none 1)) list))
+   (let* ((H (make-hash-table test: equal?))
+          (↑ (hash-table-ref/store H)))
+     (⊦= '(1 2) (call-with-values (τ (↑ '(1 2) values)) list))
+     (⊦= 3 (↑ '(3) values))
+     (⊦= 3 (hash-table-ref H '(3)))))
+
   )
 
 (unittest/✓ tabling-suite)

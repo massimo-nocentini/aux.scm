@@ -331,7 +331,9 @@ procedure made by `define-tabled`, `letrec-tabled` or `lambda-tabled` accepts
 two extra keyword arguments. With `fresh: #t` it recomputes the value even when
 the arguments are already in the table. With `store: #f` it does not save the
 computed value. The optional `λH` binding is a thunk, visible only in the body,
-that returns the hidden hash table.
+that returns the hidden hash table. A procedure that returns zero or several
+values has all of them tabled, kept in the table in a `tabled/values` box; a
+single value is kept as it is.
 
 Exported entry points include:
 
