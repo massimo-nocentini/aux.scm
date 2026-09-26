@@ -113,6 +113,13 @@
       `(doc "The " (code o/monad) " function composes Kleisli arrows right to left, like function composition, while " 
             (code ◇) " composes them left to right, so " (code "(◇ f g)") " runs " (code f) " first; with no arrows both are " (code return) "."))
 
+  ((test/list->monad _)
+      (⊦= '((1 2 3)) (list->monad '(1 2 3)))
+      (⊦= '(()) (list->monad '()))
+      (⊦= '(6) ((monoids->monad 0 +) '(1 2 3)))
+      `(doc "The " (code monoids->monad) " function folds a list with a monoid inside the monad; " 
+            (code list->monad) " is its instance at the list monoid " (code "('() , cons)") "."))
+
   ((test/lift/monad _)
       (⊦= '(5 6 7 6 7 8 7 8 9) (lift/monad + (return/⊕ 1 2 3) (return/⊕ 4 5 6)))
       `(doc "The " (code lift/monad) " function is a convenient way to lift a multi-argument function into the monad.  It takes a function and multiple monadic values, and applies the function to the values inside the monad.  So the above is equivalent to "

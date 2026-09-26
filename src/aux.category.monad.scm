@@ -94,14 +94,6 @@
       (← m mm)
       m))
 
-  ; list->monad :: (Monad m) => [a] -> m [a]
-  (define (list->monad lst)
-    (match/first lst
-      (() (M:return '()))
-      ((,x . ,xs) (do/monad 
-                    (← xs* (list->monad xs))
-                    ,(cons x xs*)))))
-
   ; monoids->monad :: (Monoid n), (Monad m) => [n] -> m n
   (define (monoids->monad mempty mappend)
     (letrec ((R (λ (lst) 
@@ -111,6 +103,9 @@
                                   (← x* (R xs))
                                   ,(mappend x x*)))))))
       R))
+
+  ; list->monad :: (Monad m) => [a] -> m [a]
+  (define list->monad (monoids->monad '() cons))
 
   ; foldM :: (Monad m) => (a -> b -> m a) -> a -> [b] -> m a
   (define (fold/monad f init lst)
