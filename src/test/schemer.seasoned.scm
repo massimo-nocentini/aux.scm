@@ -89,6 +89,27 @@
                  (⊦= sexp (leftmost sexp)))
                (list leftmost/awkward leftmost/awkward+letcc leftmost/escape+explicit leftmost/escape))))
 
+  ; New cases: atoms that are not symbols are atoms too, as in the book, and `()` is not one;
+  ; every variant used to recurse into them as if they were lists.
+  ((test/leftmost/non-symbol-atoms _)
+   (for-each (λ (leftmost)
+               (⊦= 1 (leftmost '(1 a)))
+               (⊦= "s" (leftmost '(("s") a)))
+               (⊦= #f (leftmost '((() #f) a)))
+               (⊦= 'a (leftmost '(() (a) 1))))
+             (list leftmost/awkward leftmost/awkward+letcc leftmost/escape+explicit leftmost/escape)))
+
+  ((test/rember1*/non-symbol-atoms _)
+   (let1 (R (λ args (let1 (result #f)
+                      (with-output-to-string (τ (set! result (apply rember1*/try args))))
+                      result)))
+     (for-each (λ (rember1*)
+                 (⊦= '(1 2) (rember1* 'x '(1 x 2)))
+                 (⊦= '(1 (2)) (rember1* 3 '(1 (3 2))))
+                 (⊦= '((1 "t") "s") (rember1* "s" '((1 "s" "t") "s")))
+                 (⊦= '(1 (2) #t) (rember1* 'x '(1 (2) #t))))
+               (list rember1*/letcc R))))
+
   ; New cases: rember1* on both variants, plus the printed skip reasons.
   ((test/rember1*/variants _)
    (⊦= '((delicious) (food)) (rember1*/letcc 'more '((delicious) more (food))))

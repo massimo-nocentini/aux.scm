@@ -142,6 +142,9 @@
                                     (else (R (cons a prefix) k as))))))))
                    (R (quote ()) (sub1 k) lat))))))
 
+  ; the book's `atom?`, on which `leftmost` and `rember1*` dispatch: CHICKEN's also holds for '().
+  (define atom/book? (λ (x) (not (or (pair? x) (null? x)))))
+
   ; LEFTMOST {{{
 
   (define leftmost/awkward
@@ -151,14 +154,14 @@
                       (() (quote ()))
                       ((,first . ,rest)
                        (cond
-                         ((symbol? first) first)
+                         ((atom/book? first) first)
                          (else (let1 (a (L first))
                                  (cond
-                                   ((symbol? a) a)
+                                   ((atom/book? a) a)
                                    (else (L rest)))))))))))
         (let1 (atom (L l))
           (cond
-            ((symbol? atom) atom)
+            ((atom/book? atom) atom)
             (else l))))))
 
   (define leftmost/awkward+letcc
@@ -168,14 +171,14 @@
                       (() (quote ()))
                       ((,first . ,rest)
                        (cond
-                         ((symbol? first) (hop first))
+                         ((atom/book? first) (hop first))
                          (else (let1 (a (L first hop))
                                  (cond
-                                   ((symbol? a) a)
+                                   ((atom/book? a) a)
                                    (else (L rest hop)))))))))))
         (let1 (atom (letcc hop (L l hop)))
           (cond
-            ((symbol? atom) atom)
+            ((atom/book? atom) atom)
             (else l))))))
 
   (define leftmost/escape+explicit
@@ -183,7 +186,7 @@
       (letrec ((L (λ (ll out)
                     (cond
                       ((null? ll) (quote (no symbol here)))
-                      ((symbol? (car ll)) (out (car ll)))
+                      ((atom/book? (car ll)) (out (car ll)))
                       (else (begin
                               (L (car ll) out)
                               (L (cdr ll) out)))))))
@@ -199,7 +202,7 @@
                  (() (quote (no symbol here)))
                  ((,first . ,rest)
                   (cond
-                    ((symbol? first) (hop first))
+                    ((atom/book? first) (hop first))
                     (else (begin
                             (L first)
                             (L rest))))))))
@@ -214,9 +217,9 @@
                       (() (skip 'no-present))
                       ((,a . ,d)
                        (cond
-                         ((symbol? a)
+                         ((atom/book? a)
                           (cond
-                            ((eq? a atom) d)
+                            ((equal? a atom) d)
                             (else (cons a (R d skip)))))
                          (else (let1 (new-car (apply/cc R (list a)))
                                  (cond
@@ -239,9 +242,9 @@
                       (() (keep-searching))
                       ((,a . ,d)
                        (cond
-                         ((symbol? a)
+                         ((atom/book? a)
                           (cond
-                            ((eq? a atom) d)
+                            ((equal? a atom) d)
                             (else (cons a (R d keep-searching)))))
                          (else (trycc/named
                                  (skip (cons (R a (make-skipper skip a)) d))
