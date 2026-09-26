@@ -580,6 +580,12 @@
   ;;;      `day-of-week/within°`.
   ;;;   neither: `numeral°` generates the day-count and the escape names its
   ;;;      weekday -- increasing order, every day, one answer each.
+  ;;;   `w` bound to anything but a weekday name ('mon, "monday", 42): FAILS
+  ;;;      at once.  Only a FRESH `w` may take the generator branch, because
+  ;;;      re-entering on each generated day to refute a `w` that no day can
+  ;;;      carry never ends.  This asks whether `w` is unbound, not whether it
+  ;;;      is ground: a bound `w` that is no weekday symbol -- even a partial
+  ;;;      term -- can never become one.
   (define-relation (day-of-week° day w)
     (project° ((day* day) (w* w))
       (let ((Z (numeral->number day*)))
@@ -590,7 +596,8 @@
            (stride° (number->numeral (vector-ref weekday-epoch-day (weekday-index w*)))
                     (number->numeral days/week)
                     day))
-          (else (and° (numeral° day) (δ° (day-of-week° day w))))))))
+          ((μkanren-var? w*) (and° (numeral° day) (δ° (day-of-week° day w))))
+          (else ✗°)))))
 
   ;;; The seven weekday symbols, as a stream.  Pure, one unification per answer,
   ;;; and it exists for exactly one reason: it is the generator that grounds `w`

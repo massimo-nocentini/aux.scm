@@ -779,6 +779,7 @@
              (list (build-num 2) 'saturday) (list (build-num 3) 'sunday))
        (μkanren-run (q 4 #t) (fresh° (d w) (=° q (list d w)) (day-of-week° d w))))
    (⊦= '() (μkanren-run (q 5 #t) (=° q 'yes) (day-of-week° (build-day 2025 10 9) 'monday)))
+   (⊦= '(() () ()) (map (lambda (w) (μkanren-run (d 1 #t) (day-of-week° d w))) '(mon Monday "monday")))
    `(doc (p "One relation, three modes, and three different mechanisms answering them -- which "
             "is what " (code/inline "project°") " buys and what it costs. With the day-count "
             "ground the goal ESCAPES to Scheme and unifies the answer, so the test is 0 ms and "
@@ -791,7 +792,11 @@
             "Monday, 3, 10, 17, 24, 31 for Sunday, each seven apart from its anchor. With "
             "neither ground " (code/inline "numeral°") " proposes a day-count and the escape "
             "names its weekday, so the relation is TOTAL: no error, no hang, just the calendar "
-            "in order from the epoch.")
+            "in order from the epoch. That branch is for a FRESH weekday only: a "
+            (code/inline "w") " bound to a typo such as " (code/inline "mon")
+            ", " (code/inline "Monday") " or the string " (code/inline "\"monday\"")
+            " is no weekday name and never will be, so the relation refuses it at once -- "
+            "generating day-counts to refute it one re-entry at a time would never end.")
          (p "What the guard costs the caller is that the branch is chosen by looking at "
             "instantiation AT THE MOMENT THE GOAL RUNS, so conjunction order is now part of "
             "the meaning. The groundness test is " (code/inline "numeral->number")
