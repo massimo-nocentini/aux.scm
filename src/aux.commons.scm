@@ -145,12 +145,9 @@
     (λ (pred?)
       (letrec ((P (λ tuples
                     (cond
-                      ((apply pred? (map car tuples))
-                       (let1 (cdrs (map cdr tuples))
-                         (cond
-                           ((every null? cdrs) #t)
-                           ((every (○ not null?) cdrs) (apply P cdrs))
-                           (else #f))))
+                      ((every null? tuples) #t)       ; all run out together, also vacuously
+                      ((not (every pair? tuples)) #f) ; ragged
+                      ((apply pred? (map car tuples)) (apply P (map cdr tuples)))
                       (else #f)))))
         P)))
 

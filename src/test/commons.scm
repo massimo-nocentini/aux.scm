@@ -20,7 +20,10 @@
   ((test/tuple-pred _)
    (⊦= #t ((tuple/pred? <) '(1 2) '(2 3) '(3 4)))
    (⊦= #f ((tuple/pred? <) '(1 5) '(2 3) '(3 4)))
-   (⊦= #f ((tuple/pred? <) '(1 5) '(2) '(3 4))))
+   (⊦= #f ((tuple/pred? <) '(1 5) '(2) '(3 4)))
+   ; lists running out together hold vacuously, even from the start; ragged ones do not.
+   (⊦= #t ((tuple/pred? =) '() '()))
+   (⊦= #f ((tuple/pred? =) '() '(1))))
 
   ((test/remove-duplicates/last _)
    (⊦= '(a b c d e) (remove-duplicates/last (reverse '(a b c d e))))
