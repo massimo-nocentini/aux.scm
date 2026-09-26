@@ -185,6 +185,15 @@
      (⊨ (and (substring-index "|car|" md) #t))            ; and the cells view
      (μkanren-markdown->file! md "microkanren-show")))
 
+  ((test/markdown/tuples _)
+   ; one list answer is one term, unless headers name its columns; several of them form a relation
+   (let1 (md (μkanren-run/markdown (q 1) (=° q (list 1 2))))
+     (⊨ (and (substring-index "| # | answer |" md) #t))
+     (⊭ (substring-index "| c0 |" md)))
+   (⊭ (substring-index "| c0 |" (μkanren-run/markdown (q 1) (=° q (iota 36)))))
+   (⊨ (and (substring-index "| # | a | b |" (μkanren-run/markdown/table (q 1) '(a b) (=° q (list 1 2)))) #t))
+   (⊨ (and (substring-index "| # | c0 | c1 |" (μkanren-run/markdown (q 2) (or° (=° q (list 1 2)) (=° q (list 3 4))))) #t)))
+
   ((test/markdown/query _)
    ; the quoted query is a form that gives the answers of the report
    (let* ((md (μkanren-run/markdown (q 3) (=° q 1)))

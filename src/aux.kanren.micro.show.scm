@@ -136,8 +136,11 @@
 
   ; Do the answers form a relation, ie. is every one of them a ground tuple of the same length?
   ; That is the shape a query over a database of facts produces, and it deserves a real table.
-  (define (μkanren-answers-tabular? answers data)
+  ; A single answer is a relation only when `headers` name its columns: otherwise it is one term,
+  ; that a list of any length would spread over as many made-up columns.
+  (define (μkanren-answers-tabular? answers data headers)
     (and (pair? data)
+         (or headers (pair? (cdr data)))
          (every μkanren-answer-ground? answers)
          (every list? data)
          (let1 (l (length (car data))) (and (< 1 l) (every (μ d (= l (length d))) data)))))
@@ -150,9 +153,9 @@
   ; pretty-printed code block each, `auto` (the default) for a table until an answer outgrows
   ; `width` characters — a table cell is no place for a term that has to be read.  Tabular
   ; answers always get their columns.
-  (define (μkanren-answers-layout answers data layout width)
+  (define (μkanren-answers-layout answers data layout width headers)
     (cond
-      ((μkanren-answers-tabular? answers data) 'tuples)
+      ((μkanren-answers-tabular? answers data headers) 'tuples)
       ((eq? 'auto layout) (if (μkanren-answers-wide? answers width) 'blocks 'table))
       (else layout)))
 
@@ -163,7 +166,7 @@
            (cs (map μkanren-answer->constraints answers)))
       (cond
         ((null? answers) "_no answers_")
-        ((μkanren-answers-tabular? answers data)
+        ((μkanren-answers-tabular? answers data headers)
           (let1 (hs (or headers (map (μ i (conc "c" i)) (ι (length (car data))))))
             (μkanren-markdown-table (cons "#" hs)
               (map (λ (i d) (cons (->string i) (map μkanren-markdown-code d))) (ι (length data) 1) data))))
@@ -389,7 +392,7 @@
       (if query (list (μkanren-fence "scheme" (string-chomp (->string/pretty-print query) "\n")) "") '())
       (conc "**" (length answers) "** answer" (if (one? (length answers)) "" "s") ".")
       ""
-      (if (eq? 'blocks (μkanren-answers-layout answers (map μkanren-answer->datum answers) layout width))
+      (if (eq? 'blocks (μkanren-answers-layout answers (map μkanren-answer->datum answers) layout width headers))
           (μkanren-answers->markdown/blocks answers)
           (list (μkanren-answers->markdown/table answers headers: headers) ""))
       (if (pair? answers)
@@ -439,7 +442,7 @@
     (let* ((data (map μkanren-answer->datum answers))
            (cs (map μkanren-answer->constraints answers))
            (is (ι (length data) 1))
-           (how (μkanren-answers-layout answers data layout width))
+           (how (μkanren-answers-layout answers data layout width headers))
            (tabular? (and headers (eq? 'tuples how)))
            (cell (λ (v) `(td (code/inline ,(->string/short v)))))
            (constraints (λ (c) (if (null? c) '() `((p "constraints: " (code/inline ,(string-intersperse (map ->string/write c) ", ")))))))
