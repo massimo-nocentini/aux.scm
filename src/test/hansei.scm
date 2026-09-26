@@ -166,6 +166,11 @@
          (sort (probcc-reify/exact (probcc-uniform/range 1 8))
                (λ (a b) (< (cadr (car a)) (cadr (car b)))))))
 
+  ((test/dfs _)
+   (⊦= '(((V #t) 1/2) ((V #f) 1/2)) (probcc-dfs (probcc-reify/0 (τ (probcc-coin 1/2)))))
+   (⊦= '(((V (#t #t)) 1/6) ((V (#t #f)) 1/3) ((V (#f #t)) 1/6) ((V (#f #f)) 1/3))
+         (probcc-dfs (probcc-reify/0 (τ (let* ((a (probcc-coin 1/2)) (b (probcc-coin 1/3))) (list a b)))))))
+
   ((test/parameterize _)
    (define q (make-parameter 'outer))
    (⊦= '(((V (#f inner)) 2/3) ((V (#t inner)) 1/3))

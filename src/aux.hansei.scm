@@ -141,8 +141,8 @@
 
   (define (probcc-dfs choices)
     (let1 (M  (λ1-match/first
-                (((C ,t) ,p) (apply append (probcc-dfs (map (λ1-match/first ((,slot ,pi) `(,slot ,((op/times) p pi)))) (t)))))
+                (((C ,t) ,p) (probcc-dfs (map (λ1-match/first ((,slot ,pi) `(,slot ,((op/times) p pi)))) (t))))
                 (,probpair (list probpair))))
-      (map M choices)))
+      (apply append (map M choices))))
 
   )
