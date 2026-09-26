@@ -4,6 +4,7 @@
   (import scheme 
           (chicken base)
           (chicken sort)
+          (chicken pretty-print)
           srfi-69
           (aux base)
           (aux continuation)

@@ -1,5 +1,5 @@
 
-(import (only (scheme base) make-parameter parameterize) (aux unittest) (aux base) (aux nondeterministic) (aux stream) (chicken pretty-print) (chicken sort))
+(import (only (scheme base) make-parameter parameterize) (aux unittest) (aux base) (aux nondeterministic) (aux stream) (chicken sort))
 
 (define-suite letnondeterministic-suite
 
