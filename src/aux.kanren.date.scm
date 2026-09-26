@@ -83,6 +83,13 @@
   ;;; side; the fallbacks are there so that forgetting is not undefined
   ;;; behaviour.
   ;;;
+  ;;; Every argument of these relations is a NUMERAL (the weekday aside).  A
+  ;;; guard that finds one of them BOUND to a term that no substitution can
+  ;;; turn into a numeral -- `(1 0)`, `(0)`, `foo`, `(2 . β)` -- fails at
+  ;;; once, before any branch runs.  The pure branch has no numeral answer
+  ;;; for such a term either, but it would look for one forever: generate a
+  ;;; numeral, compare it with `(1 0)`, fail, generate the next.
+  ;;;
   ;;; ==================== WHAT IS NOT MODELLED ====================
   ;;;
   ;;;   * UTC only.  No timezones, no DST.
@@ -188,13 +195,36 @@
   ;;; the decoder: it returns #f unless the argument is a proper list of 0/1
   ;;; cells, so a HALF-ground numeral such as `(1 0 . β)` is correctly not
   ;;; taken for ground.  Groundness by positive typing, never by `(not (var? x))`.
+  ;;; The type is `numeral°`'s, CANONICAL numerals only: a trailing 0 cell, as
+  ;;; in `(0)` or `(1 0)`, makes the list no numeral at all -- (aux kanren
+  ;;; arith) has no answer for it -- so it is not decoded either.  Otherwise a
+  ;;; guard would answer for `(1 0)` exactly as for `(1)`, where its pure
+  ;;; `else` branch answers nothing.
   (define (numeral->number n)
     (let loop ((n n) (w 1) (a 0))
       (cond ((null? n) a)
-            ((and (pair? n) (memv (car n) '(0 1))) (loop (cdr n) (* 2 w) (+ a (* w (car n)))))
+            ((and (pair? n) (eqv? (car n) 1)) (loop (cdr n) (* 2 w) (+ a w)))
+            ((and (pair? n) (eqv? (car n) 0) (pair? (cdr n))) (loop (cdr n) (* 2 w) a))
             (else #f))))
 
   (define (numeral? n) (and (numeral->number n) #t))
+
+  ;;; The other side of the same type: #t when `n` is bound so that NO
+  ;;; substitution makes it a numeral -- a cell that is neither 0, 1 nor a
+  ;;; variable, a tail that is neither a pair, () nor a variable, or a 0 cell
+  ;;; that ends the list.  Fully ground non-numerals such as `(1 0)` or `foo`
+  ;;; qualify, and so does a partial term such as `(2 . β)`; `(0 . β)` and
+  ;;; `(β)` do not, since `(0 1)` and `(1)` are numerals.  Between the two
+  ;;; predicates lie exactly the partial terms that may still become one.
+  (define (never-numeral? n)
+    (let loop ((n n) (ends-in-0 #f))
+      (cond ((μkanren-var? n) #f)
+            ((null? n) ends-in-0)
+            ((pair? n) (let ((a (car n)))
+                         (cond ((eqv? a 0) (loop (cdr n) #t))
+                               ((or (eqv? a 1) (μkanren-var? a)) (loop (cdr n) #f))
+                               (else #t))))
+            (else #t))))
 
   ;;; all of `ns` ground -> the list of their values; otherwise #f.
   (define (numerals->numbers ns)
@@ -415,6 +445,7 @@
       (let ((T (numeral->number t*))
             (DS (numerals->numbers (list d* s*))))
         (cond
+          ((any never-numeral? (list t* d* s*)) ✗°)
           (T (and° (=° d (number->numeral (quotient T seconds/day)))
                    (=° sod (number->numeral (remainder T seconds/day)))))
           (DS (and° (<° sod DAY)
@@ -442,6 +473,7 @@
       (let ((T (numeral->number t*))
             (D (numeral->number d*)))
         (cond
+          ((any never-numeral? (list t* d*)) ✗°)
           (T (=° d (number->numeral (quotient T seconds/day))))
           (D (fresh° (m e)
                (midnight° m d)
@@ -483,6 +515,7 @@
       (let ((Z (numeral->number day*))
             (YMD (numerals->numbers (list y* m* d*))))
         (cond
+          ((any never-numeral? (list day* y* m* d*)) ✗°)
           (Z (let ((c (civil-from-days Z)))
                (and° (=° y (number->numeral (car c)))
                      (=° m (number->numeral (cadr c)))
@@ -507,6 +540,7 @@
       (let ((S (numeral->number sod*))
             (HMS (numerals->numbers (list h* m* s*))))
         (cond
+          ((any never-numeral? (list sod* h* m* s*)) ✗°)
           (S (and° (=° hh (number->numeral (quotient S seconds/hour)))
                    (=° mm (number->numeral (quotient (remainder S seconds/hour) seconds/minute)))
                    (=° ss (number->numeral (remainder S seconds/minute)))))
@@ -537,6 +571,7 @@
     (project° ((day* day) (w* w))
       (let ((Z (numeral->number day*)))
         (cond
+          ((never-numeral? day*) ✗°)
           (Z (=° w (weekday-of-day Z)))
           ((weekday-name? w*)
            (stride° (number->numeral (vector-ref weekday-epoch-day (weekday-index w*)))
@@ -578,6 +613,7 @@
     (project° ((lo* lo) (w* w))
       (let ((L (numeral->number lo*)))
         (cond
+          ((never-numeral? lo*) ✗°)
           ((and L (weekday-name? w*))
            (stride/≤° (number->numeral
                         (+ L (modulo (- (weekday-index w*) (weekday-index (weekday-of-day L)))
@@ -692,9 +728,12 @@
   ;;;      second-of-day interleave, so it is not chronological.
   (define-relation (date-time° t y mo d hh mm ss)
     (project° ((t* t))
-      (if (numeral? t*)
-          (fresh° (day sod) (day+second° t day sod) (civil° day y mo d) (clock° sod hh mm ss))
-          (fresh° (day sod) (civil° day y mo d) (clock° sod hh mm ss) (day+second° t day sod)))))
+      (cond
+        ((numeral? t*)
+         (fresh° (day sod) (day+second° t day sod) (civil° day y mo d) (clock° sod hh mm ss)))
+        ((never-numeral? t*) ✗°)
+        (else
+         (fresh° (day sod) (civil° day y mo d) (clock° sod hh mm ss) (day+second° t day sod))))))
 
   ;;; The weekday of an INSTANT, as opposed to of a day-count.  PURE
   ;;; composition: the seam plus `day-of-week°`.  With `t` ground it is the O(1)
@@ -748,6 +787,7 @@
     (project° ((t* t) (s* str))
       (let ((T (numeral->number t*)))
         (cond
+          ((never-numeral? t*) ✗°)
           (T (=° str (instant->iso T)))
           ((string? s*) (let ((v (iso->instant s*)))
                           (if v (=° t (number->numeral v)) ✗°)))

@@ -421,6 +421,18 @@
    (⊦= '() (μkanren-run (q 5 #t) (civil° q (build-num 2025) (build-num 13) (build-num 1))))
    (⊦= '() (μkanren-run (q 5 #t) (civil° q (build-num 2025) (build-num 4) (build-num 31))))
    (⊦= '() (μkanren-run (q 5 #t) (civil° q (build-num 1969) (build-num 12) (build-num 31))))
+   (⊦= '(0 1 #f #f #f #f) (map numeral->number '(() (1) (0) (1 0) (0 1 0) (1 0 . β))))
+   (⊦= '() (μkanren-run (q 5 #t) (fresh° (y m d) (civil° '(0) y m d) (=° q (list y m d)))))
+   (⊦= '() (μkanren-run (q 5 #t) (fresh° (y m d) (civil° '(1 0) y m d) (=° q (list y m d)))))
+   (⊦= '() (μkanren-run (w 5 #t) (day-of-week° '(1 0) w)))
+   (⊦= '() (μkanren-run (q 5 #t) (=° q 'yes) (day-of-week° '(1 0) 'monday)))
+   (⊦= '() (μkanren-run (q 5 #t) (fresh° (d s) (day+second° '(1 0) d s) (=° q (list d s)))))
+   (⊦= '() (μkanren-run (q 5 #t) (iso° '(1 0) q)))
+   (⊦= '() (μkanren-run (q 5 #t) (weekday° '(1 0) q)))
+   (⊦= '() (μkanren-run (q 5 #t) (fresh° (h m s) (clock° '(0) h m s) (=° q (list h m s)))))
+   (⊦= '() (μkanren-run (q 5 #t) (civil° q '(1 0) '(1) '(1))))
+   (⊦= '() (μkanren-run (q 5 #t) (on-day° q '(1 0))))
+   (⊦= '() (μkanren-run (q 5 #t) (=° q 'yes) (day-of-week° 'foo 'monday)))
    `(doc
      (p "The calendar, both ways round, on the dates where an off-by-one hides: day 0, a "
         "recent day, the three days 19781-19783 that bracket a leap day, the first day of a "
@@ -454,7 +466,23 @@
         (code/inline "numeral->number") " returns " (code/inline "#f") " for "
         (code/inline "(1 0 . β)") ", which is how the guard avoids answering from a term it has "
         "not fully seen, and which means a half-solved day-count falls into generate-and-test "
-        "rather than into a wrong answer.")))
+        "rather than into a wrong answer.")
+     (p "The same decoder draws the other edge of the type. A trailing " (code/inline "0")
+        " cell makes a list no numeral at all -- " (code/inline "(numeral° '(1 0))")
+        " fails, and no relation of " (code/inline "(aux kanren arith)") " answers for it -- so "
+        (code/inline "numeral->number") " refuses " (code/inline "(0)") " and "
+        (code/inline "(1 0)") " as it refuses a partial term. Decoding them instead would let "
+        "the guard answer 1970-01-01 for " (code/inline "(0)") " and treat "
+        (code/inline "(1 0)") " as a second spelling of day 1, where the pure branch the guard "
+        "stands in for answers nothing. Nor may the term fall to that branch: in most "
+        "modes the pure branch GENERATES numerals and compares each with "
+        (code/inline "(1 0)") ", which never matches and never ends. A term that is bound "
+        "so that it can never become a numeral -- " (code/inline "(1 0)") ", "
+        (code/inline "(0)") ", " (code/inline "foo") " -- is therefore refused by every "
+        "guard before any branch runs, in every mode: the day-count of a date, its weekday, "
+        "its ISO spelling, the seam, the clock. Only a PARTIAL term such as "
+        (code/inline "(1 0 . β)") ", which may still become a numeral, reaches the pure "
+        "branch.")))
 
   ; -- day+second°: the seam, where the instant stops being 31 bits ----------------------
 
