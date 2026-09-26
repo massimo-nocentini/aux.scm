@@ -205,6 +205,9 @@
               (append `((escape *preorder* . ,(lambda (tag body) (apply string-append (map ->string body)))))
                       universal-conversion-rules*)))))))
 
+  ; `uri-path` answers an absolute path as `(/ "seg" ...)`: in `match/first` a literal symbol
+  ; is written bare, `'/` would be the two-element pattern `(quote /)` instead. A request
+  ; matching no route, by method or by path, falls back to the handler's continuation.
   (define-syntax define-vhost 
     (syntax-rules () 
       ((define-vhost (name request $) (method ((p ...) b ...) ...) ...)
@@ -214,7 +217,8 @@
                 (m (request-method request))
                 ($ (request-vars)))
            (cond
-             ((equal? (quote method) m) (match/first (uri-path uri) (('/ p ...) b ...) ...)) ...
+             ((equal? (quote method) m)
+              (match/first (uri-path uri) ((/ p ...) b ...) ... (else (continue)))) ...
              (else (continue))))))))
 
   (define-syntax define-vhost-map 
