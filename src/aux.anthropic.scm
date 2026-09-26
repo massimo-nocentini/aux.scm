@@ -350,6 +350,10 @@
                             (if (and (< k n) (anthropic-char/digit? (string-ref s k)))
                                 (D (add1 k))
                                 (and (> k i) k)))))
+           (hex4 (λ (j) (and (<= (+ j 4) n)
+                             (let1 (h (substring s j (+ j 4)))
+                               (and (every anthropic-char/hex? (string->list h))
+                                    (string->number h 16))))))
            (number
              (λ (i)
                (let* ((m (if (eqv? #\- (at i)) (add1 i) i))
@@ -382,13 +386,19 @@
                              (cond
                                ((not e) #f)
                                ((memv e (list #\" #\\ #\/ #\b #\f #\n #\r #\t)) (S (+ k 2)))
+                               ; simdjson throws STRING_ERROR on a surrogate escape that is
+                               ; not a high one followed by a low one, so pairing is checked
                                ((char=? e #\u)
-                                (and (<= (+ k 6) n)
-                                     (let H ((j (+ k 2)))
-                                       (cond
-                                         ((= j (+ k 6)) (S (+ k 6)))
-                                         ((anthropic-char/hex? (string-ref s j)) (H (add1 j)))
-                                         (else #f)))))
+                                (let1 (u (hex4 (+ k 2)))
+                                  (cond
+                                    ((not u) #f)
+                                    ((<= #xDC00 u #xDFFF) #f)            ; a lone low surrogate
+                                    ((<= #xD800 u #xDBFF)
+                                     (and (eqv? #\\ (at (+ k 6)))
+                                          (eqv? #\u (at (+ k 7)))
+                                          (let1 (v (hex4 (+ k 8)))
+                                            (and v (<= #xDC00 v #xDFFF) (S (+ k 12))))))
+                                    (else (S (+ k 6))))))
                                (else #f))))
                           ((char<? c #\space) #f)          ; a raw control byte is not legal JSON
                           (else (S (add1 k)))))))))

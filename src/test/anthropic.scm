@@ -455,6 +455,19 @@
             "decides the magnitude too, on the digits: the boundary is the midpoint between "
             "the largest double and 2^1024, which rounds up.")))
 
+  ((test/anthropic/json/unpaired-surrogate-escapes _)
+   (⊭ (anthropic-json/well-formed? "{\"a\":\"\\ud800\"}"))
+   (⊭ (anthropic-json/well-formed? "{\"a\":\"\\udc00\"}"))
+   (⊭ (anthropic-json/well-formed? "{\"a\":\"\\ud800\\u0041\"}"))
+   (⊭ (anthropic-json/well-formed? "{\"a\":\"\\ud800\\ud800\"}"))
+   (⊭ (anthropic-json/well-formed? "{\"\\ud800\":1}"))
+   (⊨ (anthropic-json/well-formed? "{\"a\":\"\\uD83D\\uDE00 \\ud7ff \\ue000\"}"))
+   (⊦= '((a "😀")) (anthropic-json/parse "{\"a\":\"\\ud83d\\ude00\"}"))
+   (⊦raises (anthropic-decode-error) (anthropic-json/parse "{\"a\":\"\\ud800\"}"))
+   `(doc (p "A " (code/inline "\\u") " escape in the surrogate range must be a high one "
+            "followed by a low one; simdjson throws " (code/inline "STRING_ERROR")
+            " on anything else, which was an abort until (aux simdjson) caught its exceptions.")))
+
   ((test/anthropic/json/utf8-length _)
    (⊦= 1 (anthropic-json/utf8-length "a"))
    (⊦= 6 (anthropic-json/utf8-length "caffè"))
