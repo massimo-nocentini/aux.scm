@@ -134,7 +134,10 @@ static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &elemen
         res->value->as_double = n;
         res->type = CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER;
       }
-      // else a number_type::big_integer, beyond 64 bits, keeps CHICKEN_SIMDJSON_TYPE_UNKNOWN
+      else
+        // a number_type::big_integer, beyond 64 bits: valid JSON, but no getter decodes it, and
+        // a node of unknown type would only raise a vaguer error from the Scheme side
+        throw simdjson_error(BIGINT_ERROR);
 
       break;
     }
@@ -173,7 +176,6 @@ static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &elemen
     default:
       // json_type::unknown: the value starts with a character no JSON value starts with ("x",
       // "]", ",", "@"), which simdjson reports only by this type, not by an error of its own.
-      // Only a number simdjson cannot classify (a big_integer, above) stays of unknown type.
       throw simdjson_error(TAPE_ERROR);
     }
   }
@@ -260,13 +262,12 @@ extern chicken_simdjson_dom_element_t *chicken_simdjson_get_object_ref_value(chi
 
 // Walks the whole document.  On demand parsing looks past the root value only when asked: a
 // scalar getter on the document does, but after an array or an object "[1][2]", "[1]]" or
-// "{\"a\":1} {\"b\":2}" would silently decode as their first value.  A root of unknown type (an
-// integer beyond 64 bits) was never consumed, and keeps its own error.
+// "{\"a\":1} {\"b\":2}" would silently decode as their first value.
 static chicken_simdjson_dom_element_t *chicken_simdjson_visit_document(ondemand::document &ddoc)
 {
   chicken_simdjson_dom_element_t *res = chicken_simdjson_visit_ondemand(ddoc, 0);
 
-  if (res->type != CHICKEN_SIMDJSON_TYPE_UNKNOWN && !ddoc.at_end())
+  if (!ddoc.at_end())
   {
     chicken_simdjson_free(res);
     throw simdjson_error(TRAILING_CONTENT);

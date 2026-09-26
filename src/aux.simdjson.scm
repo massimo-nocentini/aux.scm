@@ -82,21 +82,22 @@
             ((simdjson-null? t) (void))
             ((simdjson-boolean? t) (simdjson-get-boolean w))
             ((simdjson-error? t) (error 'simdjson (simdjson-get-string w)))
-            (else (error "Unknown simdjson type" t w)))))
+            ; the C side gives every node it builds a known type, or throws; w stays out of the
+            ; irritants, since simdjson->scheme/free has freed the tree by the time a handler runs
+            (else (error 'simdjson "unknown simdjson node type" t)))))
 
-  (define (simdjson-load filename) (simdjson->scheme (simdjson-load-ondemand-callback filename)))
+  ; converts the malloc'd tree a callback returns and frees it, also when the conversion raises
+  ; (the error node of a rejected document)
+  (define (simdjson->scheme/free dom)
+    (dynamic-wind void (λ () (simdjson->scheme dom)) (λ () (simdjson-free dom))))
 
-  (define (simdjson-load/ondemand filename) 
-    (let* ((dom (simdjson-load-ondemand-callback filename))
-           (v (simdjson->scheme dom)))
-      (simdjson-free dom)
-      v))        
+  (define (simdjson-load/ondemand filename)
+    (simdjson->scheme/free (simdjson-load-ondemand-callback filename)))
 
-  (define (simdjson-parse/ondemand str) 
-    (let* ((dom (simdjson-parse-ondemand-callback str (string-length str)))
-           (v (simdjson->scheme dom)))
-      (simdjson-free dom)
-      v))
+  (define simdjson-load simdjson-load/ondemand)
+
+  (define (simdjson-parse/ondemand str)
+    (simdjson->scheme/free (simdjson-parse-ondemand-callback str (string-length str))))
 
   (define (->string/json w)
     (letport/output-string port
