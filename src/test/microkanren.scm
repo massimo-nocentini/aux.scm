@@ -172,6 +172,32 @@
     (⊦= '() (°->list #f (fresh° (q) (=° q '(1 2)) (absent° 2 q))))
     (⊦= '() (°->list #f (fresh° (q) (absent° 5 q) (=° q '(1 5))))))
 
+  ((test/absent°/compound _)
+    ; a compound tag is compared with every node of the term, not only with its leaves, as for absent?
+    (⊦= '() (°->list #f (fresh° (q) (absent° '(1 2) q) (=° q '(1 2)))))
+    (⊦= '() (°->list #f (fresh° (q) (=° q '(1 2)) (absent° '(1 2) q))))
+    (⊦= '() (°->list #f (fresh° (q) (=° q '(0 (1 2) 3)) (absent° '(1 2) q))))
+    (⊦= '() (°->list #f (fresh° (q) (=° q '(0 1 2)) (absent° '(1 2) q))))
+    (⊦= '((λ () (cons 0 (cons 1 (cons 2 (cons 3 '())))))) (°->list #f (fresh° (q) (=° q '(0 1 2 3)) (absent° '(1 2) q))))
+    (⊦= '() (°->list #f (fresh° (q) (=° q (list (vector 1 2))) (absent° (vector 1 2) q))))
+    ; a structure is walked slot by slot: its slot list is not a term, nor are its tails
+    (⊦= '((λ () (vector 0 1 2))) (°->list #f (fresh° (q) (=° q (vector 0 1 2)) (absent° '(1 2) q))))
+    (⊦= '((λ () (vector 1))) (°->list #f (fresh° (q) (=° q (vector 1)) (absent° '() q))))
+    ; a term that may still become the tag is watched whole, whatever the order of the goals
+    (⊦= '() (°->list #f (fresh° (q x) (=° q (cons 1 x)) (absent° '(1 2) q) (=° x '(2)))))
+    (⊦= '() (°->list #f (fresh° (q x) (absent° '(1 2) q) (=° q (cons 1 x)) (=° x '(2)))))
+    (⊦= '() (°->list #f (fresh° (q x) (absent° '(1 2) q) (=° q (list 0 x)) (=° x '(1 2)))))
+    (⊦= '((λ () (cons 1 (cons 3 '())))) (°->list #f (fresh° (q x) (=° q (cons 1 x)) (absent° '(1 2) q) (=° x '(3)))))
+    (⊦= '((λ (α) (assert (absent? '(1 2) (cons 1 α))) (cons 1 α))) (°->list #f (fresh° (q x) (=° q (cons 1 x)) (absent° '(1 2) q))))
+    ; a watched term holding a variable hidden from the answer still constrains the answer's variables through its parts
+    (⊦= '((λ (α) (assert (absent? '(1 2) α)) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (cons q z))))))
+    (⊦= '((λ (α) (assert (absent? '(1 2) α)) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (list q z))))))
+    (⊦= '((λ (α) (assert (absent? '(()) α)) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(()) (cons q z))))))
+    (⊦= '((λ (α) (assert (absent? '(1 2) (cons 1 α))) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (list (cons 1 q) z))))))
+    (⊦= '((λ (α) (assert (absent? '(1 2) α)) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (vector z q))))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (cons z z))))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (cons q z)) (=° q '(1 2)))))))
+
 )
 
 (unittest/✓ microkanren-suite)

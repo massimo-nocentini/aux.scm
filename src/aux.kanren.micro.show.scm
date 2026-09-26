@@ -67,7 +67,7 @@
         (let1 (b (cadr c))
           (cond
             ((μkanren-tagged? b 'every) (cons (μkanren-tag-def->name (cadr b)) (cdr (caddr b))))
-            ((μkanren-tagged? b 'absent?) `(absento ,(cadr (cadr b)) ,(caddr b)))
+            ((μkanren-tagged? b 'absent?) `(absento ,(cadr (cadr b)) ,(μkanren-repr->datum (caddr b))))  ; a variable or a term.
             (else c))))
       (else c)))
 

@@ -63,8 +63,9 @@
   ; `vars-count` is the number of variables introduced so far; `S` is the substitution, an sbral indexed
   ; by variable with the most recent variable first; `D` the disequality store (a list of failed-unification
   ; prefixes, each a list of `(α . u)` pairs); `A` the type store and `T` the absento store (lists of
-  ; `(α . tag)` pairs); `tags` the tags asserted so far through `A`. D, A and T are plain lists: the
-  ; `empty/sbral` in `μkanren-state-empty` is just `'()`, only S is a real sbral.
+  ; `(α . tag)` pairs, where T's α may also be a compound term, see `μkanren-tag-unify`); `tags` the tags
+  ; asserted so far through `A`. D, A and T are plain lists: the `empty/sbral` in `μkanren-state-empty`
+  ; is just `'()`, only S is a real sbral.
   (define-record μkanren-state vars-count S D A T tags)
 
   (define μkanren-state-empty (make-μkanren-state 0 empty/sbral empty/sbral empty/sbral empty/sbral '()))
@@ -220,7 +221,7 @@
     (let* ((fd (μkanren-drop-dot-D (sort/lex<=? (map sort/lex<=? D)) s))
            (FA (λ1-match/first ((,tag . ,vars) `(assert (every ,(μkanren-tag-def tag) (list ,@(map μkanren-var->symbol vars)))))))
            (fa (map FA (sort/lex<=? (map μkanren-sort-part (μkanren-partition* A)))))
-           (FT (λ1-match/first ((,tag ,var) `(assert (absent? (quote ,(μkanren-tag-name tag)) ,(μkanren-var->symbol var))))))
+           (FT (λ1-match/first ((,tag ,u) `(assert (absent? (quote ,(μkanren-tag-name tag)) ,(μkanren-state-find/repr u s))))))
            (ft (map FT (μkanren-drop-dot-T (sort/lex<=? T)))))
         `(,@fd ,@fa ,@ft ,v)))
 
@@ -244,6 +245,29 @@
                       ((,v ⊣ (μkanren-structure? v)) (anyvar? (μkanren-structure->list v)))
                       (else #f)))
     anyvar?)
+
+  ; projects the absento store T, already walked in `s`, on the reified variables: a variable key that is still a
+  ; working variable is unreachable from the answer, so its constraint is dropped; a compound key holding such a
+  ; variable is broken into its parts instead, since the unreachable variable can always be chosen to keep the
+  ; compound apart from the tag datum, while the constraints its parts put on the reachable variables must stay.
+  ; A part with no variable at all is dropped: it could never be the datum, being part of a term that still could.
+  (define (μkanren-project-T T s)
+    (let1 (anyvar? (μkanren-anyvar? s))
+      (define (P u tag)
+        (cond
+          ((μkanren-var? u) (if (anyvar? u) '() `((,u . ,tag))))
+          ((not (anyvar? u)) (if (μkanren-hasvar? u) `((,u . ,tag)) '()))
+          ((μkanren-compound? u) (append-map (λ (v) (P v tag)) (μkanren-compound->list u)))
+          (else '())))
+      (append-map (λ1-match/first ((,u . ,tag) (P u tag))) T)))
+
+  ; whether the term `u` holds some variable, working or reified.
+  (define (μkanren-hasvar? u)
+    (cond
+      ((μkanren-var? u) #t)
+      ((pair? u) (or (μkanren-hasvar? (car u)) (μkanren-hasvar? (cdr u))))
+      ((μkanren-structure? u) (any μkanren-hasvar? (μkanren-structure->list u)))
+      (else #f)))
 
   (define (μkanren-subsumed? d D)
     (let* ((f (λ-match/non-overlapping
@@ -272,10 +296,9 @@
                (T     (μkanren-state-T s*))
                (D*    (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D))) ; needs more revision the stuff with T.
                (A*    (remove R A))
-               (T*    (remove R T))
                (D**   (μkanren-state-find/value (μkanren-subsume A* D*) s*))
                (A**   (μkanren-state-find/value A* s*))
-               (T**   (μkanren-rem-subsumed-T (μkanren-state-find/value T* s*)))
+               (T**   (μkanren-rem-subsumed-T (μkanren-project-T (μkanren-state-find/value T s*) s*)))
                (body  (μkanren-form w** D** A** T** s*)))
           `(λ ,vars* ,@body)))))
 
@@ -327,6 +350,25 @@
     (let1 (vars (remove-duplicates (map lhs A)))
       (μ T (μkanren-subsume-T vars T (μkanren-subsume T D) A '() s))))
 
+  ; the absento store T holds `(α . tag)` pairs where α is a variable or, for a compound tag datum, a compound
+  ; term that may still become that datum: such a term is kept whole, since walking into its parts would lose
+  ; sight of it, and it is walked into only once it can no longer unify with the datum.
+  (define (μkanren-compound? v) (or (pair? v) (μkanren-structure? v)))
+
+  ; the parts of a compound: a structure yields its slots one by one (its slot list is no term by itself, whose
+  ; tails could be mistaken for the datum); a record's slots start with its type name, so a tag equal to that name
+  ; counts as present, as in absent?.
+  (define (μkanren-compound->list v) (if (pair? v) (list (car v) (cdr v)) (μkanren-structure->list v)))
+
+  ; whether the compound `u` already is the datum of the absento tag `tag` (`'present`), could become it by binding
+  ; some of its variables (`'maybe`), or never can (`#f`, always so for an atomic datum, found only at the leaves).
+  (define (μkanren-tag-unify u tag s)
+    (let1 (datum (μkanren-tag-name tag))
+      (and (μkanren-compound? datum)
+           (match/first (μkanren-state-unify u datum s '())
+             (#f #f)
+             ((,s* _) (if (μkanren-state-equal? s s*) 'present 'maybe))))))
+
   (define (μkanren-ext-T+ α tag T s)
     (match/first T
       (() `((,α . ,tag)))
@@ -342,17 +384,14 @@
         ((,x . ,L*) (cond ((F L*) => (μ acc (step x acc))) (else #f))))))
 
   (define (μkanren-verify-T+ α tag s)
+    (define ((watch u) T₀) (append (μkanren-ext-T+ u tag T₀ s) T₀))
+    (define ((verify* us) T₀) (fold (λ (u T) (and T ((μkanren-verify-T+ u tag s) T))) T₀ us))
     (match/first (μkanren-state-find α s)
-      ((,α* ⊣ (μkanren-var-working? α*))  (μ T₀
-                                    (cond
-                                      ((μkanren-ext-T+ α* tag T₀ s) => (μ T+ (append T+ T₀)))
-                                      (else #f))))
-      ((,au . ,du)  (μ T₀
-                      (cond
-                        (((μkanren-verify-T+ au tag s) T₀) => (μkanren-verify-T+ du tag s))
-                        (else #f))))
-      ; a record's slots start with its type name, so a tag equal to that name counts as present, as in absent?.
-      ((,u ⊣ (μkanren-structure? u)) (μkanren-verify-T+ (μkanren-structure->list u) tag s))
+      ((,α* ⊣ (μkanren-var-working? α*)) (watch α*))
+      ((,u ⊣ (μkanren-compound? u))  (case (μkanren-tag-unify u tag s)
+                                        ((present) (K #f))
+                                        ((maybe) (watch u))
+                                        (else (verify* (μkanren-compound->list u)))))
       (,u (μ T₀ (and (μkanren-tag-pred? tag u) T₀)))))
 
   (define (μkanren-verify-T T s)
@@ -435,15 +474,22 @@
       ((_ . ,T*) (μkanren-ext-T α tag T* s))))
 
   (define (μkanren-absento+ u tag D A T s)
+      (define (watch α)
+        (let1 (T+ (μkanren-ext-T α tag T s))
+          (if (null? T+) s (let ((D* (μkanren-subsume T+ D))
+                                 (vars (remove-duplicates (map lhs A))))
+                            (μkanren-subsume-T vars T+ D* A T s)))))
+      (define (absento* us s*)
+        (match/first us
+          (() s*)
+          ((,u . ,us*) (let1 (s** (μkanren-state-match ((vc* S* D* A* T* tags*) s*) (μkanren-absento+ u tag D* A* T* s*)))
+                         (and s** (absento* us* s**))))))
       (match/first (μkanren-state-find u s)
-        ((,α ⊣ (μkanren-var-working? α)) (let1 (T+ (μkanren-ext-T α tag T s))
-                                            (if (null? T+) s (let ((D* (μkanren-subsume T+ D))
-                                                                   (vars (remove-duplicates (map lhs A))))
-                                                              (μkanren-subsume-T vars T+ D* A T s)))))
-        ((,au . ,du) (let1 (s* (μkanren-absento+ au tag D A T s))
-                        (and s* (μkanren-state-match ((vc* S* D* A* T* tags*) s*)
-                                  (μkanren-absento+ du tag D* A* T* s*)))))
-        ((,u* ⊣ (μkanren-structure? u*)) (μkanren-absento+ (μkanren-structure->list u*) tag D A T s))
+        ((,α ⊣ (μkanren-var-working? α)) (watch α))
+        ((,u* ⊣ (μkanren-compound? u*))  (case (μkanren-tag-unify u* tag s)
+                                            ((present) #f)
+                                            ((maybe) (watch u*))
+                                            (else (absento* (μkanren-compound->list u*) s))))
         (,u* (and (μkanren-tag-pred? tag u*) s))))
   
   ; goals --------------------------------------------------------------------------

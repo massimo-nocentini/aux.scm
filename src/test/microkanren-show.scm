@@ -80,7 +80,8 @@
    (⊦= '(≠ (α β) (list quote)) (μkanren-form->constraint '(begin (deny (and (equal? α (quote list))
                                                                            (equal? β (quote quote)))))))
    (⊦= '(symbol? α) (μkanren-form->constraint '(assert (every (μ v (symbol? v)) (list α)))))
-   (⊦= '(absento closure α) (μkanren-form->constraint '(assert (absent? (quote closure) α)))))
+   (⊦= '(absento closure α) (μkanren-form->constraint '(assert (absent? (quote closure) α))))
+   (⊦= '(absento (1 2) (1 . α)) (μkanren-form->constraint '(assert (absent? (quote (1 2)) (cons 1 α))))))
 
   ((test/occurrences _)
    (⊦= 2 (μkanren-datum-occurrences '((α z) z (α β)) 'α))
