@@ -199,7 +199,17 @@
        ((compose length stream:->list (stream:take-while
                                         (λ (pair)
                                            (not (equal? pair '(3 100))))))
-        (stream:enumerate-upper numbers/nats/∞ numbers/nats/∞))))
+        (stream:enumerate-upper numbers/nats/∞ numbers/nats/∞)))
+   ; finite streams of different lengths yield tuples only
+   (let ((five (list->stream '(1 2 3 4 5)))
+         (two (list->stream '(1 2))))
+     (⊦≡ '((1 1) (1 2) (2 2)) (stream:->list (stream:enumerate-upper five two)))
+     (⊦≡ '((1 1) (1 2) (2 2) (1 3) (2 3) (1 4) (2 4) (1 5) (2 5)) (stream:->list (stream:enumerate-upper two five)))
+     (⊦≡ '((1 1) (2 1) (2 2)) (stream:->list (stream:enumerate-lower two five)))
+     (⊦≡ '((1 1) (2 1) (2 2) (3 1) (3 2) (4 1) (4 2) (5 1) (5 2)) (stream:->list (stream:enumerate-lower five two)))
+     (⊦≡ 10 (length (stream:->list (stream:enumerate-all five two))))
+     (⊦≡ '((1 1) (1 2) (2 2)) (stream:->list ((stream:enumerate-weighted +) five two)))
+     (⊦≡ '(1 2) (stream:->list (stream:enumerate-upper two)))))
 
   ((test/stream-sicp/weighted-enumerations _)
    (⊦≡ '((4 3 5) (3 4 5) (8 6 10) (6 8 10) (12 5 13) (12 9 15) (15 8 17) (5 12 13) (16 12 20) (9 12 15))

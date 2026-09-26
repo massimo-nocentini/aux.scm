@@ -21,7 +21,7 @@
           (chicken base)
           (aux base)
           (only (aux stream) cons§)
-          (only srfi-1 any every)
+          (only srfi-1 any every reduce-right)
           (only (aux commons) ○ fmap collect-values identity* within?))
 
   (define stream:force*
@@ -283,8 +283,8 @@
                                                                                                 ((stream:map (λ (ri)
                                                                                                                 (tuple scar ri))) rcdr)
                                                                                                 (upper scdr rcdr))))
-                                                                               (else s)))
-                                             (else r))))
+                                                                               (else stream:empty)))
+                                             (else stream:empty))))
              (lower (λ§ (s r)
                         (stream:dest/car+cdr s
                                              ((scar scdr) (stream:dest/car+cdr r
@@ -294,8 +294,8 @@
                                                                                                 ((stream:map (λ (si)
                                                                                                                 (tuple si rcar))) scdr)
                                                                                                 (lower scdr rcdr))))
-                                                                               (else s)))
-                                             (else r))))
+                                                                               (else stream:empty)))
+                                             (else stream:empty))))
              (all (λ§ (s r)
                       (stream:dest/car+cdr s
                                            ((scar scdr) (stream:dest/car+cdr r
@@ -307,16 +307,16 @@
                                                                                                                 (tuple scar ri))) rcdr)
                                                                                                 (all scdr rcdr))
                                                                                               ((stream:map (λ (si) (tuple si rcar))) scdr))))
-                                                                             (else s)))
-                                           (else r))))
+                                                                             (else stream:empty)))
+                                           (else stream:empty))))
              (interleave (λ§ (s r)
                              (stream:dest/car+cdr s
                                                   ((scar scdr) (stream:cons scar (interleave r scdr)))
                                                   (else r)))))
-      (values
-        (λ streams (foldr upper stream:empty streams))
-        (λ streams (foldr lower stream:empty streams))
-        (λ streams (foldr all stream:empty streams)))))
+      (values ; a single stream enumerates itself, as the fold's rightmost operand
+        (λ streams (reduce-right upper stream:empty streams))
+        (λ streams (reduce-right lower stream:empty streams))
+        (λ streams (reduce-right all stream:empty streams)))))
 
   (define stream:enumerate-weighted
     (λ (weight)
@@ -330,8 +330,8 @@
                                                                                                ((stream:map (λ (ri)
                                                                                                                (make-tuple scar ri))) rcdr)
                                                                                                (B scdr rcdr))))
-                                                                              (else s)))
-                                            (else r))))
+                                                                              (else stream:empty)))
+                                            (else stream:empty))))
                 (interleave (λ§ (s r)
                                 (stream:dest/car+cdr s
                                                      ((scar scdr) (stream:dest/car+cdr r
@@ -342,7 +342,7 @@
                                                                                        (else s)))
                                                      (else r)))))
          (λ streams
-            (foldr B stream:empty streams)))))
+            (reduce-right B stream:empty streams)))))
 
   (define stream:take-while
     (λ (pred?)
