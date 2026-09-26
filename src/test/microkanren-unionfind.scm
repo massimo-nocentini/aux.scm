@@ -92,6 +92,10 @@
    (⊦= '(▢₀) (run/with-symbols ∞ (v) ✓))
    (⊦= '((▢₀ ▢₁)) (run/with-symbols ∞ (v w) ✓))
    (⊦= '((▢₀ ▢₀)) (run/with-symbols ∞ (v w) (≡ v w)))
+   ; indices stay dense after a repeated variable
+   (⊦= '((▢₀ ▢₀ ▢₁)) (run/with-symbols ∞ (v w x) (≡ v w)))
+   (⊦= '((▢₀ ▢₀ ▢₁ ▢₂)) (run/with-symbols ∞ (v w x y) (≡ v w)))
+   (⊦= '((▢₀ ▢₁ ▢₂ ▢₀ ▢₁)) (run/with-symbols ∞ (a b c d e) (∧ (≡ d a) (≡ e b))))
    (⊦= '((▢₀ (((▢₀))))) (run/with-symbols ∞ (v w) (≡ `(((,v))) w))))
 
   ((test/list-destructuring _)

@@ -174,6 +174,8 @@
     (λ (U)
       (R '▢ (unionfind-edges U))))
 
+  ; only a *working* root gets a name: on a second occurrence of a variable `↑` answers the ▢ₙ it
+  ; was already given, and uniting that with a new ▢ would add an edge, hence skip an index.
   (define reify/status
     (λ (v s)
       (let1 (U (status-≡ s))
@@ -182,7 +184,7 @@
             (letrec ((R/S (λ (v)
                             (let1 (v₀ (↑ v))
                               (cond
-                                ((variable? v₀) (∪ v₀ (R/unionfind-size U)))
+                                ((variable/working? v₀) (∪ v₀ (R/unionfind-size U)))
                                 ((pair? v₀) (begin
                                               (R/S (car v₀))
                                               (R/S (cdr v₀))))
