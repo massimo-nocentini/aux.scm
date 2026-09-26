@@ -499,6 +499,17 @@
             "it now refuses nesting past 1024 on its own. "
             "Nesting is now bounded at " (code/inline "anthropic-json/max-depth") ".")))
 
+  ((test/anthropic/json/whitespace-is-four-characters _)
+   (let1 (between (λ (u) (string-append "[1," (string (integer->char u)) "2]")))
+     (for-each (λ (u) (⊨ (anthropic-json/well-formed? (between u)))) '(32 9 10 13))
+     (for-each (λ (u) (⊭ (anthropic-json/well-formed? (between u)))) '(11 12 160 8232))
+     (⊦= #(1 2) (anthropic-json/parse (between 13)))
+     (⊦raises (anthropic-decode-error) (anthropic-json/parse (between 12))))
+   `(doc (p "JSON whitespace is space, tab, line feed and carriage return, nothing else. "
+            (code/inline "char-whitespace?") " is Unicode-aware and let a form feed through "
+            "the gate, which simdjson answers with " (code/inline "TAPE_ERROR")
+            " -- an abort until (aux simdjson) caught its exceptions.")))
+
   ((test/anthropic/json/utf8-length _)
    (⊦= 1 (anthropic-json/utf8-length "a"))
    (⊦= 6 (anthropic-json/utf8-length "caffè"))

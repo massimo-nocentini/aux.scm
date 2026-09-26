@@ -351,7 +351,13 @@
       (let* ((n (string-length s))
              (at (λ (i) (and (< i n) (string-ref s i)))))
         (letrec
-          ((skip (λ (i) (if (and (< i n) (char-whitespace? (string-ref s i))) (skip (add1 i)) i)))
+          ; JSON whitespace is exactly these four.  NOT char-whitespace?, which is Unicode-aware
+          ; here: it passed a form feed, VT, NBSP and U+2028, all of which simdjson answers with a bare
+          ; TAPE_ERROR (the form feed was an abort until (aux simdjson) caught its exceptions).
+          ((skip (λ (i) (if (and (< i n)
+                                 (memv (string-ref s i) (list #\space #\tab #\newline #\return)))
+                            (skip (add1 i))
+                            i)))
            (word (λ (i w) (let1 (m (string-length w))
                             (and (<= (+ i m) n) (string=? w (substring s i (+ i m))) (+ i m)))))
            (digits (λ (i) (let D ((k i))
