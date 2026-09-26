@@ -18,8 +18,10 @@
 ;     lists never terminates. The key keeps the whole turn order, as the original did, so two
 ;     games with the same first player but different turn orders get different trees.
 ;     Hence it uses `hash-table-ref/store` from (aux tabling) instead of `define-tabled` (whose key
-;     is the whole argument list); `neighbors` is tabled with `define-tabled` on `(pos size)`, as
-;     `neighbors/size`, since it reads nothing else from the board;
+;     is the whole argument list), over an `equal?` table hashed by `game-tree/key-hash`, which
+;     reads the cells of the board that `equal?-hash` would not reach; `neighbors` is tabled
+;     with `define-tabled` on `(pos size)`, as `neighbors/size`, since it reads nothing else
+;     from the board;
 ;   - `winners` uses `remove-duplicates/last` from (aux commons), that keeps the original tie order;
 ;   - `game-tree->sexp` is new: it forces the moves recursively, so a tree can be compared;
 ;   - dropped as dead code: `game`, `num-players`, `add-new-dice₀` and `rate-position/tabled`.
@@ -89,9 +91,22 @@
           ((or (null? p) (eq? p players)) (reverse acc))
           (else (R (cdr p) (cons (car p) acc)))))))
 
+  ; `equal?-hash` stops 4 levels deep and after 4 elements, before it reaches the cells of a
+  ; board in a key `(board rotation spare-dice first-move)` of `game-tree`: every key with the
+  ; same spare dice and first-move flag would share one bucket. This hash mixes the hash of each
+  ; atom of the key, cells included, one by one (`equal?-hash` of a whole cell is no good either:
+  ; it is additive, so `(A 2)` and `(B 1)` collide), modulo 2³² to stay a fixnum.
+  (define game-tree/key-hash
+    (λ (key #!optional (bound most-positive-fixnum))
+      (let1 (mix (λ (h x) (fxand (fx+ (fx* h 31) (equal?-hash x)) #xFFFFFFFF)))
+        (match1/first ((,board ,rotation ,spare-dice ,first-move) key)
+          (let* ((h (mix (mix (foldl mix 0 rotation) spare-dice) first-move))
+                 (h (foldl (λ (h cell) (foldl mix h cell)) h (vector->list (board-cells board)))))
+            (fxmod h bound))))))
+
   ; A tree is `(player board moves)`, where `moves` is a stream of `(action tree)`.
   (define game-tree
-    (let1 (↑ (hash-table-ref/store (make-hash-table test: equal?)))
+    (let1 (↑ (hash-table-ref/store (make-hash-table test: equal? hash: game-tree/key-hash)))
       (λ (board players spare-dice first-move)
         (↑ (list board (players-rotation players) spare-dice first-move)
            (λ (board rotation spare-dice first-move)

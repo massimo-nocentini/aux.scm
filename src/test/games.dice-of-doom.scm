@@ -22,8 +22,8 @@
         (chicken random)
         (chicken fixnum)
         (chicken bytevector)
-        (only (scheme base) open-output-string get-output-string)
-        (only srfi-1 circular-list every iota)
+        (only (scheme base) open-output-string get-output-string vector-copy)
+        (only srfi-1 circular-list every iota append-map delete-duplicates)
         (aux unittest)
         (aux base)
         (aux commons)
@@ -173,6 +173,27 @@
      (⊨ (eq? t₁ t₂)))
    (⊦= '(A B C) (players-rotation (circular-list 'A 'B 'C)))
    (⊦= '(B C A) (players-rotation (cdr (circular-list 'A 'B 'C)))))
+
+  ; regression: `equal?-hash` does not reach the cells of a board, so all the memo keys of
+  ; `game-tree` with the same spare dice and first-move flag hashed alike and the table scanned
+  ; one bucket; `game-tree/key-hash` spreads the 1296 2x2 boards of 2 players with 1 to 3 dice,
+  ; and still agrees with `equal?`, so an equal copy of a board finds its tree.
+  ((test/dice-of-doom/game-tree/key-hash _)
+   (let* ((cells (let C ((n 4))
+                   (cond
+                     ((zero? n) '(()))
+                     (else (append-map (λ (rest)
+                                         (append-map (λ (p) (map (λ (d) (cons (list p d) rest)) '(1 2 3)))
+                                                     '(A B)))
+                                       (C (sub1 n)))))))
+          (boards (map (λ (cs) (make-board (list->vector cs) 2)) cells))
+          (H (λ (b) (game-tree/key-hash (list b '(A B) 0 #f) 1000003))))
+     (⊦= 1296 (length boards))
+     (⊨ (> (length (delete-duplicates (map H boards))) 1200))
+     (let1 (copy (make-board (vector-copy (board-cells board/2x2)) 2))
+       (⊦= (H board/2x2) (H copy))
+       (⊨ (eq? (game-tree board/2x2 (circular-list 'A 'B) 0 #f)
+               (game-tree copy (circular-list 'A 'B) 0 #f))))))
 
   ; regression: the memo key keeps the whole turn order, so the same board and first player with
   ; a different roster, or a different order of 3 players, give different trees whose pass goes to

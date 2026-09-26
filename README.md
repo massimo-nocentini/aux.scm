@@ -772,7 +772,9 @@ Exported entry points include:
 
 - `make-board`, `board-cells`, `board-size`, `board-hexnum`, `gen-board`
   (random, via `pseudo-random-integer`)
-- `game-tree`, `game-tree->sexp`, `players-rotation`, `neighbors` (and
+- `game-tree`, `game-tree/key-hash` (the hash of its memo table, which reads
+  the cells of the board: srfi-69's `equal?-hash` stops before them),
+  `game-tree->sexp`, `players-rotation`, `neighbors` (and
   `neighbors/size`, the same on a board size, tabled), `board-attack`,
   `add-new-dice`
 - `winners`, `announce-winner`
