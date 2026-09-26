@@ -33,7 +33,8 @@
 ;   - in `run/with-symbols` the count is an *expression*: `+inf.0` (aux `∞`) means all answers,
 ;     any other number `n` the first `n` of them (the original matched `∞` as a syntax literal,
 ;     which fails as soon as `∞` is bound, as (aux base) does); `#t` still asks for the first
-;     answer only (or #f) and `↓` still keeps the `(term depth)` pairs;
+;     answer only, as its `(term depth)` list with the variables read as symbols (or #f), and
+;     `↓` still keeps the `(term depth)` pairs;
 ;   - the typo `condº/∞` in the pattern of `condº/¦` is fixed.
 ;
 ; Limits kept from the original: no occurs check (`(≡ v (list 1 v))` makes the reification loop),
@@ -269,7 +270,7 @@
       ((run/with-symbols ↓ n sexp ...)
        ((get/variable->symbol (run/with-symbols/taker n)) (run sexp ...)))
       ((run/with-symbols #t sexp ...)
-       ((lambda (α) (if (stream:null? α) #f (stream:car α))) (run sexp ...)))
+       ((lambda (α) (if (stream:null? α) #f (variable->symbol (stream:car α)))) (run sexp ...)))
       ((run/with-symbols n sexp ...)
        (map car (run/with-symbols ↓ n sexp ...)))))
 
