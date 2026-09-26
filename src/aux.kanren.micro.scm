@@ -503,17 +503,9 @@
       ((,u* ⊣ (μkanren-tag-pred? tag u*)) (✓° s))
       (else (✗° s))))
 
-  (define (μkanren-ext-T α tag T s)
-    (match/first T
-      (() `((,α . ,tag)))
-      ((((,α* . ,tag*) . ,T*) ⊣ (equal? (μkanren-state-find α* s) α))
-        (if (μkanren-tag-equal? tag tag*) '() (μkanren-ext-T α tag T* s)))
-      ((((_ . ,tag*) . ,T*) ⊣ (μkanren-tag-equal? tag tag*)) (μkanren-ext-T+ α tag T* s))
-      ((_ . ,T*) (μkanren-ext-T α tag T* s))))
-
   (define (μkanren-absento+ u tag D A T s)
       (define (watch α)
-        (let1 (T+ (μkanren-ext-T α tag T s))
+        (let1 (T+ (μkanren-ext-T+ α tag T s))
           (if (null? T+) s (let ((D* (μkanren-subsume T+ D))
                                  (vars (remove-duplicates (map lhs A))))
                             (μkanren-subsume-T vars T+ D* A T s)))))
