@@ -432,13 +432,16 @@ from the author's old on-scheme repository (`src/continuations.scm` and
 
 Exported entry points include:
 
-- `continuation->λ` — a raw continuation object as a variadic procedure
+- `continuation->λ` — a raw continuation object as a variadic procedure; like
+  a `call/cc` procedure, it leaves and enters the `dynamic-wind` frames (and so
+  the `parameterize` bindings) between the call and the capture, which a bare
+  `continuation-return` does not, so resume a raw continuation through it
 - `letcc/raw` — binds both the raw continuation and its procedure wrapper
 - `apply/cc` — applies a procedure passing the current continuation last
 - `escapecc` — escape with an `(else β)` fallback or an `(=> f)` receiver
 - `trycc/named` — clauses that each name their own skip continuation
 - `set/cc!`, `cond/cc`
-- `current-continuation/cont`, `current-continuation/λ`
+- `current-continuation/cont` (the raw object), `current-continuation/λ`
 - `letcc/escaper` — a scoped `make-escaper` (Springer and Friedman, ch. 16)
 
 `cond/cc` keeps a known quirk of the original on purpose: its `(pred? handling)`

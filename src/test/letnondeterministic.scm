@@ -1,5 +1,5 @@
 
-(import (aux unittest) (aux base) (aux nondeterministic) (aux stream) (chicken pretty-print) (chicken sort))
+(import (only (scheme base) make-parameter parameterize) (aux unittest) (aux base) (aux nondeterministic) (aux stream) (chicken pretty-print) (chicken sort))
 
 (define-suite letnondeterministic-suite
 
@@ -57,6 +57,12 @@
 
   ((test/letnondeterministic/choose+fair _)
    (⊦= '((a 1) (b 1) (a 2) (b 2) (a 3)) (letnondeterministic (? ¿ ⊦ • !) (? (append§/interleaved '((a 1) (a 2) (a 3)) '((b 1) (b 2)))))))
+
+  ((test/letnondeterministic/parameterize _)
+   (define q (make-parameter 'outer))
+   (⊦= '((1 inner) (2 inner) (3 inner))
+         (letnondeterministic (? ¿ ⊦ • !) (parameterize ((q 'inner)) (let1 (v (? '(1 2 3))) (list v (q))))))
+   (⊦= 'outer (q)))
 
   ((test/letnondeterministic/odd _)
    (⊦= '(1 3)
@@ -396,7 +402,21 @@
 
   )
 
-(unittest/✓ letnondeterministic-suite)
+; test/letnondeterministic/parameterize resumes choices inside a `parameterize`: when a resume
+; did not rewind the `dynamic-wind` frames (a `letcc` on continuation-graft), it left the string
+; port that captured a test's output as the current output port, and the run ended with rc 0 and
+; nothing printed, the summary included; so check that the output port is back.
+(import (only (chicken base) exit))
+
+(define stdout (current-output-port))
+
+(let1 (r (unittest/✓ letnondeterministic-suite))
+  (unless (eq? stdout (current-output-port))
+    (current-output-port stdout)
+    (write (unittest/result-summary r))
+    (newline)
+    (display "FAIL: the suite ended with its output still captured by a test\n")
+    (exit 1)))
 
 
 

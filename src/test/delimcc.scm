@@ -1,5 +1,5 @@
 
-(import (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
+(import (only (scheme base) make-parameter parameterize) (only (chicken condition) handle-exceptions get-condition-property) (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
 
 (define www-expected '((0 6 2 6 2)
            (0 6 2 6 4)
@@ -2544,6 +2544,56 @@
   ((test/delimcc/tutorial/λ _)
    (define-resetcc p (append '(hello) (λ-shift (x) (list x)) '(world)))
    (⊦= '(hello 4 world) (p 4)))
+
+  ((test/delimcc/dynamic-wind _)
+   (define q (make-parameter 'outer))
+   (define-resetcc r (parameterize ((q 'inner)) (let1 (x (letcc/shift k k)) (list x (q)))))
+   (⊦= 'outer (q))
+   (⊦= '(1 inner) (r 1))
+   (⊦= '(2 inner) (r 2))
+   (⊦= 'outer (q))
+   (define depth 0)
+   (define-resetcc w (dynamic-wind (τ (set! depth (add1 depth)))
+                                   (τ (let1 (x (letcc/shift k k)) (list x depth)))
+                                   (τ (set! depth (sub1 depth)))))
+   (⊦= 0 depth)
+   (⊦= '(1 1) (w 1))
+   (⊦= '(2 1) (w 2))
+   (⊦= 0 depth)
+   `(doc (p "Every resume of a delimited continuation re-enters the " (code/inline "dynamic-wind")
+            " frames, hence the " (code/inline "parameterize") " forms, between the shift and its reset."
+            " A limitation: a resume from within a resumption of the same continuation enters those frames"
+            " while they are still active, and there a " (code/inline "parameterize") ", which swaps the"
+            " parameter's value with a saved one, gives the value from where the first resumption entered"
+            " it instead of its binding; sequential resumes, as here, are not affected.")))
+
+  ((test/delimcc/resume-site _)
+   (define p (make-parameter 'outer))
+   (define g (resetcc (yield/extract 1) (yield/extract (p)) (error "gen-fail") '()))
+   (define g2 (parameterize ((p 'consumer)) ((cdr g) (void))))
+   (⊦= 'consumer (car g2))
+   (⊦= 'outer (p))
+   (⊦= '(caught "gen-fail") (handle-exceptions e (list 'caught (get-condition-property e 'exn 'message)) ((cdr g2) (void))))
+   `(doc (p "A delimited continuation holds nothing of the context outside its reset: resumed, it sees the"
+            " parameters and signals to the handlers in force around the resume.")))
+
+  ((test/delimcc/resume-site/call/cc _)
+   (define p (make-parameter 'outer))
+   (define g (resetcc (handle-exceptions e 'caught (yield/extract 1)) (yield/extract (p)) '()))
+   (⊦= 'outer (car (parameterize ((p 'consumer)) ((cdr g) (void)))))
+   (define winds '())
+   (define h (dynamic-wind (τ (push! 'in winds))
+                           (τ (resetcc (handle-exceptions e 'caught (list (letcc/shift k k)))))
+                           (τ (push! 'out winds))))
+   (set! winds '())
+   (⊦= '(1) (h 1))
+   (⊦= '(in out) (reverse winds))
+   `(doc (p "Only the continuation of the shift is delimited: one captured by call/cc between the shift and"
+            " its reset, as " (code/inline "handle-exceptions") " does (it returns through it), brings back"
+            " the whole context of its capture when the resumed continuation takes it.  Here the generator"
+            " resumed under a " (code/inline "parameterize") " sees the parameter of its creation after"
+            " its " (code/inline "handle-exceptions") " returns, and resuming " (code/inline "h")
+            " runs the before and after thunks around the original reset again.")))
 
   ((test/letcc/delimcc+monad _)
 

@@ -1,5 +1,5 @@
 (import (aux unittest) (aux base) (aux continuation) (aux continuation classic) (chicken continuation) (chicken port)
-        (only (scheme base) open-output-string get-output-string))
+        (only (scheme base) open-output-string get-output-string make-parameter parameterize))
 
 (define (eternity) (eternity))
 
@@ -138,6 +138,28 @@
                 list))
    (⊦= 3 (+ 1 (continuation-capture (λ (raw) (* 10 ((continuation->λ raw) 2)))))))
 
+  ;; The wrapper leaves and enters the `dynamic-wind` frames between the call
+  ;; and the capture, as a `call/cc` procedure does; a bare
+  ;; `continuation-return` skips them, so the second jump back into the
+  ;; `parameterize` below crashed compiled code.
+  ((test/continuation->λ/dynamic-wind _)
+   (define q (make-parameter 'outer))
+   (define wlog '())
+   (⊦= '((2 inner) (1 inner) (0 inner))
+       (let ((n 2) (acc '()) (k #f))
+         (parameterize ((q 'inner))
+           (dynamic-wind
+             (τ (push! 'in wlog))
+             (τ (letcc/raw (raw hop) (set! k hop))
+                (push! (list n (q)) acc))
+             (τ (push! 'out wlog))))
+         (unless (zero? n)
+           (set! n (sub1 n))
+           (k 'again))
+         (reverse acc)))
+   (⊦= 'outer (q))
+   (⊦= '(in out in out in out) (reverse wlog)))
+
   ((test/current-continuation _)
    (⊨ (continuation? (current-continuation/cont)))
    (⊨ (procedure? (current-continuation/λ)))
@@ -171,4 +193,19 @@
 
   )
 
-(unittest/✓ continuation-classic-suite)
+; test/continuation->λ/dynamic-wind jumps back inside a `parameterize`: when
+; a jump did not rewind the `dynamic-wind` frames (a bare `continuation-return`), it left the
+; string port that captured a test's output as the current output port, and the run ended with
+; rc 0 and nothing printed, the summary included, hiding every failure of the suite; so check
+; that the output port is back.
+(import (only (chicken base) exit))
+
+(define stdout (current-output-port))
+
+(let1 (r (unittest/✓ continuation-classic-suite))
+  (unless (eq? stdout (current-output-port))
+    (current-output-port stdout)
+    (write (unittest/result-summary r))
+    (newline)
+    (display "FAIL: the suite ended with its output still captured by a test\n")
+    (exit 1)))

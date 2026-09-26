@@ -3,15 +3,17 @@
 
   (import scheme 
           (chicken base)
-          (chicken continuation)
           (aux base))
 
   (define-syntax-rule (letcc/call hop body ...) (call-with-current-continuation (λ (hop) body ...)))
 
-  (define-syntax-rule (letcc hop body ...)
-    (continuation-capture (λ (cont) 
-                            (let1 (hop (λ args (continuation-graft cont (τ (apply values args)))))
-                              body ...))))
+  ; Not `continuation-capture`/`continuation-graft`: a compiled call to the latter is rewritten
+  ; straight to its C primitive, which never unwinds nor rewinds `dynamic-wind` frames (and
+  ; `parameterize` is built on them), so a `hop` across one leaves `##sys#dynamic-winds` stale
+  ; and a second jump back into the frame crashes the runtime; interpreted, the procedure calls
+  ; the unbound `##sys#dynamic-unwind` instead.  Plain call/cc runs the winders, restores the
+  ; metacontinuation as well, and is not slower.
+  (define-syntax-rule (letcc hop body ...) (letcc/call hop body ...))
 
   (define (callcc f) (letcc k (f k)))
 

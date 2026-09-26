@@ -14,12 +14,17 @@
                           "Continuations by example")
                   " in " (code/inline body ...) " expressions; for the sake of clarity, it expands to"
                   (code/scheme/expand ,letcc-expr)
-                  "where " (code/inline "continuation-capture") " and " (code/inline "continuation-return") 
-                  " are defined in " (cite/a "https://wiki.call-cc.org/man/5/Module%20(chicken%20continuation)" 
-                                             "Module " (code/inline "(chicken continuation)")) 
-                  " and based on " (cite/a "http://www.iro.umontreal.ca/~feeley/papers/FeeleySW01.pdf" 
-                                           "A Better API for First-Class Continuations") 
-                  " by Marc Feeley, respectively.")
+                  "that is, to plain " (code/inline "call/cc") ", which leaves and enters again the "
+                  (code/inline "dynamic-wind") " frames, hence the " (code/inline "parameterize") " forms, between"
+                  " the capture and the resume.  It used to be built on " (code/inline "continuation-capture")
+                  " and " (code/inline "continuation-graft") " of "
+                  (cite/a "https://wiki.call-cc.org/man/5/Module%20(chicken%20continuation)"
+                          "Module " (code/inline "(chicken continuation)"))
+                  ", after " (cite/a "http://www.iro.umontreal.ca/~feeley/papers/FeeleySW01.pdf"
+                                     "A Better API for First-Class Continuations")
+                  " by Marc Feeley, but a graft does not unwind nor rewind those frames: a continuation"
+                  " resumed across a " (code/inline "parameterize") " left the runtime's winds stale, and"
+                  " a second resume crashed it.")
 
                (structure/section "Implementation")
                (code/scheme/file "../aux.continuation.scm"))))

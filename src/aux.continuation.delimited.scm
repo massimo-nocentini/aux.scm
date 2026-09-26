@@ -19,18 +19,86 @@
   (define-syntax-rule (λ-shift args body ...) (letcc/shift k (λ args (let1 (x (begin body ...)) (k x)))))
   (define-syntax-rule (τ-shift body ...) (λ-shift () body ...))
 
-  (define *meta-continuation* (λ args (warning "Missing enclosing resetcc, called with args" args) (apply values args)))
+  (define (delimcc-missing-reset . args)
+    (warning "Missing enclosing resetcc, called with args" args)
+    (apply values args))
+
+  ; A resetcc: `escape` returns to it, `parent` is the frame current outside of it and `winds` is
+  ; the `##sys#dynamic-winds` of its body.  The root frame stands for no resetcc at all.
+  (define-record delimcc-frame escape parent winds)
+  (define delimcc-root-frame (make-delimcc-frame delimcc-missing-reset #f #f))
+
+  ; The frame of the innermost resetcc.
+  (define *meta-continuation* delimcc-root-frame)
+
+  ; Give the values of a resetcc body to the resetcc current now, which is not the lexically
+  ; enclosing one when the body is part of a resumed shift continuation.
+  (define (delimcc-return args) (apply (delimcc-frame-escape *meta-continuation*) args))
 
   (define (delimcc-reset thunk)
-    (let1 (mc *meta-continuation*)
-      (letcc k
-        (set! *meta-continuation* (λ args (set! *meta-continuation* mc) (apply k args)))
-        (receive args (thunk) (apply *meta-continuation* args)))))
-
-  (define (delimcc-shift f) 
     (letcc k
-      (receive args* (f (λ args (resetcc (apply k args))))
-        (apply *meta-continuation* args*))))
+      (let* ((parent *meta-continuation*)
+             (frame (make-delimcc-frame (λ args (set! *meta-continuation* parent) (apply k args))
+                                        parent
+                                        ##sys#dynamic-winds)))
+        (set! *meta-continuation* frame)
+        (receive args (thunk) (delimcc-return args)))))
+
+  ; The `dynamic-wind` frames of the current winds above `base`, outermost first, leaving them
+  ; after thunk by after thunk, innermost first; and entering them again on top of the current
+  ; winds, before thunk by before thunk.
+  (define (delimcc-unwind! base)
+    (let loop ((segment '()))
+      (let1 (ws ##sys#dynamic-winds)
+        (cond
+          ((eq? ws base) segment)
+          (else (set! ##sys#dynamic-winds (cdr ws))
+                ((cdar ws))
+                (loop (cons (car ws) segment)))))))
+
+  (define (delimcc-rewind! segment)
+    (unless (null? segment)
+      ((caar segment))
+      (set! ##sys#dynamic-winds (cons (car segment) ##sys#dynamic-winds))
+      (delimcc-rewind! (cdr segment))))
+
+  (define (delimcc-within? base)
+    (let loop ((ws ##sys#dynamic-winds))
+      (cond
+        ((eq? ws base) #t)
+        ((pair? ws) (loop (cdr ws)))
+        (else #f))))
+
+  ; A shift continuation holds the `dynamic-wind` frames between the shift and its resetcc and
+  ; nothing outside: the shift leaves them before calling `f`, which runs in the resetcc's
+  ; context, and every resume enters them again on top of the context of the resume, so that the
+  ; resumed code sees the parameters and signals to the handlers in force there.  The raw
+  ; continuation primitive jumps without touching the winds, which are spliced by hand.  When the
+  ; resetcc's winds are not a tail of the current ones (no resetcc at all, or a `letcc`
+  ; continuation of an older resumption brought the context of that one back) the whole context of
+  ; the shift is captured, by `letcc`.
+  ;   A limitation: a resume from within a resumption of the same continuation enters its frames
+  ; again while they are still active.  A `dynamic-wind` frame just runs its before thunk once
+  ; more, but CHICKEN's `parameterize` frame swaps the parameter's value with the one it saved, so
+  ; the nested resumption sees the value the parameter had where the first resumption entered the
+  ; frame, not the binding of the `parameterize`.  Sequential resumes, as hansei, amb, generators
+  ; and `(k (k x))` make, are not affected.
+  ;   Only the continuation of the shift itself is delimited: a continuation captured by call/cc
+  ; inside the segment, as `handle-exceptions`, `condition-case` and `guard` do (the first one
+  ; even returns through it), carries the whole context of its capture.  Taken within a resumed
+  ; continuation, it brings that context back: the parameters and the `dynamic-wind` frames around
+  ; the original resetcc are entered again (their before thunks run) and those of the resume are
+  ; left, for the rest of the resumed code, and its later shifts capture their whole context.
+  ; Values still go to the resetcc of the resume.
+  (define (delimcc-shift f)
+    (let1 (base (delimcc-frame-winds *meta-continuation*))
+      (if (delimcc-within? base)
+        (##sys#call-with-current-continuation
+          (λ (c)
+            (let1 (segment (delimcc-unwind! base))
+              (receive vs (f (λ args (resetcc (delimcc-rewind! segment) (apply c args)))) (delimcc-return vs)))))
+        (letcc k
+          (receive vs (f (λ args (resetcc (apply k args)))) (delimcc-return vs))))))
 
   (define (delimcc-extract) (letcc/shift k k))
   (define (delimcc-discard . args) (letcc/shift _ (apply values args)))

@@ -1,5 +1,6 @@
 
 (import
+  (only (scheme base) make-parameter parameterize)
   (chicken sort)
   (aux base) (aux unittest) (aux hansei) srfi-1)
 
@@ -165,6 +166,12 @@
          (sort (probcc-reify/exact (probcc-uniform/range 1 8))
                (λ (a b) (< (cadr (car a)) (cadr (car b)))))))
 
+  ((test/parameterize _)
+   (define q (make-parameter 'outer))
+   (⊦= '(((V (#f inner)) 2/3) ((V (#t inner)) 1/3))
+         (probcc-reify/exact (parameterize ((q 'inner)) (let1 (x (probcc-coin 1/3)) (list x (q))))))
+   (⊦= 'outer (q)))
+
   ((test/geometric _)
    (define result ((probcc-reify 5) (τ (probcc-geometric 0.85 's 'f))))
    (define t6 (cadr (car (sixth result))))
@@ -182,7 +189,21 @@
 
   )
 
-(unittest/✓ hanseitest)
+; test/parameterize resumes a choice inside a `parameterize`: when a resume did not rewind the
+; `dynamic-wind` frames (a `letcc` on continuation-graft), it left the string port that captured a
+; test's output as the current output port, and the run ended with rc 0 and nothing printed, the
+; summary included, hiding every failure of the suite; so check that the output port is back.
+(import (only (chicken base) exit))
+
+(define stdout (current-output-port))
+
+(let1 (r (unittest/✓ hanseitest))
+  (unless (eq? stdout (current-output-port))
+    (current-output-port stdout)
+    (write (unittest/result-summary r))
+    (newline)
+    (display "FAIL: the suite ended with its output still captured by a test\n")
+    (exit 1)))
 
 
 

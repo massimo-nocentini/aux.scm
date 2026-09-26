@@ -15,12 +15,42 @@
   (import scheme
           (chicken base)
           (chicken continuation)
+          (only (chicken fixnum) fx+ fx- fx<)
           (only srfi-1 last)
           (aux base)
           (aux continuation))
 
-  ;; Wraps a raw continuation object as a variadic procedure.
-  (define continuation->λ (λ (raw) (λ args (apply continuation-return raw args))))
+  ;; Brings `##sys#dynamic-winds` from the current frames to `winds`, running
+  ;; the after thunks of the frames being left, innermost first, and then the
+  ;; before thunks of the frames being entered, outermost first; `n` is the
+  ;; current length minus the length of `winds`.  It mirrors CHICKEN's
+  ;; `##sys#dynamic-unwind`, which the library hides.
+  (define (continuation-rewind! winds n)
+    (cond
+      ((eq? ##sys#dynamic-winds winds) (void))
+      ((fx< n 0) (continuation-rewind! (cdr winds) (fx+ n 1))
+                 ((car (car winds)))
+                 (set! ##sys#dynamic-winds winds))
+      (else (let1 (after (cdr (car ##sys#dynamic-winds)))
+              (set! ##sys#dynamic-winds (cdr ##sys#dynamic-winds))
+              (after)
+              (continuation-rewind! winds (fx- n 1))))))
+
+  ;; Wraps a raw continuation object as a variadic procedure.  Not a bare
+  ;; `continuation-return`: that grafts without leaving nor entering the
+  ;; `dynamic-wind` frames (and `parameterize` is built on them) between the
+  ;; call and the capture, so a jump out of such a frame leaves
+  ;; `##sys#dynamic-winds` stale and a second jump back into it crashes the
+  ;; runtime.  The procedure first brings the winds to the ones of the
+  ;; capture, as the procedures of `call/cc` do.
+  (define continuation->λ
+    (λ (raw)
+      (##sys#check-structure raw 'continuation 'continuation->λ)
+      (let1 (winds (##sys#slot raw 2))
+        (λ args
+          (unless (eq? ##sys#dynamic-winds winds)
+            (continuation-rewind! winds (fx- (length ##sys#dynamic-winds) (length winds))))
+          (apply continuation-return raw args)))))
 
   ;; Binds both the raw continuation object `raw` (so that `continuation?`
   ;; holds on it) and its procedure wrapper `hop`.
@@ -72,6 +102,8 @@
            ((pred? cont) (handling cont)) ...
            (else (error "Contract violation")))))))
 
+  ;; Returns the raw continuation object: resume it through `continuation->λ`,
+  ;; since a bare `continuation-return` skips the `dynamic-wind` frames.
   (define current-continuation/cont
     (τ (continuation-capture (λ (cont) ((continuation->λ cont) cont)))))
 

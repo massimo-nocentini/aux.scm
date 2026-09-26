@@ -1,5 +1,6 @@
 
-(import (aux unittest) (aux base) (aux continuation classic) (aux continuation amb))
+(import (aux unittest) (aux base) (aux continuation classic) (aux continuation amb)
+        (only (scheme base) make-parameter parameterize))
 
 (define-suite amb-suite
 
@@ -34,6 +35,33 @@
    (⊦= '() (amb (λ (ε ? ✗ ✓) (✗))))
    (⊦= '() (amb (λ (ε ? ✗ ✓) (ε '())))))
 
+  ;; A choice point inside a `parameterize` or a `dynamic-wind`: every retry
+  ;; enters the frame again and leaves it with the choice, so each branch sees
+  ;; the binding only inside and every before thunk has its after thunk.
+  ;; Before the choice points left and entered the frames, the binding leaked
+  ;; into the second branch and compiled code crashed at the second retry.
+  ((test/amb/parameterize _)
+   (define q (make-parameter 'outer))
+   (⊦= '((1 inner outer) (2 inner outer) (3 inner outer))
+       (amb (λ (ε ? ✗ ✓)
+              (let* ((inside #f)
+                     (a (parameterize ((q 'inner)) (let1 (a (ε '(1 2 3))) (set! inside (q)) a))))
+                (✓ (list a inside (q)))
+                (✗)))))
+   (⊦= 'outer (q)))
+
+  ((test/amb/dynamic-wind _)
+   (define wlog '())
+   (⊦= '(1 2 3)
+       (amb (λ (ε ? ✗ ✓)
+              (let1 (a (dynamic-wind
+                         (τ (push! 'in wlog))
+                         (τ (ε '(1 2 3)))
+                         (τ (push! 'out wlog))))
+                (✓ a)
+                (✗)))))
+   (⊦= '(in out in out in out in out) (reverse wlog)))
+
   ;; Known bug, kept on purpose: `sat-solve` is unsound because `(void)` counts
   ;; as true while the other variables are unassigned; hence the second
   ;; expectation misses `(#f #t)` and the fourth one duplicates a model.
@@ -64,4 +92,19 @@
 
   )
 
-(unittest/✓ amb-suite)
+; test/amb/parameterize and test/amb/dynamic-wind retry a choice inside a `parameterize`: when
+; a jump did not rewind the `dynamic-wind` frames (a bare `continuation-return`), it left the
+; string port that captured a test's output as the current output port, and the run ended with
+; rc 0 and nothing printed, the summary included, hiding every failure of the suite; so check
+; that the output port is back.
+(import (only (chicken base) exit))
+
+(define stdout (current-output-port))
+
+(let1 (r (unittest/✓ amb-suite))
+  (unless (eq? stdout (current-output-port))
+    (current-output-port stdout)
+    (write (unittest/result-summary r))
+    (newline)
+    (display "FAIL: the suite ended with its output still captured by a test\n")
+    (exit 1)))
