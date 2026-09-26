@@ -64,6 +64,15 @@
          (⊦= 'g (sbral-ref q 6))
          ))
 
+  ((test-ref-out-of-bounds _)
+   (let1 (q (list->sbral '(a b c d e f g h i j)))
+         (⊦= '(a b c d e f g h i j) (map (λ (i) (sbral-ref q i)) (iota 10)))
+         ; indices must be fixnums: the walk uses unchecked fixnum arithmetic
+         (for-each (λ (i) (⊦= "sbral-ref: index out of bounds" (error-message (λ () (sbral-ref q i)))))
+                   (list 10 -1 1.5 2.0 'x (expt 2 100) (- (expt 2 100))))
+         (for-each (λ (i) (⊦= "update/sbral: index out of bounds" (error-message (λ () (update/sbral i 'y q)))))
+                   (list 1.5 2.0 'x (expt 2 100) (- (expt 2 100))))))
+
   ((test-list->sbral _)
 
    (let* ((l '(a b c d e f g))

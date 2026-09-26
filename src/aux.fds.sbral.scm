@@ -39,34 +39,37 @@
 
   ; fixed-arity procedures: this is the innermost loop of the substitution walk, so the
   ; rest list that `λ-match/first` would cons and destructure at every level is avoided.
+  ; Sizes and indices are fixnums by construction, hence the unchecked `fx` arithmetic:
+  ; the public entries `sbral-ref` and `update/sbral` check that the caller's index is one.
   (define (sbral-tree-lookup w i tree)
     (match/first tree
       (((,v . _) ⊣ (fx= i 0)) v)
-      ((,v ,α ,β) (let1 (w/2 (quotient w 2))
+      ((,v ,α ,β) (let1 (w/2 (fxshr w 1))
                     (cond
-                      ((<= i w/2) (sbral-tree-lookup w/2 (- i 1) α))
-                      (else (sbral-tree-lookup w/2 (- i 1 w/2) β)))))
+                      ((fx<= i w/2) (sbral-tree-lookup w/2 (fx- i 1) α))
+                      (else (sbral-tree-lookup w/2 (fx- (fx- i 1) w/2) β)))))
       (else (error "sbral-tree-lookup: not a valid sbral"))))
 
   (define (sbral-tree-update w i y tree)
     (match/first tree
       (((_ . ,αβ) ⊣ (fx= i 0)) `(,y . ,αβ))
-      ((,v ,α ,β) (let1 (w/2 (quotient w 2))
+      ((,v ,α ,β) (let1 (w/2 (fxshr w 1))
                     (cond
-                      ((<= i w/2) `(,v ,(sbral-tree-update w/2 (- i 1) y α) ,β))
-                      (else `(,v ,α ,(sbral-tree-update w/2 (- i 1 w/2) y β))))))
+                      ((fx<= i w/2) `(,v ,(sbral-tree-update w/2 (fx- i 1) y α) ,β))
+                      (else `(,v ,α ,(sbral-tree-update w/2 (fx- (fx- i 1) w/2) y β))))))
       (else (error "sbral-tree-update: not a valid sbral"))))
 
   (define (sbral-ref sbral i)
     (match/first sbral
-      ((((,size . ,tree) . _) ⊣ (< -1 i size)) (sbral-tree-lookup size i tree))
-      ((((,size . _) . ,sbral*) ⊣ (<= size i)) (sbral-ref sbral* (- i size)))
+      ((((,size . ,tree) . _) ⊣ (and (fixnum? i) (fx>= i 0) (fx< i size))) (sbral-tree-lookup size i tree))
+      ((((,size . _) . ,sbral*) ⊣ (and (fixnum? i) (fx<= size i))) (sbral-ref sbral* (fx- i size)))
       (else (error "sbral-ref: index out of bounds" i))))
 
   (define (update/sbral i y sbral)
     (match/first sbral
-      ((((,size . ,tree) . ,sbral*) ⊣ (< -1 i size)) `((,size . ,(sbral-tree-update size i y tree)) . ,sbral*))
-      (((,entry . ,sbral*) ⊣ (<= (car entry) i)) `(,entry . ,(update/sbral (- i (car entry)) y sbral*)))
+      ((((,size . ,tree) . ,sbral*) ⊣ (and (fixnum? i) (fx>= i 0) (fx< i size)))
+       `((,size . ,(sbral-tree-update size i y tree)) . ,sbral*))
+      (((,entry . ,sbral*) ⊣ (and (fixnum? i) (fx<= (car entry) i))) `(,entry . ,(update/sbral (fx- i (car entry)) y sbral*)))
       (else (error "update/sbral: index out of bounds" i))))
 
   ; folds the tree of weight w whose root sits at index i, right subtree first, so that
@@ -74,15 +77,15 @@
   (define (sbral-tree-foldr f w i tree out)
     (match/first tree
       ((,v) (f i v out))
-      ((,v ,α ,β) (let1 (w/2 (quotient w 2))
-                    (f i v (sbral-tree-foldr f w/2 (+ i 1) α (sbral-tree-foldr f w/2 (+ i 1 w/2) β out)))))
+      ((,v ,α ,β) (let1 (w/2 (fxshr w 1))
+                    (f i v (sbral-tree-foldr f w/2 (fx+ i 1) α (sbral-tree-foldr f w/2 (fx+ (fx+ i 1) w/2) β out)))))
       (else (error "sbral-tree-foldr: not a valid sbral"))))
 
   (define (foldr/sbral f init sbral)
     (let loop ((sbral sbral) (i 0))
       (match/first sbral
         (() init)
-        (((,size . ,tree) . ,sbral*) (sbral-tree-foldr f size i tree (loop sbral* (+ i size))))
+        (((,size . ,tree) . ,sbral*) (sbral-tree-foldr f size i tree (loop sbral* (fx+ i size))))
         (else (error "foldr/sbral: not a valid sbral")))))
 
   (define (length/sbral sbral) (foldr (λ (each l) (+ (car each) l)) 0 sbral))
