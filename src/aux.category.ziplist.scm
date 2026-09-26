@@ -4,6 +4,15 @@
 
   (import scheme (chicken base) (aux base))
 
+  ; the pair at index i of lst, #f when lst is shorter: a pair is never #f, so a
+  ; stored #f is not mistaken for absence (the witness of `length/>?` is that
+  ; same tail pair). It stops at i, so it terminates on the circular lists built by `return`.
+  (define (list-tail/or-false lst i)
+    (cond
+      ((null? lst) #f)
+      ((zero? i) lst)
+      (else (list-tail/or-false (cdr lst) (sub1 i)))))
+
   ; Monad instance
   (define (return x) (list/circular x))
   (define (>>= m g)
@@ -13,7 +22,7 @@
                                     (((,i . ,acc) ,v) (let ((m* (g v))
                                                             (i* (add1 i)))
                                                         (cond
-                                                          ((length/>? m* i) => (λ (v*) (cons i* (cons (car v*) acc))))
+                                                          ((list-tail/or-false m* i) => (λ (t) (cons i* (cons (car t) acc))))
                                                           (else (cons i* acc))))))
                     `(0 . ()) m))))))
 
