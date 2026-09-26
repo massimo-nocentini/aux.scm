@@ -146,6 +146,8 @@
    (⊦= #f (absent? (vector 1) (list (vector 1))))
    (⊦= #f (absent? '() '()))
    (⊦= #t (absent? '(1 2) '(a (1 3))))
+   (⊦= #f (absent? '(c d) (vector 'a (list 'b 'c 'd))))
+   (⊦= #t (absent? 'e (vector 'a (list 'b (vector 'c 'd)))))
    `(doc (p "A compound term is detected as a subterm too, not only atoms at the leaves.")))
 
   ((test/letport/string _)
