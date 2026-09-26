@@ -204,7 +204,9 @@
    (⊦= `(81 ,'() ,'() ,(void)) (final (last (→/compiled* s₁))))
    (⊦= `(81 ,'() ,'() ,(void)) (final (last (→/compiled⁺* s₁))))
    (⊦= `(81 ,'() ,'() ,(void)) (final (last (→/compiled⁺* s₁⁺))))
-   (⊦= "[((Position 0) (Load null?) Apply (Test ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply)) (Load zero)) ([((Position 0) (Position 1) (Position&Apply 1) Apply) ([((Closure ((Position 0) (Position 1) (Position&Apply 1) Apply)) (Position&Apply 1)) ([((Closure ((Position 0) (Load null?) Apply (Test ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply)) (Load zero)))) ()])] [((Closure ((Position 0) (Load null?) Apply (Test ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply)) (Load zero)))) ()])])]"
+   ; `Test` carries both branches since the non-tail `If` fix: the original expected
+   ; `(Test <otherwise>) <answer>`, whose false case dropped the rest of the control.
+   (⊦= "[((Position 0) (Load null?) Apply (Test ((Load zero)) ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply))) ([((Position 0) (Position 1) (Position&Apply 1) Apply) ([((Closure ((Position 0) (Position 1) (Position&Apply 1) Apply)) (Position&Apply 1)) ([((Closure ((Position 0) (Load null?) Apply (Test ((Load zero)) ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply))))) ()])] [((Closure ((Position 0) (Load null?) Apply (Test ((Load zero)) ((Position 0) (Load cdr) Apply (Position&Apply 1) (Load add1) Apply))))) ()])])]"
        ((○ to-string car status-S last →/compiled⁺*) Y⁺)))
 
   ((test/Y-length _)
@@ -273,6 +275,28 @@
    (let1 (J-term '((λ (L x y) (+ (² (L x)) y))
                    (J (λ (z) (- (² z) (² two)))) three two))
      (⊨/error ((○ (value E) curryfy) J-term))))
+
+  ; new: an `If` in non-tail position, whose value feeds the rest of the control: `Test` used to
+  ; replace the whole control with the `else` branch, dropping the pending `add1` and, in
+  ; `→/compiled⁺`, the `Exit` of the enclosing redex.
+  ((test/if-non-tail _)
+   (let* ((E ((extend E₀) `(add1 . ,add1) '(one . 1) '(two . 2) '(three . 3) '(t . #t) '(f . #f)
+                          `(+ . ,(λ (x) (λ (y) (+ x y))))))
+          (run (λ (comp →)
+                 (λ (sexp)
+                   (let1 (t ((○ comp expression->de-bruijn curryfy) sexp))
+                     ((○ car status-S last (rtc (→ E))) (status-init '() t)))))))
+     (for-each (λ (sexp)
+                 (let1 (v ((○ (value E) curryfy) sexp))
+                   (⊦= v ((run compile →/compiled) sexp))
+                   (⊦= v ((run compile⁺ →/compiled⁺) sexp))))
+               '((add1 (cond (f one) (else two)))
+                 (add1 (cond (t one) (else two)))
+                 (add1 ((λ (x) (cond (x two) (else three))) f))
+                 ((λ (x) (cond (x one) (else two))) f)
+                 (+ (cond (f one) (t two) (else three)) (cond (t one) (else two)))))
+     (⊦= "((Load f) (Test ((Load one)) ((Load two))) (Load add1) Apply)"
+         ((○ to-string compile expression->de-bruijn curryfy) '(add1 (cond (f one) (else two)))))))
 
   ; new: the `curryfy` clauses that the matchable version got from ellipses, and its errors.
   ((test/curryfy-clauses _)

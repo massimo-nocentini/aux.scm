@@ -14,7 +14,8 @@
 ; - `compile` and the optimising `compile⁺` (Enter/Exit for a direct redex, Position&Apply for a
 ;   variable in operator position) give `instruction`s run by `→/compiled` and `→/compiled⁺`;
 ;   the latter implements J: `Jump` pushes a `status-appender` of the dump, applying it builds a
-;   `program-closure`.
+;   `program-closure`. `(Test answer otherwise)` carries the code of both branches of an `If` and
+;   prepends the chosen one to the rest of the control, so an `If` also works in non-tail position.
 ;
 ; Every transition answers the *same* status object at the end, the fixed point that `rtc` in
 ; (aux commons) detects with `eq?`.
@@ -285,7 +286,7 @@
   (define-record %Closure control) ; [instruction], precisely.
   (define-record %Enter)
   (define-record %Exit)
-  (define-record %Test control) ; [instruction], precisely.
+  (define-record %Test answer otherwise) ; both [instruction], precisely.
   (define-record %Jump)
 
   (define instruction?
@@ -299,7 +300,8 @@
   (define Closure (λ (control) (make-%Closure (%check 'Closure list? control))))
   (define Enter make-%Enter)
   (define Exit make-%Exit)
-  (define Test (λ (control) (make-%Test (%check 'Test list? control))))
+  (define Test (λ (answer otherwise) (make-%Test (%check 'Test list? answer)
+                                                 (%check 'Test list? otherwise))))
   (define Jump make-%Jump)
 
   (define-many (Load? Apply? Position? Position&Apply? Closure? Enter? Exit? Test? Jump?)
@@ -309,7 +311,7 @@
   (set-record-printer! %Apply (λ (i out) (format out "Apply")))
   (set-record-printer! %Enter (λ (i out) (format out "Enter")))
   (set-record-printer! %Exit (λ (i out) (format out "Exit")))
-  (set-record-printer! %Test (λ (i out) (format out "(Test ~a)" (%Test-control i))))
+  (set-record-printer! %Test (λ (i out) (format out "(Test ~a ~a)" (%Test-answer i) (%Test-otherwise i))))
   (set-record-printer! %Position (λ (i out) (format out "(Position ~a)" (%Position-index i))))
   (set-record-printer! %Position&Apply (λ (i out) (format out "(Position&Apply ~a)" (%Position&Apply-index i))))
   (set-record-printer! %Closure (λ (i out) (format out "(Closure ~a)" (%Closure-control i))))
@@ -322,7 +324,7 @@
                ((%Id₊? e) (list (Position (%Id₊-index e))))
                ((%Lambda₊? e) (list (Closure (C (%Lambda₊-body e)))))
                ((%Comb₊? e) `(,@(C (%Comb₊-rand e)) ,@(C (%Comb₊-rator e)) ,(Apply)))
-               ((%If₊? e) `(,@(C (%If₊-question e)) ,(Test (C (%If₊-otherwise e))) ,@(C (%If₊-answer e))))
+               ((%If₊? e) `(,@(C (%If₊-question e)) ,(Test (C (%If₊-answer e)) (C (%If₊-otherwise e)))))
                ((%J₊? e) (list (Jump)))
                (else (error 'compile "not a de Bruijn term" e))))))
 
@@ -369,9 +371,8 @@
                       ((%Closure? C₀) (let1 (c₊ (make-closure₊ (%Closure-control C₀) E))
                                         (make-status (cons c₊ S) E C₊ D)))
                       ((%Test? C₀) (match1/first ((,boolean . ,S₊) S)
-                                     (cond
-                                       (boolean (make-status S₊ E C₊ D))
-                                       (else (make-status S₊ E (%Test-control C₀) D)))))
+                                     (let1 (branch (if boolean (%Test-answer C₀) (%Test-otherwise C₀)))
+                                       (make-status S₊ E (append branch C₊) D))))
                       ((%Apply? C₀) (match1/first ((,f ,y . ,S₊) S)
                                       (cond/λ f
                                         (closure₊? (dbind/closure₊
@@ -397,7 +398,7 @@
                                 ((%Lambda₊? rator) `(,@(C rand) ,(Enter) ,@(C (%Lambda₊-body rator)) ,(Exit)))
                                 ((%Id₊? rator) `(,@(C rand) ,(Position&Apply (%Id₊-index rator))))
                                 (else `(,@(C rand) ,@(C rator) ,(Apply))))))
-               ((%If₊? e) `(,@(C (%If₊-question e)) ,(Test (C (%If₊-otherwise e))) ,@(C (%If₊-answer e))))
+               ((%If₊? e) `(,@(C (%If₊-question e)) ,(Test (C (%If₊-answer e)) (C (%If₊-otherwise e)))))
                ((%J₊? e) (list (Jump)))
                (else (error 'compile⁺ "not a de Bruijn term" e))))))
 
@@ -469,9 +470,8 @@
                                            (D₁ (status-D D)))
                                        (make-status S₁ E₁ C₁ D₁)))
                         ((%Test? C₀) (match1/first ((,boolean . ,S₊) S)
-                                       (cond
-                                         (boolean (make-status S₊ E C₊ D))
-                                         (else (make-status S₊ E (%Test-control C₀) D)))))
+                                       (let1 (branch (if boolean (%Test-answer C₀) (%Test-otherwise C₀)))
+                                         (make-status S₊ E (append branch C₊) D))))
                         ((%Position&Apply? C₀) (let1 (f (list-ref E (%Position&Apply-index C₀)))
                                                  (match1/first ((,y . ,S₊) S)
                                                    (PA f y S₊ E C₊ D))))
