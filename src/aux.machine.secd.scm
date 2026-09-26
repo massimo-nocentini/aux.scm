@@ -324,16 +324,26 @@
   (set-record-printer! %Closure (λ (i out) (format out "(Closure ~a)" (%Closure-control i))))
   (set-record-printer! %Jump (λ (i out) (format out "Jump")))
 
-  (define compile
-    (rec C (λ (e)
-             (cond
-               ((%Id₋? e) (list (Load ($ (%Id₋-id e)))))
-               ((%Id₊? e) (list (Position (%Id₊-index e))))
-               ((%Lambda₊? e) (list (Closure (C (%Lambda₊-body e)))))
-               ((%Comb₊? e) `(,@(C (%Comb₊-rand e)) ,@(C (%Comb₊-rator e)) ,(Apply)))
-               ((%If₊? e) `(,@(C (%If₊-question e)) ,(Test (C (%If₊-answer e)) (C (%If₊-otherwise e)))))
-               ((%J₊? e) (list (Jump)))
-               (else (error 'compile "not a de Bruijn term" e))))))
+  ; `compile` and `compile⁺` differ only in how they compile a combination: `(compiler who comb)`
+  ; is a compiler that gives `(comb C rator rand)` for a `Comb₊`, where `C` is the compiler
+  ; itself, and raises its errors as `who`.
+  (define compiler
+    (λ (who comb)
+      (rec C (λ (e)
+               (cond
+                 ((%Id₋? e) (list (Load ($ (%Id₋-id e)))))
+                 ((%Id₊? e) (list (Position (%Id₊-index e))))
+                 ((%Lambda₊? e) (list (Closure (C (%Lambda₊-body e)))))
+                 ((%Comb₊? e) (comb C (%Comb₊-rator e) (%Comb₊-rand e)))
+                 ((%If₊? e) `(,@(C (%If₊-question e)) ,(Test (C (%If₊-answer e)) (C (%If₊-otherwise e)))))
+                 ((%J₊? e) (list (Jump)))
+                 (else (error who "not a de Bruijn term" e)))))))
+
+  (define comb/generic
+    (λ (C rator rand)
+      `(,@(C rand) ,@(C rator) ,(Apply))))
+
+  (define compile (compiler 'compile comb/generic))
 
   (define-record closure₊ C E)
 
@@ -405,20 +415,15 @@
       ; only `compile⁺` emits.
       (λ (C₀ S E C D) (error '→/compiled "no transition for" C₀))))
 
+  ; the optimising `compile`: Enter/Exit for a direct redex, Position&Apply for a variable in
+  ; operator position.
   (define compile⁺
-    (rec C (λ (e)
-             (cond
-               ((%Id₋? e) (list (Load ($ (%Id₋-id e)))))
-               ((%Id₊? e) (list (Position (%Id₊-index e))))
-               ((%Lambda₊? e) (list (Closure (C (%Lambda₊-body e)))))
-               ((%Comb₊? e) (let ((rator (%Comb₊-rator e)) (rand (%Comb₊-rand e)))
-                              (cond
-                                ((%Lambda₊? rator) `(,@(C rand) ,(Enter) ,@(C (%Lambda₊-body rator)) ,(Exit)))
-                                ((%Id₊? rator) `(,@(C rand) ,(Position&Apply (%Id₊-index rator))))
-                                (else `(,@(C rand) ,@(C rator) ,(Apply))))))
-               ((%If₊? e) `(,@(C (%If₊-question e)) ,(Test (C (%If₊-answer e)) (C (%If₊-otherwise e)))))
-               ((%J₊? e) (list (Jump)))
-               (else (error 'compile⁺ "not a de Bruijn term" e))))))
+    (compiler 'compile⁺
+      (λ (C rator rand)
+        (cond
+          ((%Lambda₊? rator) `(,@(C rand) ,(Enter) ,@(C (%Lambda₊-body rator)) ,(Exit)))
+          ((%Id₊? rator) `(,@(C rand) ,(Position&Apply (%Id₊-index rator))))
+          (else (comb/generic C rator rand))))))
 
   (define-record status-appender status)
 
