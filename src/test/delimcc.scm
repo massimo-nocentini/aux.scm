@@ -1,5 +1,5 @@
 
-(import (only (scheme base) make-parameter parameterize) (only srfi-18 make-thread thread-start! thread-join! thread-sleep! thread-yield!) (only (chicken condition) handle-exceptions get-condition-property) (only (chicken gc) gc set-finalizer!) (only (aux cml) run-cml spawn sync join-evt cml/yield cml/exit) (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
+(import (only (scheme base) make-parameter parameterize guard raise raise-continuable) (only srfi-18 make-thread thread-start! thread-join! thread-sleep! thread-yield!) (only (chicken condition) handle-exceptions signal with-exception-handler get-condition-property) (only (chicken gc) gc set-finalizer!) (only (aux cml) run-cml spawn sync join-evt cml/yield cml/exit) (aux unittest) (aux base) (aux continuation) (aux continuation delimited) (aux stream))
 
 (define www-expected '((0 6 2 6 2)
            (0 6 2 6 4)
@@ -2544,6 +2544,114 @@
   ((test/delimcc/tutorial/λ _)
    (define-resetcc p (append '(hello) (λ-shift (x) (list x)) '(world)))
    (⊦= '(hello 4 world) (p 4)))
+
+  ((test/delimcc/exception _)
+   (define trace '())
+   (⊦= 'shifted (resetcc
+                  (push! 'start trace)
+                  (push! (handle-exceptions e 'caught (resetcc (error "boom"))) trace)
+                  (letcc/shift k 'shifted)))
+   (⊦= '(start caught) (reverse trace))
+   (set! trace '())
+   (⊦= 'shifted (resetcc
+                  (push! (letcc out (with-exception-handler
+                                      (λ (c) (resetcc (list 'b (resetcc (out 'escaped)))))
+                                      (τ (list 'a (resetcc (list 'aa (raise-continuable 'boom)))))))
+                         trace)
+                  (letcc/shift k 'shifted)))
+   (⊦= '(escaped) trace)
+   (⊦= 111 (with-exception-handler (λ (c) 10) (τ (resetcc (+ 1 (signal 'x) (letcc/shift k (k 100)))))))
+   (define old-handler-calls 0)
+   (define r (handle-exceptions e (begin (set! old-handler-calls (add1 old-handler-calls)) (λ (x) 'old))
+               (resetcc (let1 (x (letcc/shift k k)) (if (= x 0) (error "zero") (list x))))))
+   (⊦= '(1) (r 1))
+   (⊦= '(caught "zero") (handle-exceptions e (list 'caught (get-condition-property e 'exn 'message)) (r 0)))
+   (⊦= 0 old-handler-calls)
+   (⊦= '(h 6) (with-exception-handler (λ (c) (letcc/shift k (list 'h (k 5)))) (τ (resetcc (+ 1 (signal 'x))))))
+   (⊦= '(o (h 6 8)) (resetcc (list 'o (with-exception-handler (λ (c) (letcc/shift k (list 'h (k 5) (k 7))))
+                                                              (τ (resetcc (+ 1 (signal 'x))))))))
+   (⊦= 111 (with-exception-handler (λ (c) 10)
+             (τ (guard (e ((string? e) 'string))
+                  (resetcc (+ 1 (raise-continuable 'sym) (letcc/shift k (k 100))))))))
+   (define r1 #f)
+   (define r2 #f)
+   (run-cml (τ (let ((t1 (spawn (τ (set! r1 (with-exception-handler
+                                              (λ (c) (cml/yield) (cml/yield) 'handled)
+                                              (τ (resetcc (let1 (x (signal 'cont)) (list x (letcc/shift k 'shifted))))))))))
+                     (t2 (spawn (τ (set! r2 (resetcc (cml/yield) 'b-normal))))))
+                 (sync (join-evt t1))
+                 (sync (join-evt t2)))))
+   (⊦= 'shifted r1)
+   (⊦= 'b-normal r2)
+   (define out #f)
+   (define re #f)
+   (define n 0)
+   (⊦= '(body-got (mid second))
+       (with-exception-handler
+         (λ (c) (list 'top c))
+         (τ (resetcc
+              (with-exception-handler
+                (λ (c) (if (eq? c 'first) (out 'escaped) (list 'mid c)))
+                (τ (let1 (v (letcc o
+                              (set! out o)
+                              (resetcc (letcc k (set! re k))
+                                       (set! n (add1 n))
+                                       (if (= n 1) (signal 'first) (list 'body-got (signal 'second))))))
+                     (if (eq? v 'escaped) (re #f) v))))))))
+   (define (message e) (get-condition-property e 'exn 'message))
+   (set! trace '())
+   (⊦= 'shifted (resetcc
+                  (push! (handle-exceptions c (list 'top c)
+                           (resetcc (list (handle-exceptions c 'caught (letcc/shift e (list 'hs (e 5))))
+                                          (signal 'sg))))
+                         trace)
+                  (letcc/shift k 'shifted)))
+   (⊦= '((top sg)) trace)
+   (set! trace '())
+   (⊦= 'shifted (resetcc
+                  (push! (guard (e (#t (list 'top e)))
+                           (resetcc (list (guard (e ((string? e) 'caught)) (letcc/shift e (list 'hs (e 5))))
+                                          (raise 'boom))))
+                         trace)
+                  (letcc/shift k 'shifted)))
+   (⊦= '((top boom)) trace)
+   (set! trace '())
+   (define g3 (resetcc (handle-exceptions e 'caught (yield/extract 1)) (error "gen-fail") '()))
+   (⊦= 'shifted (resetcc
+                  (push! (handle-exceptions e (list 'caught (message e)) ((cdr g3) (void))) trace)
+                  (letcc/shift k 'shifted)))
+   (⊦= '((caught "gen-fail")) trace)
+   (set! trace '())
+   (⊦= 'shifted (resetcc
+                  (push! (handle-exceptions e (list 'caught (message e))
+                           (resetcc (let1 (x (handle-exceptions e 'inner (delimcc-either '(1 2 3))))
+                                      (if (= x 2) (error "boom") x))))
+                         trace)
+                  (letcc/shift k 'shifted)))
+   (⊦= '((caught "boom")) trace)
+   (⊦= '(hs (5 recover))
+       (with-exception-handler
+         (λ (c) ((car c) 'recover))
+         (τ (resetcc (list (handle-exceptions c 'caught (letcc/shift e (list 'hs (e 5))))
+                           (letcc j (signal (list j))))))))
+   `(doc (p "A condition that leaves a " (code/inline "resetcc") " for a handler outside of it"
+            " leaves the enclosing " (code/inline "resetcc") " as the target of the next shift, also when"
+            " the handler escapes from within a " (code/inline "resetcc") " of its own."
+            " A handler runs where the condition was raised, inside the " (code/inline "resetcc") ":"
+            " a shift there, as in a handler of a continuable signal that resumes the signalling code"
+            " as an effect handler does, goes to that " (code/inline "resetcc") ", which stays the current"
+            " one also when the handler returns, when a " (code/inline "guard") " re-raises in its"
+            " context, and while the handler lets other CML threads run."
+            " A condition raised by a resumed shift continuation goes to the handler around the resume,"
+            " not to the one around the " (code/inline "resetcc") " that captured it, which has returned."
+            " A body that a continuation enters again after a handler escaped from it signals to the"
+            " handler around it, as a body entered for the first time does."
+            " A condition also leaves the " (code/inline "resetcc") " of a resume when a"
+            " " (code/inline "handle-exceptions") " or a " (code/inline "guard") " in the resumed"
+            " continuation has returned through its call/cc continuation, which brings back the"
+            " context of the original " (code/inline "resetcc") ": a generator, or a choice resumed"
+            " once per alternative, that raises out of such a form does not stay the target of the"
+            " next shift; a handler that escapes back into that context keeps it.")))
 
   ((test/delimcc/threads _)
    (define a (make-thread (τ (resetcc (thread-sleep! 0.05) (letcc/shift k 'a-shifted)))))

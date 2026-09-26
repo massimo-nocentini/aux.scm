@@ -4,6 +4,8 @@
   (import scheme
           (only (scheme base) make-parameter)
           (chicken base)
+          (only (chicken condition) current-exception-handler)
+          (only (chicken fixnum) fx+ fx- fxmax)
           srfi-1
           (aux base)
           (aux continuation))
@@ -24,10 +26,49 @@
     (warning "Missing enclosing resetcc, called with args" args)
     (apply values args))
 
-  ; A resetcc: `escape` returns to it, `parent` is the frame current outside of it and `winds` is
-  ; the `##sys#dynamic-winds` of its body.  The root frame stands for no resetcc at all.
-  (define-record delimcc-frame escape parent winds)
-  (define delimcc-root-frame (make-delimcc-frame delimcc-missing-reset #f #f))
+  ; A resetcc: `k` returns from it, `parent` is the frame current outside of it, `outer` the
+  ; exception handler outside of it and `winds` the `##sys#dynamic-winds` of its body; `signalling`
+  ; counts the calls to handlers outside of it, for conditions raised in its body, whose dynamic
+  ; extent control is in, and `state` is `in`, `escaping` (control left such a call other than by
+  ; its return, see `delimcc-signal`), `left` (control left the body while such a call was
+  ; pending or escaping, see `delimcc-reset`) or `popped`.  `host` is the nearest frame below it
+  ; whose outer handler was running when it was pushed (#f if none): its body runs within that
+  ; call, so it is left with the host.  `escaped` is #f or, when control escaped from such a call
+  ; for a condition raised outside the body, the winds of the raise, see `delimcc-signal`.  The
+  ; root frame stands for no resetcc.
+  (define-record delimcc-frame k parent outer winds signalling state host escaped)
+  (define delimcc-root-frame (make-delimcc-frame #f #f #f #f 0 'in #f #f))
+
+  ; Unchecked reads of the fields that every resetcc, shift and return reads.
+  (define-inline (delimcc-frame-k/fast f) (##sys#slot f 1))
+  (define-inline (delimcc-frame-parent/fast f) (##sys#slot f 2))
+  (define-inline (delimcc-frame-winds/fast f) (##sys#slot f 4))
+  (define-inline (delimcc-frame-signalling/fast f) (##sys#slot f 5))
+  (define-inline (delimcc-frame-state/fast f) (##sys#slot f 6))
+  (define-inline (delimcc-frame-outer/fast f) (##sys#slot f 3))
+  (define-inline (delimcc-frame-signalling-set!/fast f n) (##sys#setislot f 5 n))
+  (define-inline (delimcc-frame-state-set!/fast f s) (##sys#setslot f 6 s))
+  (define-inline (delimcc-frame-host/fast f) (##sys#slot f 7))
+
+  ; Whether `frame` has been left for good: left by a condition, escaped by one raised outside its
+  ; body to a place outside the context of the raise, or pushed while the outer handler of a frame
+  ; so left was running.
+  (define-inline (delimcc-frame-gone?/fast frame)
+    (or (eq? (delimcc-frame-state/fast frame) 'left)
+        (let1 (host (delimcc-frame-host/fast frame))
+          (and host (memq (delimcc-frame-state/fast host) '(left popped)) #t))
+        (and (eq? (delimcc-frame-state/fast frame) 'escaping) (delimcc-frame-escaped-away? frame))))
+
+  (define (delimcc-frame-escaped-away? frame)
+    (let1 (winds (delimcc-frame-escaped frame))
+      (and winds (eq? 0 (delimcc-frame-signalling/fast frame)) (not (delimcc-within? winds)))))
+
+  (define (delimcc-within? base)
+    (let loop ((ws ##sys#dynamic-winds))
+      (cond
+        ((eq? ws base) #t)
+        ((pair? ws) (loop (cdr ws)))
+        (else #f))))
 
   ; The current frame is kept in the cdr of a cell, one per srfi-18 thread, so that a thread never
   ; delivers its shifts to another thread's resetcc, and, in the srfi-18 thread that runs (aux cml),
@@ -47,7 +88,23 @@
   (define delimcc-meta-continuation-thread-cell (make-parameter #f))
   (define delimcc-meta-continuation-cml-cell #f)
 
+  ; The frames that control left while a handler outside of them was running, and the ones pushed
+  ; within such a handler, are left for good once a resetcc, shift, return or condition of the
+  ; thread asks for the current frame.
+  (define (delimcc-settle! cell)
+    (let1 (frame (cdr cell))
+      (when (delimcc-frame-gone?/fast frame)
+        (delimcc-frame-state-set! frame 'popped)
+        (delimcc-frame-signalling-set! frame 0)
+        (set-cdr! cell (delimcc-frame-parent frame))
+        (delimcc-settle! cell)))
+    cell)
+
   (define (delimcc-meta-continuation-cell)
+    (let1 (cell (delimcc-meta-continuation-cell/raw))
+      (if (delimcc-frame-gone?/fast (cdr cell)) (delimcc-settle! cell) cell)))
+
+  (define (delimcc-meta-continuation-cell/raw)
     (let1 (host 'aux.cml#%host-thread)
       (cond
         ((and (##sys#symbol-has-toplevel-binding? host) (eq? (##sys#slot host 0) ##sys#current-thread))
@@ -62,22 +119,95 @@
                     (delimcc-meta-continuation-thread-cell cell)
                     cell)))))))
 
-  (define (delimcc-current-frame) (cdr (delimcc-meta-continuation-cell)))
+  ; Return from the resetcc of `frame`, the current one in `cell`.
+  (define (delimcc-escape cell frame args)
+    (cond
+      ((eq? frame delimcc-root-frame) (apply delimcc-missing-reset args))
+      (else (set-cdr! cell (delimcc-frame-parent/fast frame))
+            (unless (eq? 0 (delimcc-frame-signalling/fast frame)) (delimcc-frame-signalling-set! frame 0))
+            (apply (delimcc-frame-k/fast frame) args))))
 
   ; Give the values of a resetcc body to the resetcc current now, which is not the lexically
   ; enclosing one when the body is part of a resumed shift continuation (in this thread or in
   ; another one).
-  (define (delimcc-return args) (apply (delimcc-frame-escape (delimcc-current-frame)) args))
+  (define (delimcc-return args)
+    (let1 (cell (delimcc-meta-continuation-cell))
+      (delimcc-escape cell (cdr cell) args)))
 
+  ; The handler of a resetcc body, for a condition raised in the body of the current frame: it
+  ; calls the handler outside that resetcc, which runs where the condition was raised, inside the
+  ; resetcc (so a shift there goes to it, as a handler in Racket does).  The frame and the outer
+  ; handler are the ones current when the condition is raised, not the ones of the resetcc that
+  ; installed this handler: the body of a shift continuation resumed elsewhere signals to the
+  ; handler around the resume.  While that outer handler runs, a condition that reaches this
+  ; handler again (`signal` leaves it current, and the outer handler may be the one of an enclosing
+  ; resetcc) belongs to the frames outside, so frames whose outer handler is running are skipped.
+  ; The call is counted by a `dynamic-wind` frame, so that the count follows control in and out of
+  ; the call: a continuation escaping from the handler (`handle-exceptions`, or any other) leaves
+  ; the call, a continuation captured in it (a CML thread switch) enters it again.  Leaving it
+  ; other than by its return marks the frame `escaping`, for the after thunk of the resetcc, which
+  ; runs next if the escape leaves the body too; an escape that lands in the body is found out
+  ; by the next condition, or by the before thunk when control comes back into the body.  The
+  ; frame may be current while control is outside its body, whose after thunk then never runs: a
+  ; continuation captured by call/cc in a shift continuation, taken within a resumption of it
+  ; (a `handle-exceptions` returning), brings back the context of the original resetcc with the
+  ; frame of the resume current.  Then the frame records in `escaped` the winds of the raise,
+  ; and it is left for good once control is found outside of them.
+  ;   aux.egg compiles this module with `-no-trace` (CHICKEN has no declaration for it; a build
+  ; by hand should pass it too), listing the default `-O2 -d1` with it since a component's
+  ; `csc-options` replace them: otherwise the calls of this handler fill the call history that
+  ; an uncaught error in a resetcc body prints, and its `<--` points here, not at the failing call.
+  (define (delimcc-signal c outer)
+    (let loop ((frame (cdr (delimcc-meta-continuation-cell))))
+      (cond
+        ((eq? frame delimcc-root-frame) (outer c))
+        ((not (eq? 0 (delimcc-frame-signalling/fast frame))) (loop (delimcc-frame-parent/fast frame)))
+        (else (when (eq? (delimcc-frame-state/fast frame) 'escaping) (delimcc-frame-state-set!/fast frame 'in))
+              (let1 (returned #f)
+                (##sys#dynamic-wind
+                  (τ (set! returned #f)
+                     (delimcc-frame-escaped-set! frame #f)
+                     (delimcc-frame-signalling-set!/fast frame (fx+ (delimcc-frame-signalling/fast frame) 1)))
+                  (τ (receive vs ((delimcc-frame-outer/fast frame) c) (set! returned #t) (apply values vs)))
+                  (τ (delimcc-frame-signalling-set!/fast frame (fxmax 0 (fx- (delimcc-frame-signalling/fast frame) 1)))
+                     (unless (or returned (not (eq? (delimcc-frame-state/fast frame) 'in)))
+                       (delimcc-frame-state-set!/fast frame 'escaping)
+                       (unless (delimcc-within? (delimcc-frame-winds/fast frame))
+                         (delimcc-frame-escaped-set! frame ##sys#dynamic-winds))))))))))
+
+  ; The body runs in a `dynamic-wind` frame that installs the resetcc's handler, as
+  ; `with-exception-handler` does, and records its `##sys#dynamic-winds`; it never returns
+  ; through it: when it belongs to a resumed shift continuation that frame is not in the current
+  ; winds, whose resetcc is the one `delimcc-return` escapes to.  Leaving the body does not leave
+  ; the resetcc, as resumed shift continuations and `letcc` continuations re-enter bodies
+  ; legitimately; but leaving it while a handler outside of it runs, or by an escape from such a
+  ; handler, is a condition escaping it (`handle-exceptions`, `condition-case`, `guard`), so then
+  ; the frame is marked `left`; it is popped, with the frames pushed within that handler, at the
+  ; next use of the thread's frame, unless control comes back into the body first (a CML thread
+  ; switched out and in again while the handler blocks, or a `guard` that re-raises in the
+  ; handler's context); a body re-entered after the pop becomes current again.
   (define (delimcc-reset thunk)
     (let1 (cell (delimcc-meta-continuation-cell))
       (letcc k
         (let* ((parent (cdr cell))
-               (frame (make-delimcc-frame (λ args (set-cdr! cell parent) (apply k args))
-                                          parent
-                                          ##sys#dynamic-winds)))
+               (outer (current-exception-handler))
+               (host (if (eq? 0 (delimcc-frame-signalling/fast parent)) (delimcc-frame-host/fast parent) parent))
+               (frame (make-delimcc-frame k parent outer #f 0 'in host #f))
+               (handler (λ (c) (delimcc-signal c outer))))
           (set-cdr! cell frame)
-          (receive args (thunk) (delimcc-return args))))))
+          (##sys#dynamic-wind
+            (τ (set! ##sys#current-exception-handler handler)
+               (case (delimcc-frame-state/fast frame)
+                 ((left escaping) (delimcc-frame-state-set! frame 'in))
+                 ((popped) (delimcc-frame-state-set! frame 'in)
+                           (let1 (cell (delimcc-meta-continuation-cell))
+                             (when (eq? (cdr cell) parent) (set-cdr! cell frame))))))
+            (τ (delimcc-frame-winds-set! frame ##sys#dynamic-winds)
+               (receive args (thunk) (delimcc-return args)))
+            (τ (set! ##sys#current-exception-handler outer)
+               (when (or (not (eq? 0 (delimcc-frame-signalling/fast frame)))
+                         (eq? (delimcc-frame-state/fast frame) 'escaping))
+                 (delimcc-frame-state-set! frame 'left))))))))
 
   ; The `dynamic-wind` frames of the current winds above `base`, outermost first, leaving them
   ; after thunk by after thunk, innermost first; and entering them again on top of the current
@@ -96,13 +226,6 @@
       ((caar segment))
       (set! ##sys#dynamic-winds (cons (car segment) ##sys#dynamic-winds))
       (delimcc-rewind! (cdr segment))))
-
-  (define (delimcc-within? base)
-    (let loop ((ws ##sys#dynamic-winds))
-      (cond
-        ((eq? ws base) #t)
-        ((pair? ws) (loop (cdr ws)))
-        (else #f))))
 
   ; A shift continuation holds the `dynamic-wind` frames between the shift and its resetcc and
   ; nothing outside: the shift leaves them before calling `f`, which runs in the resetcc's
@@ -124,18 +247,20 @@
   ; continuation, it brings that context back: the parameters and the `dynamic-wind` frames around
   ; the original resetcc are entered again (their before thunks run) and those of the resume are
   ; left, for the rest of the resumed code, and its later shifts capture their whole context.
-  ; Values still go to the resetcc of the resume.
+  ; Values still go to the resetcc of the resume, and conditions to the handlers around it.
   (define (delimcc-shift f)
-    (let1 (cell (delimcc-meta-continuation-cell))
-      (define (return vs) (apply (delimcc-frame-escape (cdr cell)) vs))
-      (let1 (base (delimcc-frame-winds (cdr cell)))
-        (if (delimcc-within? base)
-          (##sys#call-with-current-continuation
-            (λ (c)
-              (let1 (segment (delimcc-unwind! base))
-                (receive vs (f (λ args (resetcc (delimcc-rewind! segment) (apply c args)))) (return vs)))))
-          (letcc k
-            (receive vs (f (λ args (resetcc (apply k args)))) (return vs)))))))
+    (let* ((cell (delimcc-meta-continuation-cell))
+           (base (delimcc-frame-winds/fast (cdr cell))))
+      (define (return vs)
+        (when (delimcc-frame-gone?/fast (cdr cell)) (delimcc-settle! cell))
+        (delimcc-escape cell (cdr cell) vs))
+      (if (delimcc-within? base)
+        (##sys#call-with-current-continuation
+          (λ (c)
+            (let1 (segment (delimcc-unwind! base))
+              (receive vs (f (λ args (resetcc (delimcc-rewind! segment) (apply c args)))) (return vs)))))
+        (letcc k
+          (receive vs (f (λ args (resetcc (apply k args)))) (return vs))))))
 
   (define (delimcc-extract) (letcc/shift k k))
   (define (delimcc-discard . args) (letcc/shift _ (apply values args)))
