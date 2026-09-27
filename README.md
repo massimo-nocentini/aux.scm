@@ -1163,3 +1163,516 @@ Example:
 (run/with-symbols ↓ 3 (α) ((deepening 100) (dyck° α)))
 ;; => ((() 1) ((○ ●) 7) ((○ ○ ● ●) 17))
 ```
+
+### `(aux lua)`
+
+`(aux lua)` binds the whole C API of Lua 5.5 (`lua.h`, `lauxlib.h`, `lualib.h`)
+as curried procedures, with the compatibility macros that `luaconf.h` always
+defines: `lua-strlen` and `lua-objlen` (both `lua-rawlen`), `lua-equal` and
+`lua-lessthan` (`lua-compare` with `LUA_OPEQ` and `LUA_OPLT`). `lua_foo`,
+`luaL_foo` and `luaopen_foo` become `lua-foo`, `luaL-foo` and `luaopen-foo`,
+and constants keep their C spelling (`LUA_TNIL`, `LUA_MULTRET`,
+`LUA_REGISTRYINDEX`, ...).
+
+**Currying.** A binding takes every argument except the `lua_State` first, and
+returns a procedure of one argument, the state:
+
+```scheme
+((lua-pushinteger 42) L)   ((lua-getglobal "x") L)   ((lua-gettop) L)
+((lua-xmove to n) from)    ((lua-resume from nargs) co)   ; C's first lua_State goes last
+```
+
+The state is a `luaR` record. It can be a main state from `(lua-make-empty)`,
+`(luaL-newstate)` (the same state) or `(lua-newstate seed)`, a thread from
+`lua-newthread` or `lua-tothread`, or the
+view a Scheme callback receives. Because every binding is a procedure of the
+state, bindings compose as reader-monad actions (`(aux category reader)`, then
+`(aux category monad reader)`). Three bindings answer several values, like C's
+out-parameters: `lua-tonumberx` and `lua-tointegerx` (the value and `isnum`)
+and `lua-resume` (the status and `nresults`). A reader bind keeps only the
+first value, so inside `do/monad` wrap them, e.g.
+`(λ (L) (call-with-values (λ () ((lua-tointegerx -1) L)) list))`. A few
+entries are not curried:
+
+- the constants, and `luaopen-*`, which are C function pointers to hand to
+  `lua-pushcfunction` or `luaL-requiref` (the only C function pointers these
+  accept, with those `lua-tocfunction` reads from a light C function: see
+  **Errors**);
+- `lua-upvalueindex`, the `lua-debug-*` accessors and `lua-type->symbol`.
+  `(lua-upvalueindex i)` names user upvalue `i` of the running Scheme
+  closure, from 1 to 255. It is C's `lua_upvalueindex(i + 1)`, because the
+  closure keeps its Scheme handle in its first upvalue. Up to 255 it is an
+  acceptable index even beyond the closure's upvalues, as in C:
+  `lua-type` answers `LUA_TNONE` and `lua-isnone` `#t`. For the same reason a
+  Scheme procedure takes at most 254 upvalues (`lua-pushcclosure`,
+  `luaL-setfuncs`), one fewer than a C function's 255; 255 is refused with
+  `(exn lua api)`, code `AUX_ERANGE`;
+- `lua-format`, which takes the directives of `lua_pushfstring` and returns the
+  text itself, a string (a bytevector when it is not valid UTF-8), without a
+  state: `(lua-format "%d items" 3)`. `((lua-pushfstring "%d items" 3) L)`
+  pushes the same text;
+- the predicates and accessors on Scheme values: `lua-ref?` (a registry
+  reference made by `lua-toref`), `lua-live-handles`, the condition accessors
+  (`lua-condition?`, `lua-condition-status`, `lua-condition-value`), and
+  `luaR?`, `luaR-kind` and `luaDebug?`;
+- `lua-make-empty`, `lua-newstate`, `luaL-newstate` and `lua-close`.
+
+`(lua-make-empty)` and `(luaL-newstate)` start with warnings on and written to
+stderr, as C's `luaL_newstate` does. `(lua-newstate seed)` starts with them
+discarded, because C's `lua_newstate` installs no warning function;
+`((lua-setwarnf 'stderr) L)` or `((lua-setwarnf 'collect) L)` turns them on.
+`lua-setwarnf` installs a warning function, as `lua_setwarnf` does. `'off` (or
+`#f`) is C's NULL: nothing reaches it, so a `"@off"` or a piece sent then is
+dropped. `'stderr` and `'collect` start with warnings on and at a new message,
+whatever the function they replace was told. When `'collect` is replaced in the
+middle of a message, the pieces it has are kept as one warning.
+In `'collect` mode, `((lua-warnings) L)` returns the completed warnings
+collected so far, oldest first, as a list of strings, and clears them.
+
+Before the port, `luaL-newstate` returned the bare `lua_State` pointer. It now
+returns a main `luaR`, because no binding accepts a bare pointer.
+
+**Exports.** `(aux lua)` exports a fixed list: the bindings, the constants, the
+condition accessors (`lua-condition?`, `lua-condition-status`,
+`lua-condition-value`), `lua-live-handles`, and three read-only record
+procedures: `luaR?`, `luaR-kind` and `luaDebug?`. It exports no record
+constructor or mutator and no raw C stub. The implementation module,
+`(aux lua internal)`, exports everything, but it exists only for the test
+suite. Its raw stubs skip the checks, and the module can be imported only after
+`(aux lua)`.
+
+**Values.**
+
+- Strings go in as Scheme strings or bytevectors and may contain NUL bytes.
+- Strings come back as strings, or as bytevectors when the bytes are not valid
+  UTF-8. `lua-tobytevector` always returns bytes. The message of a condition
+  is always a string: there, each byte of invalid UTF-8 that is 128 or above
+  becomes U+FFFD, and the condition's `value` keeps the bytes.
+- `lua-tolstring` and `lua-tostring`, like `luaL-checklstring`,
+  `luaL-checkstring` and `luaL-optlstring`, read a number as the text Lua writes
+  for it but convert only a copy: the slot keeps its number, and `lua-type` of
+  that slot still answers `LUA_TNUMBER`. In C, `lua_tolstring` changes the
+  value in the stack to a string, which is why the manual warns against it on
+  the key of a `lua_next` traversal. Here that use is safe. C code ported to
+  the module that relies on the slot becoming a string must push the string
+  itself (`((luaL-tolstring idx) L)` pushes the text, as in C).
+- `lua_Integer` is an exact integer in the int64 range, and `lua_Number` a flonum.
+- Tables, functions, userdata and threads can be kept from Scheme as registry
+  references (`lua-toref`, `lua-pushref`).
+- Any Scheme object can be given to Lua as a userdata (`lua-pushobject`,
+  `lua-toobject`). Lua holds only an integer handle, never a Scheme pointer.
+
+**Errors.** The module follows C:
+
+- Where C raises, the binding raises an `(exn lua)` condition. Its `status` is
+  `'errrun`, `'errsyntax`, `'errmem`, `'errerr` or `'errfile`, and its `value` is
+  the Lua error value. For `luaL-error`, `luaL-argerror`, `luaL-typeerror` and
+  the checks built on them (`luaL-checkinteger`, `luaL-checktype`,
+  `luaL-checkstack`, `luaL-argcheck`, ...) that value is the string C raises,
+  computed as lauxlib does: prefixed by `luaL_where`, which is `""` at top level
+  and the calling Lua function's position inside a callback, and for an
+  argument error naming the function (`bad argument #1 to 'f' (...)`,
+  `calling 'm' on bad self`, `bad extra argument`). Uncaught inside a
+  callback, Lua receives the same string. The condition's message is the text
+  without position or name (`bad argument #1 (...)`). On a thread where no
+  operation can run (a suspended coroutine) the `value` is that text too.
+- Where C returns a status (`lua-pcall`, `luaL-loadstring`, `lua-resume`, ...),
+  the binding returns the status and leaves the error value on the stack.
+  `(lua-check m)` turns such an action into a raising one. One deliberate
+  deviation: `luaL-dostring` and `luaL-dofile` return the failing status
+  (`LUA_ERRSYNTAX`, `LUA_ERRRUN`, `LUA_ERRMEM`, `LUA_ERRFILE`) where C's macros
+  return 1, so that `lua-check` can raise it (1 would read as `LUA_YIELD`). On a coroutine
+  suspended by a hook, or dead by an error raised in Lua code, the top of the
+  stack belongs to the suspended Lua function, so `((lua-error) co)` and
+  `lua-check` refuse to pop it, as `lua-pop` does. The exception is the error
+  value that `lua-resume` has just pushed: `((lua-check (lua-resume from n)) co)`
+  raises it.
+- A call C would not survive is refused with `(exn lua api)` before Lua runs:
+  a bad stack index, a closed state, an operation on a suspended or dead thread,
+  resuming the main thread, or a NUL in a C string. liblua is built without
+  API checks, so such a call would otherwise corrupt memory. A thread suspended
+  by a hook's `lua-yield`, or dead by an error raised in a Lua function, keeps
+  that function's registers on its stack (a pending call's arguments, a
+  to-be-closed variable). `((lua-resume from n) co)` and `((lua-xmove to n) co)`
+  take only what lies above the height it had then: the values pushed since,
+  and the error value `lua-resume` left on a thread it saw die. A thread that
+  Lua's `coroutine.resume` left dead has already lost its error value to Lua,
+  so only the values pushed since are taken there.
+  Push-only calls (`lua-pushfstring`, `luaL-where`, `luaL-traceback`,
+  `lua-getglobal`, ...) work on a suspended or dead thread, as in C: they run
+  on the main thread and move their result over.
+- A few calls that C allows but that would corrupt memory are refused too:
+  - the load mode `"B"` (Lua 5.5's fixed buffer), because the loaded function
+    would keep pointers into a buffer that does not outlive the call;
+  - `lua-setlocal` and `lua-setupvalue` on a variable the VM trusts (an
+    upvalue that does not exist is not refused: `lua-setupvalue` answers `#f`
+    and pops nothing, as C returns NULL, whatever the function). These are
+    a for loop's control variable and a named vararg parameter
+    (`function f(...t)`), which are read-only in Lua 5.5. A main chunk is a
+    vararg function too but has no such parameter, so its locals are assigned
+    as in C. For an upvalue, the
+    `<const>` and `<close>` variables are refused as well, and so is
+    `lua-upvaluejoin` onto such an upvalue, which would make it writable
+    through another closure;
+  - `lua-getlocal` on the C frame of a protected binding, which holds C state;
+  - a non-table in `registry[LUA_RIDX_GLOBALS]`, the table of globals that
+    `lua_load` and `lua_setglobal` read, with an API check, and that becomes
+    a loaded chunk's `_ENV` without one. `lua-rawseti`, `lua-seti`, `lua-rawset`
+    and `lua-settable` on `LUA_REGISTRYINDEX` refuse to store any other value
+    there with `(exn lua api)`, code `AUX_EGLOBALS`
+    (`registry[LUA_RIDX_GLOBALS] must be a table`). Lua code
+    (`debug.getregistry`) can still replace it. While it has, the loaders
+    (`lua-load`, `luaL-loadstring`, `luaL-loadbuffer`, `luaL-loadbufferx`,
+    `luaL-loadfilex`, `luaL-dostring`, `luaL-dofile`, ...), `luaL-requiref`
+    with a true `glb`, `luaL-openlibs` and `luaL-openselectedlibs` (when they
+    would set a global) are refused the same way, before Lua runs. When the
+    slot is replaced while such a call runs, by a `luaL-requiref` open
+    function or a finalizer, the call raises the Lua error
+    `aux.lua: registry[LUA_RIDX_GLOBALS] is not a table` before it reaches the
+    slot. A `lua-load` reader that replaces it stops the load with the
+    `AUX_EGLOBALS` refusal. `lua-getglobal` and `lua-setglobal` raise the Lua error
+    of indexing the non-table, as a release liblua does. Everything works again
+    once the slot holds a table;
+  - a reference that `luaL-ref` or `lua-toref` would store in the wrong slot.
+    lauxlib keeps a free list in `t[1]` and reads its head, and the next new
+    reference `#t + 1`, as a C `int`. A head (or a border) past `INT_MAX`
+    would be truncated into another key, possibly a negative one. A head
+    whose link is not an integer, or one of the registry's reserved slots
+    (`LUA_RIDX_GLOBALS`, `LUA_RIDX_MAINTHREAD`), would give out a slot that is
+    in use. Lua code or the raw setters can plant such a list. The binding
+    raises an `(exn lua)` error before storing anything (`aux.lua: the
+    reference free list of this table is corrupted`, `aux.lua: no reference is
+    left in this table`, or `... would be a reserved slot`), and references
+    work again once `t[1]` is repaired;
+  - a new Scheme handle (`lua-pushobject`, a Scheme procedure given to Lua, the
+    error value of a Scheme callback, `lua-yieldk`, `lua-sethook`) once the
+    registry entry of the handle metatable is no longer a table. Lua code
+    (`debug.getregistry`) or `lua-rawset` on `LUA_REGISTRYINDEX` can replace it,
+    and C's `lua_setmetatable` with a non-table is undefined behaviour. The
+    binding raises an `(exn lua)` condition instead, and handles work again
+    once the entry is restored. Meanwhile the existing handles are not
+    recognized: `lua-toobject` answers `#f`, and a Scheme procedure refuses to
+    run;
+  - a C function pointer that the module cannot vouch for, given to Lua as a
+    `lua_CFunction` by `lua-pushcfunction`, `lua-pushcclosure`,
+    `lua-register`, `luaL-setfuncs`, `luaL-newlib`, `luaL-newlibtable` or
+    `luaL-requiref`. Accepted are the `luaopen-*` openers and every function
+    that `lua-tocfunction` has read from a light C function (one with no
+    upvalue: Lua itself lets any code call it with any arguments), in any
+    state; given upvalues, such a function ignores them. Lua would call any other
+    pointer as code: the address of a table or userdata (`lua-topointer`,
+    `lua-touserdata`, `lua-newuserdatauv`), or the function of a C closure that
+    reads its upvalues (the iterators of `io.lines` or `string.gmatch`, which
+    `lua-tocfunction` also returns) pushed without them. It is refused with
+    `(exn lua api)`. A light C function of a C module that a state loaded
+    (`require`, `package.loadlib`) stays accepted after that state is closed
+    and the module unloaded: do not push it then, as in C;
+  - the metatable of a Scheme handle (a `lua-pushobject` object, the error
+    value of a Scheme callback, upvalue 1 of a Scheme procedure's closure,
+    which `lua-getupvalue` returns) or of the registry, set by
+    `lua-setmetatable` or `luaL-setmetatable`, and the handle metatable
+    (which `lua-getmetatable` returns, ignoring `__metatable`) given to any
+    other value or stored in the registry under a string key, where
+    `luaL-setmetatable` and `luaL-checkudata` would find it. A handle's
+    `__gc` releases its Scheme object, so another metatable would keep the
+    object until `lua-close`, and `FILE*`'s would make `io.close` take the
+    handle's bytes for a C stream. A `__mode` on the registry's metatable
+    would let the collector clear the table of globals, which Lua's own
+    `load` and `lua_getglobal` then read as garbage. Refused with
+    `(exn lua api)`, code `AUX_EMETATABLE`. `luaL-setmetatable` refuses the
+    same way when it only finds the handle metatable in `registry[tname]`
+    (put there by Lua code with the debug library). Removing the registry's
+    metatable with `nil` is allowed, and so is `luaL-setmetatable` on the
+    registry with a `tname` that has no entry, which sets `nil` as in C.
+    Lua code cannot do any of this without the debug library;
+  - forging some of the entries that Lua's own libraries trust (a
+    best-effort guard: see **Trust model** below). liolib takes a full
+    userdata whose metatable is `registry["FILE*"]` for its C stream and calls
+    the stream's close function, lauxlib takes one whose metatable is
+    `registry["_UBOX*"]` for a buffer box and reallocates its block, and
+    `package.loadlib` and `require` take a userdata at
+    `registry._CLIBS[path]` for a `dlopen` handle. None of them checks, so a
+    `lua-newuserdatauv` block with such a metatable, or a userdata in
+    `_CLIBS`, would make plain Lua code (`io.close`, `f:write`,
+    `package.loadlib`) crash the process. `lua-setmetatable` and
+    `luaL-setmetatable` do not give those two metatables to a full or light
+    userdata that does not have them already, and give no metatable to
+    `_CLIBS` (code `AUX_EMETATABLE`). A file keeps its own metatable, and a
+    table may take either one. `lua-setfield`, `lua-setglobal`,
+    `lua-settable` and `lua-rawset` do not change `registry["FILE*"]`,
+    `registry["_UBOX*"]` or `registry._CLIBS`, and do not store a userdata in
+    `_CLIBS` under a string key (code `AUX_ELIBRARY`). Removing one of the
+    three entries is allowed, and `luaL-newmetatable` then makes a fresh
+    `"FILE*"` or `"_UBOX*"` table that no userdata has. The standard files
+    keep the old table, which liolib no longer recognizes;
+  - the `__tostring` of the handle metatable, which `lua-getmetatable` and
+    `debug.getmetatable` reach, called on anything but a handle. It raises
+    `bad argument #1 to '?' (aux.scheme expected, got number)`, as
+    `luaL_checkudata` would;
+  - Lua's `coroutine.close()` of the running coroutine while a binding runs
+    Lua on that thread (`lua-pcall`, `luaL-dostring`, a metamethod run by a
+    binding, `lua-gc`'s finalizers, typically from a Scheme callback). In Lua 5.5
+    it jumps to the thread's outermost protected call, across the binding and
+    the callback. It raises a Lua error instead. The `coroutine` library of
+    `luaL-openlibs`, `luaL-openselectedlibs` and `luaopen-coroutine` is lcorolib's
+    with that one check added. A coroutine that no binding is running (resumed
+    by `lua-resume` or by Lua) still closes itself as in C. The main thread is
+    recognized by its address, not by the registry slot lcorolib reads, which
+    Lua code can overwrite: closing it always raises `cannot close main thread`.
+- Arguments are checked before Lua runs: for example `lua-pushinteger`
+  refuses anything but an exact integer in the int64 range, and
+  `lua-pushnumber` anything but a real, with `(exn lua api)` as above.
+  A C `int` used as a boolean takes `#t` or `#f` only: `b` of
+  `lua-pushboolean`, `strip` of `lua-dump`, `tocont` of `lua-warning`, `glb`
+  of `luaL-requiref`, and `cond` of `luaL-argcheck` and `luaL-argexpected`.
+  With Scheme truthiness `0` would count as true, the opposite of C, so a
+  ported `((lua-dump 0) L)` or `((luaL-requiref name f 0) L)` would silently
+  do the reverse. Any other value, `0` and `1` included, is refused with
+  `(exn lua api)` before Lua runs.
+  `lua-getinfo` takes its `what` as C does, of any length, with letters
+  repeated or none at all (`""` fills nothing). It returns the `luaDebug`
+  rather than C's `int`, so a letter C does not know (for which C returns 0)
+  is refused with `(exn lua api)` instead.
+  `lua-pcall` and `lua-call` take at most 250 results, Lua 5.5's limit, which
+  C only checks in a liblua built with API checks. The
+  `%d` and `%c` directives of `lua-pushfstring`, `lua-format` and `luaL-error`
+  take a C `int`, and `%I` a `lua_Integer`, in the same way. Their format and
+  their `%s` arguments are C strings: a NUL in either is refused (C would stop
+  reading there), and `%s` takes a string, a bytevector or `#f` (NULL, printed
+  `(null)`), nothing else.
+- Binary chunks are the one input the module cannot check. Lua does not verify
+  bytecode, so a corrupted or malicious binary chunk crashes the process (Lua
+  manual, section 3.3.2). `lua-load`, `luaL-loadbufferx` and `luaL-loadfilex`
+  accept binary chunks with the mode `#f`, `"b"` or `"bt"`, and
+  `luaL-loadbuffer`, `luaL-loadstring`, `luaL-dostring`, `luaL-loadfile` and
+  `luaL-dofile` always do, as in C. Load binary chunks only when you made them
+  with `lua-dump` or trust their source, and use the mode `"t"` for any other
+  input. Lua's own `load`, `loadfile` and `dofile` have the same limit.
+- The debug library is another limit: do not give it to untrusted Lua code.
+  A Lua `__gc` finalizer runs inside any allocating API call, and from there
+  (or from a hook) `debug.setlocal` can rewrite the slots of the C function
+  below it, its `(C temporary)` values, which that C function trusts. The
+  module's own C code checks its slots again after each allocation and raises
+  `aux.lua: a slot of a protected operation was rewritten` instead of
+  misusing one, and `lua-getlocal` and `lua-setlocal` refuse those slots. Lua's
+  own C code does not check: the parser (`load`, `lua-load`,
+  `luaL-loadstring`, `luaL-dostring`, ...) and `string.format` then crash the
+  process, and other C functions of Lua's libraries may too. They do the same
+  in a stock Lua 5.5 interpreter.
+- **Trust model.** For the registry entries that Lua's standard libraries
+  own, the bound API is exactly as trusting as the C API. The libraries keep
+  private state there and never check it: `registry._IO_input` and
+  `_IO_output`, the `"FILE*"` metatable and those of other library userdata,
+  `"_UBOX*"`, `_HOOKKEY`, `_CLIBS`, `_LOADED`, `_PRELOAD`,
+  `registry[LUA_RIDX_GLOBALS]` and `registry[LUA_RIDX_MAINTHREAD]`, among
+  others. As in C, the caller must not overwrite them with values of another
+  shape: a program that does may crash the process, as the same program in C
+  would, and that is misuse of the API, not a defect of the bindings. The
+  guards described above (`registry[LUA_RIDX_GLOBALS]`, `"FILE*"`,
+  `"_UBOX*"`, `_CLIBS`) are best-effort. They stop some common forgeries made
+  through the bound API, cover no other entry, and are not a guarantee.
+- The registry has the same limit once Lua code can reach it. The bindings
+  check some of their own writes (see the refusals above), but they cannot check what
+  Lua code does with the registry or `registry._CLIBS` when it gets them.
+  That happens through `debug.getregistry`, a global, field or upvalue that
+  the bound API stored, or the registry made the table of globals or
+  `registry._LOADED`, which `require` and `luaL-requiref` write to. The
+  bindings also cannot check a write that goes through a metamethod, such as
+  a table whose `__newindex` is the registry. From there plain Lua code can
+  store a userdata's metatable as `registry["FILE*"]` or put `io.stdout` into
+  `_CLIBS`, and `io.close` or `package.loadlib` then crashes the process.
+
+Internally, every Lua call that may raise runs under a `lua_pcall` made by the
+same C stub, so a Lua `longjmp` never crosses a CHICKEN frame. Operands are
+copied before any Lua code can call back into Scheme.
+
+That protected call goes through a C function of the module. It is not a call
+the program made, so call and return hooks never see it enter or leave. In C,
+`lua_pushcclosure` or `lua_sethook` fires no hook either, and Lua code that a
+binding runs, such as a metamethod, is hooked as usual. Hiding the call takes a
+`lua_sethook`, so a count hook installed together with a call or return hook
+restarts its count at each such binding. A line or count hook on its own is
+left alone.
+
+**Callbacks.** A Scheme procedure `(λ (C) n)` becomes a Lua function through
+`lua-pushcfunction`, `lua-pushcclosure`, `lua-register` or `luaL-setfuncs`.
+`((lua-toprocedure idx) L)` gives the Scheme procedure of such a function
+back, and answers `#f` for any other value.
+It receives a view `C` of the calling thread, works on it with the same
+bindings, and answers how many results it pushed. It can also end in other
+ways:
+
+- `((lua-error) C)`, `((luaL-error fmt ...) C)`, `((luaL-argerror ...) C)` and
+  the `luaL-check*` family raise in Lua with C's exact messages.
+- An uncaught Scheme condition reaches Lua as an error value. It comes back to
+  Scheme as the same object (`eq?`). In Lua its `tostring` is the condition's
+  message and written arguments. The arguments are written with CHICKEN's
+  print-length limit, as `print-error-message` writes them, so a circular or
+  huge argument ends in `...` after about 4096 characters. A string message
+  is kept whole.
+- `((lua-yield n) C)` and `((lua-yieldk n k) C)` yield the running coroutine.
+  The suspended coroutine looks as it does in C. Its stack holds only what the
+  function left there, because the continuation `k` is kept in a private table
+  keyed by the thread. The resumer may pop, clear or move those values before
+  it resumes. `k` is released once it has run, or when the thread is collected.
+- A continuation that escapes the callback is stopped at the callback
+  boundary, and resumed once Lua has unwound.
+
+A callback returns to Lua once, in the srfi-18 thread that entered it. A
+continuation captured inside it can be resumed while it runs, but only by that
+thread. Resuming it after the callback has returned, or from another thread
+while it runs, raises an error in the resuming thread. A thread created inside
+the callback shares its dynamic extent, so such a resume there runs the rest of
+the callback in that thread. When that run ends, with a value or a condition,
+it raises the same error in that thread instead of returning to Lua. An escape
+from it leaves as an ordinary Scheme escape of that thread. The callback's own
+thread still gets its result.
+
+A Lua error cannot unwind through a callback in one jump, as it does through a
+C function: that `longjmp` would cross CHICKEN frames. A binding that raises
+inside a callback (`lua-call`, `lua-gettable`, `luaL-dostring` under
+`lua-check`, ...) catches the error at its own protected call, the error crosses
+the callback as an `(exn lua)` condition, and the trampoline raises it again in
+Lua once the callback has returned. The error value (the same object, `eq?`)
+and the status (`LUA_ERRMEM`, `LUA_ERRERR`) are kept, but an enclosing message
+handler, such as the one of `xpcall(f, debug.traceback)` or of a `lua-pcall`
+with `msgh`, runs at the callback's frame, not where the error was raised. The
+frames between the two are gone by then, so `debug.traceback` and
+`debug.getinfo` in that handler do not see them. A callback that needs them
+calls with a handler of its own, `((lua-pcall nargs nres msgh) C)`, which runs
+at the error point as in C, and passes its result on.
+
+Hooks (`lua-sethook`) and chunk readers (`lua-load`) are Scheme procedures too.
+While a hook runs, the slots its thread held when it was called are the
+registers of the hooked function: no binding can lower, move or overwrite them,
+whichever `luaR` of that thread it is given. The same holds while any callback
+runs, for every *normal* thread: one that resumed the running coroutine
+(`coroutine.resume`, `coroutine.wrap`, `coroutine.close`, or a binding) and
+waits for it in a C function. That frame is C state. For example, slot 1 of
+`coroutine.resume` holds the running coroutine, and that may be its only
+reference, so dropping it and then collecting would free the coroutine while it
+runs. The first binding that uses such a thread in a callback, through the main
+`luaR`, a thread `luaR` or the still-live view of an outer callback, records the
+height of that frame. Below that height, lowering, moving or overwriting is
+refused with `(exn lua api)`, code `AUX_EINDEX`. Values pushed onto the thread
+can still be popped down to that height. The frame of a Scheme procedure has no
+such floor, because its slots belong to that callback: for example the frame of
+an outer callback, running in a coroutine, that called `lua-resume` itself.
+`lua-resume` runs `lua_resume` in a frame of its own on the main thread, which
+holds the resumed thread, so that frame does have a floor. A reader sees its thread in a frame
+of its own, as a C function calling `lua_load` would. The parser works on a
+private thread that no binding can reach. Lua code cannot find or release that
+thread either, even through the `debug` library, and the loading thread cannot
+be resumed or reset until the load returns. Each call from Lua into Scheme costs one CHICKEN callback, which is a minor
+garbage collection. While a state holds no Scheme procedure, its bindings use
+faster stubs that cannot call back. A callback is refused with Lua's own
+`C stack overflow` error when too little C stack is left for it, so a runaway
+recursion between Lua and Scheme ends with an error instead of hanging.
+
+**Threads.** One srfi-18 thread at a time runs Lua that can call Scheme back.
+A callback leaves Lua's C frames on the C stack, and a CHICKEN callback always
+returns to the innermost C frame. If a callback switched threads (with
+`thread-yield!`, a blocking call or the end of its timeslice) and a second
+thread then entered a callback of its own, each callback's result would reach
+the other thread's Lua call. To prevent that, a binding that can call back
+takes a lock that belongs to one thread. Another thread that needs Lua with
+callbacks waits, yielding, until the owner's outermost binding returns. Threads
+that use separate states therefore take turns one binding at a time, and no
+setting is needed. Bindings on a state that holds no Scheme procedure never
+wait, except those that give it one (`lua-pushcfunction`, `lua-sethook`,
+`lua-load` with a reader, ...). A binding waits before it looks at its state.
+The owner may close that state while the other thread waits, return from the
+callback whose view `C` it was handed, or let the coroutine of a thread `luaR`
+be collected. The waiting binding then raises `(exn lua api)` for a closed or
+invalidated state, and never touches the freed one. If the owner's callback waits for the waiting thread, the two threads
+would wait forever. When the callback joins that thread (`thread-join!`) or
+waits for a mutex that thread holds, the waiting thread raises `(exn lua api)`
+instead. The module cannot detect a wait on anything else, such as a
+condition variable or a mailbox, and that case deadlocks.
+
+**Lifetimes.**
+
+- `(lua-close L)` closes a state at once. Otherwise its finalizer closes it once
+  the main `luaR` and every thread `luaR` of the state are unreachable. When the
+  state is busy at that moment, or holds Scheme procedures (its `__gc`
+  callbacks must not run inside CHICKEN's finalizer loop), the close waits for
+  the next binding call.
+- A callback may capture the `luaR` of its own state. The state is still
+  collected, because Scheme objects given to Lua live in a table of the state,
+  not in a global one.
+- A thread `luaR` keeps its thread alive, through an anchor of its own. Lua code
+  can remove that anchor, for example through `debug.getregistry()`. The next
+  binding given that `luaR` then raises `(exn lua api)` instead of using a
+  collected thread.
+
+**Omitted entries.** The module header lists them, each with its reason:
+
+- `lua_atpanic`: a panic handler cannot return safely;
+- `lua_callk` and `lua_pcallk`: a continuation would unwind through a CHICKEN
+  callback;
+- `lua_getallocf` and `lua_setallocf`: the module owns the allocator (use
+  `lua-setmemorylimit`);
+- `lua_toclose` and `lua_closeslot`;
+- `lua_getextraspace`, `lua_ident`, `lua_pushexternalstring` and
+  `lua_pushvfstring`;
+- `luaL_fileresult`, `luaL_execresult`, `luaL_alloc` and `luaL_intop`;
+- the `luaL_Buffer` family: build the string in Scheme and push it once;
+- the `LUA_COMPAT_APIINTCASTS` macros, which Lua 5.5 does not compile;
+- `luaconf.h`'s configuration hooks (`lua_str2number`, `lua_strx2number`,
+  `lua_integer2str`, `lua_number2strx`, `lua_pointer2str`,
+  `lua_getlocaledecpoint`): they configure how Lua's own C code converts
+  numbers, and are not API.
+
+Example:
+
+```scheme
+(import (aux base) (aux lua) (aux category reader) (aux category monad reader))
+
+(define L (lua-make-empty))
+((luaL-openlibs) L)
+
+((lua-check (luaL-dostring "function add(a, b) return a + b end")) L)
+((lua-getglobal "add") L)
+((lua-pushinteger 40) L)
+((lua-pushinteger 2) L)
+((lua-call 2 1) L)
+((lua-tointeger -1) L)
+;; => 42
+((lua-pop 1) L)
+
+(define (global-int name)
+  (do/monad (lua-getglobal name) (← v (lua-tointeger -1)) (lua-pop 1) ,v))
+((lua-check (luaL-dostring "x, y = 40, 2")) L)
+((do/monad (← x (global-int "x")) (← y (global-int "y")) ,(+ x y)) L)
+;; => 42
+
+((lua-register "greet"
+   (λ (C) ((lua-pushstring (string-append "hello, " ((luaL-checkstring 1) C))) C) 1))
+ L)
+((lua-check (luaL-dostring "return greet('lua')")) L)
+((lua-tostring -1) L)
+;; => "hello, lua"
+((lua-settop 0) L)
+
+(condition-case ((lua-check (luaL-dostring "error('boom', 0)")) L)
+  (e (exn lua) (list (lua-condition-status e) (lua-condition-value e))))
+;; => (errrun "boom")
+
+(lua-close L)
+```
+
+The module needs the Lua 5.5 headers and `liblua`, so its tests are not part of
+`make test`. Run them with `make test-lua`. For a Lua installed under
+`~/.local`, set `CSC_OPTIONS="-I$HOME/.local/include -L -L$HOME/.local/lib"`
+when building.
+
+`aux.lua` is a shared object, so it needs a position-independent Lua: either a
+shared `liblua`, or a static `liblua.a` compiled with `-fPIC`. The stock
+`make linux` of Lua 5.5 builds without `-fPIC`, and linking the extension then
+fails with `relocation R_X86_64_PC32 ... recompile with -fPIC`. Build Lua like
+this:
+
+```sh
+make CC=clang MYCFLAGS=-fPIC linux
+make install INSTALL_TOP=$HOME/.local
+```

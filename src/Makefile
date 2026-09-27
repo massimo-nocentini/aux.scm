@@ -3,7 +3,7 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-learning-matchable install format simdjson-fetch \
+        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors
 
 echo:
@@ -107,6 +107,10 @@ test-on-scheme:
 
 test-learning-matchable:
 	cd test && ${CSI} -s learning-matchable.scm
+
+# (aux lua) needs Lua 5.5 (headers and liblua): not part of `test`.
+test-lua:
+	cd test && ${CSI} -s lua.scm
 
 install:
 	chicken-install -sudo

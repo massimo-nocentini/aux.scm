@@ -32,8 +32,9 @@
   (extension aux.category.maybe (modules (aux category maybe) (aux category monad maybe)))
   (extension aux.libc)
   (extension aux.lua
+    (modules (aux lua) (aux lua internal))
     (csc-options  "-I/usr/local/include")
-	  (link-options "-L" "-llua"))
+	  (link-options "-L" "-llua" "-L" "-lm"))
   #;(extension aux.judy 
     (modules (aux judy) (aux judyL))
 	  (csc-options  "-I/usr/local/include")
