@@ -580,18 +580,31 @@
                                                     (list "line\n" "caf\xe9;\n"))))))
                    (condition-case (close-output-port o) (ignored () (void))))))
              '(latin-1 binary))
-   ; and the bytes written are those of the encoding, as a direct write gives them
-   (for-each (λ (enc)
-               (receive (in out) (create-pipe)
-                 (let ((i (open-input-file* in)) (o (open-output-file* out)))
-                   (set! (port-encoding o) enc)
-                   (run/value (τ (sync (write-string-evt o "a\xe9;\x20ac;"))))
-                   (close-output-port o)
-                   (set! (port-encoding i) 'binary)
-                   (⊦= (if (eq? enc 'latin-1) '(97 233 172) '(97 195 169 226 130 172))
-                       (let loop ((acc '())) (let1 (b (read-byte i)) (if (eof-object? b) (reverse acc) (loop (cons b acc))))))
-                   (close-input-port i))))
-             '(latin-1 binary utf-8)))
+   ; and the bytes written are those of the encoding, as a direct write gives them: a character
+   ; that latin-1 cannot encode is cut to its low byte by CHICKEN 6.0.0 and raises since 6.0.1,
+   ; so the write through CML raises the same condition, writing nothing
+   (let* ((s "a\xe9;\x20ac;")
+          (message (λ (e) (get-condition-property e 'exn 'message #f)))
+          ; the condition message a write by `write!` raises (#f if none) and the bytes it writes
+          (outcome (λ (enc write!)
+                     (receive (in out) (create-pipe)
+                       (let ((i (open-input-file* in)) (o (open-output-file* out)))
+                         (set! (port-encoding o) enc)
+                         (let1 (raised (write! o))
+                           (condition-case (close-output-port o) (ignored () (void)))
+                           (set! (port-encoding i) 'binary)
+                           (let1 (bytes (let loop ((acc '()))
+                                          (let1 (b (read-byte i)) (if (eof-object? b) (reverse acc) (loop (cons b acc))))))
+                             (close-input-port i)
+                             (list raised bytes))))))))
+     (for-each (λ (enc)
+                 (⊦= (outcome enc (λ (o) (condition-case (begin (display s o) (flush-output o) #f)
+                                           (e (exn) (message e)))))
+                     (outcome enc (λ (o) (run/value (τ (condition-case (begin (sync (write-string-evt o s)) #f)
+                                                         (e (exn) (message e)))))))))
+               '(latin-1 binary utf-8))
+     (⊦= '(#f (97 195 169 226 130 172))
+         (outcome 'utf-8 (λ (o) (run/value (τ (sync (write-string-evt o s)) #f)))))))
 
   ((test/writer-dying-with-the-write-lock-releases-it _)
    ; a writer waiting between two chunks holds the port's write lock; when it dies as it is switched
