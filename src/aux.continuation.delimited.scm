@@ -4,7 +4,6 @@
   (import scheme
           (only (scheme base) make-parameter)
           (chicken base)
-          (only (chicken condition) current-exception-handler)
           (only (chicken fixnum) fx+ fx- fxmax)
           srfi-1
           (aux base)
@@ -27,17 +26,50 @@
     (apply values args))
 
   ; A resetcc: `k` returns from it, `parent` is the frame current outside of it, `outer` the
-  ; exception handler outside of it and `winds` the `##sys#dynamic-winds` of its body; `signalling`
-  ; counts the calls to handlers outside of it, for conditions raised in its body, whose dynamic
-  ; extent control is in, and `state` is `in`, `escaping` (control left such a call other than by
-  ; its return, see `delimcc-signal`), `left` (control left the body while such a call was
-  ; pending or escaping, see `delimcc-reset`) or `popped`.  `host` is the nearest frame below it
+  ; exception handlers outside of it (see `delimcc-handlers-push`) and `winds` the
+  ; `##sys#dynamic-winds` of its body; `signalling` counts the calls to handlers outside of it,
+  ; for conditions raised in its body, whose dynamic extent control is in, and `state` is `in`,
+  ; `escaping` (control left such a call other than by its return, see `delimcc-signal`), `left`
+  ; (control left the body while such a call was pending or escaping, see `delimcc-reset`) or
+  ; `popped`.  `host` is the nearest frame below it
   ; whose outer handler was running when it was pushed (#f if none): its body runs within that
   ; call, so it is left with the host.  `escaped` is #f or, when control escaped from such a call
   ; for a condition raised outside the body, the winds of the raise, see `delimcc-signal`.  The
   ; root frame stands for no resetcc.
   (define-record delimcc-frame k parent outer winds signalling state host escaped)
   (define delimcc-root-frame (make-delimcc-frame #f #f #f #f 0 'in #f #f))
+
+  ; `##sys#current-exception-handler` is a stack of handlers, the current one at its car, since
+  ; CHICKEN 6.0.1 (core commit d63e474b): `signal` and `abort` pop it while the handler they call
+  ; runs, and storing a bare procedure there makes the next `current-exception-handler` spin.  In
+  ; CHICKEN 6.0.0 it is the handler itself, which stays current while it runs.
+  (define (delimcc-handlers-push handler handlers)
+    (if (pair? handlers) (cons handler handlers) handler))
+
+  ; Call the current handler of `handlers` on `c` as `signal` calls it.
+  (define (delimcc-handlers-call handlers c)
+    (cond
+      ((pair? handlers) (let1 (saved #f)
+                          (##sys#dynamic-wind
+                            (τ (set! saved ##sys#current-exception-handler)
+                               (set! ##sys#current-exception-handler (cdr handlers)))
+                            (τ ((car handlers) c))
+                            (τ (set! ##sys#current-exception-handler saved)))))
+      (else (handlers c))))
+
+  ; The `##sys#dynamic-winds` of a raise, from within its handler.  Since CHICKEN 6.0.1 `signal`
+  ; and `raise-continuable` call the handler inside a `dynamic-wind` frame of their own, which
+  ; reinstates it on the way out: its before thunk is `##sys#pop-exception-handler!`, by which it
+  ; is left out (CHICKEN 6.0.0 has neither the frame nor the procedure).
+  (define delimcc-pop-exception-handler
+    (and (##sys#symbol-has-toplevel-binding? '##sys#pop-exception-handler!)
+         (##sys#slot '##sys#pop-exception-handler! 0)))
+
+  (define (delimcc-raise-winds)
+    (let1 (ws ##sys#dynamic-winds)
+      (if (and delimcc-pop-exception-handler (pair? ws) (eq? (caar ws) delimcc-pop-exception-handler))
+        (cdr ws)
+        ws)))
 
   ; Unchecked reads of the fields that every resetcc, shift and return reads.
   (define-inline (delimcc-frame-k/fast f) (##sys#slot f 1))
@@ -140,9 +172,9 @@
   ; handler are the ones current when the condition is raised, not the ones of the resetcc that
   ; installed this handler: the body of a shift continuation resumed elsewhere signals to the
   ; handler around the resume.  While that outer handler runs, a condition that reaches this
-  ; handler again (`signal` leaves it current, and the outer handler may be the one of an enclosing
-  ; resetcc) belongs to the frames outside, so frames whose outer handler is running are skipped.
-  ; The call is counted by a `dynamic-wind` frame, so that the count follows control in and out of
+  ; handler again (CHICKEN 6.0.0's `signal` leaves it current, and the outer handler may be the
+  ; one of an enclosing resetcc) belongs to the frames outside, so frames whose outer handler is
+  ; running are skipped.  The call is counted by a `dynamic-wind` frame, so that the count follows control in and out of
   ; the call: a continuation escaping from the handler (`handle-exceptions`, or any other) leaves
   ; the call, a continuation captured in it (a CML thread switch) enters it again.  Leaving it
   ; other than by its return marks the frame `escaping`, for the after thunk of the resetcc, which
@@ -160,7 +192,7 @@
   (define (delimcc-signal c outer)
     (let loop ((frame (cdr (delimcc-meta-continuation-cell))))
       (cond
-        ((eq? frame delimcc-root-frame) (outer c))
+        ((eq? frame delimcc-root-frame) (delimcc-handlers-call outer c))
         ((not (eq? 0 (delimcc-frame-signalling/fast frame))) (loop (delimcc-frame-parent/fast frame)))
         (else (when (eq? (delimcc-frame-state/fast frame) 'escaping) (delimcc-frame-state-set!/fast frame 'in))
               (let1 (returned #f)
@@ -168,12 +200,12 @@
                   (τ (set! returned #f)
                      (delimcc-frame-escaped-set! frame #f)
                      (delimcc-frame-signalling-set!/fast frame (fx+ (delimcc-frame-signalling/fast frame) 1)))
-                  (τ (receive vs ((delimcc-frame-outer/fast frame) c) (set! returned #t) (apply values vs)))
+                  (τ (receive vs (delimcc-handlers-call (delimcc-frame-outer/fast frame) c) (set! returned #t) (apply values vs)))
                   (τ (delimcc-frame-signalling-set!/fast frame (fxmax 0 (fx- (delimcc-frame-signalling/fast frame) 1)))
                      (unless (or returned (not (eq? (delimcc-frame-state/fast frame) 'in)))
                        (delimcc-frame-state-set!/fast frame 'escaping)
                        (unless (delimcc-within? (delimcc-frame-winds/fast frame))
-                         (delimcc-frame-escaped-set! frame ##sys#dynamic-winds))))))))))
+                         (delimcc-frame-escaped-set! frame (delimcc-raise-winds)))))))))))
 
   ; The body runs in a `dynamic-wind` frame that installs the resetcc's handler, as
   ; `with-exception-handler` does, and records its `##sys#dynamic-winds`; it never returns
@@ -190,13 +222,13 @@
     (let1 (cell (delimcc-meta-continuation-cell))
       (letcc k
         (let* ((parent (cdr cell))
-               (outer (current-exception-handler))
+               (outer ##sys#current-exception-handler)
                (host (if (eq? 0 (delimcc-frame-signalling/fast parent)) (delimcc-frame-host/fast parent) parent))
                (frame (make-delimcc-frame k parent outer #f 0 'in host #f))
                (handler (λ (c) (delimcc-signal c outer))))
           (set-cdr! cell frame)
           (##sys#dynamic-wind
-            (τ (set! ##sys#current-exception-handler handler)
+            (τ (set! ##sys#current-exception-handler (delimcc-handlers-push handler outer))
                (case (delimcc-frame-state/fast frame)
                  ((left escaping) (delimcc-frame-state-set! frame 'in))
                  ((popped) (delimcc-frame-state-set! frame 'in)
