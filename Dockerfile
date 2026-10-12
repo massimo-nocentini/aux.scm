@@ -1,5 +1,13 @@
 
-FROM --platform=$BUILDPLATFORM ghcr.io/massimo-nocentini/chicken-scheme.docker:6.0.0-eggs-included
+ARG BASE=ghcr.io/massimo-nocentini/chicken-core:latest
+
+FROM --platform=$BUILDPLATFORM ${BASE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends wget curl git sudo \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN chicken-install -sudo srfi-1 srfi-13 srfi-18 srfi-19 srfi-69 srfi-133 datatype spiffy matchable \
+	miscmacros r7rs sxml-transforms vector-lib expand-full
 
 RUN wget --no-verbose https://www.lua.org/ftp/lua-5.5.0.tar.gz && tar xf lua-5.5.0.tar.gz && cd lua-5.5.0 \
 	&& make CC="clang" MYCFLAGS="-fPIC" linux \
