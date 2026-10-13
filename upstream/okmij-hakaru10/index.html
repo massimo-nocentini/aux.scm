@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+ "http://www.w3.org/TR/html4/loose.dtd"><html><head><title>Hakaru10: Embedded Probabilistic Programming and MCMC Inference</title>
+<meta name="description" content="Design and implementation of the embedded DSL for probabilistic programming. Examples of models, inference">
+<meta name="Author" content="oleg-at-okmij.org">
+<meta name="Date-Revision-yyyymmdd" content="20180714">
+<meta name="Date-Creation-yyyymmdd" content="20161231">
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+<link rel="up" href="../index.html">
+<link rel="top" href="http://okmij.org/ftp/">
+<link rel="prev" href="../index.html">
+<link rel="next" href="../Hansei.html">
+<link rel="canonical" href="http://okmij.org/ftp/kakuritu/Hakaru10/index.html"></head>
+<body bgcolor="#FFFFFF"><div align="center"><a href="../index.html">previous</a>  &nbsp; <a href="../Hansei.html">next</a>  &nbsp; <a href="../index.html">up</a>  &nbsp; <a href="http://okmij.org/ftp/">top</a><hr></div>
+<div align="center"><h1>Embedded probabilistic domain-specific language Hakaru10 (discrete and continuous distributions, MCMC (MH) sampling)</h1>
+</div>
+<p>&nbsp;</p>
+<ul><li><a href="#design">Probabilistic Programming Language and its Incremental Evaluation</a></li>
+<li><a href="#implementation">The implementation of Hakaru10</a></li>
+<li><a href="#examples-tests">Introductory examples and regression tests</a></li>
+<li><a href="#colored-balls">Example: colored balls</a></li>
+<li><a href="#bird-migration">Example: Bird migration problem</a></li></ul>
+<hr>
+<p><a name="design">&nbsp;</a></p><h2>Probabilistic Programming Language and its Incremental Evaluation</h2>
+<dl><dd>[The Abstract of the paper]
+<br>
+
+This system description paper introduces the probabilistic programming
+language Hakaru10, for expressing, and performing inference on
+(general) graphical models.  The language supports discrete and
+continuous distributions, mixture distributions and
+conditioning. Hakaru10 is a DSL embedded in Haskell and supports
+Monte-Carlo Markov Chain (MCMC) inference.<p>
+Hakaru10 is designed to address two main challenges of
+probabilistic programming: performance and correctness. It implements
+the incremental Metropolis-Hastings method, avoiding all redundant
+computations. In the presence of conditional branches, efficiently
+maintaining dependencies and correctly computing the acceptance ratio
+are non-trivial problems, solved in Hakaru10. The implementation is
+unique in being explicitly designed to satisfy the common equational
+laws of probabilistic programs. Hakaru10 is typed; specifically, its
+type system statically prevents meaningless conditioning, enforcing
+that the values to condition upon must indeed come from outside the
+model.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="design.pdf">design.pdf</a> [315K]
+<br>
+The paper published in Springer's LNCS 10017: the Proceedings of the 14th Asian Symposium on Programming Languages and Systems (APLAS 2016). November 21-23, 2016. Hanoi, Vietnam.
+<br>
+<a href="http://dx.doi.org/10.1007/978-3-319-47958-3_19">DOI: 10.1007/978-3-319-47958-3_19</a></dd></dl>
+<p><a name="implementation">&nbsp;</a></p><h2>The implementation of Hakaru10</h2>
+<dl><dd>The language Hakaru10 is shallowly embedded in Haskell and is, therefore, a regular Haskell library. Here is the code.</dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is November 2016.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="Metropolis.hs">Metropolis.hs</a> [52K]
+<br>
+Metropolis-Hastings (MH) algorithm, the main body of Hakaru10<p><a href="Syntax.hs">Syntax.hs</a> [12K]
+<br>
+Syntax sugar: making the library more convenient to use</p>
+<p><a href="Distribution.hs">Distribution.hs</a> [16K]
+<br>
+Primitive distributions</p>
+<p><a href="Util.hs">Util.hs</a> [2K]
+<br>
+Utilities: computing histograms, momenta, KL divergence, etc.</p>
+<p><a href="Memory.hs">Memory.hs</a> [4K]
+<br>
+First-class storage</p></dd></dl>
+<p><a name="examples-tests">&nbsp;</a></p><h2>Introductory examples and regression tests</h2>
+<dl><dd>
+The `factorial example' of the Bayesian net is the lawn/grass model,
+with three random variables representing the events of rain, of a
+switched-on sprinkler and wet grass.  The (a priori) probabilities of
+the first two events are judged to be 30% and 50% correspondingly.
+Rain almost certainly (90%) wets the grass. The sprinkler also makes
+the grass wet, in 80% of the cases.  The grass may also be wet for
+some other reason. The modeler gives such an unaccounted event 10% of
+a chance.  Having observed in the morning that the grass is wet, we
+want to find out the chance it was raining overnight. This model is encoded
+in Hakaru10 as follows:<pre>     grass = do
+      rain        &lt;- dist bern 0.3
+      sprinkler   &lt;- dist bern 0.5
+      --  dist (nor 0.9 0.8 0.1) rain sprinkler
+      grass_is_wet &lt;- dist (True `condition` nor 0.9 0.8 0.1) rain sprinkler
+      return rain
+     
+     -- noisy-or function
+     nor :: Double -&gt; Double -&gt; Double -&gt; Bool -&gt; Bool -&gt; Distribution Bool
+     nor strengthX strengthY noise x y =
+       bern $ 1 - nnot (1-strengthX) x * nnot (1-strengthY) y * (1-noise)
+     
+     -- noisy not function
+     nnot :: Num a =&gt; a -&gt; Bool -&gt; a
+     nnot p True  = p
+     nnot p False = 1
+</pre>
+<p>
+The model is an ordinary Haskell function <code>grass</code> whose inferred type
+is <code>Model Bool</code>. The function <code>nor</code> is a custom parameterized distribution,
+the noisy-or function. Sampling (20000 times) from the model --
+evaluating <code>mcmC 20000 grass</code> -- and counting the number of <code>True</code> gives the posterior estimate of <code>rain</code> having observed that the
+grass is wet. See the introduction part of the paper for more
+explanation of the example.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="Examples1.hs">Examples1.hs</a> [8K]
+<br>
+All examples from the paper, and many more<p><a href="Bench.hs">Bench.hs</a> [2K]
+<br>
+The benchmark code</p></dd></dl>
+<p><a name="colored-balls">&nbsp;</a></p><h2>Example: colored balls</h2>
+<dl><dd>This is an elegant example of a model with indefinite number of objects whose `real' identity is unobservable. The example is a simplified version of population estimation. HANSEI's implementation of the example makes the case for memoization of stochastic functions. The example was introduced as example 1.1 in Milch's et al. chapter on BLOG:<p>``An urn contains an unknown number of balls--say, a number chosen from a Poisson or a uniform distributions. Balls are equally likely to be blue or green. We draw some balls from the urn, observing the color of each and replacing it. We cannot tell two identically colored balls apart; furthermore, observed colors are wrong with probability 0.2.  How many balls are in the urn? Was the same ball drawn twice?''</p></dd>
+<dt><strong>References</strong></dt>
+<dd>Brian Milch, Bhaskara Marthi, Stuart Russell, David Sontag, Daniel L. Ong, Andrey Kolobov. BLOG: Probabilistic Models with Unknown Objects.
+<br>
+In: Lise Getoor and Ben Taskar, eds. Introduction to Statistical Relational Learning. MIT Press, 2007 -- pp. 373--398
+<br>
+<a href="http://people.csail.mit.edu/milch/papers/blog-chapter.pdf">&lt; http://people.csail.mit.edu/milch/papers/blog-chapter.pdf &gt;</a><p><a href="ColoredBalls.hs">ColoredBalls.hs</a> [7K]
+<br>
+The implementation of the model and sample inferences: e.g., of the posterior distribution of the number of balls in the urn given that we drew ten balls and all appeared blue. Our results seem in excellent agreement with those by BLOG.</p></dd></dl>
+<p><a name="bird-migration">&nbsp;</a></p><h2>Example: Bird migration problem</h2>
+<dl><dd>
+Bird migration problem was one of the Challenge problems of the DARPA
+PPAML (Probabilistic Programming for Advanced Machine Learning)
+Program. The goal was to estimate the model parameters 
+from the set of bird migration observations over the period of thirty
+years. The migration model is a log-linear model with four parameters
+that gives the probability of a bird flying from cell <code>i</code> to cell <code>j</code>
+under given conditions.<p>
+Bird migration problem was also the topic of the 2018 bachelor thesis
+of Sasaki Shoichiro. He was to learn Haskell, Hakaru10, try to implement
+the model and estimate its parameters, and reflect on his work. The first
+conclusion of his thesis is that the bird migration model is expressible in
+Hakaru10 -- in the form that rather closely reflects the model
+specification:</p>
+<pre>     model :: Features -&gt; ObsData -&gt; Model [Double]
+     model features obs = do
+       b1  &lt;- abs &lt;$&gt; dist normal 0 10 -- Priors of the four parameters, b1..b4
+       b2  &lt;- abs &lt;$&gt; dist normal 0 10 -- see Statement of Problem, p9
+       b3  &lt;- abs &lt;$&gt; dist normal 0 10
+       b4  &lt;- abs &lt;$&gt; dist normal 0 10
+       let bs = collect [b1,b2,b3,b4]
+       forM_ [1..nYears] $ \year -&gt; do -- each year
+         foldM_ (\n day -&gt; do -- one bird exists in cell n on each day(1..nDays-1)
+           let trans n bs = [ (j,theta year day n j features bs) | j&lt;-neighbors n]
+           -- n' is the cell where the bird is on day+1
+           let day' = day + 1
+           n' &lt;- dist categorical $ liftA2 trans n bs 
+           forM_ [1..nCells] $ \i -&gt;
+             dist (fromIntegral (obs ! (year,day',i)) `condition` poisson)
+                ((\nv -&gt; if i==nv then 1 else 0) &lt;$&gt; n')
+           return n'
+           ) (1 :: SExp Int) [1..nDays-1]
+       return bs
+</pre>
+where <code>theta</code> computes the dot-product of the parameters and the feature
+vector at the day and year in question, and exponentiates the result.
+Due to the extreme time pressure, only the first of the three parts of the
+Challenge problem was implemented: the 1-bird dataset part.
+The second conclusion is that it turns out possible to learn Haskell and
+Hakaru10 within a month, leaving time to implement and run the model,
+analyze its results and compare with other solutions (BLOG). It did take
+time to get used to the `applicative' character of Hakaru10, and to use <code>liftA</code> and applicative combinators appropriately. The third conclusion is
+that Hakaru10 turns out performant: on his Mac laptop, he could obtain
+1 million samples of the MCMC chain within 9 minutes. He could comfortably
+obtain even 10 million samples, which gave him enough material to investigate
+and verify the convergence. For comparison, the published BLOG solution
+to the same problem needed 49 minutes for 1000 samples on the same laptop.<p>
+Overall we conclude that Hakaru10 is good at least for a bachelor thesis.
+  </p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="BirdMigrationProblem.pdf">BirdMigrationProblem.pdf</a> [715K]
+<br>
+Tom Dietterich and Shahed Sorower: PPAML Challenge Problem: Bird Migration
+<br>
+Problem description. Version 6, August 30, 2014<p><a href="Birds1.hs">Birds1.hs</a> [7K]
+<br>
+The Hakaru10 bird migration model and the main inference module</p></dd></dl>
+<br>
+<div><hr></div><h3>Last updated July 14, 2018</h3>
+This site's top page is <a href="http://okmij.org/ftp/"><strong>http://okmij.org/ftp/</strong></a><div><p><cite>oleg-at-okmij.org</cite>
+<br>
+Your comments, problem reports, questions are very welcome!</p></div>
+<p><font size="-2">Converted from HSXML by HSXML-&gt;HTML</font></p></body></html>
