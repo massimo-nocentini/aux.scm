@@ -11,8 +11,8 @@
 ;;   S    Syntax.hs (https://okmij.org/ftp/kakuritu/Hakaru10/Syntax.hs), the internals of
 ;;        S:84-279: SExp, eval_nctor, with_node_ctor, to_node, if_.
 ;; Not ported: M:1174-1415 (the old Wingate-style Measure code), and the example programs that
-;; Metropolis.hs writes on the raw trace API (with_node, next, ifnode), which the port does not
-;; expose; each has a surface-syntax counterpart in test/hakaru10*.scm:
+;; Metropolis.hs writes on the raw trace API (with_node, next, ifnode), which (aux hakaru10)
+;; does not export; each has a surface-syntax counterpart in test/hakaru10*.scm:
 ;;   M:320-361 upp1/upp1r (live upstream; its surface-syntax text M:327-333 is commented
 ;;        out) and M:387-397 upp2/upp2r (commented out upstream): the propagation-order note
 ;;        M:319-385, implemented by the update queue below (smallest address first) and
@@ -21,10 +21,12 @@
 ;;        doupdate's "dependency violation!" (S:240-243, a node updated before its parents);
 ;;        a wrong order also makes the reference evaluator of `#:check` (test/hakaru10.scm,
 ;;        B4) find a stale value.  Case B8 of test/hakaru10.scm runs upp1 and upp2 (a and b
-;;        both feeding the non-Dirac d), transcribed into models, under `#:check`, records
-;;        the updates of every step (d once, after b and c), and asserts the incrementality
-;;        of P §4.2 (l.771-788, pdep: resampling x does not update z), which the reference
-;;        evaluator, comparing final states, cannot see;
+;;        both feeding the non-Dirac d), transcribed into models, and upp1 as M:336-341
+;;        writes it, on this module's trace API (upp1/raw, with the Dirac node ab), under
+;;        `#:check`, records the updates of every step (d once, after b and c, and after ab
+;;        in upp1/raw), and asserts the incrementality of P §4.2 (l.771-788, pdep:
+;;        resampling x does not update z), which the reference evaluator, comparing final
+;;        states, cannot see;
 ;;   M:529-535 ex1/ex1r: the same model as S:282-289 niceex1 (test/hakaru10.scm);
 ;;   M:537-545 prog_mult_conditions/exmcr/exmcr1: S:291-301 nice_prog_mult_conditions;
 ;;   M:547-562 ex2/prog_test1: commented out upstream;
@@ -40,99 +42,73 @@
 ;; Paper: O. Kiselyov, "Probabilistic Programming Language and its Incremental Evaluation",
 ;; APLAS 2016, LNCS 10017, DOI 10.1007/978-3-319-47958-3_19 (P = design.txt / design.pdf).
 ;;
-;; Embedding (user directive of 2026-10-12; PLAN-IDIOM C25-C28).  A model is a thunk, a
-;; direct-style Scheme program that *performs* three operations, `dist`, `diracN` and `if`;
-;; what they mean is up to the handler that runs it.  `handle-model` runs the model under the
-;; native `reset` of (chicken continuation), and `perform` is a `shift` to it: the handler gets
-;; the request, a list (op arg ...), and `resume`, the model's continuation up to the `reset`,
-;; which it may call once (the trace builder below), many times or lazily (the exact enumerator
-;; of (aux hakaru10 exact)).  Upstream's `Model a = MCMCM (SExp a)` (S:82) is the State monad
-;; threading the sampler state through construction; here the trace builder holds that state,
-;; the chain.  `condition` and `lift` are not operations: conditioning makes an observed distk
-;; (S:174-193), which `dist` performs, and lifting is pure (S:99-116).
-;; Node creation order is load-bearing (topological order, P l.791-794): models must create
-;; nodes in sequence, with `let*`, `fold`, `map-in-order` or a named `let`, never in
-;; procedure-argument positions or inside `map` (plan C18, C18').  A handler that resumes many
-;; times shares, between its resumptions, any state the model mutates across an operation, so
-;; models must not do so (C28).
-;; Runtime requirement: multi-shot resumption (exact enumeration) of a model that sets up
-;; `guard`, `handle-exceptions` or `condition-case` around an operation needs a CHICKEN whose
-;; call/cc escapes inside a resumed segment return to that resumption: chicken-core commits
-;; f11f304b, b29737e8 and 0d398032, on the branch delimcc-multishot (developed as
-;; hakaru10-support; not in main up to rev 55615603).  The module runs on both.
-;; native-multishot-escapes? tests it at load; where it fails, handle-model reports a
-;; misrouted escape under a lazy handler as a `construction` error instead of answering a
-;; wrong posterior.  One-shot handlers (mcmC, the forward runs) do not need it.
+;; Construction (plan §15, C32-C36).  `Model a = MCMCM (SExp a)` (S:82), `MCMCM a = State
+;; MCState a` (M:200): a model is a computation of the State monad of (aux category state),
+;; whose state is the chain, threaded as is and mutated in place (C34; C5 for steps).  The
+;; construction functions mirror S:137-279, M:233-526 and M:641-686 by name, each a State
+;; action.  Nodes are created when an action runs, in bind order (C35; C18: creation order is
+;; topological, P l.791-794), so building an action, in an argument position or inside `map`,
+;; creates none.  Node updates and the MH step stay imperative (C5).  `condition` and `lift`
+;; are pure: conditioning makes an observed distk (S:174-193), which `dist` makes a node of,
+;; and lifting makes an SExp (S:99-116).
 ;;
 ;; ENGINE API (the public module (aux hakaru10) and (aux hakaru10 exact) use only what is listed
 ;; here).  A node is a record (the trace DAG's vertex); its address, from 1, is its creation
-;; order.  `ch` is a chain, `n` a node.
+;; order.  `ch` is a chain, `n` a node.  A TraceM (M:202) is a State action answering a node, a
+;; Model (S:82) one answering an SExp.
 ;;
-;;   Effects and handlers (native shift/reset of (chicken continuation))
-;;     (handle-model model handler [return])   run the thunk `model` under `handler`, a
-;;                             procedure (λ (request resume) ...): `request` is (dist d args),
-;;                             (diracN e) or (if test th el), `resume` (λ (value) ...) answers
-;;                             what handle-model answers.  `return` (default identity) maps the
-;;                             model's own value, inside the `reset`.  A handler runs outside the
-;;                             model, with current-handler as outside it.
-;;     (perform op arg ...)    perform the request (op arg ...) (a `construction` error outside
-;;                             a model or in pure context).
-;;     native-multishot-escapes?   #t if this CHICKEN returns a call/cc escape inside a
-;;                             resumed segment to the resumption (see Runtime requirement).
-;;     current-handler         parameter: the handler of the running model, #f elsewhere (in
-;;                             particular inside pure-call and inside every handler).
-;;     (pure-call thunk)       run user code (lifted functions, constructors) in pure context.
-;;     (check-model model who) a `construction` error, located at who, unless model is a
-;;                             procedure (a model is a thunk, S:82).
-;;     lazy-lifting            parameter: #t while a branch that is inactive is built (by the
-;;                             trace builder, or by a handler that runs the branch its test does
-;;                             not select); lift* then defers the errors of its function (S:100,
-;;                             M:99).  handle-model starts every model with it #f.
-;;     (dist d arg ...)        S:137-151, performs (dist d args): d a distk (no args) or a distk
-;;                             constructor (a procedure) of SExps/Vals; resumes with the choice.
-;;     (diracN e)              S:161-169, performs (diracN e).
-;;     (if_* test th el)       S:275-279, performs (if test th el), th and el models (thunks),
-;;                             and calls the thunk it is resumed with: the handler answers the
-;;                             computation that realizes the branch (C27).
-;;     (condition/external obs d)  S:174-193, with "observation must be external" (the public
+;;   Construction (State monad, S:82-279, M:233-526, M:641-686)
+;;     (model? x)              whether x is a Model, a State computation (C32).
+;;     (check-model m who)     a `construction` error, located at who, unless m is a Model;
+;;                             answers m.
+;;     (modify! (ch) body ...) the action that runs body on the chain ch, mutated in place.
+;;     (hakaru10-fail kind who msg irritant ...)   the action that raises the error when it runs.
+;;     (lazy-model who thunk)  the Model that calls thunk when it runs and checks that thunk
+;;                             answered a Model (C36, for the public `if_`).
+;;     (new-nref n) (new-dependency parent child)  M:233-243, M:246-250 (the latter with the
+;;                             branch-escape check)
+;;     (register-dependencies leaves child)        S:255-261
+;;     (create-node update dk [role parents fn])   M:404-419: the only draw of construction
+;;     (with-node-none dk)     M:421-423
+;;     (with-node-tree leaves fn [who]) (with-node ndr f [who])   S:224-228, M:451-456
+;;     (with-node-ctor e df [who lazy])            S:218-228 -> TraceM
+;;     (to-node e [who])       S:210-214 -> TraceM
+;;     (dist d arg ...)        S:137-151: d a distk (no args) or a distk constructor (a
+;;                             procedure) of SExps/Vals; a Model answering the node.
+;;     (diracN e)              S:161-169, a Model.
+;;     (if_* test th el)       S:275-279, th and el Models; a Model answering the exit node.
+;;     (ifnode entry th el)    M:641-686: entry a node, th and el TraceMs; answers the exit.
+;;     (deactivate lo hi)      M:696-717 at construction (M:659).
+;;     (in-branch entry polarity m)   m run in the scope extended with (entry . polarity).
+;;     (model->trace m who)    S:197 `m >>= to_node`: the TraceM of a Model.
+;;     (pair a b) (collect es) S:134-135, B1:113-114: one SExp of a pair, of a list.
+;;     lazy-lifting            parameter: #t while the State action of an inactive branch runs
+;;                             (in-branch); lift* then defers the errors of its function (S:100,
+;;                             M:99).  build-chain starts every build with it #f.
+;;     (condition/external obs d)  S:174-193, with "observation must be external": obs
+;;                             neither is nor contains an SExp or a Model (the public
 ;;                             `condition`).
-;;     For handlers under which SExps are plain values (an exact enumerator, a forward sampler:
-;;     no node exists, so `lift*` evaluates at once and every argument is a Val):
-;;     (effect-distk d args)   the distk of the request (dist d args), the constructor applied
-;;                             in pure context to the unboxed (val-of) arguments.
-;;     (select-branch test th el)  the branch thunk the boolean test selects (`branch` error
-;;                             for a non-boolean test).
-;;     (value-handler on-dist #!key (on-if select-branch))   the handler that answers (diracN
-;;                             e) with e, a Val, and (if test th el) with (on-if test th el),
-;;                             and hands (dist d args) to (on-dist distk resume); resume
-;;                             boxes a procedure value with `constant`, so that it stays a Val.
 ;;   SExp (S:85-93): an SExp is a node (NRef), an nt (NT) or any other value (Val)
 ;;     (sexp? x)  (node? x)  (nt? x) (nt-leaves e) (nt-fn e): leaves is a vector of distinct
 ;;                             nodes, fn (λ (values-vector) value), values aligned with leaves.
-;;     (constant x)            an explicit Val (needed only to pass a procedure value);
-;;     (val-of x)              unboxes a `constant`, else x.
+;;                             A procedure is a plain Val (S:107 `Val f`).
 ;;     (sexp-chain e) (sexp-leaves e) (sexp-value e)   owner, leaves (a vector), value
 ;;                             (eval_nctor, S:201-208).
 ;;     (leaf-values leaves)    the values-vector of a vector of nodes (reeval_tree, S:264-273).
-;;     (deferred? x) (force-value x)   the value of a diracN node computed while it is
-;;                             inactive may be a deferred value (an error, raised again when it is
-;;                             forced; M:99, M:120-129): force-value answers x, or forces it.
-;;     (lift* f es)            Applicative lifting (S:99-116): a Val if no e is an sexp (f
-;;                             applied now, in pure context), otherwise one fused nt.
-;;   Trace building (the trace-builder handler, M:399-526, S:137-279)
-;;     (trace-builder ch)      the handler that builds the trace graph of ch.
-;;     (run-model! ch model)   run model under (trace-builder ch) and turn its result into a
-;;                             node (`m >>= to_node`, S:197); answers the node.
-;;     (create-node! ch role parents fn dk update)   M:404-419, M:233-243 -> node
+;;     (deferred? x) (force-value x) (deferred-args x)   the value of a diracN node computed
+;;                             while it is inactive may be a deferred value (an error, raised
+;;                             again when it is forced; M:99, M:120-129): force-value answers x,
+;;                             or forces it; deferred-args are the values it was computed from,
+;;                             which construction-check compares.
+;;     (lift* f es [checked?]) Applicative lifting (S:99-116): a Val if no e is an sexp (f
+;;                             applied now), otherwise one fused nt; f's answer, at any depth,
+;;                             must hold no SExp nor Model (unless checked? is #f).
+;;   The imperative core of construction
 ;;     (add-dependency! parent child)                 M:246-250 (with the branch-escape check)
-;;     (with-node-ctor! ch e df [who lazy])           S:218-273 -> node
-;;     (to-node! ch e)                                S:211-214 -> node
 ;;     (check-owner ch e who)  e must be a Val or an sexp of ch (`construction`).
 ;;     (chain-scope ch) (chain-scope-set! ch s)       the construction scope, a list of
 ;;                                                    (entry-node . polarity), innermost first.
 ;;   Branches (M:641-794, S:275-279)
-;;     (ifnode! ch entry th el)  M:641-686: entry a node, th and el thunks answering the branch
-;;                             results' nodes; answers the exit node.
 ;;     (deactivate! ch lo hi) (activate! ch lo hi)   M:688-751, over the addresses (lo, hi]
 ;;     (node-branch n)         of an entry or an exit, the branch record of its if_ (else #f):
 ;;                             (branch-entry b) (branch-then-result b) (branch-else-result b)
@@ -200,19 +176,19 @@
 ;;     (chain-extended-ll ch)  the extended target's LL from scratch: every resampleable
 ;;                             node's LL plus every active observed node's LL.
 ;;     (inactive-scope? ch)    whether a node created now is in an inactive branch.
-;;   Driver (M:856-906, S:196-197)
-;;     (build-chain model src semantics) -> (values ch result); result is the node whose value
+;;   Driver (M:856-906, S:196-197); prog is a TraceM (model->trace)
+;;     (build-chain prog src semantics) -> (values ch result); result is the node whose value
 ;;                             is sampled, #f for a build rejected in 'extended mode (C22),
 ;;                             where llcum is chain-extended-ll.
-;;     (initial-step limit model src semantics) -> (values ch result limit')  M:882-891
-;;     (mcmc-generator limit model #!key (seed 17) (rng #f) (semantics 'upstream)
+;;     (initial-step limit prog src semantics) -> (values ch result limit')  M:882-891
+;;     (mcmc-generator limit prog #!key (seed 17) (rng #f) (semantics 'upstream)
 ;;                     (step-hook #f) (build-hook #f))
 ;;                             #f if no initial trace is found in `limit` builds, else a
 ;;                             generator: a thunk answering the initial trace's value, then one
 ;;                             value per MH step.  build-hook, if given, is called once as
 ;;                             (build-hook ch) when the generator is made.  A negative limit
 ;;                             is a `construction` error (deviation 10).
-;;     (mcmc-fold kons knil limit model #!key ...)   (kons sample acc) over the `limit` first
+;;     (mcmc-fold kons knil limit prog #!key ...)   (kons sample acc) over the `limit` first
 ;;                             samples, in chain order (the same keys).
 
 (module (aux hakaru10 engine) *
@@ -222,15 +198,16 @@
           (chicken base)
           (chicken fixnum)
           (chicken flonum)
-          (only (chicken continuation) shift reset)
           (only (chicken format) fprintf)
-          (only (chicken platform) chicken-version)
           (only (chicken port) with-output-to-port)
           (only (chicken sort) sort!)
           (only (chicken condition) make-property-condition signal condition-case)
           (only srfi-1 any every find delete-duplicates append-map list-index iota)
           (only srfi-69 make-hash-table hash-table-exists? hash-table-set!)
           (aux base)
+          (only (aux category state) category-state? state run-state eval-state exec-state get
+                gets modify return >>=)
+          (only (aux category monad state) do/monad ▷ when/monad)
           (aux hakaru10 random)
           (aux hakaru10 distribution))
 
@@ -491,25 +468,9 @@
   (set-record-printer! nt
     (λ (e port) (fprintf port "#<nt ~s>" (map node-addr (vector->list (nt-leaves e))))))
 
-  ; cf. S:86 `Val :: a -> SExp a`, boxed: plan §5.1 makes a bare procedure an error in an SExp
-  ; position (it is almost always a model passed where an SExp is expected), so a procedure Val
-  ; must be boxed explicitly.
-  (define-record constant value)
-
-  ; (debug printer only) #<constant value>.
-  (set-record-printer! constant
-    (λ (e port) (fprintf port "#<constant ~s>" (constant-value e))))
-
-  ; cf. S:85-89: whether x is an NRef or an NT; every other value is a Val.
+  ; cf. S:85-89: whether x is an NRef or an NT; every other value is a Val (S:86), a procedure
+  ; included (S:107 `Val f`): a Model is not a procedure (C32), so none needs boxing.
   (define (sexp? x) (or (node? x) (nt? x)))
-
-  ; cf. S:105 `pure = Val`, explicit: needed only to pass a procedure value.
-  (define (constant x)
-    (when (sexp? x) (hakaru10-error 'construction 'constant "already a stochastic expression" x))
-    (make-constant x))
-
-  ; (helper) the value of a Val, unboxing a `constant`.
-  (define (val-of x) (if (constant? x) (constant-value x) x))
 
   ; (helper) the owner chain of an sexp.
   (define (sexp-chain e) (node-chain (if (node? e) e (vector-ref (nt-leaves e) 0))))
@@ -530,14 +491,15 @@
   ;; lazy field (only `ll` and `tstamp` are strict, M:120-129).  The readers of a node in an
   ;; inactive branch are in that branch (the branch-escape check), or its exit, which reads
   ;; only the active result (M:781-794), and their updates are delayed (M:298-303).  So
-  ;; `if_ (lift null? xs) 'none (diracN (lift car xs))` runs upstream, although the inactive
-  ;; else branch applies `car` to '().  Here values are computed eagerly, so the value of a
-  ;; diracN node (to-node!) computed while the node is inactive, if it raises an error, is a
-  ;; deferred value: the suspended application of the node's function to its parents' values,
-  ;; Haskell's thunk.  It passes unforced through the inactive diracN nodes that read it; a
-  ;; strict reader forces it, which raises the error again: any other node (resampleable,
-  ;; observed, an entry, whose value ifnode reads, M:648-649), an active diracN node, an active
-  ;; exit, and the sampled result.  Computing it draws nothing, so replays are unchanged.
+  ;; `if_ (lift null? xs) (return 'none) (diracN (lift car xs))` runs upstream, although the
+  ;; inactive else branch applies `car` to '().  Here values are computed eagerly, so the
+  ;; value of a diracN node (to-node) computed while the node is inactive, if it raises an
+  ;; error, is a deferred value: the suspended application of the node's function to its
+  ;; parents' values, Haskell's thunk.  It passes unforced through the inactive diracN nodes
+  ;; that read it; a strict reader forces it, which raises the error again: any other node
+  ;; (resampleable, observed, an entry, whose value ifnode reads, M:648-649), an active diracN
+  ;; node, an active exit, and the sampled result.  Computing it draws nothing, so replays are
+  ;; unchanged.
   ;; deviation 11 (M:99, M:120-129, S:100-116; strict propagation of a deferred value): the
   ;; stand-in is coarser than Haskell's laziness.  A function applied, in an inactive context,
   ;; to a deferred value is not called: its value is that deferred value (lazy-value,
@@ -546,7 +508,9 @@
   ;; the argument; here a strict reader of the result (a resampleable or observed node's
   ;; distribution in the same inactive branch, say) forces it and raises the original error.
   ;; With xs = '(), the inactive branch
-  ;;   (let* ((h (diracN (lift car xs))) (mu (diracN (lift cdr (pair h 1.0))))) (dist normal mu 1))
+  ;;   (do/monad (← h (diracN (lift car xs)))
+  ;;             (← mu (diracN (lift cdr (pair h 1.0))))
+  ;;             (dist normal mu 1))
   ;; builds upstream (mu = snd (⊥, 1.0) = 1.0) and is an error here ('upstream mode; in
   ;; 'extended mode the error, being deferrable?, rejects the build or the step instead, C22).
   ;; Likewise an active diracN or exit computes its value at once, which upstream forces only
@@ -569,12 +533,12 @@
   ; same errors, raised by an inactive node, reject (C22, build-guard and guarded-update).
   (define (deferrable? e) (or (not (hakaru10-error? e)) (parameter-error? e)))
 
-  ; (helper) force x if it is a deferred value: apply its function in pure context and answer
-  ; the value, or raise the error again (deferrable?, as it was the first time: in 'extended
-  ; mode an inactive node that forces it rejects, C22); any other x is answered as is.
+  ; (helper) force x if it is a deferred value: apply its function and answer the value, or
+  ; raise the error again (deferrable?, as it was the first time: in 'extended mode an
+  ; inactive node that forces it rejects, C22); any other x is answered as is.
   (define (force-value x)
     (if (deferred? x)
-        (pure-call (τ ((deferred-fn x) (deferred-args x))))
+        ((deferred-fn x) (deferred-args x))
         x))
 
   ; (helper) the first deferred value of the values-vector vs, else #f.
@@ -609,94 +573,144 @@
         (or (first-deferred vs) (call/deferring g vs))
         (g (forced-values vs))))
 
-  ; cf. S:100, S:107 `fmap f (Val x) = Val (f x)`, a thunk too: true while a branch that is
-  ; inactive is built (by the trace builder, build-branch!, or by a handler that runs the
-  ; branch its test does not select, as the construction-order run of `#:check` does), where
-  ; lift* applying f to Vals defers its error as lazy-value does.  #f elsewhere: handle-model
-  ; starts every model with it #f, also one run from inside an inactive branch.
+  ; cf. S:100, S:107 `fmap f (Val x) = Val (f x)`, a thunk too: set by in-branch while an
+  ; inactive branch's State action runs, where lift* applying f to Vals defers its error as
+  ; lazy-value does; build-chain starts every build with it #f, also one started from inside an
+  ; inactive branch's lifted function.
   (define lazy-lifting (make-parameter #f))
 
   ; cf. S:201-208 `eval_nctor`: the current value of an SExp (forced, see force-value).
   (define (sexp-value e)
     (cond
       ((node? e) (force-value (node-value e)))
-      ((nt? e) (pure-call (τ ((nt-fn e) (forced-values (leaf-values (nt-leaves e)))))))
-      (else (val-of e))))
+      ((nt? e) ((nt-fn e) (forced-values (leaf-values (nt-leaves e)))))
+      (else e)))
 
-  ; deviation 9 (S:82, S:137-151): `Model a` and `SExp a` are distinct types upstream; here a
-  ; bare procedure in an SExp position is rejected.
+  ; deviation 9 (S:82, S:137-151): `Model a` and `SExp a` are distinct types upstream, and a
+  ; Model is a value of its own type here too (C32), so a Model in an SExp position is a
+  ; run-time error; a procedure is a plain Val (S:107).
   (define (check-not-model who x)
-    (when (procedure? x)
+    (when (model? x)
       (hakaru10-error 'construction who
-                      "a model where an SExp is expected; bind it with let* first" x)))
+                      "a model where an SExp is expected; bind it with ← first" x)))
 
   ; deviation 9 (S:85-93, S:134-135): a Scheme value that contains SExps (in pairs or
   ; vectors, e.g. a model that answers (list x y)) is not an `SExp a` upstream, where a tuple
   ; of SExps must be combined with `pair` (S:134); here it would silently be a Val whose
-  ; value holds node records, so it is rejected.  x is a Val's value, which may be circular
-  ; (e.g. srfi-1's circular-list, which the value handlers accept): once the walk has visited
-  ; 100000 pairs and vectors, it records them in an eq? table and skips those already seen,
-  ; so it ends on a cycle and stays allocation-free on the values of ordinary models.
-  (define (check-no-sexp who x)
-    (let ((budget 100000) (seen #f))
-      ; whether the pair or vector x is to be walked: while the budget lasts, always; then
-      ; only on its first visit since the budget ran out.
-      (define (walk? x)
-        (if (fx> budget 0)
-            (begin (set! budget (fx- budget 1)) #t)
-            (begin
-              (unless seen (set! seen (make-hash-table eq?)))
-              (and (not (hash-table-exists? seen x)) (begin (hash-table-set! seen x #t) #t)))))
+  ; value holds node records.  Nor is a Model inside a Scheme value: upstream's `diracN` needs
+  ; `Show a`, which State has not (S:166).  The first SExp or Model found in x, x itself
+  ; included, else #f.  x may be circular (e.g. srfi-1's circular-list): a value of more than
+  ; 100000 pairs and vectors is walked again, recording each in an eq? table, so that a cycle
+  ; ends the walk.  The values of ordinary models, which construction walks (every Val, Dirac
+  ; value and first answer of a lifted function), are walked without allocating.
+  (define (internal-part x)
+    (let1 (r (internal-part/bounded x 100000))
+      (cond
+        ((not (fixnum? r)) r)
+        ((fx>= r 0) #f)
+        (else (internal-part/cyclic x)))))
+
+  ; (helper of internal-part) the walk of x, with `budget` pairs and vectors left to visit: the
+  ; first SExp or Model found, else the budget left, a fixnum, negative once it has run out.
+  (define (internal-part/bounded x budget)
+    (cond
+      ((fx< budget 0) budget)
+      ((or (number? x) (null? x) (boolean? x) (symbol? x)) budget)       ; the common leaves
+      ((pair? x) (let1 (r (internal-part/bounded (car x) (fx- budget 1)))
+                   (if (fixnum? r) (internal-part/bounded (cdr x) r) r)))
+      ((vector? x) (let loop ((i 0) (b (fx- budget 1)))
+                     (if (fx= i (vector-length x))
+                         b
+                         (let1 (r (internal-part/bounded (vector-ref x i) b))
+                           (if (fixnum? r) (loop (fx+ i 1) r) r)))))
+      ((or (sexp? x) (model? x)) x)
+      (else budget)))
+
+  ; (helper of internal-part) the walk of x that records every pair and vector in an eq?
+  ; table and skips those already seen.
+  (define (internal-part/cyclic x)
+    (let1 (seen (make-hash-table eq?))
       (let walk ((x x))
         (cond
-          ((sexp? x) (hakaru10-error 'construction who
-                                     "an SExp inside a Scheme value; combine with collect, pair or lift"
-                                     x))
-          ((pair? x) (when (walk? x) (walk (car x)) (walk (cdr x))))
-          ((vector? x) (when (walk? x) (vector-for-each walk x)))))))
+          ((or (pair? x) (vector? x))
+           (and (not (hash-table-exists? seen x))
+                (begin
+                  (hash-table-set! seen x #t)
+                  (if (pair? x)
+                      (or (walk (car x)) (walk (cdr x)))
+                      (any walk (vector->list x))))))
+          ((or (sexp? x) (model? x)) x)
+          (else #f)))))
+
+  ; deviation 9 (S:85-93, S:134-135, S:166): a `construction` error, located at who, if the
+  ; Scheme value x contains an SExp or a Model (internal-part).
+  (define (check-no-sexp who x)
+    (let1 (y (internal-part x))
+      (cond
+        ((sexp? y) (hakaru10-error 'construction who
+                                   "an SExp inside a Scheme value; combine with collect, pair or lift"
+                                   y))
+        ((model? y) (hakaru10-error 'construction who "a model inside a Scheme value" y)))))
 
   ; deviation 9 (S:99-116, `fmap :: (a -> b) -> SExp a -> SExp b`): a lifted function must
-  ; answer a plain value, not an SExp.
-  (define (check-lifted-value who v)
-    (when (sexp? v)
-      (hakaru10-error 'construction who "a lifted function answered an SExp" v))
-    v)
+  ; answer a plain value, not an SExp nor a Model, nor, if `deep?`, a Scheme value that
+  ; contains one (check-no-sexp, which walks a pair or a vector).  Answers v.  It runs each
+  ; time an NT's fn does, so a number or a boolean, the usual answers, is accepted first.
+  (define (check-lifted-value who v #!optional deep?)
+    (cond
+      ((or (number? v) (boolean? v)) v)
+      ((sexp? v) (hakaru10-error 'construction who "a lifted function answered an SExp" v))
+      ((model? v) (hakaru10-error 'construction who "a lifted function answered a model" v))
+      ((and deep? (or (pair? v) (vector? v))) (check-no-sexp who v) v)
+      (else v)))
 
   ; cf. S:99-116 `instance Functor SExp`, `instance Applicative SExp` (fmap, <*>, liftA2,
   ; liftA3, ... in one): if no argument is an sexp, `fmap f (Val x) = Val (f x)` (S:100,
-  ; S:107), f being applied now, in pure context (a procedure it answers is boxed with
-  ; `constant`, so that it stays a Val); otherwise the arguments fuse into one NT
-  ; (`fmap f (NT t g) = NT t (f . g)`, S:102, and the <*> cases S:110-116).  The "cannot
-  ; happen" cases (S:108, S:111, S:115) disappear: f is a Scheme procedure.  An SExp that f
-  ; answers is an error (check-lifted-value; for an NT, when its node is built or updated).
-  ; Applied to Vals, f forces the deferred ones, but under lazy-lifting, where the first
-  ; deferred Val is the answer (deviation 11: f is not called) and an error of f a deferred
-  ; value (cf. S:100, M:99).
-  (define (lift* f es)
+  ; S:107), f being applied now; otherwise the arguments fuse into one NT (`fmap f (NT t g) =
+  ; NT t (f . g)`, S:102, and the <*> cases S:110-116).  The "cannot happen" cases (S:108,
+  ; S:111, S:115) disappear: f is a Scheme procedure.  An SExp or a Model that f answers is a
+  ; `construction` error (check-lifted-value, deviation 9): applied to Vals, at any depth of
+  ; its answer; for an NT, each time its fn runs, when its node is built or updated, whatever
+  ; the node's kind, at any depth on its first run (at the build of its first consumer, unless
+  ; a deferred parent delays it) and at the top on the next ones: walking the answer at every
+  ; update would cost too much (a categorical's alist, every step).  `checked?` #f skips the
+  ; check, for pair and collect, whose cons and list answer their arguments' values, checked
+  ; already.  Applied to Vals, f forces the deferred ones, but under lazy-lifting, where the
+  ; first deferred Val is the answer (deviation 11: f is not called) and an error of f a
+  ; deferred value (cf. S:100, M:99).
+  (define (lift* f es #!optional (checked? #t))
     (for-each (λ (e) (check-not-model 'lift e)) es)
     (if (any sexp? es)
-        (lift/fuse f es)
-        (let1 (v (check-lifted-value 'lift (lift/apply f (map val-of es))))
-          (if (procedure? v) (make-constant v) v))))
+        (lift/fuse f es checked?)
+        (let1 (v (lift/apply f es)) (if checked? (check-lifted-value 'lift v #t) v))))
 
-  ; (helper of lift*) f applied to the values vs, in pure context (see lift*).
+  ; (helper of lift*) f applied to the values vs (see lift*).
   (define (lift/apply f vs)
     (cond
-      ((not (lazy-lifting)) (pure-call (τ (apply f (forced-list vs)))))
+      ((not (lazy-lifting)) (apply f (forced-list vs)))
       ((find deferred? vs))
-      (else (pure-call (τ (call/deferring (λ (args) (apply f args)) vs))))))
+      (else (call/deferring (λ (args) (apply f args)) vs))))
 
   ; cf. S:110-116 (<*> on NTs, NTPair): one NT whose leaves are the union of the arguments'
   ; leaves, in first-occurrence order, and whose fn applies f to the arguments' values, each
-  ; extracted from the union's values.  The leaves must belong to one chain.
-  (define (lift/fuse f es)
+  ; extracted from the union's values, then checked if `checked?` (check-lifted-value, at any
+  ; depth on the fn's first run only, see lift*).  The leaves must belong to one chain.
+  (define (lift/fuse f es checked?)
     (let* ((leaves (delete-duplicates (append-map (λ (e) (vector->list (sexp-leaves e))) es) eq?))
            (owner (node-chain (car leaves)))
            (position (λ (n) (list-index (λ (m) (eq? n m)) leaves)))
            (extractors (map (λ (e) (lift/extractor position e)) es)))
       (unless (every (λ (n) (eq? (node-chain n) owner)) leaves)
         (hakaru10-error 'construction 'lift "nodes of different model runs" es))
-      (make-nt (list->vector leaves) (λ (vs) (apply f (map (λ (x) (x vs)) extractors))))))
+      (make-nt (list->vector leaves)
+               (if checked?
+                   (let1 (first? #t)
+                     (λ (vs)
+                       (let1 (v (check-lifted-value 'lift (apply f (map (λ (x) (x vs)) extractors))
+                                                    first?))
+                         (set! first? #f)
+                         v)))
+                   (λ (vs) (apply f (map (λ (x) (x vs)) extractors)))))))
 
   ; (helper of lift/fuse) the procedure that extracts e's value from the values of the union
   ; of leaves; `position` maps a leaf to its index there.  An NT whose leaves are a prefix of
@@ -709,204 +723,50 @@
                      g
                      (let1 (ps (list->vector ps))
                        (λ (vs) (g (vector-map (λ (p) (vector-ref vs p)) ps)))))))
-      (else (let1 (v (val-of e)) (if (deferred? v) (λ (vs) (force-value v)) (K v))))))
+      ((deferred? e) (λ (vs) (force-value e)))
+      (else (K e))))
 
   ;; ---------------------------------------------------------------------------------------
-  ;; Effects and handlers (user directive of 2026-10-12, PLAN-IDIOM §2.1): a model performs
-  ;; the requests (dist d args), (diracN e) and (if test th el) by `shift`ing to the `reset` of
-  ;; the handler that runs it.
+  ;; Construction: the State monad (S:82-279, M:233-526, M:641-686).  `type MCMCM a = State
+  ;; MCState a` (M:200), `type TraceM a = MCMCM (NodeRef a)` (M:202), `type Model a = MCMCM
+  ;; (SExp a)` (S:82): a model is a computation of (aux category state) whose state is the
+  ;; chain (plan §15, C32-C34).  Each function below is a State action named after its
+  ;; upstream counterpart, with its argument order and decomposition (C33).  Nodes are created
+  ;; when an action runs, in bind order (C35), and only by create-node.
   ;; ---------------------------------------------------------------------------------------
 
-  ; deviation 9 (S:82, S:118): the handler of the model being run.  It is set inside the
-  ; model's own dynamic extent only (handle-model parameterizes it inside the `reset`, so
-  ; leaving the model at a `shift` restores the outer value and resuming it sets it again):
-  ; handlers, user code in pure context and MH steps all see #f.
-  (define current-handler (make-parameter #f))
+  ; cf. S:82 (`Model a` is a type of its own) and C32: whether x is a Model, a State
+  ; computation.
+  (define model? category-state?)
 
-  ; deviation 9 (S:118, P l.739-747): SExp is not a monad, so the graph is static: user code
-  ; (distribution constructors, lifted functions) runs in pure context, where no effect can be
-  ; performed.
-  (define (pure-call thunk)
-    (if (current-handler)
-        (parameterize ((current-handler #f)) (thunk))
-        (thunk)))
+  ; cf. M:856-869 (`mcmc` takes a TraceM) and S:82: a `construction` error at who unless m is
+  ; a Model; answers m.
+  (define (check-model m who)
+    (unless (model? m)
+      (hakaru10-error 'construction who
+                      "a model (a State computation: do/monad, dist, diracN, if_ or return) is expected"
+                      m))
+    m)
 
-  ; cf. M:856-869 (`mcmc` takes a model): a model is a thunk (S:82), checked on behalf of who
-  ; by every entry point that runs one (build-chain, and the oracles of (aux hakaru10 exact)).
-  (define (check-model model who)
-    (unless (procedure? model)
-      (hakaru10-error 'construction who "a model (a thunk) is expected" model)))
+  ; cf. M:200 `State MCState` and upstream's `modify $ \s -> s{...}`: the action that runs body
+  ; on the chain ch, mutated in place (C34), and leaves it as the state.
+  (define-syntax-rule (modify! (ch) body ...) (modify (λ (ch) body ... ch)))
 
-  ; (new) what a model's `shift` hands to its handler's `reset`: the request (op arg ...) and
-  ; the model's continuation up to that `reset`.  Private: no model can answer one.
-  (define-record effect request k)
+  ; cf. upstream's `fail msg = error msg` in MCMCM (M:475, M:647): the action that raises the
+  ; (exn hakaru10) error when it runs.
+  (define (hakaru10-fail kind who msg . irritants)
+    (state (λ (_) (apply hakaru10-error kind who msg irritants))))
 
-  ; (new) perform the request (op arg ...): capture the model's continuation up to its
-  ; handler's `reset` and hand both to it; the value the handler resumes with is the answer.
-  ; Outside a model, or in pure context, it is an error, as `dist` there is a type error
-  ; upstream (S:82, S:118; deviation 9).
-  (define (perform . request)
-    (unless (current-handler)
-      (hakaru10-error 'construction (car request)
-                      "called outside model construction or inside a pure function"))
-    (shift k (make-effect request k)))
-
-  ; (new, no upstream counterpart: Haskell's continuations are pure) whether the native
-  ; shift/reset of this CHICKEN returns a call/cc escape inside a resumed segment to that
-  ; resumption.  `guard`, `handle-exceptions` and `condition-case` return (normally or on an
-  ; error) through call/cc, so a model that sets one up around a `dist` relies on it under a
-  ; multi-shot handler.  CHICKEN main up to rev 55615603 sends such an escape to the `reset`
-  ; the capture was made under (of the first run, or of an earlier resumption) instead,
-  ; dropping the rest of the enumeration: exact-posterior would answer a normalized but wrong
-  ; distribution, without error, were it not for handle-model's check.  Fixed by f11f304b,
-  ; b29737e8 and 0d398032 of chicken-core's branch delimcc-multishot.  A self-test run once, at
-  ; load: two resumptions of one `shift` under a `condition-case` set up before it, the second
-  ; raising; the answer is (1 caught) where the escape returns to its resumption.  One-shot
-  ; handlers (the trace builder, the forward runs) are unaffected, their `resume` being called
-  ; in tail position.
-  (define native-multishot-escapes?
-    (equal? (reset (condition-case (let1 (x (shift k (list (k 1) (k 2))))
-                                     (if (eqv? x 2) (error "native-multishot-escapes?") x))
-                     (e (exn) 'caught)))
-            '(1 caught)))
-
-  ; (helper of handle-model) the error of a misrouted escape, located at `who`, where
-  ; native-multishot-escapes? is false.
-  (define (multishot-unsupported who)
-    (hakaru10-error 'construction who
-                    "multi-shot resumption (exact enumeration) needs a CHICKEN whose call/cc escapes return to the resumption (chicken-core f11f304b, b29737e8, 0d398032)"
-                    (chicken-version #t)))
-
-  ; (new) run the thunk `model` under `handler`, (λ (request resume) ...): every request the
-  ; model performs reaches the handler with `resume`, the model's continuation, which answers
-  ; what handle-model answers; otherwise the answer is (return v) of the model's value v,
-  ; computed inside the `reset` but outside the model's dynamic extent.  A deep handler by
-  ; trampoline: `resume` runs the model up to its next request and hands that to the handler
-  ; again, so a one-shot handler runs in constant stack and a multi-shot one may resume many
-  ; times or lazily.  Hansei's `probcc-reify` (aux.hansei.scm) has this shape, over aux's
-  ; resetcc instead of the native reset.
-  ; The model starts with lazy-lifting #f: a run started from inside an inactive branch (a
-  ; lifted function calling exact-posterior or mcmC) does not inherit its lazy lifting; a
-  ; branch the model builds as inactive sets it again inside the model (build-branch!).
-  ; Where native-multishot-escapes? is false (see there), a misrouted escape returns to the
-  ; `reset` of the first run or to the `(k v)` of an earlier resumption, a second time.  Once
-  ; handle-model has answered (a lazy handler such as exact enumeration's, whose resumptions
-  ; run afterwards), that is a `construction` error rather than a silently wrong answer,
-  ; raised where the resumption whose segment escaped was called (each such `resume` records
-  ; its continuation; the latest one is the resumption running, since a segment runs as soon
-  ; as it is resumed and no resumption starts inside a segment): so a tree of
-  ; model->search-tree raises it from the probcc-explore that forces it, under that caller's
-  ; handlers, not from the stale build call it was misrouted to.  Before handle-model answers
-  ; it is let through: under a one-shot handler, which calls `resume` in tail position (the
-  ; trace builder, the forward runs), it delivers what the resumption would have; an eager
-  ; multi-shot handler is not protected.
-  (define (handle-model model handler #!optional (return identity))
-    (define (run-model)
-      (if (lazy-lifting)
-          (parameterize ((current-handler handler) (lazy-lifting #f)) (model))
-          (parameterize ((current-handler handler)) (model))))
-    (if native-multishot-escapes?
-        (let run ((r (reset (return (run-model)))))
-          (if (effect? r)
-              (handler (effect-request r) (let1 (k (effect-k r)) (λ (v) (run (k v)))))
-              r))
-        (let ((answered #f) (resumption #f))
-          ; (helper) continue as above with r, the value of the thunk `delimited`, a `reset` or
-          ; a resumption's (k v); its second value, once handle-model has answered, is a
-          ; misrouted escape, whose error is delivered to `resumption`, the continuation of the
-          ; latest call of a `resume` made after handle-model answered, as a thunk it calls.
-          ; The resumptions before it (all of a one-shot handler's) stay tail calls.
-          (define (run delimited)
-            (let* ((returned #f)
-                   (r (delimited)))
-              (when (and returned answered)
-                (let1 (misrouted (τ (multishot-unsupported 'handle-model)))
-                  (if resumption (resumption misrouted) (misrouted))))
-              (set! returned #t)
-              (if (effect? r)
-                  (handler (effect-request r)
-                           (let1 (k (effect-k r))
-                             (λ (v)
-                               (if answered
-                                   ((call-with-current-continuation
-                                      (λ (ret)
-                                        (set! resumption ret)
-                                        (let1 (r (run (τ (k v)))) (τ r)))))
-                                   (run (τ (k v)))))))
-                  r)))
-          (begin1 (run (τ (reset (return (run-model))))) (set! answered #t)))))
-
-  ; cf. S:141-151 `class StochasticPrim`: `dist d` for a distk d (S:144-145), `dist ctor x y`
-  ; for a constructor (S:147-151).  deviation 9 (S:137-151): any arity, and plain values are
-  ; Vals (replacing `fromInteger`/`pure`, S:120-132).  `ctor` may answer a resampleable or an
-  ; observed distk (S:143-151, k polymorphic).  Performs (dist d args).
-  (define (dist d . args)
-    (cond
-      ((distk? d)
-       (unless (null? args)
-         (hakaru10-error 'construction 'dist "a distribution takes no arguments" d args)))
-      ((procedure? d) (for-each (λ (a) (check-not-model 'dist a)) args))
-      (else (hakaru10-error 'construction 'dist
-                            "a distribution or a distribution constructor is expected" d)))
-    (perform 'dist d args))
-
-  ; cf. S:161-169 `diracN`: performs (diracN e).
-  (define (diracN e)
-    (check-not-model 'diracN e)
-    (perform 'diracN e))
-
-  ; cf. S:275-279 `if_ test th el`: performs (if test th el), `th` and `el` being models, and
-  ; calls the thunk the handler resumes with, in the model's own context and under the same
-  ; `reset`: the computation that realizes the branch (PLAN-IDIOM C27).
-  (define (if_* test th el)
-    (unless (and (procedure? th) (procedure? el))
-      (hakaru10-error 'construction 'if_ "the branches of if_ must be models (thunks)" th el))
-    (check-not-model 'if_ test)
-    ((perform 'if test th el)))
-
-  ; cf. S:137-151 and S:218-219 (`with_node_ctor (Val x) df = ... df x`): the distk that the
-  ; request (dist d args) denotes when every argument is a Val, as under a handler that
-  ; evaluates SExps to plain values (the exact enumerator, a forward sampler); the constructor
-  ; runs in pure context.
-  (define (effect-distk d args)
-    (if (distk? d)
-        d
-        (let1 (vs (map val-of args))
-          (check-distk 'dist (pure-call (τ (apply d (forced-list vs))))))))
-
-  ; cf. S:275-279 `if_`, for a handler that evaluates SExps to plain values: the branch thunk,
-  ; th or el, that the test selects; resumed with it, the model runs the branch in its own
-  ; context, so the branch's requests reach the same handler.
-  ; deviation 9 (S:275 `if_ :: SExp Bool -> ...`): the test must be a boolean (plan C7).
-  (define (select-branch test th el)
-    (let1 (tv (force-value (val-of test)))
-      (check-test 'if_ tv)
-      (if tv th el)))
-
-  ; (new) cf. S:137-151, S:161-169, S:275-279 read over plain values: the skeleton of every
-  ; interpretation in which SExps are plain values.  (dist d args) calls (on-dist dk resume)
-  ; with the request's distk; (diracN e) resumes with e, a Val; (if test th el) resumes with
-  ; (on-if test th el), a thunk the model calls in its own context, by default the branch the
-  ; test selects.  A procedure value stays boxed, as lift* keeps it (`constant`): `resume`
-  ; boxes the value of a choice, and e is resumed as is, so that the model, which the trace
-  ; builder answers a node there, may pass it to lift, dist or diracN (S:105-116 `Val f`); the
-  ; model's result, lift and effect-distk unbox it (val-of).
-  (define ((value-handler on-dist #!key (on-if select-branch)) request resume)
-    (match/first request
-      ((dist ,d ,args) (on-dist (effect-distk d args)
-                                (λ (x) (resume (if (procedure? x) (make-constant x) x)))))
-      ((diracN ,e) (resume e))
-      ((if ,test ,th ,el) (resume (on-if test th el)))
-      (else (hakaru10-error 'internal 'handle-model "unknown effect" request))))
+  ; deviation 11 (Haskell's non-strict arguments; C36): the Model that calls thunk when it runs
+  ; and checks that thunk answered a Model.  A procedure over a thunk, not a macro, so that the
+  ; public `if_` expands into plain procedure calls.
+  (define (lazy-model who thunk) (state (λ (ch) (run-state (check-model (thunk) who) ch))))
 
   ; cf. S:174-193 `class Condition`, through the distribution module's `condition`;
   ; deviation 9 (S:38-42, S:180-183): "observation must be external to the model" is a run-time
-  ; check that obs is not an sexp.  This is the public `condition`.
-  (define (condition/external obs d) (condition obs d sexp?))
-
-  ;; ---------------------------------------------------------------------------------------
-  ;; The trace builder (M:399-526, S:137-279): the handler that builds the trace graph.
-  ;; ---------------------------------------------------------------------------------------
+  ; check that obs neither is nor contains an SExp or a Model (internal-part): `CondV a = a`
+  ; (S:180-193), and a Model has no `Eq` nor `Show`.  This is the public `condition`.
+  (define (condition/external obs d) (condition obs d internal-part))
 
   ; deviation 10 (no upstream counterpart): an sexp must belong to the chain being built.
   (define (check-owner ch e who)
@@ -946,26 +806,6 @@
                                e))))
         (thunk)))
 
-  ; cf. M:404-419 `create_node` and M:233-243 `new_nref`: sample the distk (drawing only if it
-  ; is resampleable, M:97-100), allocate the next address (Mem:59-63), add its LL to llcum,
-  ; and record a resampleable node in `sampleable`, prepended (M:239).  `role` is root (no
-  ; update), plain, entry or exit; `parents` a vector of nodes; `fn` the node's distk function
-  ; (the constant distk for a root); `update` #f or the update procedure.  The node records
-  ; the current construction scope.  Answers the node.
-  (define (create-node! ch role parents fn dk update)
-    (receive (v ll) (build-guard ch (τ (distk-sample dk (chain-rng ch))))
-      (let1 (n (make-node ch (fx+ 1 (chain-count ch)) (distk-kind dk) role parents fn update
-                          (chain-scope ch) '() #f
-                          (make-nstate v ll (distk-rd dk) (chain-now ch)) 0 #f #f #f))
-        (chain-store! ch n)
-        (when (eq? (node-kind n) 'resampleable)
-          (chain-sampleable-set! ch (cons n (chain-sampleable ch))))
-        (chain-llcum-set! ch (fp+ (chain-llcum ch) ll))
-        n)))
-
-  ; cf. M:421-423 `with_node_none`: a root node, never updated.
-  (define (create-root! ch dk) (create-node! ch 'root (vector) dk dk #f))
-
   ; deviation 10 (no upstream counterpart; Haskell's lexical scoping guarantees it): a node
   ; may depend only on nodes of its own branch or of an enclosing one, i.e. the parent's scope
   ; must be a tail of the child's.  Exit nodes depend on both branches by design (M:670-673).
@@ -976,7 +816,8 @@
                   (or (eq? cs ps) (and (pair? cs) (tail? (cdr cs)))))
           (hakaru10-error 'branch 'if_ "node escapes its branch" parent child)))))
 
-  ; cf. M:246-250 `new_dependency`: add child to the dependents of parent (IntSet union).
+  ; cf. M:246-250 `new_dependency`, the write: add child to the dependents of parent (IntSet
+  ; union), after deviation 10's branch-escape check.
   (define (add-dependency! parent child)
     (check-branch-escape parent child)
     (unless (memq child (node-deps parent))
@@ -1006,14 +847,15 @@
   ; a new tstamp (M:482, the note on Dirac, P §4.3 l.801-843); a resampleable or observed node
   ; keeps its value and tstamp and gets the new LL "and !!! Don't forget to update the
   ; distribution" (M:483-488).  Answers (values nstate' '()).  The node's fn forces the deferred
-  ; values it reads, but that of an inactive diracN node (see lazy-value).
+  ; values it reads, but that of an inactive diracN node (see lazy-value).  Imperative, as every
+  ; update (C34): it runs during a step, under the journal, not as a State action.
   (define (doupdate n)
     (let ((ch (node-chain n)) (self (node-state n)) (leaves (node-parents n)))
       (unless (extended? ch) (check-active-update n leaves))
       ; cf. S:240-243: the parents must have been updated.
       (unless (fx> (leaves-tstamp leaves) (nstate-tstamp self))
         (hakaru10-error 'dependency 'update "dependency violation!" n (leaves-tstamp leaves)))
-      (let* ((dk (check-distk 'update (pure-call (τ ((node-fn n) (leaf-values leaves))))))
+      (let* ((dk (check-distk 'update ((node-fn n) (leaf-values leaves))))
              (kind (distk-kind dk)))
         ; deviation 10 (M:46-60): the kind of a node is a static type upstream.
         (unless (eq? kind (node-kind n))
@@ -1027,91 +869,179 @@
                 (make-nstate v ((rdistr-log-density rd) v) rd (nstate-tstamp self))))
           '()))))
 
-  ; cf. S:218-228 `with_node_ctor` (which dispatches to with_node, M:451-456, and with_node2,
-  ; M:492-499): a Val gives a root node with no update (S:219); an NRef or an NT gives a plain
-  ; node whose distk is `df` of the SExp's value, updated by doupdate and registered as a
-  ; dependent of each leaf in order (S:255-261).  `df` maps a value to a distk.  The node's fn
-  ; forces the deferred values it reads, unless `lazy`, which to-node! passes for a diracN
-  ; node (df is then dirac): its value is lazy-value's, deferred while the node is inactive
-  ; (cf. M:99, M:120-129).  The value of a Dirac node, or of a Val, must not contain an SExp
-  ; (check-no-sexp, deviation 9).  `who` names the caller in errors.  Answers the node.
-  (define (with-node-ctor! ch e df #!optional (who 'dist) lazy)
-    (check-not-model who e)
-    (check-owner ch e who)
-    (if (sexp? e)
-        (let* ((leaves (sexp-leaves e))
-               (self #f)  ; the node, once created: lazy-value then asks it whether it is active
-               (fn (cond
-                     (lazy (let1 (g (if (node? e) (λ (vs) (vector-ref vs 0)) (nt-fn e)))
-                             (λ (vs)
-                               (df (lazy-value g vs (if self
-                                                        (node-inactive? self)
-                                                        (inactive-scope? ch)))))))
-                     ((node? e) (λ (vs) (df (force-value (vector-ref vs 0)))))
-                     (else (let1 (g (nt-fn e)) (λ (vs) (df (g (forced-values vs))))))))
-               (dk (check-distk who
-                                (build-guard ch (τ (pure-call (τ (fn (leaf-values leaves))))))))
-               (n (begin
-                    (when (eq? (distk-kind dk) 'dirac) (check-no-sexp who (distk-value dk)))
-                    (create-node! ch 'plain leaves fn dk doupdate))))
-          (set! self n)
-          (vector-for-each (λ (p) (add-dependency! p n)) leaves)
-          n)
-        (let1 (v (val-of e))
-          (check-no-sexp who v)
-          (create-root! ch (check-distk who (build-guard ch (τ (pure-call (τ (df (force-value v)))))))))))
+  ; cf. M:233-243 `new_nref`: store n (Mem.new, M:236), record it in `sampleable` if it is
+  ; resampleable, prepended (M:238-239), and add its LL to llcum (M:241); `added` is a range
+  ; of chain-count here (M:240, M:650).  Answers n, its own NRef.  Upstream's `get`, then
+  ; `put` of the new state, is one transition, written with `state`: it runs once per node,
+  ; on the hottest path of construction.
+  (define (new-nref n)
+    (state (λ (ch)
+             (chain-store! ch n)
+             (when (eq? (node-kind n) 'resampleable)
+               (chain-sampleable-set! ch (cons n (chain-sampleable ch))))
+             (chain-llcum-set! ch (fp+ (chain-llcum ch) (nstate-ll (node-state n))))
+             (cons n ch))))
 
-  ; cf. S:210-214 `to_node`, and S:161-169 `diracN`, which coincide: a Val becomes a new
-  ; Dirac root (S:167); "if x is just a NoderRef, (diracN x) returns this reference (shares)
-  ; rather than creating a copy of it!" (S:164-165, S:168); an NT becomes a Dirac node with an
-  ; update (S:169), whose value is lazy (with-node-ctor!).  A Val that contains an SExp is an
-  ; error (check-no-sexp, deviation 9).  Answers the node.
-  (define (to-node! ch e #!optional (who 'to_node))
+  ; cf. M:246-250 `new_dependency`, with deviation 10's branch-escape check (add-dependency!).
+  (define (new-dependency parent child) (modify! (ch) (add-dependency! parent child)))
+
+  ; cf. S:255-261 `register_dependencies t na`: new_dependency of each leaf of t, in order (the
+  ; tree's leaves are the flat vector leaves, S:89-93), as one action.
+  (define (register-dependencies leaves child)
+    (modify! (ch) (vector-for-each (λ (p) (add-dependency! p child)) leaves)))
+
+  ; cf. M:404-419 `create_node update dist`: sample dk (sampleK, M:409, drawing only if it is
+  ; resampleable, M:97-100; the rng source advances in place, so M:410's `modify seed` has no
+  ; statement of its own), read now (M:411), make the node (M:413-419) and new_nref it.  role,
+  ; parents and fn are the static fields of plan §5.2, after upstream's two arguments: role is
+  ; root (no update), plain, entry or exit, parents a vector of nodes, fn the node's distk
+  ; function (the constant dk of a root).  The node records the current construction scope.
+  ; The only draw of construction, and the only place a node is made.  Upstream's `get`, then
+  ; new_nref, is one transition, written with `state`, as new-nref is: it runs once per node,
+  ; and a bind per statement made construction up to a quarter slower (plan §15.6).
+  (define (create-node update dk #!optional (role 'root) (parents (vector)) (fn dk))
+    (state (λ (ch)                                                                ; M:408
+             (receive (v ll) (build-guard ch (τ (distk-sample dk (chain-rng ch))))  ; M:409-410
+               (run-state (new-nref (make-node ch (fx+ 1 (chain-count ch)) (distk-kind dk) role
+                                               parents fn update (chain-scope ch) '() #f
+                                               (make-nstate v ll (distk-rd dk) (chain-now ch))
+                                               0 #f #f #f))
+                          ch)))))
+
+  ; cf. M:421-423 `with_node_none`: a root node, never updated.
+  (define (with-node-none dk) (create-node #f dk))
+
+  ; cf. S:224-228, with_node_ctor's general case `create_node (Just $ doupdate t (df . g))
+  ; dist >> register_dependencies t addr`, and S:255-261: a plain node whose distk is fn of the
+  ; leaves' values (a vector), updated by doupdate, then a dependent of each leaf in order.
+  ; The value of a Dirac node must not contain an SExp (check-no-sexp, deviation 9).
+  ; with_node2 (M:492-499) is the two-leaf case of this, the leaves being a flat vector (S:89-93),
+  ; so it has no definition of its own; nor has refresh_nref (M:253-256): nodes are shared,
+  ; never copied.  One transition, written with `state`, as create-node: it runs once per node
+  ; but a root (plan §15.6).
+  (define (with-node-tree leaves fn #!optional (who 'dist))
+    (state (λ (ch)
+             (let1 (dk (check-distk who (build-guard ch (τ (fn (leaf-values leaves))))))  ; S:225
+               (when (eq? (distk-kind dk) 'dirac)                                      ; deviation 9
+                 (check-no-sexp who (distk-value dk)))
+               (let* ((r (run-state (create-node doupdate dk 'plain leaves fn) ch))    ; S:226
+                      (n (car r)))
+                 (cons n (exec-state (register-dependencies leaves n) (cdr r))))))))   ; S:227
+
+  ; cf. M:451-456 `with_node ndr f`: one parent; f maps its (forced) value to a distk.
+  (define (with-node ndr f #!optional (who 'dist))
+    (with-node-tree (vector ndr) (λ (vs) (f (force-value (vector-ref vs 0)))) who))
+
+  ; deviation 11 (M:99, M:120-129): to_node's NT case (S:214) as a Dirac node whose value is
+  ; lazy-value's, df of g of the leaves' values, deferred while the node is inactive: `self`,
+  ; the node once made, answers whether it is, the construction scope before.  The cell is
+  ; bound per run, after the first bind (a TraceM may run several times).
+  (define (lazy-tree leaves g df who)
+    (do/monad
+      (← ch get)
+      (let self #f)
+      (← n (with-node-tree leaves
+                           (λ (vs) (df (lazy-value g vs (if self
+                                                            (node-inactive? self)
+                                                            (inactive-scope? ch)))))
+                           who))
+      (let _ (set! self n))
+      (return n)))
+
+  ; cf. S:218-228 `with_node_ctor e df`, dispatching as S:219-224: a Val gives a root node
+  ; (S:219 `create_node Nothing (df x)`), an NRef `with_node` (S:220), an NT the general case
+  ; (S:221-228).  df maps a value to a distk, and the node's fn forces the deferred values it
+  ; reads, unless `lazy` (to_node's NT, deviation 11), which makes the value lazy-value's.  A
+  ; Val must not contain an SExp (check-no-sexp, deviation 9).  `who` names the caller in
+  ; errors.
+  (define (with-node-ctor e df #!optional (who 'dist) lazy)
     (check-not-model who e)
-    (check-owner ch e who)
+    (do/monad
+      (gets (λ (ch) (check-owner ch e who)))                                      ; deviation 10
+      (cond
+        ((node? e) (if lazy
+                       (lazy-tree (vector e) (λ (vs) (vector-ref vs 0)) df who)
+                       (with-node e df who)))                                     ; S:220
+        ((nt? e) (if lazy
+                     (lazy-tree (nt-leaves e) (nt-fn e) df who)
+                     (let1 (g (nt-fn e))                                          ; S:221-228
+                       (with-node-tree (nt-leaves e) (λ (vs) (df (g (forced-values vs)))) who))))
+        (else (check-no-sexp who e)                                               ; deviation 9
+              (>>= (gets (λ (ch) (check-distk who (build-guard ch (τ (df (force-value e)))))))
+                   with-node-none)))))                                            ; S:219
+
+  ; cf. S:210-214 `to_node`, which S:166-169 `diracN` repeats: a Val becomes a Dirac root
+  ; (S:212), an NRef is answered as is, shared ("if x is just a NoderRef, (diracN x) returns
+  ; this reference (shares) rather than creating a copy of it!", S:164-165, S:213), an NT a
+  ; lazy Dirac node (S:214, deviation 11).  A Val that contains an SExp is an error
+  ; (check-no-sexp, deviation 9).
+  (define (to-node e #!optional (who 'to_node))
+    (check-not-model who e)
     (cond
-      ((node? e) e)
-      ((nt? e) (with-node-ctor! ch e dirac who #t))
-      (else (let1 (v (val-of e))
-              (check-no-sexp who v)
-              (create-root! ch (dirac v))))))
+      ((node? e) (do/monad (gets (λ (ch) (check-owner ch e who))) (return e)))  ; S:213
+      ((nt? e) (with-node-ctor e dirac who #t))                                  ; S:214
+      (else (check-no-sexp who e) (with-node-none (dirac e)))))                  ; S:212
 
-  ; cf. S:141-151: `dist d` is `with_node_none d` (S:144-145, M:421-423), `dist ctor x y` is
-  ; `with_node_ctor (pair x y) (uncurry ctor)` (S:147-151), here `with_node_ctor` of the
-  ; lifted application of ctor: a root node when every argument is a Val.  It always creates
-  ; a new node.
-  (define (build-dist! ch d args)
-    (if (distk? d)
-        (create-root! ch d)
-        (with-node-ctor! ch (build-guard ch (τ (lift* d args))) (λ (dk) (check-distk 'dist dk)))))
+  ; cf. S:134-135 `pair = liftA2 (,)`.
+  (define (pair a b) (lift* cons (list a b) #f))
 
-  ; cf. S:275-279 `if_ test th el`: "Always make a new node, for the sake of ifnode": the entry
-  ; is `with_node_ctor test diracS` (a root for a constant test), whose value must be a boolean
-  ; (deviation 9); then `fmap NRef $ ifnode entry (th >>= to_node) (el >>= to_node)`.  It runs
-  ; in the model's context (the trace builder resumes the model with it, C27), so the branch
-  ; models run inline under the same `reset` and their requests reach the same builder.
+  ; cf. B1:113-114 and P l.503-504, `sequenceA` of a list of SExps: one SExp of the list of
+  ; their values; (collect '()) is '().
+  (define (collect es) (lift* list es #f))
+
+  ; cf. S:137-151 `type family Args`, `class StochasticPrim`: `dist d = fmap NRef $
+  ; with_node_none d` (S:144-145), `dist d x = with_node_ctor x d` (S:147-148), `dist d x y =
+  ; with_node_ctor (pair x y) (uncurry d)` (S:150-151).  d may answer a resampleable or an
+  ; observed distk (S:143-151, k polymorphic).  deviation 9 (S:137-151): any arity (collect for
+  ; n >= 3, a nullary constructor applied to '()), plain values are Vals (replacing
+  ; `fromInteger`/`pure`, S:120-132), and an argument that is a Model, or a Val that holds an
+  ; SExp or a Model (check-no-sexp: the `Show` of the sample type, S:144-151), raises when
+  ; dist is applied, as the type check does upstream; next to an SExp argument, such a Val is
+  ; only a constant of the pair or list's NT, which with-node-ctor's Val check never sees.
+  ; The SExp of the arguments is made then too: pair and collect draw nothing, but raise
+  ; `construction` at once for nodes of different model runs (lift/fuse), and under
+  ; lazy-lifting may answer a deferred argument in place of the pair or list, whose force
+  ; raises its error again when the node is made.  The owner check (check-owner) fires when
+  ; the model runs (plan §15.2).  It always creates a new node.
+  (define (dist d . args)
+    (cond
+      ((distk? d) (unless (null? args)
+                    (hakaru10-error 'construction 'dist "a distribution takes no arguments"
+                                    d args)))
+      ((procedure? d) (for-each (λ (a)
+                                  (check-not-model 'dist a)
+                                  (unless (sexp? a) (check-no-sexp 'dist a)))
+                                args))
+      (else (hakaru10-error 'construction 'dist
+                            "a distribution or a distribution constructor is expected" d)))
+    (match/first args
+      (() (if (distk? d)
+              (with-node-none d)                                                  ; S:144-145
+              (with-node-ctor '() (λ (_) (check-distk 'dist (d))))))
+      ((,x) (with-node-ctor x (λ (v) (check-distk 'dist (d v)))))                 ; S:147-148
+      ((,x ,y) (with-node-ctor (pair x y) (Λ ((,a . ,b)) (check-distk 'dist (d a b)))))  ; S:150-151
+      (else (with-node-ctor (collect args) (λ (vs) (check-distk 'dist (apply d vs)))))))
+
+  ; cf. S:161-169 `diracN`: its three cases are to_node's (S:167-169 = S:212-214).
+  (define (diracN e) (to-node e 'diracN))
+
+  ; cf. S:275-279 `if_ test th el = do entry <- with_node_ctor test diracS; fmap NRef $ ifnode
+  ; entry (th >>= to_node) (el >>= to_node)`: "Always make a new node, for the sake of ifnode"
+  ; (a root for a constant test).  deviation 9 (S:275 `if_ :: SExp Bool -> ...`): the test
+  ; must be a boolean (plan C7).  th and el are Models (the public `if_` delays them, C36).
   ; Answers the exit node.
-  (define (build-if! ch test th el)
-    (let1 (entry (with-node-ctor! ch test (λ (v) (check-test 'if_ v) (dirac v))))
-      (node-role-set! entry 'entry)
-      (ifnode! ch entry (τ (to-node! ch (th))) (τ (to-node! ch (el))))))
+  (define (if_* test th el)
+    (check-not-model 'if_ test)
+    (do/monad
+      (← entry (with-node-ctor test (λ (v) (dirac (check-test 'if_ v)))))     ; S:277-278
+      (modify! (ch) (node-role-set! entry 'entry))                              ; plan §5.2
+      (ifnode entry (▷ (check-model th 'if_) to-node) (▷ (check-model el 'if_) to-node))))  ; S:279
 
-  ; cf. S:82 `type Model a = MCMCM (SExp a)` and S:196-197 `mcmC`'s `m >>= to_node`: the
-  ; handler that interprets a model's requests by building ch's trace graph, the State monad's
-  ; job upstream.  One-shot: every request resumes the model at once, in order, with the node
-  ; it made, or for `if` with the thunk that builds the branches (C27), so the nodes are
-  ; created and the choices drawn in upstream's order (C18).
-  (define ((trace-builder ch) request resume)
-    (resume (match/first request
-              ((dist ,d ,args) (build-dist! ch d args))
-              ((diracN ,e) (to-node! ch e 'diracN))
-              ((if ,test ,th ,el) (τ (build-if! ch test th el)))
-              (else (hakaru10-error 'internal 'mcmC "unknown effect" request)))))
-
-  ; cf. S:196-197 `m >>= to_node`: run model under the trace builder of ch and turn its result
-  ; into a node.  Answers the node.
-  (define (run-model! ch model)
-    (handle-model model (trace-builder ch) (λ (e) (to-node! ch e))))
+  ; cf. S:82 `type Model a = MCMCM (SExp a)` and S:196-197 `mcmC limit m = mcmc limit (m >>=
+  ; to_node)`: the TraceM of a Model, whose answer, the model's result, becomes a node last,
+  ; outside every branch.  Every entry point that runs a Model builds through it (build-chain
+  ; takes the TraceM), checking m on behalf of who.
+  (define (model->trace m who) (▷ (check-model m who) to-node))
 
   ;; ---------------------------------------------------------------------------------------
   ;; Branches (the note M:564-639, the code M:641-794, S:275-279; P §4.4 p.17 l.844-869):
@@ -1143,9 +1073,11 @@
 
   ; deviation 9 (S:275 `if_ :: SExp Bool -> ...`): the test must be a boolean, checked when the
   ; entry is created and whenever it is updated; it is not coerced to a truth value (plan C7).
+  ; Answers v.
   (define (check-test who v . irritants)
     (unless (boolean? v)
-      (apply hakaru10-error 'branch who "the test of if_ must be a boolean" v irritants)))
+      (apply hakaru10-error 'branch who "the test of if_ must be a boolean" v irritants))
+    v)
 
   ; cf. M:696-751, the folds `Set.foldl' deactivate1` and `Set.foldl' activate1` (M:700,
   ; M:728) that deactivate and activate share: walk the nodes of (lo, hi] in ascending address
@@ -1275,53 +1207,70 @@
                   self)
               '())))
 
-  ; deviation 10 (no upstream counterpart; Haskell's lexical scoping): build a branch with
-  ; `thunk`, in the construction scope extended with (entry . polarity), polarity #t for the then
-  ; branch, so that every node it creates records it (node-scope, the branch-escape check and
-  ; inactive-scope?).  Answers the thunk's answer, the branch's result node.
-  ; The branch is built under lazy-lifting when it is inactive.
-  (define (build-branch! ch entry polarity thunk)
-    (let1 (scope (chain-scope ch))
-      (chain-scope-set! ch (cons (cons entry polarity) scope))
-      (begin1 (if (inactive-scope? ch) (parameterize ((lazy-lifting #t)) (thunk)) (thunk))
-              (chain-scope-set! ch scope))))
+  ; cf. M:696-717 `deactivate`, at construction (M:659 "which rolls back llcum"): deactivate!
+  ; over (lo, hi]; the journal is #f during construction, so its setters are raw writes.
+  (define (deactivate lo hi) (modify! (ch) (deactivate! ch lo hi)))
 
-  ; cf. M:641-686 `ifnode entry th el`: `th` and `el` are thunks that build a branch in the
-  ; current chain and answer its result's node (TraceM a: `th >>= to_node`, S:279).  The
-  ; entry must not be sampleable (M:643-647; "When a node is resampled, its update procedure is
-  ; not run"); sampleable nodes are exactly the resampleable ones, so the kind is checked.  The
-  ; inactive branch is built first (M:651-652) and deactivated at once (M:659, "which rolls
-  ; back llcum"; its range may be empty, M:655-657), then the active one (M:661).  The exit
-  ; node, a Dirac of the active result's value updated by update-exit, depends on the entry,
-  ; the active result and the inactive result, in this order (M:665-673).  The entry's update,
-  ; if any, is wrapped by update-entry (M:679-685; a constant test has none, and Haskell's lazy
-  ; `Just prev_upd` is then never forced).  Entry and exit share one branch record.  Each
-  ; branch is built in the scope extended with (entry . polarity), polarity #t for the then
-  ; branch (deviation 10, the branch-escape check).  Answers the exit node.
-  (define (ifnode! ch entry th el)
-    (when (eq? (node-kind entry) 'resampleable)
-      (hakaru10-error 'internal 'if_ "Entry node for if should not be sampleable" entry))
-    (let1 (tv (node-value entry))
-      (check-test 'if_ tv entry)
-      (let* ((c0 (chain-count ch))
-             (inactive-result (build-branch! ch entry (not tv) (if tv el th)))
-             (c1 (chain-count ch)))
-        (deactivate! ch c0 c1)
-        (let* ((active-result (build-branch! ch entry tv (if tv th el)))
-               (c2 (chain-count ch))
-               ; M:665-666 and M:679-680: the results and the ranges, in then/else order.
-               (b (if tv
-                      (make-branch entry active-result inactive-result (cons c1 c2) (cons c0 c1))
-                      (make-branch entry inactive-result active-result (cons c0 c1) (cons c1 c2))))
-               (parents (list entry active-result inactive-result))
-               (exit (create-node! ch 'exit (list->vector (delete-duplicates parents eq?)) #f
-                                   (dirac (node-value active-result)) (update-exit b)))
-               (prev (node-update entry)))
-          (node-branch-set! exit b)
-          (for-each (λ (p) (add-dependency! p exit)) parents)
-          (when prev (node-update-set! entry (update-entry prev b)))
-          (node-branch-set! entry b)
-          exit))))
+  ; deviation 10 (the construction scope, no upstream counterpart: Haskell's lexical scoping)
+  ; and deviation 11 (lazy lifting): run the TraceM m in the scope extended with (entry .
+  ; polarity), polarity #t for the then branch, so that every node it creates records it
+  ; (node-scope, the branch-escape check and inactive-scope?), and under lazy-lifting when the
+  ; branch is inactive.  A State run is a direct call, so every bind of m, and the evaluation
+  ; of the branch's delayed expression (C36), runs inside the parameterize.  An error leaves
+  ; the scope pushed, on a chain that build-chain discards.  Answers m's answer, the branch's
+  ; result node.  One transition, written with `state`, as create-node (plan §15.6).
+  (define (in-branch entry polarity m)
+    (state (λ (ch)
+             (let1 (scope (chain-scope ch))
+               (chain-scope-set! ch (cons (cons entry polarity) scope))
+               (let1 (r (if (inactive-scope? ch)
+                            (parameterize ((lazy-lifting #t)) (run-state m ch))
+                            (run-state m ch)))
+                 (chain-scope-set! (cdr r) scope)
+                 r)))))
+
+  ; cf. M:641-686 `ifnode entry th el`, line by line: th and el are TraceMs (S:279 `th >>=
+  ; to_node`).  The entry must not be sampleable (M:643-647; "When a node is resampled, its
+  ; update procedure is not run"); sampleable nodes are exactly the resampleable ones, so the
+  ; kind is checked, and the test must be a boolean (deviation 9, as in if_*).  The inactive
+  ; branch is built first (M:651-652) and deactivated at once (M:659; its range may be empty,
+  ; M:655-657), then the active one (M:661); a branch's nodes are the addresses created while
+  ; it runs, (added-old, added-inactive] and (added-inactive, added-active], replacing `added`
+  ; (M:650-663).  The exit node, a Dirac of the active result's value updated by update-exit,
+  ; depends on the entry, the active result and the inactive result, in this order
+  ; (M:665-673).  The entry's update, if any, is wrapped by update-entry (M:679-685; a
+  ; constant test has none, and Haskell's lazy `Just prev_upd` is then never forced).  Entry
+  ; and exit share one branch record.  Answers the exit node.
+  (define (ifnode entry th el)
+    (do/monad
+      (when/monad (eq? (node-kind entry) 'resampleable)                           ; M:643-647
+        (hakaru10-fail 'internal 'if_ "Entry node for if should not be sampleable" entry))
+      (let testv (check-test 'if_ (node-value entry) entry))                      ; M:648
+      (let (,active ,inactive) (if testv (list th el) (list el th)))             ; M:649
+      (← added-old (gets chain-count))                                            ; M:650
+      (← inactive-nr (in-branch entry (not testv) inactive))                      ; M:651-652
+      (← added-inactive (gets chain-count))                                       ; M:653-654
+      (deactivate added-old added-inactive)                                       ; M:655-659
+      (← active-nr (in-branch entry testv active))                                ; M:660-661
+      (← added-active (gets chain-count))                                         ; M:662-663
+      ; M:665-666 and M:679-680: the results and the ranges, in then/else order.
+      (let b (if testv
+                 (make-branch entry active-nr inactive-nr
+                              (cons added-inactive added-active) (cons added-old added-inactive))
+                 (make-branch entry inactive-nr active-nr
+                              (cons added-old added-inactive) (cons added-inactive added-active))))
+      (← exit (create-node (update-exit b) (dirac (node-value active-nr)) 'exit   ; M:667-669
+                           (list->vector (delete-duplicates (list entry active-nr inactive-nr) eq?))
+                           #f))
+      (modify! (ch) (node-branch-set! exit b))
+      (new-dependency entry exit)                                                 ; M:670-673
+      (new-dependency active-nr exit)
+      (new-dependency inactive-nr exit)
+      (modify! (ch)                                                               ; M:678-685
+        (let1 (prev (node-update entry))
+          (when prev (node-update-set! entry (update-entry prev b))))
+        (node-branch-set! entry b))
+      (return exit)))                                                             ; M:686
 
   ;; ---------------------------------------------------------------------------------------
   ;; Propagation (M:258-317; P §4.2 p.15-16 l.765-800)
@@ -1509,18 +1458,19 @@
                     (else acc)))
                 0. ch))
 
-  ; cf. M:872-880 `initial_step'` and S:196-197 `mcmC limit m = mcmc limit (m >>= to_node)`:
-  ; run the model (a thunk) once under the trace builder of a fresh chain over src, turn its
-  ; result into a node, and freeze the graph.  Answers (values ch result).
+  ; cf. M:872-880 `initial_step' g pgm = runState pgm init_state` and S:196-197: run the TraceM
+  ; prog (model->trace) on a fresh chain over src and freeze the graph.  Answers (values ch
+  ; result).  lazy-lifting starts #f, also for a build started from inside an inactive branch's
+  ; lifted function (a lifted function calling exact-posterior or mcmC).
   ; deviation 8 (M:650, M:885, plan §6.8, C22): in 'extended mode a build rejected by
   ; build-guard answers result #f with llcum -inf (initial-step then builds again), and the
   ; llcum of a complete build is recomputed as the extended LL: the incremental sum adds an
   ; inactive observed node's LL and subtracts it at deactivation (M:659), which is NaN, not 0,
   ; when that LL is -inf.
-  (define (build-chain model src semantics)
-    (check-model model 'mcmC)
+  (define (build-chain prog src semantics)
+    (check-model prog 'mcmC)
     (let* ((ch (new-chain src semantics))
-           (result (condition-case (run-model! ch model)
+           (result (condition-case (parameterize ((lazy-lifting #f)) (eval-state prog ch))
                      (e (hakaru10-rejected-build) #f))))
       (chain-freeze! ch)
       (cond
@@ -1533,28 +1483,29 @@
   ; infinite is retried on the same (advanced) source, at most `limit` builds in all (the
   ; build for limit 0 is never forced upstream).  Answers (values ch result limit'),
   ; limit' = 0 meaning no usable trace (ch and result are then #f).
-  (define (initial-step limit model src semantics)
+  (define (initial-step limit prog src semantics)
     (let retry ((limit limit))
       (if (<= limit 0)
           (values #f #f 0)
-          (receive (ch result) (build-chain model src semantics)
+          (receive (ch result) (build-chain prog src semantics)
             (if (rejected-ll? (chain-llcum ch))
                 (retry (- limit 1))
                 (values ch result limit))))))
 
-  ; cf. M:856-869 `mcmc` and M:897-906 `transition`, as a generator: the first value is the
-  ; initial trace's, then each call takes one MH step and answers the result's value, a
-  ; rejected step repeating the previous one.  `rng` (an rng source) overrides `seed`
-  ; (mkStdGen 17, M:858) and is used as is.  If the initial step finds no trace in `limit`
+  ; cf. M:856-869 `mcmc :: Integer -> TraceM a -> [a]` and M:897-906 `transition`, as a
+  ; generator over the TraceM prog (model->trace): the first value is the initial trace's,
+  ; then each call takes one MH step and answers the result's value, a rejected step repeating
+  ; the previous one.  `rng` (an rng source) overrides `seed` (mkStdGen 17, M:858) and is used
+  ; as is.  If the initial step finds no trace in `limit`
   ; builds, the answer is #f (upstream's `[]`, M:868).
   ; deviation 10 (M:885-891, M:897-898, no upstream counterpart): a negative `limit` is a
   ; `construction` error.  Upstream stops only at limit 0 (`go 0`, `transition _ _ 0`), so it
   ; would retry the build forever or answer an infinite list.
-  (define (mcmc-generator limit model #!key (seed 17) (rng #f) (semantics 'upstream)
+  (define (mcmc-generator limit prog #!key (seed 17) (rng #f) (semantics 'upstream)
                           (step-hook #f) (build-hook #f))
     (unless (and (real? limit) (>= limit 0))
       (hakaru10-error 'construction 'mcmC "limit: must be a non-negative number" limit))
-    (receive (ch result limit*) (initial-step limit model (or rng (make-stdgen-source seed))
+    (receive (ch result limit*) (initial-step limit prog (or rng (make-stdgen-source seed))
                                               semantics)
       (and ch
            (let1 (started #f)
@@ -1566,8 +1517,8 @@
   ; cf. M:856-869 `mcmc`: fold kons over the chain's first `limit` samples, counted with the
   ; original limit (M:869), so limit - 1 steps run; knil if there is no initial trace (M:868).
   ; The keys are mcmc-generator's, which rejects a negative limit (deviation 10).
-  (define (mcmc-fold kons knil limit model . keys)
-    (let1 (next (apply mcmc-generator limit model keys))
+  (define (mcmc-fold kons knil limit prog . keys)
+    (let1 (next (apply mcmc-generator limit prog keys))
       (if next
           (let loop ((i 0) (acc knil))
             (if (>= i limit) acc (loop (+ i 1) (kons (next) acc))))

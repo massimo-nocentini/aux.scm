@@ -557,8 +557,10 @@ instance RDistribution Bern Bool where
             " is lifted (curried constructors included) and checked when applied.
             Conditioning twice, or a Dirac distribution, is a type error upstream (design.txt
             l.397-402) and a " (code/inline "conditioning") " error here; so is an
-            observation that the predicate passed by (aux hakaru10), its " (code/inline "sexp?")
-            ", recognizes as part of the model:")
+            observation that the predicate passed by (aux hakaru10)'s "
+            (code/inline "condition") ", the engine's " (code/inline "internal-part")
+            ", recognizes as part of the model (an SExp or a Model, at any depth of the
+            observation):")
          (code/lang "haskell" "conditioned :: a -> DistK KResampleable a -> DistK KObserved a
 conditioned obs (Resampleable d) = Observed d obs
 
@@ -724,9 +726,9 @@ dirichletLogDensity _ _ = error \"dirichlet: all values must be between 0 and 1\
             continuous; an observed distk keeps the support of the distribution it conditions,
             and a Dirac distk is certain of its value (Distribution.hs:49-51).  It is what the
             exact interpretation of a model branches over: where the trace-graph builder draws
-            one value with " (code/inline "distk-sample") ", the exact enumerator captures the
-            continuation of the random choice with " (code/inline "shift")
-            " and resumes it once per value of the support, weighted by its probability.")
+            one value with " (code/inline "distk-sample") ", the exact enumerator branches over
+            the support of each active random choice of the static graph (plan §6.10), each
+            value weighted by its probability.")
          (p "Distks and their distributions print with their kind, name and parameters, as
             Metropolis.hs:62-65 shows a " (code/inline "DistK") ".")))
 

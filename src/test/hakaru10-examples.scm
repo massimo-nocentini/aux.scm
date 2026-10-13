@@ -2,20 +2,22 @@
 ; (ColoredBalls.hs; P §3 l.505-616), the bird migration model of Birds1.hs on synthetic data,
 ; and the Bayesian linear regression of the paper (P §3 l.461-504).  Cases C1-C5 of the plan
 ; (WP9, plan §9.6).
-; Each model is a direct-style Scheme program that one handler or another interprets
-; (PLAN-IDIOM C25): the same code runs under the trace builder of MCMC, under exact enumeration
-; and under the forward sampler, which also simulates the synthetic data of C4 and C5 from the
-; generative half of the models.  Expected values are exact (closed forms, least squares, graph
-; counts) or statistical, checked at seed 17 with tolerances of about 4-5 sigma of the spread
-; across seeds (C1's P(1) over seeds 1-20, C5's distance to least squares over seeds 1-12),
-; or, where the chain mixes too slowly for that (C4), with a bound that holds on seeds 1-20 and
-; fails for the prior-only model, a negative control; the synthetic data is simulated from
-; seed 17 too.
-; Models create nodes in sequence, with let*, fold, for-each, map-in-order and named let, never
-; in procedure-argument positions (plan C18, C18'), and are pure across their operations
-; (PLAN-IDIOM C28).
+; Each model is a computation of the State monad, written with do/monad as ColoredBalls.hs and
+; Birds1.hs write it with do (`Model a = MCMCM (SExp a)`, S:82; plan §15, C32): MCMC runs it,
+; and the oracles of (aux hakaru10 exact) walk the trace graph of one of its builds (plan §15,
+; C37), by exact enumeration and by forward sampling, which also simulates the synthetic data
+; of C4 and C5 from the generative half of the models.  Expected values are exact (closed
+; forms, least squares, graph counts) or statistical, checked at seed 17 with tolerances of
+; about 4-5 sigma of the spread across seeds (C1's P(1) over seeds 1-20, C5's distance to least
+; squares over seeds 1-12), or, where the chain mixes too slowly for that (C4), with a bound
+; that holds on seeds 1-20 and fails for the prior-only model, a negative control; the
+; synthetic data is simulated from seed 17 too.
+; Models create their nodes when they run, in bind order (plan §15, C35; plan C18): do/monad
+; top to bottom, and replicate/monad, traverse/monad, for-each/monad and fold/monad head first,
+; upstream's sequence . replicate, mapM, mapM_/forM_ and foldM_; they have no Scheme effect,
+; since a model may run several times (the oracles' build, the construction check's rebuild).
 ; C1′ is upstream's commented-out first colored-balls model (CB:46-72), C6 the plot query
-; E:166-167 (E is Examples1.hs, CB ColoredBalls.hs, B1 Birds1.hs, U Util.hs).
+; E:166-167 (E is Examples1.hs, CB ColoredBalls.hs, B1 Birds1.hs, S Syntax.hs, U Util.hs).
 
 (import scheme
         (chicken base)
@@ -67,8 +69,9 @@
   (let1 (sums (fold (λ (row acc) (map + row acc)) (map (K 0.) (car rows)) rows))
     (map (cut / <> (length rows)) sums)))
 
-; (new) the value of one run of model under the forward sampler (PLAN-IDIOM §2.4), on a stdgen
-; source seeded with `seed`: the generative reading of the model, used to simulate data.
+; (new) the value of one run of model by weighted-samples, the forward walk of the static graph
+; (plan §6.10), on a stdgen source seeded with `seed`: the generative reading of the model,
+; used to simulate data.
 (define (forward-sample model #!key (seed 17))
   (car (car (weighted-samples 1 model #:seed seed))))
 
@@ -94,45 +97,53 @@
     (categorical `((,color . .8) (,(opposite-color color) . .2)))))
 
 ; cf. CB:41-44 `balls_prior` (P l.531-544): the colors of balls 1..n, each uniformly blue or
-; green; upstream's IntMap from the ball's index to its node becomes memo/finite, the
-; pre-allocation that replaces stochastic memoization (W:111, P footnote 5 l.566-569).
+; green, drawn in order by replicate/monad (`sequence . replicate n`); upstream's IntMap from
+; the ball's index to its node (`M.fromList $ zip [1..] balls`) becomes an alist, read with
+; alist-ref: the pre-allocation that replaces stochastic memoization (W:111, P footnote 5
+; l.566-569).
 (define/shown balls-prior
   (define (balls-prior n)
-    (memo/finite (iota n 1) (λ (i) (dist uniformly '(blue green))))))
+    (do/monad
+      (← balls (replicate/monad n (dist uniformly '(blue green))))
+      (return (map cons (iota n 1) balls)))))
 
 ; cf. CB:85-89, CB:96-98 and P l.554-561, 604-607: `foldr (\i rest -> if_ ((== i) <$> x)
 ; (branch i) rest) otherwise keys`, the nested if_ that dispatches on the value of the SExp x,
-; the first key outermost; `otherwise` is a model.  The fold builds models (thunks) only, so it
-; creates no node: the nodes are made when the outermost model runs, in upstream's order.
+; the first key outermost; `otherwise` is a model.  The fold builds Models only, and if_ delays
+; its branches (plan §15, C36), so it creates no node: the nodes are made when the outermost if_
+; runs, in upstream's order.
 (define/shown dispatch
   (define (dispatch x keys branch otherwise)
-    ((fold-right (λ (key rest) (model (if_* (lift (cut equal? <> key) x) (model (branch key)) rest)))
-                 otherwise
-                 keys))))
+    (fold-right (λ (key rest) (if_ (lift (cut equal? <> key) x) (branch key) rest)) otherwise keys)))
 
-; cf. CB:74-89 `balls_observe` (P l.563-594): for each observed color, in order (mapM_), a
-; ball b is drawn among the nballs and the observation conditioned on b's true color, through
-; the dispatch over the keys 1..maxBalls; balls beyond nballs are never drawn.
+; cf. CB:74-89 `balls_observe` (P l.563-594): for each observed color, in order (mapM_ is
+; for-each/monad), a ball b is drawn among the nballs and the observation conditioned on b's
+; true color, through the dispatch over the keys 1..maxBalls; balls beyond nballs are never
+; drawn.
 (define/shown balls-observe
   (define (balls-observe balls obs nballs max-balls)
-    (for-each (λ (color)
-                (let1 (b (dist uniformly (iota nballs 1)))
-                  (dispatch b (iota max-balls 1)
-                            (λ (i) (dist (condition color observed-color) (balls i)))
-                            (model color))))
-              obs)))
+    (>> (for-each/monad
+          (λ (color)
+            (do/monad
+              (← b (dist uniformly (iota nballs 1)))
+              (dispatch b (iota max-balls 1)
+                        (λ (i) (dist (condition color observed-color) (alist-ref i balls)))
+                        (return color))))
+          obs)
+        (return (void)))))
 
 ; cf. CB:91-99 `cballs_model` (P l.599-608): the colors of max-balls balls (CB:38-39 `maxBalls
 ; = 8`), the number of balls uniformly among 1..max-balls, and the observations dispatched on
 ; it; the model answers the number of balls.
 (define/shown cballs-model
-  (define-model (cballs-model obs #!optional (max-balls 8))
-    (let* ((balls (balls-prior max-balls))
-           (nballs (dist uniformly (iota max-balls 1))))
+  (define (cballs-model obs #!optional (max-balls 8))
+    (do/monad
+      (← balls (balls-prior max-balls))
+      (← nballs (dist uniformly (iota max-balls 1)))
       (dispatch nballs (iota max-balls 1)
                 (λ (n) (balls-observe balls obs n max-balls))
-                (model (void)))
-      nballs)))
+                (return (void)))
+      (return nballs))))
 
 ; cf. CB:51-71, upstream's first, commented-out `cballs_model`, which CB:46-49 explains away:
 ; each observation draws its ball b uniformly among 1..nballs, a support that depends on the
@@ -142,16 +153,19 @@
 ; b makes that b's log-density -inf, so single-site MH rejects it: nballs and the b's are
 ; strongly correlated, and the chain mixes badly.
 (define/shown cballs-model/direct
-  (define-model (cballs-model/direct obs #!optional (max-balls 8))
-    (let* ((balls (balls-prior max-balls))
-           (nballs (dist uniformly (iota max-balls 1))))
-      (for-each (λ (color)
-                  (let1 (b (dist uniformly (lift (λ (n) (iota n 1)) nballs)))
-                    (dispatch b (iota max-balls 1)
-                              (λ (i) (dist (condition color observed-color) (balls i)))
-                              (model color))))
-                obs)
-      nballs)))
+  (define (cballs-model/direct obs #!optional (max-balls 8))
+    (do/monad
+      (← balls (balls-prior max-balls))
+      (← nballs (dist uniformly (iota max-balls 1)))
+      (for-each/monad
+        (λ (color)
+          (do/monad
+            (← b (dist uniformly (lift (λ (n) (iota n 1)) nballs)))
+            (dispatch b (iota max-balls 1)
+                      (λ (i) (dist (condition color observed-color) (alist-ref i balls)))
+                      (return color))))
+        obs)
+      (return nballs))))
 
 ; (new) the number of moves of a chain, the consecutive samples that differ.
 (define (moves chain)
@@ -231,50 +245,53 @@
       (else #f))))
 
 ; cf. B1:50-74 `model` (W:135-153): the four parameters with the prior |N(0,10)| (BMP:457-464),
-; then, each year, the bird starts in cell 1 (B1:73) and flies each night to a cell drawn from
-; the categorical of theta (B1:68), where every cell's count is a Poisson observation of the
-; indicator of the bird being there (B1:69-71, BMP:62 and 134-138).  With `pin` (the default),
+; B1:52-55's `abs <$> dist normal 0 10` made four times by replicate/monad; then, each year
+; (forM_, for-each/monad), the bird starts in cell 1 (B1:73) and flies each night (foldM_,
+; fold/monad) to a cell drawn from the categorical of theta (B1:68), where every cell's count
+; is a Poisson observation of the indicator of the bird being there (B1:69-71, BMP:62 and
+; 134-138).  With `pin` (the default),
 ; the cell of a day where birdpos finds the bird is observed rather than drawn: the alternative
 ; B1:62-67 that upstream comments out.  The posterior is the same, since a Poisson of intensity
 ; 0 cannot count a bird (D:362), but B1:68's drawn cell must guess every observed day, so its
 ; initial trace has a finite LL with a negligible probability (M:882-891 retries the build).
 (define/shown birds
-  (define-model (birds features obs #!key (years 30) (days 20) (pin #t))
-    (let1 (bs (collect (map-in-order (λ (_) (let1 (b (dist normal 0. 10.)) (lift abs b)))
-                                     (iota n-features))))
-      (for-each
+  (define (birds features obs #!key (years 30) (days 20) (pin #t))
+    (do/monad
+      (← betas (replicate/monad n-features (<$> (cut lift abs <>) (dist normal 0. 10.))))
+      (let bs (collect betas))
+      (for-each/monad
         (λ (year)
-          (fold (λ (day n)
-                  (let* ((day′ (add1 day))
-                         (trans (lift (transitions features year day) n bs))
-                         (nreal (and pin (birdpos obs year day′)))
-                         (n′ (dist (if nreal (condition nreal categorical) categorical) trans)))
-                    (for-each (λ (i)
-                                (dist (condition (obs year day′ i) poisson)
-                                      (lift (λ (nv) (if (= i nv) 1 0)) n′)))
-                              (iota n-cells 1))
-                    n′))
-                1
-                (iota (sub1 days) 1)))
+          (fold/monad
+            (λ (n day)
+              (do/monad
+                (let day′ (add1 day))
+                (let trans (lift (transitions features year day) n bs))
+                (let nreal (and pin (birdpos obs year day′)))
+                (← n′ (dist (if nreal (condition nreal categorical) categorical) trans))
+                (for-each/monad (λ (i) (dist (condition (obs year day′ i) poisson)
+                                             (lift (λ (nv) (if (= i nv) 1 0)) n′)))
+                                (iota n-cells 1))
+                (return n′)))
+            1 (iota (sub1 days) 1)))
         (iota years 1))
-      bs)))
+      (return bs))))
 
 ; (new) the generative half of B1:57-73, with known parameters bs: each year, the bird's path
-; from cell 1, one cell per day; the model answers the list of the years' paths.  Run by the
-; forward sampler, it simulates the flights of the synthetic data set.
+; from cell 1, one cell per day (fold/monad threading the path, newest cell first); the model
+; answers the list of the years' paths.  Run by the forward sampler, it simulates the flights
+; of the synthetic data set.
 (define/shown bird-flights
-  (define-model (bird-flights features bs #!key (years 30) (days 20))
-    (collect
-      (map-in-order
-        (λ (year)
-          (collect
-            (reverse
-              (fold (λ (day path)
-                      (let1 (n′ (dist categorical (lift (transitions features year day) (car path) bs)))
-                        (cons n′ path)))
-                    '(1)
-                    (iota (sub1 days) 1)))))
-        (iota years 1)))))
+  (define (bird-flights features bs #!key (years 30) (days 20))
+    (<$> collect
+         (traverse/monad
+           (λ (year)
+             (<$> (λ (path) (collect (reverse path)))
+                  (fold/monad (λ (path day)
+                                (<$> (cut cons <> path)
+                                     (dist categorical (lift (transitions features year day) (car path) bs))))
+                              '(1)
+                              (iota (sub1 days) 1))))
+           (iota years 1)))))
 
 ; (new) synthetic features after BMP:159-177 and the covariates of the FAQ (BMP:430-443),
 ; (features year day from to) => (f1 f2 f3 f4): for from /= to, f1 = 4 lognpdf(|v|; 1, 1) of
@@ -327,9 +344,9 @@
 ;; -------------------------------------------------------------------------------------------
 
 ; cf. B1:103-107 `normals means std = mapM (\m -> dist normal m std) means` (P l.499-502):
-; independent normal nodes, one per mean, in order.
+; independent normal nodes, one per mean, in order; mapM is traverse/monad.
 (define/shown normals
-  (define (normals means sd) (map-in-order (λ (m) (dist normal m sd)) means)))
+  (define (normals means sd) (traverse/monad (λ (m) (dist normal m sd)) means)))
 
 ; cf. B1:110-111 `dot xs ays = foldr1 (+) $ zipWith (\x ay -> (*x) <$> ay) xs ays`: the dot
 ; product of plain numbers and SExps, one lifted expression; reduce-right is foldr1.
@@ -338,23 +355,25 @@
 
 ; cf. P §3 l.471-486 `model xsy`: data is a list of training points (xs . y), RegrDatum
 ; ([Double],Double); the weights have the prior N(w_mean, 1), w_mean ~ N(0, 2), the noise sd is
-; 1/gamma(0.5, 0.5), each y is observed as normal around xs . w (mapM make_cond), and the model
-; answers the weights.
+; 1/gamma(0.5, 0.5), each y is observed as normal around xs . w (mapM make_cond, whose results
+; are dropped: for-each/monad), and the model answers the weights.
 (define/shown regression
-  (define-model (regression data)
-    (let* ((w-mean (normals (make-list (length (car (car data))) 0.) 2.))
-           (w (normals w-mean 1.))
-           (inverse-noise-sd (dist gamma .5 .5))
-           (noise-sd (lift (cut / 1. <>) inverse-noise-sd)))
-      (for-each (Λ ((,xs . ,y)) (dist (condition y normal) (dot xs w) noise-sd)) data)
-      (collect w))))
+  (define (regression data)
+    (do/monad
+      (← w-mean (normals (make-list (length (car (car data))) 0.) 2.))
+      (← w (normals w-mean 1.))
+      (← inverse-noise-sd (dist gamma .5 .5))
+      (let noise-sd (lift (cut / 1. <>) inverse-noise-sd))
+      (for-each/monad (Λ ((,xs . ,y)) (dist (condition y normal) (dot xs w) noise-sd)) data)
+      (return (collect w)))))
 
 ; (new) the generative reading of the regression with known weights w and noise sd: the
 ; training points (xs . y), y ~ N(xs . w, sd), for the given xss.
 (define/shown regression-data
-  (define-model (regression-data xss w sd)
-    (collect (map-in-order (λ (xs) (let1 (y (dist normal (dot xs w) sd)) (lift (cut cons xs <>) y)))
-                           xss))))
+  (define (regression-data xss w sd)
+    (<$> collect
+         (traverse/monad (λ (xs) (<$> (cut lift (cut cons xs <>) <>) (dist normal (dot xs w) sd)))
+                         xss))))
 
 ; (new) the least-squares estimate of w for two-dimensional xs, by the normal equations.
 (define/shown least-squares/2
@@ -405,26 +424,35 @@
                 (cite/a "https://okmij.org/ftp/kakuritu/Hakaru10/Birds1.hs" "Birds1.hs")
                 " are transcribed definition by definition; the regression exists only in the
                 paper, with its helpers in Birds1.hs.")
-             (p "Each model is a plain Scheme procedure that performs the operations "
-                (code/inline "dist") ", " (code/inline "diracN") " and " (code/inline "if_")
-                ", and each inference is a handler of those operations: the trace builder of "
-                (code/inline "mcmC") ", exact enumeration (" (code/inline "exact-posterior")
-                "), the forward sampler (" (code/inline "likelihood-weighting") ", "
-                (code/inline "weighted-samples") ").  So the same "
-                (code/inline "cballs-model") " is checked by MCMC, by likelihood weighting and,
-                on a smaller urn, by exact enumeration, against a closed form; and the
-                generative half of the bird and the regression models, run forward from seed
-                17, simulates the data that their conditioned versions then explain.  The
-                construction check runs the forward sampler in the trace builder's order and
-                compares with the builder's initial trace, value and log-likelihood.")
-             (p "Nodes are created in sequence (" (code/inline "let*") ", "
-                (code/inline "fold") ", " (code/inline "for-each") ", "
-                (code/inline "map-in-order") "): creation order is the topological order of the
-                trace (design.txt l.791-794).  A chain of " (code/inline "if_")
-                " is built by " (code/inline "fold-right") " over models, thunks that create
-                no node until the outermost one runs, which reproduces upstream's "
-                (code/inline "foldr") " node for node: at 10000 samples the colored balls'
-                histogram is upstream's own record (hakaru10-replay, X14).")))
+             (p "Each model is a computation of the State monad that threads the chain, as
+                upstream's " (code/inline "Model a = MCMCM (SExp a)")
+                " (Syntax.hs:82), written with " (code/inline "do/monad") " as the Haskell
+                is written with " (code/inline "do") ": " (code/inline "dist") ", "
+                (code/inline "diracN") " and " (code/inline "if_") " are models, and "
+                (code/inline "mcmC") " runs one under the MCMC engine.  The oracles walk the
+                trace graph of one build of the same model: exact enumeration ("
+                (code/inline "exact-posterior") ") and the forward sampler ("
+                (code/inline "likelihood-weighting") ", " (code/inline "weighted-samples")
+                ").  So the same " (code/inline "cballs-model") " is checked by MCMC, by
+                likelihood weighting and, on a smaller urn, by exact enumeration, against a
+                closed form; and the generative half of the bird and the regression models, run
+                forward from seed 17, simulates the data that their conditioned versions then
+                explain.  The construction check rebuilds the model, which must give the same
+                graph, values and log-likelihoods, and redraws its choices in address order,
+                which must give back the values and the log-likelihood of the initial trace.")
+             (p "Nodes are created when a model runs, in bind order: "
+                (code/inline "do/monad") " top to bottom, and " (code/inline "replicate/monad")
+                ", " (code/inline "traverse/monad") ", " (code/inline "for-each/monad") " and "
+                (code/inline "fold/monad") " head first, upstream's "
+                (code/inline "sequence . replicate") ", " (code/inline "mapM") ", "
+                (code/inline "mapM_") " and " (code/inline "foldM_")
+                ": creation order is the topological order of the trace (design.txt
+                l.791-794).  A chain of " (code/inline "if_") " is built by "
+                (code/inline "fold-right") " over models, which create no node until the
+                outermost one runs, and " (code/inline "if_") " delays its branches until it
+                builds them, which reproduces upstream's " (code/inline "foldr")
+                " node for node: at 10000 samples the colored balls' histogram is upstream's
+                own record (hakaru10-replay, X14).")))
 
   ((test/colored-balls _)
    (let* ((blue10 (make-list 10 'blue))
@@ -529,8 +557,9 @@ cbr = hist $ mcmC 10000 (cballs_model (replicate 10 Blue))
               (code/inline "cballs-model") " on an urn of at most 3 balls with 4 blue
               observations, " (code/inline "(exact-posterior (cballs-model (make-list 4 'blue) 3))")
               ", within " (m "10⁻¹²") ": " (code/scheme ,exact)
-              "; the enumerator resumes each random choice once per value, and the "
-              (code/inline "dispatch") " explores only the branch its test selects.  With 8
+              "; the enumerator walks the trace graph of one build, branching over the support
+              of each active random choice, and jumps over the branches of the "
+              (code/inline "dispatch") " that its tests leave inactive.  With 8
               balls and 10 observations enumeration is out of reach (the paths number "
               (m "2⁸ · 8¹¹") "), so the full model is checked by sampling:")
            (ul (li "MCMC, 20000 samples from seed 17: P(1) within .13 of the exact .41196 (over seeds
@@ -784,9 +813,12 @@ model features obs = do
       ) (1 :: SExp Int) [1..nDays-1]
   return bs")
            ,(shown 'birds)
-           (p (code/inline "forM_") " is " (code/inline "for-each") ", " (code/inline "foldM_")
-              " a " (code/inline "fold") " threading the bird's cell, " (code/inline "liftA2")
-              " a " (code/inline "lift") ".  The test uses upstream's commented-out alternative
+           (p (code/inline "forM_") " is " (code/inline "for-each/monad") ", "
+              (code/inline "foldM_") " is " (code/inline "fold/monad")
+              ", threading the bird's cell, " (code/inline "liftA2") " is "
+              (code/inline "lift") ", and the four " (code/inline "abs <$> dist normal 0 10")
+              " are made by " (code/inline "replicate/monad") ".  The test uses upstream's
+              commented-out alternative
               (B1:62-67), " (code/inline "#:pin #t") ": on a day where the bird is seen its cell
               is observed, elsewhere it is drawn.  The posterior of "
               (m "β") " is the same, but B1:68 alone draws the cell of every day and needs
@@ -805,8 +837,9 @@ model features obs = do
               (m "4 + 2 · 5 · (1 + 16) + 1 = 175") " nodes: the 4 parameters and 4
               latent cells are resampleable, 6 cells and 160 counts observed, and the answer
               is a Dirac node.  The construction check passes: the initial trace's LL is
-              finite, and the forward sampler, run in construction order on a copy of the
-              source, reproduces its value and LL.  One "
+              finite, a rebuild gives the same graph, values and LLs, and redrawing the choices
+              in address order from a copy of the source gives back their values and the LL.
+              One "
               (code/inline "mcmC-fold") " over 3000 samples sums the "
               (m "β") " tuples and counts the consecutive ones that repeat, the steps
               whose proposal was rejected: " (code/scheme ,repeats) " of the 2999 do, so the
@@ -875,8 +908,10 @@ dot xs ays = foldr1 (+) $ zipWith (\\x ay -> (*x) <$> ay) xs ays
 collect :: [SExp a] -> SExp [a]
 collect = sequenceA")
            (p "In Scheme " (code/inline "collect") " is exported by (aux hakaru10), "
-              (code/inline "sexp+") " and " (code/inline "sexp*") " lift the arithmetic, and "
-              (code/inline "reduce-right") " is " (code/inline "foldr1") ":")
+              (code/inline "sexp+") " and " (code/inline "sexp*") " lift the arithmetic, "
+              (code/inline "reduce-right") " is " (code/inline "foldr1") ", and "
+              (code/inline "mapM") " is " (code/inline "traverse/monad") ", or "
+              (code/inline "for-each/monad") " where its results are dropped:")
            ,(shown 'normals 'dot 'regression)
            (p "The paper's instance has five hundred points and five parameters, a graph of
               \"511 vertices\" (design.txt l.493-495; the hakaru10-language suite counts it).
@@ -900,8 +935,8 @@ collect = sequenceA")
            ,(shown 'least-squares/2))))
 
   ((test/plot-mixture _)
-   (let* ((h (tabulate .2 (append (mcmC 5000 (model (dist normal 10. 2.)))
-                                  (mcmC 5000 (model (dist gamma 3. (/ 1. 3.)))))))
+   (let* ((h (tabulate .2 (append (mcmC 5000 (dist normal 10. 2.))
+                                  (mcmC 5000 (dist gamma 3. (/ 1. 3.))))))
           (path (plot h (create-temporary-file "dat")))
           (lines (with-input-from-file path read-lines)))
      (delete-file path)

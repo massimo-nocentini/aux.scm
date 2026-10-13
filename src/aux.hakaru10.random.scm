@@ -390,8 +390,8 @@
   ; seed is rejected, because the all-zero WELL512 state is a fixed point and
   ; `pseudo-random-integer` then never returns (random_uniform's `do r = random_word(); while
   ; (r < min);` retry loop).  Cf. chicken-core main rev 55615603, runtime.c:14179 (that loop)
-  ; and runtime.c:14296ff (C_set_random_seed); the chicken-core branch hakaru10-numerics
-  ; fixes both in random_seed, but the adapter targets main and keeps the workaround.
+  ; and runtime.c:14296ff (C_set_random_seed); the adapter keeps the workaround (plan §12 bugs
+  ; A, B).
   (define (chicken-random-seed seed)
     (unless (bytevector? seed)
       (hakaru10-error 'parameter 'make-chicken-random-source "seed must be a bytevector" seed))

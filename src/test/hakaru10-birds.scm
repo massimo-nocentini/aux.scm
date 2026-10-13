@@ -82,28 +82,31 @@
     ((,i) i)
     (else #f)))
 
-; cf. B1:50-74 `model` (W:135-153); with `pin`, the alternative B1:62-67 observes the bird's
-; cell where birdpos finds it (see hakaru10-examples.scm, C4).
+; cf. B1:50-74 `model` (W:135-153), in do/monad as upstream's do: B1:52-55's `abs <$> dist
+; normal 0 10` four times (replicate/monad), forM_ (for-each/monad) over the years, foldM_
+; (fold/monad) over the days; with `pin`, the alternative B1:62-67 observes the bird's cell
+; where birdpos finds it (see hakaru10-examples.scm, C4).
 (define/shown birds
-  (define-model (birds features obs #!key (years 30) (days 20) (pin #t))
-    (let1 (bs (collect (map-in-order (λ (_) (let1 (b (dist normal 0. 10.)) (lift abs b)))
-                                     (iota n-features))))
-      (for-each
+  (define (birds features obs #!key (years 30) (days 20) (pin #t))
+    (do/monad
+      (← betas (replicate/monad n-features (<$> (cut lift abs <>) (dist normal 0. 10.))))
+      (let bs (collect betas))
+      (for-each/monad
         (λ (year)
-          (fold (λ (day n)
-                  (let* ((day′ (add1 day))
-                         (trans (lift (transitions features year day) n bs))
-                         (nreal (and pin (birdpos obs year day′)))
-                         (n′ (dist (if nreal (condition nreal categorical) categorical) trans)))
-                    (for-each (λ (i)
-                                (dist (condition (obs year day′ i) poisson)
-                                      (lift (λ (nv) (if (= i nv) 1 0)) n′)))
-                              (iota n-cells 1))
-                    n′))
-                1
-                (iota (sub1 days) 1)))
+          (fold/monad
+            (λ (n day)
+              (do/monad
+                (let day′ (add1 day))
+                (let trans (lift (transitions features year day) n bs))
+                (let nreal (and pin (birdpos obs year day′)))
+                (← n′ (dist (if nreal (condition nreal categorical) categorical) trans))
+                (for-each/monad (λ (i) (dist (condition (obs year day′ i) poisson)
+                                             (lift (λ (nv) (if (= i nv) 1 0)) n′)))
+                                (iota n-cells 1))
+                (return n′)))
+            1 (iota (sub1 days) 1)))
         (iota years 1))
-      bs)))
+      (return bs))))
 
 ;; -------------------------------------------------------------------------------------------
 ;; Loading the data (Birds1.hs:116-197)

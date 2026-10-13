@@ -18,7 +18,8 @@ transcription".  It is not part of `make test`; nothing in aux imports it.
   bench.py                  the moments of Bench.hs's phier 10 over nchain samples
   birds-data.py             writes a synthetic data set for test/hakaru10-birds.scm
 
-Each script takes this directory as its first argument, so that it runs under `python3 -I`:
+Each script but birds-data.py takes this directory as its first argument, so that it runs
+under `python3 -I`; birds-data.py takes the directory to write the data set to:
 
   python3 -I replay-examples.py .
   python3 -I replay-colored-balls.py . noflip

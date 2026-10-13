@@ -32,10 +32,10 @@
 ;;   - make-distribution (a user distribution), distribution-log-density, distribution-sample
 ;;     and distribution-support.
 ;;
-;; A distribution is a value, not an effect: the handlers of (aux hakaru10 engine) give it
-;; meaning.  The trace-graph builder and the forward sampler draw through `distk-sample`; the
-;; exact enumerator resumes a random choice once per entry of `distribution-support`, the finite
-;; support in the sampler's order (its handler's input, PLAN-IDIOM §2.3).
+;; A distribution is a value: the engine and the oracles give it meaning.  The trace-graph
+;; builder and the forward sampler draw through `distk-sample`; the exact enumerator branches
+;; over each entry of `distribution-support`, the finite support in the sampler's order (the
+;; input of exact enumeration, plan §6.10).
 ;;
 ;; Replay discipline (plan §6.1): every Double expression of Distribution.hs is transcribed with
 ;; binary fp+ fp- fp* fp/ in Haskell's association (`infixl 6 + -`, `infixl 7 * /`), `**` is
@@ -101,8 +101,10 @@
   ;   resample     (λ (src x ll) (values x' ll' fwd-bwd)), D:21-28: "This is the place to
   ;                specify custom proposals" (D:18-19);
   ;   support      #f, or a thunk answering the alist ((x . p) ...) of a finite support, in
-  ;                the sampler's order (used by the exact enumerator, plan §6.10; new).
-  (define-record rdistr name params log-density sample resample support)
+  ;                the sampler's order (used by the exact enumerator, plan §6.10; new);
+  ;   independence?  #t when resample is the default one, the independence proposal of
+  ;                D:29-32 (the only kernel the kernel residual analyses, plan §6.11; new).
+  (define-record rdistr name params log-density sample resample support independence?)
 
   ; (debug printer only) #<rdistr normal (0. 1.)>.
   (set-record-printer! rdistr
@@ -136,7 +138,8 @@
     (make-distk 'resampleable
                 (make-rdistr name params log-density sample
                              (or resample (independence-resample sample))
-                             support)
+                             support
+                             (not resample))
                 (void)))
 
   ; cf. D:163-164, D:312-313, D:347-348 `sample d g = let (x, g1) = rng g in (x, logDensity d
@@ -601,8 +604,9 @@
   ; conditioned: no double conditioning, no Dirac (S:185-188; P §2.3 l.397-402).
   ; deviation 9 (S:38-42, S:180-183): that observations are external to the model
   ; (`CondV a = a`, P l.412-421) is a type in Haskell; here `internal?`, a predicate on obs
-  ; (#f for none), rejects them.  It is (aux hakaru10 engine)'s sexp?, which this module cannot
-  ; import: (aux hakaru10)'s condition passes it.
+  ; (#f for none), rejects them.  It is (aux hakaru10 engine)'s internal-part (an SExp or a
+  ; Model, at any depth of obs), which this module cannot import: (aux hakaru10)'s condition
+  ; passes it.
   (define (condition obs d #!optional (internal? #f))
     (when (and internal? (internal? obs))
       (hakaru10-error 'conditioning 'condition "observation must be external to the model" obs))
@@ -640,7 +644,7 @@
     (distk-sample dk src))
 
   ; (new, plan §6.10) the finite support ((x . p) ...) of a distk in its sampler's order, or #f:
-  ; ((theta . 1.)) for a dirac distk, D:49-51.  The exact enumerator shifts over it.
+  ; ((theta . 1.)) for a dirac distk, D:49-51.  The exact enumerator branches over it.
   (define (distribution-support dk)
     (unless (distk? dk) (hakaru10-error 'parameter 'distribution-support "not a distk" dk))
     (if (eq? (distk-kind dk) 'dirac)

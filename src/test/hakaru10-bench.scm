@@ -30,12 +30,12 @@
         (aux hakaru10))
 
 ; cf. BE:14-15 `phier n = (iterate (\m -> do {x<-m; dist normal x 3}) $ dist normal 0 1) !! n`
-; (E:62-63 phier, P §2.1 l.301-327): x0 ~ N(0, 1), then n times x ~ N(x, 3).
-(define-model (phier n)
-  (let loop ((i n) (x (dist normal 0 1)))
-    (if (zero? i)
-        x
-        (loop (sub1 i) (dist normal x 3)))))
+; (E:62-63 phier, P §2.1 l.301-327): x0 ~ N(0, 1), then n times x ~ N(x, 3).  The named let is
+; `iterate ... !! n` over models: it nests n do/monad around x0's dist and creates no node;
+; x0's node is created first, when the outermost model runs (plan §15, C35).
+(define (phier n)
+  (let loop ((i n) (m (dist normal 0 1)))
+    (if (zero? i) m (loop (sub1 i) (do/monad (← x m) (dist normal x 3))))))
 
 ; (new) the values recorded for the arguments (n nchain), BE:23-38, or #f.
 (define (recorded n nchain)

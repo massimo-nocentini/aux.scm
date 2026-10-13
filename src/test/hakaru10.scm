@@ -18,8 +18,9 @@
 ;
 ; Every model is written once, below, with `define/shown`, which also records its source for the
 ; docs (as in hakaru10-exact.scm and hakaru10-birds.scm).
-; Haskell's `do` is `let*`, `return e` is the tail expression, and nodes are made in sequence:
-; never in procedure-argument positions or inside `map` (plan C18, C18').
+; Haskell's `do` is `do/monad`, `x <- m` is `(← x m)` and `return e` is `(return e)`; nodes are
+; created when a model runs, in bind order (plan §15 C35), so building a model, in an argument
+; position or inside `map`, creates none.
 
 (import scheme
         (chicken base)
@@ -31,16 +32,16 @@
         (aux base)
         (aux unittest)
         (only (aux stream) take§ §->list car§ cdr§)
-        (only (aux hansei) probcc-explore)
+        (only (aux category state) eval-state)
         (aux hakaru10)
-        (only (aux hakaru10 distribution) distribution-support distk-kind distk-value distk-rd)
+        (only (aux hakaru10 distribution) distk-rd dirac)
         (only (aux hakaru10 exact) construction-check reference-check kernel-residual)
         (only (aux hakaru10 engine)
-              handle-model value-handler build-chain node-parents new-chain run-model! ifnode!
-              to-node! node? chain-node node-state node-state-set! make-nstate nstate-val
-              nstate-ll nstate-dst nstate-tstamp chain-card-change-set! node-inactive-set!
-              node-delayed-set! node-pending-set! mcmc-generator chain-fold node-update
-              node-update-set! node-addr node-inactive? node-kind native-multishot-escapes?))
+              build-chain model->trace node-parents new-chain ifnode to-node sexp? node?
+              chain-node node-state node-state-set! make-nstate nstate-val nstate-ll nstate-dst
+              nstate-tstamp chain-card-change-set! node-inactive-set! node-delayed-set!
+              node-pending-set! mcmc-generator chain-fold node-update node-update-set! node-addr
+              node-inactive? node-kind with-node-none with-node with-node-tree))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Helpers
@@ -121,77 +122,85 @@
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Models of Examples1.hs, Syntax.hs, Bench.hs, ColoredBalls.hs and P §3, and the new ones of
-;; the plan (§6.8, §9.4).  A model is a thunk (S:82), so models are values: they compose by
-;; calling one another, and a model that takes arguments is a procedure answering a model.
+;; the plan (§6.8, §9.4).  A model is a value of the State monad (S:82, plan §15 C32); a model
+;; with arguments is a procedure answering one.
 ;; ---------------------------------------------------------------------------------------------
 
 ; cf. E:10 `pbern = dist bern 0.4`; the general form takes the coin, so that the replays of the
 ; records made with upstream's always-flip kernel can pass bern/flip (D:64-70, plan X15).
-(define/shown pbern* (define-model (pbern* bern) (dist bern .4)))
+(define/shown pbern* (define (pbern* bern) (dist bern .4)))
 (define pbern (pbern* bern))                ; E:10, with the default kernel
 
 ; cf. E:14 `pnorm = dist normal 10 0.5`.
-(define/shown pnorm (define-model pnorm (dist normal 10. .5)))
+(define/shown pnorm (define pnorm (dist normal 10. .5)))
 
 ; cf. E:16-18 pdep1: a normal and a Dirac node depending on it (P l.231-234).
 (define/shown pdep1
-  (define-model pdep1
-    (let* ((x (pnorm)))
+  (define pdep1
+    (do/monad
+      (← x pnorm)
       (diracN (sexp+ x 1.)))))
 
 ; cf. E:24-26 pdepR, `do {x <- p; diracN x}` (P l.251-256).
 (define/shown pdepR
-  (define-model pdepR
-    (let* ((x (pnorm)))
+  (define pdepR
+    (do/monad
+      (← x pnorm)
       (diracN x))))
 
 ; cf. E:30-32 pdepR', the same with `return x`.
 (define/shown pdepR′
-  (define-model pdepR′
-    (let* ((x (pnorm)))
-      x)))
+  (define pdepR′
+    (do/monad
+      (← x pnorm)
+      (return x))))
 
 ; cf. E:36-39 pjoin (P l.265-268).
 (define/shown pjoin
-  (define-model pjoin
-    (let* ((x (pbern))
-           (y (pnorm)))
-      (pair x y))))
+  (define pjoin
+    (do/monad
+      (← x pbern)
+      (← y pnorm)
+      (return (pair x y)))))
 
 ; cf. E:43-46 pmarg (P l.274-277).
 (define/shown pmarg
-  (define-model pmarg
-    (let* ((x (pbern))
-           (y (pnorm)))
-      y)))
+  (define pmarg
+    (do/monad
+      (← x pbern)
+      (← y pnorm)
+      (return y))))
 
 ; cf. BE:15 and E:63 `\m -> do {x<-m; dist normal x 3}`: the model transformer of phier.
-(define/shown deeper (define ((deeper m)) (let* ((x (m))) (dist normal x 3.))))
+(define/shown deeper (define (deeper m) (do/monad (← x m) (dist normal x 3.))))
 
 ; cf. BE:14-15 `phier n = (iterate (\m -> do {x<-m; dist normal x 3}) $ dist normal 0 1) !! n`
 ; and E:62-63 (n = 10; P l.300): the n-th iterate of `deeper` over the standard normal.
 (define/shown phierN
-  (define (phierN n) (fold (λ (_ m) (deeper m)) (model (dist normal 0. 1.)) (iota n))))
+  (define (phierN n) (fold (λ (_ m) (deeper m)) (dist normal 0. 1.) (iota n))))
 
 ; cf. E:65-67 ph1.
 (define/shown ph1
-  (define-model ph1
-    (let* ((x (dist normal 0. 1.)))
+  (define ph1
+    (do/monad
+      (← x (dist normal 0. 1.))
       (dist normal x 3.))))
 
 ; cf. E:88-91 ph2 (0.2 * 0.1 + 0.8 * 0.7 = 0.58); the general form takes the coin (X15).
 (define/shown ph2*
-  (define-model (ph2* bern)
-    (let* ((x (dist bern .2)))
+  (define (ph2* bern)
+    (do/monad
+      (← x (dist bern .2))
       (dist bern (lift (λ (xv) (if xv .1 .7)) x)))))
 (define ph2 (ph2* bern))                    ; E:88-91, with the default kernel
 
 ; cf. E:96-99 ph21; the general form takes the coin (X15).
 (define/shown ph21*
-  (define-model (ph21* bern)
-    (let* ((x (dist bern .2))
-           (y (dist bern (lift (λ (xv) (if xv .1 .7)) x))))
-      x)))
+  (define (ph21* bern)
+    (do/monad
+      (← x (dist bern .2))
+      (← y (dist bern (lift (λ (xv) (if xv .1 .7)) x)))
+      (return x))))
 (define ph21 (ph21* bern))                  ; E:96-99, with the default kernel
 
 ; cf. E:108 `((==1) <$> x)`, the test of pcond1-4.
@@ -199,52 +208,56 @@
 
 ; cf. E:106-110 pcond1.
 (define/shown pcond1
-  (define-model pcond1
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond1
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (is1 x)
            (dist categorical '((10 . .5) (11 . .5)))
            (dist categorical '((20 . .5) (21 . .5)))))))
 
 ; cf. E:116-120 pcond2.
 (define/shown pcond2
-  (define-model pcond2
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond2
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (is1 x)
-           x
+           (return x)
            (dist categorical '((20 . .5) (21 . .5)))))))
 
 ; cf. E:126-132 pcond3.
 (define/shown pcond3
-  (define-model pcond3
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond3
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (is1 x)
-           x
-           (begin
-             (dist normal 0. 1.)
-             (dist categorical '((20 . .5) (21 . .5))))))))
+           (return x)
+           (>> (dist normal 0. 1.)
+               (dist categorical '((20 . .5) (21 . .5))))))))
 
 ; cf. E:265-271 pcond4.
 (define/shown pcond4
-  (define-model pcond4
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond4
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (is1 x)
-           x
-           (begin
-             (dist (condition #t bern) .5)
-             (dist categorical '((20 . .5) (21 . .5))))))))
+           (return x)
+           (>> (dist (condition #t bern) .5)
+               (dist categorical '((20 . .5) (21 . .5))))))))
 
 ; cf. E:140-144 mixng (P l.332-337).
 (define/shown mixng
-  (define-model mixng
-    (let* ((x (dist normal 0. 1.)))
+  (define mixng
+    (do/monad
+      (← x (dist normal 0. 1.))
       (if_ (lift (λ (xv) (> xv 0.)) x)
            (dist normal 10. 2.)
            (dist gamma 3. (/ 1. 3.))))))
 
 ; cf. E:147-151 mixng' (P l.355-360); the general form takes the coin (X15).
 (define/shown mixng′*
-  (define-model (mixng′* bern)
-    (let* ((x (dist bern .5)))
+  (define (mixng′* bern)
+    (do/monad
+      (← x (dist bern .5))
       (if_ x
            (dist normal 10. 2.)
            (dist gamma 3. (/ 1. 3.))))))
@@ -252,49 +265,53 @@
 
 ; cf. E:174-178 biased_coin (P l.379-383).
 (define/shown biased-coin
-  (define-model (biased-coin c1 c2)
-    (let* ((b (dist beta 1. 1.)))
+  (define (biased-coin c1 c2)
+    (do/monad
+      (← b (dist beta 1. 1.))
       (dist (condition c1 bern) b)
       (dist (condition c2 bern) b)
-      b)))
+      (return b))))
 
 ; cf. E:226-235 pcorr, Yufei Cai's example (E:223-224); the general form answers (result x y),
 ; y upstream.
 (define/shown pcorr*
-  (define-model (pcorr* pfuzz result)
+  (define (pcorr* pfuzz result)
     (define ((fuzzy2 pfuzz op) x y)
       (let1 (v (op x y))
         (categorical `((,v . ,pfuzz) (,(not v) . ,(- 1. pfuzz))))))
     (define (xor y x) (not (eq? x y)))
-    (let* ((x (dist bern .5))
-           (y (dist bern .5)))
+    (do/monad
+      (← x (dist bern .5))
+      (← y (dist bern .5))
       (dist (condition #t (fuzzy2 pfuzz xor)) x y)
-      (result x y))))
+      (return (result x y)))))
 (define (pcorr pfuzz) (pcorr* pfuzz (λ (x y) y)))   ; E:226-235, answering y
 
-; cf. E:242-246 phierN': n - 1 normal steps of sd 3 from start, then the observation obs.
+; cf. E:242-246 phierN', `foldl (>>=) (pure start) $ replicate (n-1) (\x -> dist normal x 3) ++
+; [obs]`: n - 1 normal steps of sd 3 from start, then the observation obs.
 (define/shown phierN′
-  (define-model (phierN′ n start obs)
-    (let loop ((i 1) (x start))
-      (if (= i n)
-          (dist (condition obs normal) x 3.)
-          (loop (add1 i) (dist normal x 3.))))))
+  (define (phierN′ n start obs)
+    (fold/monad (λ (x k) (k x)) start
+                (append (make-list (sub1 n) (λ (x) (dist normal x 3.)))
+                        (list (λ (x) (dist (condition obs normal) x 3.)))))))
 
 ; cf. E:248-251 condhier.
 (define/shown condhier
-  (define-model condhier
-    (let* ((x (dist normal 0. 1.)))
-      ((phierN′ 9 x 1.))
-      x)))
+  (define condhier
+    (do/monad
+      (← x (dist normal 0. 1.))
+      (phierN′ 9 x 1.)
+      (return x))))
 
 ; cf. E:256-260 post_bias (P l.427-434).
 (define/shown post-bias
-  (define-model (post-bias c)
-    (let* ((coin (dist bern .5)))
+  (define (post-bias c)
+    (do/monad
+      (← coin (dist bern .5))
       (if_ coin
            (dist (condition c normal) 0. 1.)
            (dist (condition c normal) 100. 1.))
-      coin)))
+      (return coin))))
 
 ; cf. E:311-314 nnot, the noisy-not function of grass (P l.84-89).
 (define/shown nnot (define (nnot p b) (if b p 1.)))
@@ -306,22 +323,24 @@
     (bern (- 1. (* (* (nnot (- 1. strength-x) x) (nnot (- 1. strength-y) y))
                    (- 1. noise))))))
 
-; cf. E:299-304 grass (P l.73-80, l.440-447).
+; cf. E:299-304 grass (P l.73-80, l.440-447), with E:303's binding.
 (define/shown grass
-  (define-model grass
-    (let* ((rain (dist bern .3))
-           (sprinkler (dist bern .5)))
-      (dist (condition #t (nor .9 .8 .1)) rain sprinkler)
-      rain)))
+  (define grass
+    (do/monad
+      (← rain (dist bern .3))
+      (← sprinkler (dist bern .5))
+      (← grass-is-wet (dist (condition #t (nor .9 .8 .1)) rain sprinkler))
+      (return rain))))
 
 ; cf. E:302, commented out upstream, with P l.60-62: Fig. 1 without the observation, its
 ; unconditioned `dist (nor 0.9 0.8 0.1) rain sprinkler`, queried for the grass being wet
 ; ("60.6%"), so the wet node is the result; upstream's grass with E:302 in place of E:303
-; still returns rain, whose prior is 0.3 (hakaru10-exact.scm).
+; still returns rain, whose prior is 0.3.
 (define/shown grass/wet
-  (define-model grass/wet
-    (let* ((rain (dist bern .3))
-           (sprinkler (dist bern .5)))
+  (define grass/wet
+    (do/monad
+      (← rain (dist bern .3))
+      (← sprinkler (dist bern .5))
       (dist (nor .9 .8 .1) rain sprinkler))))
 
 ; cf. E:284-296, commented out upstream: grass with the observation in the leaves of nested
@@ -329,181 +348,206 @@
 ; procedure answering a model, as Haskell's `let obs = dist (True `condition` bern)`.  Its
 ; posterior differs from grass's: P(rain | wet) = 0.27/0.585 = 6/13.
 (define/shown grass/if
-  (define-model grass/if
-    (let* ((rain (dist bern .3))
-           (sprinkler (dist bern .5))
-           (obs (λ (p) (dist (condition #t bern) p))))
+  (define grass/if
+    (do/monad
+      (← rain (dist bern .3))
+      (← sprinkler (dist bern .5))
+      (let obs (λ (p) (dist (condition #t bern) p)))
       (if_ rain
            (obs .9)
            (if_ sprinkler (obs .8) (obs .1)))
-      rain)))
+      (return rain))))
 
 ; cf. E:340-352 girl, the eldest daughter puzzle.
 (define/shown girl
-  (define-model girl
-    (define ((fuzzy2 pfuzz op) x y)
-      (let1 (v (op x y))
-        (categorical `((,v . ,(- 1. pfuzz)) (,(not v) . ,pfuzz)))))
-    (let* ((girl1 (dist bern .5))
-           (girl2 (dist bern .5)))
-      (dist (condition #t (fuzzy2 .01 (λ (a b) (or a b)))) girl1 girl2)
-      girl1)))
+  (define girl
+    (let ()
+      (define ((fuzzy2 pfuzz op) x y)
+        (let1 (v (op x y))
+          (categorical `((,v . ,(- 1. pfuzz)) (,(not v) . ,pfuzz)))))
+      (do/monad
+        (← girl1 (dist bern .5))
+        (← girl2 (dist bern .5))
+        (dist (condition #t (fuzzy2 .01 (λ (a b) (or a b)))) girl1 girl2)
+        (return girl1)))))
 
 ; cf. E:357-362 mhex (P l.677-686).
 (define/shown mhex
-  (define-model mhex
-    (let* ((x (dist normal 0. 1.))
-           (y (dist normal x 2.)))
+  (define mhex
+    (do/monad
+      (← x (dist normal 0. 1.))
+      (← y (dist normal x 2.))
       (if_ (lift (λ (xv) (> xv .5)) x)
-           x
-           (let* ((z (dist beta 1. 1.)))
-             (sexp+ y z))))))
+           (return x)
+           (do/monad
+             (← z (dist beta 1. 1.))
+             (return (sexp+ y z)))))))
 
 ; cf. S:282-286 niceex1.
 (define/shown niceex1
-  (define-model niceex1
-    (let* ((c (dist uniform 0. 1.))
-           (d (dist bern .5))
-           (e (dist bern c)))
+  (define niceex1
+    (do/monad
+      (← c (dist uniform 0. 1.))
+      (← d (dist bern .5))
+      (← e (dist bern c))
       (diracN (lift (λ (ev dv) (and ev dv)) e d)))))
 
 ; cf. S:291-295 nice_prog_mult_conditions.
 (define/shown nice-prog-mult-conditions
-  (define-model (nice-prog-mult-conditions c1 c2)
-    (let* ((b (dist beta 1. 1.)))
+  (define (nice-prog-mult-conditions c1 c2)
+    (do/monad
+      (← b (dist beta 1. 1.))
       (dist (condition c1 bern) b)
       (dist (condition c2 bern) b)
       (diracN b))))
 
 ; cf. S:303-307 prog_mixture1.
 (define/shown prog-mixture1
-  (define-model (prog-mixture1 cv)
-    (let* ((c (dist bern .5)))
+  (define (prog-mixture1 cv)
+    (do/monad
+      (← c (dist bern .5))
       (if_ c
            (dist (condition cv normal) 1. 1.)
            (dist (condition cv uniform) 0. 3.))
-      c)))
+      (return c))))
 
 ; cf. S:314-319 exif1: `(fromIntegral . fromEnum) <$> c` is 1 for True.
 (define/shown exif1
-  (define-model exif1
-    (let* ((c (dist bern .5))
-           (d (if_ c
-                   (dist normal (lift (λ (cv) (if cv 1. 0.)) c) 1.)
-                   (diracN 5.)))
-           (e (if_ (lift not c)
-                   (dist normal 20. 1.)
-                   (diracN d))))
+  (define exif1
+    (do/monad
+      (← c (dist bern .5))
+      (← d (if_ c
+                (dist normal (lift (λ (cv) (if cv 1. 0.)) c) 1.)
+                (diracN 5.)))
+      (← e (if_ (lift not c)
+                (dist normal 20. 1.)
+                (diracN d)))
       (diracN (sexp+ d e)))))
 
 ; cf. S:323-335 exif2, with its `where` clauses.
 (define/shown exif2
-  (define-model exif2
-    (define (cl1 x)
-      (let* ((d (dist bern .5)))
-        (if_ d (cl3) (diracN x))))
-    (define (cl3)
-      (let* ((a (dist uniform 0. 1.))
-             (b (dist uniform 0. 1.)))
-        (diracN (sexp+ a b))))
-    (let* ((c (dist bern .5)))
-      (if_ c (cl1 10) (cl1 20)))))
+  (define exif2
+    (let ()
+      (define (cl1 x)
+        (do/monad
+          (← d (dist bern .5))
+          (if_ d cl3 (diracN x))))
+      (define cl3
+        (do/monad
+          (← a (dist uniform 0. 1.))
+          (← b (dist uniform 0. 1.))
+          (diracN (sexp+ a b))))
+      (do/monad
+        (← c (dist bern .5))
+        (if_ c (cl1 10) (cl1 20))))))
 
 ; cf. S:340-345 tac1.
 (define/shown tac1
-  (define-model tac1
-    (let* ((c (dist bern .5)))
+  (define tac1
+    (do/monad
+      (← c (dist bern .5))
       (if_ c
            (dist normal 0. 1.)
            (dist uniform 10. 20.))
-      c)))
+      (return c))))
 
-; cf. S:350-355 tac2.
+; cf. S:350-355 tac2: `diracN (Val True) >> dist normal 0 1` (S:353).
 (define/shown tac2
-  (define-model tac2
-    (let* ((c (dist bern .5)))
+  (define tac2
+    (do/monad
+      (← c (dist bern .5))
       (if_ c
-           (begin (diracN #t) (dist normal 0. 1.))
+           (>> (diracN #t) (dist normal 0. 1.))
            (dist uniform 10. 20.))
-      c)))
+      (return c))))
 
-; cf. S:360-365 tac3: `e >>= diracN` in the else branch.
+; cf. S:360-365 tac3: `e >>= diracN` in the else branch (S:364).
 (define/shown tac3
-  (define-model tac3
-    (let* ((c (dist bern .5)))
+  (define tac3
+    (do/monad
+      (← c (dist bern .5))
       (if_ c
-           (begin (diracN #t) (dist normal 0. 1.))
-           (diracN (dist uniform 10. 20.)))
-      c)))
+           (>> (diracN #t) (dist normal 0. 1.))
+           (>>= (dist uniform 10. 20.) diracN))
+      (return c))))
 
 ; cf. S:373-380 tac10.
 (define/shown tac10
-  (define-model tac10
-    (let* ((c (dist bern .5)))
+  (define tac10
+    (do/monad
+      (← c (dist bern .5))
       (if_ c
            (dist (condition 0. normal) 0. 1.)
            (dist (condition 0. uniform) 10. 20.))
-      c)))
+      (return c))))
 
 ; cf. S:385-394 tac11.
 (define/shown tac11
-  (define-model tac11
-    (let* ((c (dist bern .5)))
+  (define tac11
+    (do/monad
+      (← c (dist bern .5))
       (if_ c
            (dist (condition 0. normal) 0. 1.)
-           (let* ((d (diracN 10.)))
+           (do/monad
+             (← d (diracN 10.))
              (dist (condition 0. uniform) d 20.)))
-      c)))
+      (return c))))
 
 ; (new) plan §6.8, the counterexample to upstream's reactivation (M:1159-1165): P(c) = 0.5,
 ; upstream's kernel converges to 0.377286.
 (define/shown pswitch
-  (define-model pswitch
-    (let* ((c (dist bern .5))
-           (m (dist uniformly '(0 1))))
+  (define pswitch
+    (do/monad
+      (← c (dist bern .5))
+      (← m (dist uniformly '(0 1)))
       (if_ c
            (dist categorical (lift (λ (mv) `((,mv . .9) (,(- 1 mv) . .1))) m))
            (diracN (lift identity m)))
-      c)))
+      (return c))))
 
 ; (new) deviation 1 (M:788-792): d is shared by the then branch and the rest of the model, so
 ; resampling d while c is false enqueues the exit, whose entry and active result did not change.
 (define/shown shared-inactive
-  (define-model shared-inactive
-    (let* ((c (dist bern .5))
-           (d (dist normal 0. 1.)))
-      (if_ c d (dist normal 5. 1.)))))
+  (define shared-inactive
+    (do/monad
+      (← c (dist bern .5))
+      (← d (dist normal 0. 1.))
+      (if_ c (return d) (dist normal 5. 1.)))))
 
 ; (new) plan C22: the inactive branch holds a gamma of a negative shape whenever x <= 0.
 (define/shown invalid-inactive
-  (define-model invalid-inactive
-    (let* ((x (dist normal 0. 1.)))
-      (if_ (lift positive? x) (dist gamma x 1.) 0.))))
+  (define invalid-inactive
+    (do/monad
+      (← x (dist normal 0. 1.))
+      (if_ (lift positive? x) (dist gamma x 1.) (return 0.)))))
 
 ; (new) plan C22 with a raising density: beta's log-density raises a parameter error for a
 ; shape a <= 0 (D:330-339), where gamma's answers -inf.
 (define/shown invalid-inactive/beta
-  (define-model invalid-inactive/beta
-    (let* ((x (dist normal 0. 1.)))
-      (if_ (lift positive? x) (dist beta x 1.) 0.))))
+  (define invalid-inactive/beta
+    (do/monad
+      (← x (dist normal 0. 1.))
+      (if_ (lift positive? x) (dist beta x 1.) (return 0.)))))
 
 ; (new) plan C22, the other side: the inner test of the else branch, inactive when c holds,
 ; is then 0, not a boolean, a branch error (deviation 9, S:275), not a parameter one.
 (define/shown invalid-inactive/branch
-  (define-model (invalid-inactive/branch p)
-    (let* ((c (dist bern p))
-           (x (dist bern .5)))
-      (if_ c 3 (if_ (lift (λ (cv xv) (if cv 0 xv)) c x) 1 2))
-      c)))
+  (define (invalid-inactive/branch p)
+    (do/monad
+      (← c (dist bern p))
+      (← x (dist bern .5))
+      (if_ c (return 3) (if_ (lift (λ (cv xv) (if cv 0 xv)) c x) (return 1) (return 2)))
+      (return c))))
 
 ; (new) plan C22, the boundary: the observation is active, and its beta's first parameter is
 ; -1 whenever b is false, where beta's density raises a parameter error (D:330-339).  An active
 ; node's parameter error propagates in both semantics; only an inactive node's rejects.
 (define/shown active-invalid
-  (define-model active-invalid
-    (let* ((b (dist bern .9)))
+  (define active-invalid
+    (do/monad
+      (← b (dist bern .9))
       (dist (condition .5 beta) (lift (λ (bv) (if bv 1. -1.)) b) 1.)
-      b)))
+      (return b))))
 
 ; (new, deviation 8, M:724-751) an observation that the step activating it also updates: its
 ; categorical reads x, the choice whose proposal moves x from 2 (the observation inactive, its
@@ -511,8 +555,9 @@
 ; after the update, when propagation ends (settle-pending!), not at activation (-inf + inf)
 ; nor again by the update (counted twice).  P(x) = (.9 .3 1)/2.2 for x = 0, 1, 2.
 (define/shown act-update
-  (define-model act-update
-    (let* ((x (dist uniformly '(0 1 2))))
+  (define act-update
+    (do/monad
+      (← x (dist uniformly '(0 1 2)))
       (if_ (lift (λ (v) (< v 2)) x)
            (dist (condition 0 categorical)
                  (lift (λ (v) (case v
@@ -520,12 +565,13 @@
                                 ((1) '((0 . .3) (1 . .7)))
                                 (else '((1 . 1.)))))
                        x))
-           'none)
-      x)))
+           (return 'none))
+      (return x))))
 ; (new) the same with a finite stale LL (log .5 at x = 2).
 (define/shown act-update/finite
-  (define-model act-update/finite
-    (let* ((x (dist uniformly '(0 1 2))))
+  (define act-update/finite
+    (do/monad
+      (← x (dist uniformly '(0 1 2)))
       (if_ (lift (λ (v) (< v 2)) x)
            (dist (condition 0 categorical)
                  (lift (λ (v) (case v
@@ -533,27 +579,30 @@
                                 ((1) '((0 . .3) (1 . .7)))
                                 (else '((0 . .5) (1 . .5)))))
                        x))
-           'none)
-      x)))
+           (return 'none))
+      (return x))))
 
 ; (new, deviation 8 and plan C22) proposing x = 0 from x = 2 activates the observation (its
 ; pending flag set) and then rejects the step mid-propagation, on the inactive `uniformly '()`
 ; of the second if_: the journal must restore the flag (set-pending!).  The extended target
 ; excludes x = 0 (its inactive node is invalid, as in invalid-inactive): P(x = 1) = .3/1.3.
 (define/shown pending-abort
-  (define-model pending-abort
-    (let* ((x (dist uniformly '(0 1 2))))
+  (define pending-abort
+    (do/monad
+      (← x (dist uniformly '(0 1 2)))
       (if_ (lift (λ (v) (< v 2)) x)
            (dist (condition 0 categorical)
                  (lift (λ (v) `((0 . ,(if (= v 0) .9 .3)) (1 . ,(if (= v 0) .1 .7)))) x))
-           'none)
+           (return 'none))
       (if_ (lift (λ (v) (not (= v 0))) x)
            (dist uniformly (lift (λ (v) (if (= v 0) '() '(a b))) x))
-           'z)
-      x)))
+           (return 'z))
+      (return x))))
 
-; cf. B1:103-107 normals: independent normals of the given means and sd, made in order.
-(define/shown normals (define (normals means std) (map-in-order (λ (m) (dist normal m std)) means)))
+; cf. B1:103-107 normals, `mapM (\m -> dist normal m std) means`: independent normals of the
+; given means and sd, made head first.
+(define/shown normals
+  (define (normals means std) (traverse/monad (λ (m) (dist normal m std)) means)))
 
 ; cf. B1:110-111 `dot xs ays = foldr1 (+) $ zipWith (\x ay -> (*x) <$> ay) xs ays`: no node.
 (define/shown dot
@@ -561,15 +610,17 @@
     (reduce-right sexp+ #f (map (λ (x ay) (lift (λ (a) (* a x)) ay)) xs ays))))
 
 ; cf. P §3 l.471-486, the Bayesian linear regression of PPAML problem 4.1, for the training
-; points xsy, a list of (xs . y).
+; points xsy, a list of (xs . y); `(1/) <$> dist gamma 0.5 0.5` is the Model functor over the
+; SExp one, so noise-sd is a lifted expression, not a node.
 (define/shown regression
-  (define-model (regression xsy)
-    (let* ((mu (make-list (length (caar xsy)) 0.))
-           (w-mean (normals mu 2.))
-           (w (normals w-mean 1.))
-           (noise-sd (lift (λ (g) (/ 1. g)) (dist gamma .5 .5))))
-      (for-each (Λ ((,xs . ,y)) (dist (condition y normal) (dot xs w) noise-sd)) xsy)
-      (collect w))))
+  (define (regression xsy)
+    (do/monad
+      (let mu (make-list (length (caar xsy)) 0.))
+      (← w-mean (normals mu 2.))
+      (← w (normals w-mean 1.))
+      (← noise-sd (<$> (cut lift (λ (g) (/ 1. g)) <>) (dist gamma .5 .5)))
+      (traverse/monad (Λ ((,xs . ,y)) (dist (condition y normal) (dot xs w) noise-sd)) xsy)
+      (return (collect w)))))
 
 ; (new) n synthetic training points (xs . y) of dimension k for `regression`: deterministic xs
 ; in [-1, 1] and y = xs·w plus a small deterministic noise.
@@ -590,227 +641,234 @@
 ; cf. CB:38-39 maxBalls.
 (define/shown max-balls (define max-balls 8))
 
-; cf. CB:41-44 balls_prior: stochastic memoization replaced by pre-allocation (memo/finite,
-; P footnote 5 l.566-569): one color per possible ball, made in order.
+; cf. CB:41-44 balls_prior, `sequence . replicate n $ dist uniformly (pure [Blue,Green])`
+; (CB:43): stochastic memoization replaced by pre-allocation (P footnote 5 l.566-569), one color
+; per possible ball, made head first, in an alist keyed by the ball.
 (define/shown balls-prior
   (define (balls-prior n)
-    (memo/finite (iota n 1) (λ (i) (dist uniformly '(blue green))))))
+    (do/monad
+      (← balls (replicate/monad n (dist uniformly '(blue green))))
+      (return (map cons (iota n 1) balls)))))
 
-; cf. CB:74-89 balls_observe: for each observed color, the ball drawn and `foldr observe (return
-; (pure color)) [1..maxBalls]`, the chain of if_s conditioning on the drawn ball's color.
+; cf. CB:74-89 balls_observe: for each observed color (`mapM_`, CB:76), the ball drawn and
+; `foldr observe (return (pure color)) [1..maxBalls]`, the chain of if_s conditioning on the
+; drawn ball's color.
 (define/shown balls-observe
-  (define (balls-observe ball obs nballs)
-    (for-each (λ (color)
-                (let* ((b (dist uniformly (iota nballs 1))))
-                  (let observe ((i 1))
-                    (if (> i max-balls)
-                        color
-                        (if_ (lift (λ (bv) (= bv i)) b)
-                             (dist (condition color observed-color) (ball i))
-                             (observe (add1 i)))))))
-              obs)
-    '()))
+  (define (balls-observe balls obs nballs)
+    (>> (for-each/monad
+          (λ (color)
+            (do/monad
+              (← b (dist uniformly (iota nballs 1)))
+              (fold-right (λ (i rest)
+                            (if_ (lift (λ (bv) (= bv i)) b)
+                                 (dist (condition color observed-color) (alist-ref i balls))
+                                 rest))
+                          (return color)
+                          (iota max-balls 1))))
+          obs)
+        (return '()))))
 
-; cf. CB:91-99 cballs_model, BLOG's urn (CB:1-13; P §3 l.505-616).
+; cf. CB:91-99 cballs_model, BLOG's urn (CB:1-13; P §3 l.505-616): `foldr obs_number (return
+; (pure ())) [1..maxBalls]` (CB:96-98).
 (define/shown cballs-model
-  (define-model (cballs-model obs)
-    (let* ((ball (balls-prior max-balls))
-           (nballs (dist uniformly (iota max-balls 1))))
-      (let obs-number ((i 1))
-        (if (> i max-balls)
-            '()
-            (if_ (lift (λ (n) (= n i)) nballs)
-                 (balls-observe ball obs i)
-                 (obs-number (add1 i)))))
-      nballs)))
+  (define (cballs-model obs)
+    (do/monad
+      (← balls (balls-prior max-balls))
+      (← nballs (dist uniformly (iota max-balls 1)))
+      (fold-right (λ (i rest)
+                    (if_ (lift (λ (n) (= n i)) nballs) (balls-observe balls obs i) rest))
+                  (return '())
+                  (iota max-balls 1))
+      (return nballs))))
 
-; (new) PLAN-IDIOM C28: a model that mutates, across an operation, a variable shared by the
-; continuations that exact enumeration resumes: for the docs only, never asserted.
-(define/shown impure
-  (define-model impure
-    (let* ((seen '())
-           (x (dist bern .5)))
-      (push! x seen)
-      (let* ((y (dist bern .5)))
-        (push! y seen)
-        (length seen)))))
+; (new) a fourth reading of a model, over the search tree that exact enumeration explores
+; (model->search-tree, Hansei's format, plan §6.10): the number of its paths, forcing every
+; subtree, for a model whose choices have finite supports.
+(define/shown search-tree-paths
+  (define (search-tree-paths m)
+    (let paths ((tree (model->search-tree m)))
+      (fold (λ (entry n) (+ n (match/first (car entry) ((V ,_) 1) ((C ,thunk) (paths (thunk))))))
+            0 tree))))
 
-; (new) a fourth interpretation, written here against the engine's handler protocol: the number
-; of paths through a model with finite supports, resuming the model once per support point of
-; each choice (multi-shot) and once per observation.
-(define/shown count-paths
-  (define (count-paths model)
-    (handle-model model
-                  (value-handler
-                    (λ (dk resume)
-                      (if (eq? (distk-kind dk) 'observed)
-                          (resume (distk-value dk))
-                          (fold (λ (xp n) (+ n (resume (car xp))))
-                                0
-                                (distribution-support dk)))))
-                  (λ (value) 1))))
-
-;; (new) the pair of two independent normals, written with letlift, whose e's create the nodes
-;; left to right (plan C18), with let* and pair, and with let* in the other order.
+; (new) the pair of two independent normals, written with the Model applicative, `pair <$>
+; dist normal 0 1 <*> dist normal 5 1`, which runs its arguments left to right (plan §15
+; C35), with do/monad and pair, and with do/monad in the other order.
 (define/shown ordered-pair
-  (define-model ordered-pair
-    (letlift ((a (dist normal 0. 1.)) (b (dist normal 5. 1.))) (cons a b))))
+  (define ordered-pair (<*> (<$> (λ (a) (cut pair a <>)) (dist normal 0. 1.)) (dist normal 5. 1.))))
 (define/shown ordered-pair*
-  (define-model ordered-pair*
-    (let* ((a (dist normal 0. 1.)) (b (dist normal 5. 1.))) (pair a b))))
+  (define ordered-pair*
+    (do/monad (← a (dist normal 0. 1.)) (← b (dist normal 5. 1.)) (return (pair a b)))))
 (define/shown swapped-pair
-  (define-model swapped-pair
-    (let* ((b (dist normal 5. 1.)) (a (dist normal 0. 1.))) (pair a b))))
+  (define swapped-pair
+    (do/monad (← b (dist normal 5. 1.)) (← a (dist normal 0. 1.)) (return (pair a b)))))
 
-; (new) a random choice whose values are procedures, and a Dirac node of one: value handlers
-; box a procedure value with `constant`, as lift does, so that it stays a Val (S:105-116).
+; (new) a random choice whose values are procedures, and a Dirac node of one: a procedure is a
+; plain Val (S:107 `Val f`), so that it is passed on to lift, never taken for a model.
 (define/shown procedure-choice
-  (define-model procedure-choice
-    (let* ((f (dist categorical (list (cons car .5) (cons cadr .5)))))
-      (lift (λ (g) (g '(1 2))) f))))
+  (define procedure-choice
+    (do/monad
+      (← f (dist categorical (list (cons car .5) (cons cadr .5))))
+      (return (lift (λ (g) (g '(1 2))) f)))))
 (define/shown procedure-constant
-  (define-model procedure-constant
-    (let* ((c (dist bern .5))
-           (f (diracN (constant car))))
-      (lift (λ (g cv) (if cv (g '(1 2)) 0)) f c))))
+  (define procedure-constant
+    (do/monad
+      (← c (dist bern .5))
+      (← f (diracN car))
+      (return (lift (λ (g cv) (if cv (g '(1 2)) 0)) f c)))))
 
 ; (new) a Dirac node whose value is a closure built at run time from a choice: recomputing it
 ; builds a fresh closure, which `#:check` must not take for a difference.
 (define/shown procedure-built
-  (define-model procedure-built
-    (let* ((k (dist uniformly '(1 2 3)))
-           (scale (diracN (lift (λ (kv) (λ (x) (* kv x))) k))))
-      (lift (λ (f) (f 10)) scale))))
+  (define procedure-built
+    (do/monad
+      (← k (dist uniformly '(1 2 3)))
+      (← scale (diracN (lift (λ (kv) (λ (x) (* kv x))) k)))
+      (return (lift (λ (f) (f 10)) scale)))))
 
 ; (new) a Dirac node whose value is circular (srfi-1's circular-list), a legitimate Scheme
-; value: the walks of the trace builder (deviation 9's check for SExps inside a value) and of
-; `#:check` must end on it.
+; value: the walks of the build (deviation 9's check for SExps inside a value) and of `#:check`
+; must end on it.
 (define/shown circular-value
-  (define-model circular-value
-    (let* ((b (dist bern .5))
-           (cyc (diracN (lift (λ (bv) (circular-list bv)) b))))
-      (lift car cyc))))
+  (define circular-value
+    (do/monad
+      (← b (dist bern .5))
+      (← cyc (diracN (lift (λ (bv) (circular-list bv)) b)))
+      (return (lift car cyc)))))
 
 ; (new) cf. M:99 and M:120-129 (a Dirac node's value is lazy upstream): `car` guarded by an if_
 ; whose else branch is inactive exactly when xs is empty, where it applies car to '().
 (define/shown guarded-car
-  (define-model guarded-car
-    (let* ((k (dist uniformly '(0 1 2)))
-           (xs (diracN (lift (λ (kv) (list-tail '(a b) kv)) k)))
-           (empty (diracN (lift null? xs))))
-      (if_ empty 'none (diracN (lift car xs))))))
+  (define guarded-car
+    (do/monad
+      (← k (dist uniformly '(0 1 2)))
+      (← xs (diracN (lift (λ (kv) (list-tail '(a b) kv)) k)))
+      (← empty (diracN (lift null? xs)))
+      (if_ empty (return 'none) (diracN (lift car xs))))))
 
 ; (new) guarded-car with the support of k reversed: at seed 17 (and every seed tried) the
 ; initial trace has k = 2 in guarded-car, its car node built inactive, and k = 0 here, its car
 ; node built active, which an evaluator must not then apply strictly to the '() of k = 2.
 (define/shown guarded-car/reversed
-  (define-model guarded-car/reversed
-    (let* ((k (dist uniformly '(2 1 0)))
-           (xs (diracN (lift (λ (kv) (list-tail '(a b) kv)) k)))
-           (empty (diracN (lift null? xs))))
-      (if_ empty 'none (diracN (lift car xs))))))
+  (define guarded-car/reversed
+    (do/monad
+      (← k (dist uniformly '(2 1 0)))
+      (← xs (diracN (lift (λ (kv) (list-tail '(a b) kv)) k)))
+      (← empty (diracN (lift null? xs)))
+      (if_ empty (return 'none) (diracN (lift car xs))))))
 
 ; (new) the same with a constant test, so that the else branch is inactive forever, and with a
 ; test that is a lifted expression rather than a node.
 (define/shown guarded-car/constant
-  (define-model guarded-car/constant
-    (let* ((xs '())
-           (b (dist bern .5)))
-      (if_ (lift null? xs) b (diracN (lift car xs))))))
+  (define guarded-car/constant
+    (do/monad
+      (let xs '())
+      (← b (dist bern .5))
+      (if_ (lift null? xs) (return b) (diracN (lift car xs))))))
 (define/shown guarded-car/node
-  (define-model guarded-car/node
-    (let* ((b (dist bern .5))
-           (xs (lift (λ (bv) (if bv '() '(1))) b)))
-      (if_ (lift null? xs) 'none (diracN (lift car xs))))))
+  (define guarded-car/node
+    (do/monad
+      (← b (dist bern .5))
+      (let xs (lift (λ (bv) (if bv '() '(1))) b))
+      (if_ (lift null? xs) (return 'none) (diracN (lift car xs))))))
 
 ; (new) guarded-car with the car under a nested if_: when xs is empty, the inner if_ is inactive
 ; and, whenever c holds, its exit copies the deferred car of '() (deviation 11): an inactive
 ; exit copies the active result's value without forcing it, in 'extended mode too, where the
-; inactive exit is updated.
+; inactive exit is updated.  The if_ is bound after c, as it ran after c in the argument of
+; pair.
 (define/shown nested-guarded-car
-  (define-model nested-guarded-car
-    (let* ((k (dist uniformly '(0 1 2)))
-           (xs (diracN (lift (λ (kv) (list-tail '(a b) kv)) k)))
-           (c (dist bern .5)))
-      (pair c (if_ (lift null? xs) 'none (if_ c (diracN (lift car xs)) 'other))))))
+  (define nested-guarded-car
+    (do/monad
+      (← k (dist uniformly '(0 1 2)))
+      (← xs (diracN (lift (λ (kv) (list-tail '(a b) kv)) k)))
+      (← c (dist bern .5))
+      (← r (if_ (lift null? xs) (return 'none) (if_ c (diracN (lift car xs)) (return 'other))))
+      (return (pair c r)))))
 
 ; (new) deviation 11 (M:99, M:120-129, S:100-116): h's value is deferred when xs is empty, and
 ; mu ignores it, the cdr of (pair h 1.).  Upstream builds the inactive branch, mu being snd
 ; (⊥, 1.0) = 1.0; here mu is the deferred value too, which the normal, a strict reader, forces.
 (define/shown strict-reader
-  (define-model (strict-reader xs)
-    (let* ((c (dist bern .5)))
+  (define (strict-reader xs)
+    (do/monad
+      (← c (dist bern .5))
       (if_ (lift null? xs)
-           c
-           (let* ((h (diracN (lift car xs)))
-                  (mu (diracN (lift cdr (pair h 1.)))))
+           (return c)
+           (do/monad
+             (← h (diracN (lift car xs)))
+             (← mu (diracN (lift cdr (pair h 1.))))
              (dist normal mu 1.))))))
 (define/shown strict-reader/node
-  (define-model strict-reader/node
-    (let* ((c (dist bern .5))
-           (xs (lift (λ (cv) (if cv '() '(1))) c)))
+  (define strict-reader/node
+    (do/monad
+      (← c (dist bern .5))
+      (let xs (lift (λ (cv) (if cv '() '(1))) c))
       (if_ (lift null? xs)
-           'empty
-           (let* ((h (diracN (lift car xs)))
-                  (mu (diracN (lift cdr (pair h 1.)))))
+           (return 'empty)
+           (do/monad
+             (← h (diracN (lift car xs)))
+             (← mu (diracN (lift cdr (pair h 1.))))
              (dist normal mu 1.))))))
 
-; (new) models with a handler of their own around an operation, for the value handlers only
-; (under the trace builder x and b are nodes, which `if` and `=` cannot test): the error is
-; raised by the model after a choice and caught by the model.  Exact enumeration resumes the
-; continuation of the choice once per support point, inside the handler.
-(define/shown guarded-after-choice
-  (define-model guarded-after-choice
-    (handle-exceptions e 0.
-      (let* ((x (dist bern .5)))
-        (if x (error "guarded-after-choice") 1.)))))
-(define/shown guarded-across-choices
-  (define-model guarded-across-choices
-    (let* ((b (dist uniformly '(0 1 2))))
-      (handle-exceptions e 'caught
-        (let* ((c (dist bern .5)))
-          (when (and c (= b 0)) (error "guarded-across-choices"))
-          (list b c))))))
-; (new) the same guard inside a lifted function, around no operation.
+; (new) a model with a handler of its own inside a lifted function, around no Model: the
+; error is raised and caught inside the lifted function, on the values of two choices.
 (define/shown guarded-inside-lift
-  (define-model guarded-inside-lift
-    (let* ((b (dist uniformly '(0 1 2)))
-           (c (dist bern .5)))
-      (lift (λ (bv cv)
-              (handle-exceptions e 'caught
-                (if (and cv (= bv 0)) (error "guarded-inside-lift") (list bv cv))))
-            b c))))
+  (define guarded-inside-lift
+    (do/monad
+      (← b (dist uniformly '(0 1 2)))
+      (← c (dist bern .5))
+      (return (lift (λ (bv cv)
+                      (handle-exceptions e 'caught
+                        (if (and cv (= bv 0)) (error "guarded-inside-lift") (list bv cv))))
+                    b c)))))
 
 ; (new) cf. P §4.2 l.771-776 pdep: z depends on y only, so resampling x, which changes y's LL
 ; but not its value, must not update z (P l.779-786).
 (define/shown pdep
-  (define-model pdep
-    (let* ((x (dist normal 0. 1.))
-           (y (dist normal x 1.))
-           (z (dist normal y 1.)))
-      (sexp+ x y z))))
+  (define pdep
+    (do/monad
+      (← x (dist normal 0. 1.))
+      (← y (dist normal x 1.))
+      (← z (dist normal y 1.))
+      (return (sexp+ x y z)))))
 
-; (new) cf. M:327-333 upp1 (the surface-syntax text, commented out upstream; M:335-340 is the
-; same on the raw trace API) and M:387-397 upp2 (commented out upstream): d depends on a, b
-; and c, which a's resampling all changes; d must be updated once, after b and c (M:342-361).
+; (new) cf. M:327-333 upp1 (the surface-syntax text, commented out upstream; M:336-341,
+; upp1/raw below, is the same distribution on the raw trace API, with an extra Dirac node ab
+; between a, b and d) and M:387-397 upp2 (commented out upstream): d depends on a, b and c,
+; which a's resampling all changes; d must be updated once, after b and c (M:342-361).
 (define/shown upp1
-  (define-model upp1
-    (let* ((a (dist uniform 0. 1.))
-           (b (diracN (sexp+ a 2.)))
-           (c (diracN (sexp+ a 3.)))
-           (d (dist uniform (sexp+ a b) c)))
-      d)))
+  (define upp1
+    (do/monad
+      (← a (dist uniform 0. 1.))
+      (← b (diracN (sexp+ a 2.)))
+      (← c (diracN (sexp+ a 3.)))
+      (← d (dist uniform (sexp+ a b) c))
+      (return d))))
 (define/shown upp2
-  (define-model upp2
-    (let* ((a (dist uniform 0. 1.))
-           (b (diracN (sexp+ a 2.)))
-           (c (diracN (sexp+ b 3.)))
-           (d (dist uniform (sexp+ a b) c)))
-      d)))
+  (define upp2
+    (do/monad
+      (← a (dist uniform 0. 1.))
+      (← b (diracN (sexp+ a 2.)))
+      (← c (diracN (sexp+ b 3.)))
+      (← d (dist uniform (sexp+ a b) c))
+      (return d))))
+; (new) cf. M:336-341 upp1, the program upstream runs (M:361 `upp1r = mcmc 7 upp1`), on the
+; engine's trace API, which (aux hakaru10) does not export: `next` is >>= (M:446-447), so a
+; chain of `next`s is a do/monad, and `with_node2 (x,y)` is with-node-tree on the vector of
+; x and y (M:492-499).  d depends on the Dirac node ab = a + b and on c.
+(define/shown upp1/raw
+  (define upp1/raw
+    (do/monad
+      (← a (with-node-none (uniform 0. 1.)))
+      (← b (with-node a (λ (av) (dirac (+ av 2.)))))
+      (← c (with-node a (λ (av) (dirac (+ av 3.)))))
+      (← ab (with-node-tree (vector a b) (λ (vs) (dirac (+ (vector-ref vs 0) (vector-ref vs 1))))))
+      (with-node-tree (vector ab c) (λ (vs) (uniform (vector-ref vs 0) (vector-ref vs 1)))))))
 
 ; (new) the updates that ran in each of the n - 1 steps of model's chain (mcmc-generator's
-; keys), in the order they ran, as lists of node addresses: every node's update is wrapped,
-; once the trace is built, by one that records its address, and the step hook collects them.
+; keys, over the TraceM of model, S:197), in the order they ran, as lists of node addresses:
+; every node's update is wrapped, once the trace is built, by one that records its address,
+; and the step hook collects them.
 (define/shown update-traces
   (define (update-traces n model . keys)
     (let ((updated '()) (steps '()))
@@ -824,7 +882,8 @@
       (define (collect! ch accepted? delta)
         (push! (reverse updated) steps)
         (set! updated '()))
-      (let1 (next (apply mcmc-generator n model #:build-hook spy! #:step-hook collect! keys))
+      (let1 (next (apply mcmc-generator n (model->trace model 'update-traces)
+                         #:build-hook spy! #:step-hook collect! keys))
         (do ((i 0 (add1 i))) ((= i n)) (next)))
       (reverse steps))))
 
@@ -886,14 +945,14 @@
         (cite/a "https://hackage-content.haskell.org/package/random-1.0.1.1/src/System/Random.hs"
                 "random-1.0.1.1")
         " (hackage, 567 lines), whose StdGen GHC used for upstream's recorded runs.")
-     (p "In Scheme a model is a thunk that " (i "performs") " three operations, "
-        (code/inline "dist") ", " (code/inline "diracN") " and " (code/inline "if_")
-        ", through the native " (code/inline "shift") " of "
-        (code/inline "(chicken continuation)") ".  What they mean is up to the "
-        (i "handler") " that runs the model under the matching " (code/inline "reset")
-        ": the same grass model below is sampled by incremental Metropolis-Hastings ("
-        (code/inline "mcmC") "), enumerated exactly into a Hansei search tree ("
-        (code/inline "exact-posterior") ") and sampled forward with likelihood weights ("
+     (p "In Scheme a model is a State computation (S:82, " (code/inline "Model a = MCMCM (SExp
+        a)") ", " (code/inline "MCMCM a = State MCState a") ", M:200) written with "
+        (code/inline "do/monad") ", as in Syntax.hs: its state is the chain, and running it
+        builds the trace graph, " (code/inline "dist") ", " (code/inline "diracN") " and "
+        (code/inline "if_") " each adding their nodes.  The same grass model below is sampled
+        by incremental Metropolis-Hastings (" (code/inline "mcmC") "), enumerated exactly over
+        its trace graph into a Hansei search tree (" (code/inline "exact-posterior")
+        ") and sampled forward over the same graph with likelihood weights ("
         (code/inline "likelihood-weighting") ").")
      ,@(shown 'nnot 'nor 'grass)
      (code/scheme (((mcmC 10 grass) ,(mcmC 10 grass))
@@ -903,9 +962,11 @@
      (structure/section "Hakaru10 by example")
      (p "The tutorial of P §2.1 (l.202-327), with each Haskell model next to its Scheme
         transcription in the cases of the replay and laws suites.  Haskell's "
-        (code/inline "do") " becomes " (code/inline "let*") " and " (code/inline "return e")
-        " the tail expression; a model is defined with " (code/inline "define-model")
-        " (a thunk) or written in place with " (code/inline "model") ".  Quoting P l.204-219:")
+        (code/inline "do") " is " (code/inline "do/monad") ", " (code/inline "x <- m")
+        " is " (code/inline "(← x m)") " and " (code/inline "return e") " is "
+        (code/inline "(return e)") "; a model is a value, defined with "
+        (code/inline "define") " as in Haskell, and a model with arguments a procedure
+        answering one.  Quoting P l.204-219:")
      (cite/quote
        "Oleg Kiselyov"
        "The first, elementary program is pbern = dist bern 0.4 whose inferred type is Model
@@ -937,9 +998,11 @@
        variable x is not actually of the type Double, as one might have thought. [...] As
        should be apparent from the use of Applicative operator <$>, which is just fmap,
        Model a is something like M (A a) where M is a monad but A is an applicative.")
-     (p "In Scheme the applicative is " (code/inline "lift") " (with " (code/inline "letlift")
-        ", " (code/inline "pair") ", " (code/inline "collect") " and the "
-        (code/inline "sexp+") " family for the Num instance, S:99-135), and the branch is "
+     (p "In Scheme the applicative of SExp is " (code/inline "lift") " (with "
+        (code/inline "pair") ", " (code/inline "collect") " and the "
+        (code/inline "sexp+") " family for the Num instance, S:99-135), while "
+        (code/inline "<$>") " and " (code/inline "<*>") " are those of the Model monad
+        (B1:52 " (code/inline "abs <$> dist normal 0 10") "), and the branch is "
         (code/inline "if_") ", whose test must be a boolean stochastic expression:")
      ,@(shown 'mixng 'mixng′*)
      (p "Both should give the same distribution, as should the interleaving of 2500 samples
@@ -968,15 +1031,18 @@
         (code/inline "kind") " property says what was violated (case "
         (code/inline "test/language/errors") "):")
      (ul (li "observations are external (S:38-42, S:174-193): " (code/inline "condition")
-             " of a stochastic expression raises " (code/inline "conditioning") ";")
+             " of a stochastic expression, of a model, or of a Scheme value holding either
+             raises " (code/inline "conditioning") ";")
          (li "only resampleable distributions are conditioned, never twice (S:185-193,
              E:180-186): " (code/inline "conditioning") ";")
-         (li "SExp is not a monad (S:118, P l.739-747): " (code/inline "dist") ", "
-             (code/inline "diracN") " and " (code/inline "if_") " outside a model or inside a
-             lifted function raise " (code/inline "construction") ";")
-         (li "a model is not a value (S:82): a model (a thunk) in an argument position raises "
-             (code/inline "construction") ", " (code/inline "constant") " passes a procedure
-             as a value;")
+         (li "SExp is not a monad (S:118, P l.739-747): a model answered by a lifted function,
+             at the build or at an update, raises " (code/inline "construction") ";")
+         (li "a model is a type of its own (S:82, plan §15 C32): a model in an SExp position
+             (an argument of " (code/inline "dist") ", the result, inside a Scheme value) or
+             a value where a model is expected (" (code/inline "mcmC")
+             "'s argument, a branch of " (code/inline "if_") ") raises "
+             (code/inline "construction") "; procedures are plain values (S:107 "
+             (code/inline "Val f") ");")
          (li "the test of " (code/inline "if_") " is " (code/inline "SExp Bool")
              " (S:275): a non-boolean raises " (code/inline "branch") ";")
          (li "lexical scoping, implicit upstream (deviation 10): a node of another chain raises "
@@ -1008,8 +1074,11 @@
         replacing Memory.hs); a node's dynamic state is an immutable "
         (code/inline "nstate") " record (value, log-likelihood, distribution, timestamp)
         replaced as a whole, as " (code/inline "Mem.modify_ref") " does.  "
-        (code/inline "Model a = MCMCM (SExp a)") ", a State monad threading the chain, is a
-        thunk run under the " (code/inline "trace-builder") " handler, which holds the chain;
+        (code/inline "Model a = MCMCM (SExp a)") " is a State monad threading the chain (plan
+        §15 C34), run once per build by " (code/inline "build-chain") " (M:872-880
+        " (code/inline "initial_step'") "), whose construction functions mirror Syntax.hs and
+        Metropolis.hs by name (" (code/inline "create-node") ", " (code/inline "with-node-ctor")
+        ", " (code/inline "to-node") ", " (code/inline "ifnode") ", ...);
         an SExp is a node, an " (code/inline "nt") " (leaves and a function: S:85-116's "
         (code/inline "NT") ") or any other value (" (code/inline "Val") ").  For the grass
         model the graph has the three nodes of P's Fig. 1 (case "
@@ -1022,9 +1091,9 @@
           "The fact that Hakaru10 models are acyclic and Hakaru10 programs are declarative
           (with no mutations) lets us avoid the topological sort and rely on the 'creation
           times' of trace nodes. A node can only depend on those constructed before it.")
-        "Creation order is therefore load-bearing, and Scheme leaves the order of procedure
-        arguments unspecified: models create nodes in sequence (plan C18; see the embedding
-        notes).")
+        "Creation order is therefore load-bearing (plan C18): a node is created when the
+        model that makes it runs, in bind order, " (code/inline "do/monad") " top to bottom
+        and the traversals head first (plan §15 C35; see the embedding notes).")
      (p "The Dirac distribution (P §4.3 l.801-843): a Dirac node is a pure computation,
         recomputed whenever a parent changes, its log-likelihood staying 0, so a proposal is
         extended to all dependent Dirac nodes and the unit laws hold by construction
@@ -1039,10 +1108,11 @@
           good for performance. Therefore, we mark the nodes in the non-current branch as
           inactive, and delay their updates until they are activated. Thus each node, along
           with its current value, LL and the distribution also keeps the inactivation count.")
-        (code/inline "ifnode!") " (M:641-686) builds the entry (the test, always a new Dirac
-        node), the inactive branch first, deactivates its nodes ("
-        (code/inline "deactivate!") ", M:696-717, which takes the observed nodes' LL back),
-        the active branch, and the exit node, whose value is the active branch's result ("
+        (code/inline "if_") " (S:275-279) builds the entry (the test, always a new Dirac
+        node); " (code/inline "ifnode") " (M:641-686) then builds the inactive branch first,
+        deactivates its nodes (" (code/inline "deactivate")
+        ", M:696-717, which takes the observed nodes' LL back), the active branch, and the
+        exit node, whose value is the active branch's result ("
         (code/inline "update-exit") ", M:778-794).  When the entry's value changes, "
         (code/inline "update-entry") " (M:760-775) moves the counts and the observed LL
         between the branches and replays the updates delayed while a node was inactive.")
@@ -1058,66 +1128,77 @@
      (code/scheme/file "../aux.hakaru10.engine.scm")
 
      (structure/section "Embedding notes")
-     (ul (li (b "Models are thunks.") "  " (code/inline "(model body ...)") " is "
-             (code/inline "(τ body ...)") "; running a model again under the trace builder
-             makes fresh nodes, so there is no accidental sharing (P l.175-179) and sharing
-             comes only from binding a name (S:53-73).  Models compose by calling one another
-             ("
-             (code/inline "((phierN′ 9 x 1.))") " in " (code/inline "condhier")
-             ") and are values (" (code/inline "phierN") " folds a model transformer).")
-         (li (b "Evaluation order.") "  Node creation order is the topological order of
-             propagation and fixes the random draws of a replay: create nodes with "
-             (code/inline "let*") ", " (code/inline "fold") ", " (code/inline "map-in-order")
-             ", " (code/inline "for-each") " or a named " (code/inline "let") ", never in
-             argument positions nor inside " (code/inline "map") " (CHICKEN's "
-             (code/inline "map") " conses " (code/inline "(p x)") " onto the recursive call in
-             unspecified order; srfi-1's " (code/inline "list-tabulate") " calls from the
-             last index down).  " (code/inline "letlift") " and " (code/inline "memo/finite")
-             " evaluate in order.")
-         (li (b "Three operations and their handlers") " (PLAN-IDIOM C25-C27).  "
-             (code/inline "(dist d arg ...)") " performs " (code/inline "(dist d args)")
-             ", " (code/inline "(diracN e)") " performs " (code/inline "(diracN e)")
-             " and " (code/inline "(if_* test th el)") " performs "
-             (code/inline "(if test th el)") " and calls the thunk it is resumed with, so the
-             branch runs in the model's own context, under the same "
-             (code/inline "reset") ".  " (code/inline "condition") " is not an operation: it
-             makes an observed distribution, which " (code/inline "dist") " performs; "
-             (code/inline "lift") " is not one either: it is pure, and under a handler where
-             stochastic expressions are plain values it evaluates at once.  "
-             (code/inline "handle-model") " installs a handler "
-             (code/inline "(λ (request resume) ...)") " under a native "
-             (code/inline "reset") ", by trampoline: a one-shot handler (the trace builder,
-             the forward sampler) runs in constant stack, a multi-shot one (exact
-             enumeration, " (code/inline "count-paths") " in case "
-             (code/inline "test/language/a-handler-of-your-own") ") resumes as often as it
-             likes.  Hansei's " (code/inline "probcc-reify") " has the same shape over aux's
-             delimited continuations; only Hansei's data-level tools ("
-             (code/inline "probcc-explore") ", " (code/inline "probcc-normalize")
-             ") are shared, so aux's " (code/inline "resetcc") " and the native "
-             (code/inline "reset") " never meet in one control context.")
-         (li (b "Multi-shot purity") " (C28).  A model must not mutate, across an operation,
-             state that outlives it: exact enumeration resumes the continuation once per
-             support point, and the siblings would share the mutation.  For instance "
-             ,@(shown 'impure)
-             " answers 2 on every run under " (code/inline "mcmC") " but not under "
-             (code/inline "exact-posterior") ":"
-             (code/scheme (((mcmC 5 impure) ,(mcmC 5 impure))
-                           ((exact-posterior impure) ,(exact-posterior impure))))
-             (code/inline "fold") ", "
-             (code/inline "map-in-order") ", named " (code/inline "let") " and "
-             (code/inline "memo/finite") " (whose table is built after its last operation) are
-             safe.")
-         (li (b "The static discipline is the builder's") " (C29).  Under the value handlers
-             no node exists, so they cannot tell an observation computed inside the model
-             from an external one; " (code/inline "exact-posterior") " therefore builds the
-             model once with the trace builder before enumerating it.")
+     (ul (li (b "Models are State computations") " (plan §15 C32, C33).  A model is a value
+             of the State monad of " (code/inline "(aux category state)") ", "
+             (code/inline "Model a = MCMCM (SExp a)") " (S:82), whose state is the chain: "
+             (code/inline "dist") ", " (code/inline "diracN") " and " (code/inline "if_")
+             " are models, " (code/inline "lift") ", " (code/inline "pair") ", "
+             (code/inline "collect") " and " (code/inline "condition") " are pure, and "
+             (code/inline "return") " makes no node (S:197, S:211-214).  Running a model
+             again makes fresh nodes, so there is no accidental sharing (P l.175-179) and
+             sharing comes only from binding a name (S:53-73).  Models compose by binding one
+             another (" (code/inline "(phierN′ 9 x 1.)") " in " (code/inline "condhier")
+             ") and are values (" (code/inline "phierN") " folds a model transformer).  The
+             engine's construction functions keep upstream's names, each a State action ("
+             (code/inline "create-node") ", M:404-419; " (code/inline "with-node-ctor")
+             ", S:218-228; " (code/inline "ifnode") ", M:641-686).")
+         (li (b "Bind order is creation order") " (plan §15 C35).  Node creation order is the
+             topological order of propagation and fixes the random draws of a replay.  A node
+             is created when the model that makes it runs, in bind order: "
+             (code/inline "do/monad") " top to bottom, and " (code/inline "fold/monad") ", "
+             (code/inline "traverse/monad") " (" (code/inline "mapM") "), "
+             (code/inline "for-each/monad") " (" (code/inline "mapM_") ") and "
+             (code/inline "replicate/monad") " head first.  Building a model creates no node,
+             so a model may be built anywhere, in an argument position or inside "
+             (code/inline "map") ": the order is the binds', as " (code/inline "ordered-pair")
+             " shows (case " (code/inline "test/language/applicative") ").")
+         (li (b (code/inline "if_") " delays its branches") " (plan §15 C36).  "
+             (code/inline "if_") " is syntax over the engine's " (code/inline "if_*")
+             " (S:275-279): its branch expressions are evaluated when " (code/inline "ifnode")
+             " builds each branch, inside the branch's scope and, for the inactive one, under
+             lazy lifting, the stand-in for Haskell's non-strict arguments on which deviation
+             11 relies.  A branch must be a model, " (code/inline "(return v)")
+             " for a value: " (code/inline "(if_ c 1 2)") " raises "
+             (code/inline "construction") " when the branch is built.  Being syntax, "
+             (code/inline "if_") " is used inside a " (code/inline "λ")
+             " where a procedure is needed, as in the " (code/inline "foldr")
+             "s of the colored balls.")
+         (li (b "Running a model several times") " (plan §15 C35).  A model may run several
+             times: the retries of the initial trace (M:882-891), the rebuild of "
+             (code/inline "#:check") ", the trace graph of the oracles.  A Scheme effect that
+             must happen once per run belongs inside a bind, after it: the first clause of a
+             top-level " (code/inline "do/monad") " is evaluated once, when the definition
+             is.  That is harmless for " (code/inline "dist") ", " (code/inline "diracN") ", "
+             (code/inline "if_") " and " (code/inline "return") ", which only build models;
+             an SExp computed there, such as " (code/inline "(lift car '())")
+             ", is computed at once (deviation 11).  The counters of case B4′ run their effect
+             per run with " (code/inline "(>>= (return #f) (λ (_) (add1! k) (return k)))")
+             ", the models of case L5 after the bind of the node they capture, with "
+             (code/inline "(let _ (set! captured x))") ".")
+         (li (b "A clause that is not a model.") "  A bare clause of "
+             (code/inline "do/monad") " must be a model: one that is not, such as "
+             (code/inline "(add1! k)") " between two binds, fails with CHICKEN's record-type
+             error when the model runs, a Scheme error, not a " (code/inline "construction")
+             " one (case L5).  Bind it with " (code/inline "(let _ ...)") " instead.")
+         (li (b "The static discipline is the build") " (plan §15 C37).  SExp is applicative,
+             not a monad (S:118), and " (code/inline "if_") " builds both branches
+             (M:650-661), so one build is the whole trace graph, and it checks the static
+             discipline (deviations 9, 10) as it goes.  " (code/inline "exact-posterior") ", "
+             (code/inline "model->search-tree") ", " (code/inline "weighted-samples") " and "
+             (code/inline "likelihood-weighting") " walk the graph of one "
+             (code/inline "'extended") " build (plan §6.10), reusing none of the incremental
+             machinery.  That assumes a model whose Scheme code does not branch on
+             build-time values, which only the rebuild of " (code/inline "#:check")
+             " would catch.")
          (li (b (code/inline "condition") ".") "  " (code/inline "(chicken condition)")
              " exports a procedure of the same name: import it as "
              (code/inline "(except (chicken condition) condition)") ", as this file does.")
          (li (b "Stochastic memoization") " (P §3 l.531-544, footnote 5 l.566-569, CB:41-44)
-             becomes pre-allocation: " (code/inline "(memo/finite keys f)") " calls "
-             (code/inline "f") " eagerly for every key, in order, before the "
-             (code/inline "if_") "s that use it, so its nodes belong to no branch.")
+             becomes pre-allocation, as upstream's own " (code/inline "balls_prior")
+             " (CB:43, " (code/inline "sequence . replicate") "): "
+             (code/inline "(replicate/monad n m)") " runs " (code/inline "m") " n times, in
+             order, before the " (code/inline "if_") "s that use its nodes, which so belong
+             to no branch; " (code/inline "balls-prior") " keys them by ball in an alist.")
          (li (b "Sampling.") "  " (code/inline "mcmC") ", " (code/inline "mcmC-fold")
              " (constant memory) and " (code/inline "mcmC§") " (an " (code/inline "(aux stream)")
              " stream: " (code/inline "take§") ", " (code/inline "§->list") ", "
@@ -1148,7 +1229,13 @@
          (li "the opt-in " (code/inline "'extended") " semantics, which removes the
              reactivation bias of upstream's kernel (see the semantics suite);")
          (li "the static checks of Haskell's types become run-time errors (P l.153-155,
-             l.419-421), among them the boolean test of " (code/inline "if_") " (S:275);")
+             l.419-421), among them the boolean test of " (code/inline "if_") " (S:275); a
+             Model is a value of its own type (plan §15 C32), so a model where an SExp is
+             expected, a model answered by a lifted function, and a model inside a Scheme
+             value (a Val, a Dirac value, or the first answer of a lifted function) are
+             run-time " (code/inline "construction") " errors; a bare non-model
+             clause is a Scheme error; procedures are plain values (S:107); a Val argument of "
+             (code/inline "dist") " holding an SExp is rejected;")
          (li "extra checks with no upstream counterpart: branch escape, owner chain, kind
              stability (M:46-60), the parameter checks of beta, laplace and dirichlet
              (D:318-328, D:384-391, D:407-411), and a negative sample count, where upstream
@@ -1158,7 +1245,12 @@
              whose computation raises is deferred, as upstream's lazy values are (M:99,
              M:120-129), but a function applied to it in an inactive branch is not called, so
              a strict reader of the result raises the deferred error where upstream computes
-             a value that ignores it (S:100-116; case B6)."))
+             a value that ignores it (S:100-116; case B6).  Scheme is strict, so "
+             (code/inline "if_") " delays its branch models until " (code/inline "ifnode")
+             " builds them (plan §15 C36), where a partial " (code/inline "lift")
+             " of an inactive branch is deferred; an SExp computed outside any branch, e.g. by
+             a top-level " (code/inline "(define m (diracN (lift car '())))")
+             ", raises at once where upstream raises when the value is forced."))
      (p "Kept as upstream, with a comment in the source: the reactivation bias in "
         (code/inline "'upstream") " mode (M:1159-1165), the categorical duplicate-key
         asymmetry (the sampler sums, the density takes the first match, D:98), beta raising
@@ -1301,46 +1393,52 @@ cballs_model obs = do
   return nballs")
          (p "(ColoredBalls.hs:74-99.)  " (code/inline "if_ test $ m") " is " (code/inline "if_")
             " short of its else branch, which the " (code/inline "foldr") " supplies: a chain
-            of nested " (code/inline "if_") "s, a named " (code/inline "let") " here.")))
+            of nested " (code/inline "if_") "s, built by " (code/inline "fold-right")
+            " as upstream's " (code/inline "foldr") " (" (code/inline "if_")
+            " being syntax, inside a " (code/inline "λ") ").")))
 
   ((test/language/applicative _)
    (⊦ equal? (mcmC 50 ordered-pair*) (mcmC 50 ordered-pair))
    (⊦≠ (mcmC 50 swapped-pair) (mcmC 50 ordered-pair))
    (⊦ equal? '(-3. .25 2 .5 4 #f) (list (sexp- 3.) (sexp/ 4.) (sexp- 3 1) (sexp/ 1. 2.)
                                        (sexp-map add1 3) (sexp? 3)))
-   (⊦ equal? '((-3.) (.25)) (list (mcmC 1 (model (sexp- 3.))) (mcmC 1 (model (sexp/ 4.)))))
-   (⊦ = 4 (sexp-map (λ (f v) (f v)) (constant add1) 3))
+   (⊦ equal? '((-3.) (.25)) (list (mcmC 1 (return (sexp- 3.))) (mcmC 1 (return (sexp/ 4.)))))
+   (⊦ = 4 (sexp-map (λ (f v) (f v)) add1 3))
    (for-each (Λ ((,x ,x? ,nx? ,neg ,inv ,diff ,quot ,mapped ,applied))
                (⊦ equal? (list #t #t (- x) (/ x) (- 10. x) (/ x 2.) (- x) (- x))
                   (list x? nx? neg inv diff quot mapped applied)))
-             (mcmC 20 (model (let* ((x (dist normal 0. 1.)))
-                               (lift list x (sexp? x) (sexp? (sexp- x)) (sexp- x) (sexp/ x)
-                                     (sexp- 10. x) (sexp/ x 2.) (sexp-map - x)
-                                     (sexp-map (λ (f v) (f v)) (constant -) x))))))
-   `(doc (p "The rest of the applicative surface (S:99-135).  " (code/inline "letlift")
-            " evaluates its e's left to right, so " (code/inline "ordered-pair")
+             (mcmC 20 (do/monad
+                        (← x (dist normal 0. 1.))
+                        (return (lift list x (sexp? x) (sexp? (sexp- x)) (sexp- x) (sexp/ x)
+                                      (sexp- 10. x) (sexp/ x 2.) (sexp-map - x)
+                                      (sexp-map (λ (f v) (f v)) - x))))))
+   `(doc (p "The rest of the applicative surface (S:99-135).  The Model applicative, "
+            (code/inline "pair <$> dist normal 0 1 <*> dist normal 5 1") ", runs its
+            arguments left to right, so " (code/inline "ordered-pair")
             " creates its nodes in the order of " (code/inline "ordered-pair*")
             " and replays it sample for sample, while " (code/inline "swapped-pair")
             ", the same distribution with the nodes made in the other order, draws other
-            samples: node creation order is observable (plan C18).")
+            samples: node creation order is observable (plan C18, §15 C35).")
          ,@(shown 'ordered-pair 'ordered-pair* 'swapped-pair)
          (p (code/inline "sexp-") " and " (code/inline "sexp/") " of one argument are "
             (code/inline "negate") " and " (code/inline "recip") " (S:125, S:131), of two "
             (code/inline "-") " and " (code/inline "/") " (S:123, S:130); "
             (code/inline "sexp-map") " is " (code/inline "fmap") " (S:99-102), evaluated now
-            over plain values; " (code/inline "sexp?") " holds of nodes and lifted
-            expressions only (S:85-89); and " (code/inline "constant") " (S:105 "
-            (code/inline "pure") ") passes a procedure as a value.")))
+            over plain values, a procedure among them (S:107 " (code/inline "Val f")
+            "); and the engine's " (code/inline "sexp?") " holds of nodes and lifted
+            expressions only (S:85-89).")))
 
   ((test/language/sharing _)
-   (⊦ equal? '(#t) (mcmC 1 (model (let* ((x (dist normal 0. 1.))) (eq? x (diracN x))))))
+   (⊦ equal? '(#t)
+      (mcmC 1 (do/monad (← x (dist normal 0. 1.)) (← y (diracN x)) (return (eq? x y)))))
    (⊦ equal? '((nodes . 1) (resampleable . 0) (observed . 0) (dirac . 1) (inactive . 0)
                (entries . 0))
-      (model-graph (model (diracN 3.))))
-   (⊦ = 2 (alist-ref 'nodes (model-graph (model (let* ((x (dist normal 0. 1.)))
-                                                   (diracN (sexp+ x x)))))))
-   (receive (ch result) (build-chain (model (let* ((x (dist normal 0. 1.)))
-                                              (diracN (lift + x x x))))
+      (model-graph (diracN 3.)))
+   (⊦ = 2 (alist-ref 'nodes (model-graph (do/monad (← x (dist normal 0. 1.))
+                                                    (diracN (sexp+ x x))))))
+   (receive (ch result) (build-chain (model->trace (do/monad (← x (dist normal 0. 1.))
+                                                             (diracN (lift + x x x)))
+                                                   'test)
                                      (make-stdgen-source 17) 'upstream)
      (⊦ = 1 (vector-length (node-parents result))))
    `(doc (p "L4: " (code/inline "diracN") " of a node answers the node itself, shared rather
@@ -1361,80 +1459,133 @@ diracN x = fmap NRef $ with_node_ctor x diracS")
    (define cases
      `((condition-on-a-random-choice
          conditioning
-         ,(τ (mcmC 3 (model (let* ((b (dist bern .5)))
-                              (dist (condition b bern) .4)
-                              b)))))
+         ,(τ (mcmC 3 (do/monad
+                       (← b (dist bern .5))
+                       (dist (condition b bern) .4)
+                       (return b)))))
+       (condition-on-a-model
+         conditioning
+         ,(τ (mcmC 3 (do/monad
+                       (← b (dist bern .5))
+                       (dist (condition (dist bern .5) bern) .5)
+                       (return b)))))
+       (condition-on-an-sexp-inside-a-value
+         conditioning
+         ,(τ (mcmC 3 (do/monad
+                       (← c (dist bern .5))
+                       (dist (condition (list c) uniformly) '((#t) (#f)))
+                       (return c)))))
        (condition-twice conditioning ,(τ (condition #t (condition #t (bern .5)))))
        (condition-twice-applied
          conditioning
-         ,(τ (mcmC 3 (model (let* ((b (dist beta 1. 1.)))
-                              (dist (condition #t (condition #f bern)) b)
-                              b)))))
-       (dist-outside-a-model construction ,(τ (dist bern .5)))
-       (diracN-outside-a-model construction ,(τ (diracN 1.)))
-       (if_-outside-a-model construction ,(τ (if_ #t 1 2)))
+         ,(τ (mcmC 3 (do/monad
+                       (← b (dist beta 1. 1.))
+                       (dist (condition #t (condition #f bern)) b)
+                       (return b)))))
        (dist-in-a-lifted-function
          construction
-         ,(τ (mcmC 3 (model (let* ((x (dist normal 0. 1.)))
-                              (lift (λ (xv) (dist normal xv 1.)) x))))))
-       (dist-in-a-lifted-function-during-mcmC
+         ,(τ (mcmC 3 (do/monad
+                       (← x (dist normal 0. 1.))
+                       (return (lift (λ (xv) (dist normal xv 1.)) x))))))
+       (model-from-a-lifted-function-at-update
          construction
-         ,(τ (mcmC 200 (model (let* ((x (dist bern .5)))
-                                (dist bern (lift (λ (xv) (if xv (begin (dist bern .5) .5) .5))
-                                                 x)))))))
-       (a-model-as-a-dist-argument construction ,(τ (mcmC 3 (model (dist normal pnorm 1.)))))
-       (a-model-as-the-result construction ,(τ (mcmC 3 (model pnorm))))
+         ,(τ (mcmC 200 (do/monad
+                         (← x (dist bern .5))
+                         (diracN (lift (λ (xv) (if xv .5 (dist bern .5))) x))))))
+       (sexp-from-a-lifted-function-at-update
+         construction
+         ,(τ (mcmC 200 (do/monad
+                         (← x (dist bern .5))
+                         (diracN (lift (λ (xv) (if xv .5 (sexp+ x 1))) x))))))
+       (model-from-a-lifted-function-as-a-parameter
+         construction
+         ,(τ (mcmC 3 (do/monad (← c (dist bern .5)) (dist normal (lift (λ (cv) pnorm) c) 1.)))))
+       (model-inside-a-lifted-value
+         construction
+         ,(τ (mcmC 3 (do/monad
+                       (← c (dist bern .5))
+                       (dist uniformly (lift (λ (cv) (list pnorm 1)) c))))))
+       (a-model-as-a-lift-argument
+         construction
+         ,(τ (mcmC 3 (do/monad (← x (dist bern .5)) (return (lift (λ (xv m) xv) x pnorm))))))
+       (a-model-as-the-only-lift-argument construction ,(τ (lift (λ (m) 1) pnorm)))
+       (a-model-as-a-dist-argument construction ,(τ (mcmC 3 (dist normal pnorm 1.))))
+       (a-model-as-the-result construction ,(τ (mcmC 3 (return pnorm))))
+       (a-model-inside-a-value construction ,(τ (mcmC 3 (diracN (list pnorm)))))
        (not-a-model construction ,(τ (mcmC 3 42)))
        (not-a-model/exact construction ,(τ (exact-posterior 42)))
+       (a-thunk-is-not-a-model construction ,(τ (mcmC 3 (λ () 1))))
+       (a-branch-that-is-not-a-model construction ,(τ (mcmC 3 (if_ #t 1 2))))
        (a-container-of-sexps-as-the-result
          construction
-         ,(τ (mcmC 3 (model (let* ((x (dist bern .5))) (list x))))))
+         ,(τ (mcmC 3 (do/monad (← x (dist bern .5)) (return (list x))))))
        (sexps-nested-in-the-result
          construction
-         ,(τ (mcmC 3 (model (let* ((x (dist bern .5)) (y (dist bern .5))) (cons 1 (vector x y)))))))
+         ,(τ (mcmC 3 (do/monad
+                       (← x (dist bern .5))
+                       (← y (dist bern .5))
+                       (return (cons 1 (vector x y)))))))
        (an-sexp-inside-a-diracN-value
          construction
-         ,(τ (mcmC 3 (model (let* ((x (dist bern .5))) (diracN (vector 1 (list x))))))))
+         ,(τ (mcmC 3 (do/monad (← x (dist bern .5)) (diracN (vector 1 (list x)))))))
+       (an-sexp-inside-a-dist-argument
+         construction
+         ,(τ (mcmC 3 (do/monad (← x (dist bern .5)) (dist uniformly (list x))))))
+       (an-sexp-inside-a-dist-argument-next-to-an-sexp
+         construction
+         ,(τ (mcmC 3 (do/monad
+                       (← x (dist bern .5))
+                       (← s (dist bern .5))
+                       (dist (λ (xs sv) (uniformly xs)) (list x) s)))))
+       (a-model-inside-a-dist-argument-next-to-sexps
+         construction
+         ,(τ (mcmC 3 (do/monad
+                       (← s (dist bern .5))
+                       (dist (λ (ms sv mu) (normal mu 1.)) (list pnorm) s 0.)))))
        (ctor-not-a-distribution
          construction
-         ,(τ (mcmC 3 (model (let* ((x (dist normal 0. 1.))) (dist (λ (m) 42) x))))))
-       (negative-limit construction ,(τ (mcmC -1 (model (dist bern .5)))))
-       (negative-limit/fold construction ,(τ (mcmC-fold cons '() -1 (model (dist bern .5)))))
-       (negative-limit/stream construction ,(τ (mcmC§ (model (dist bern .5)) #:retries -1)))
-       (check-not-a-boolean-or-a-count
-         construction
-         ,(τ (mcmC 3 (model (dist bern .5)) #:check 'yes)))
-       (check-a-negative-count construction ,(τ (mcmC 3 (model (dist bern .5)) #:check -1)))
-       (non-boolean-test branch ,(τ (mcmC 3 (model (if_ 1 1 2)))))
+         ,(τ (mcmC 3 (do/monad (← x (dist normal 0. 1.)) (dist (λ (m) 42) x)))))
+       (negative-limit construction ,(τ (mcmC -1 (dist bern .5))))
+       (negative-limit/fold construction ,(τ (mcmC-fold cons '() -1 (dist bern .5))))
+       (negative-limit/stream construction ,(τ (mcmC§ (dist bern .5) #:retries -1)))
+       (check-not-a-boolean-or-a-count construction ,(τ (mcmC 3 (dist bern .5) #:check 'yes)))
+       (check-a-negative-count construction ,(τ (mcmC 3 (dist bern .5) #:check -1)))
+       (non-boolean-test branch ,(τ (mcmC 3 (if_ 1 (return 1) (return 2)))))
        (non-boolean-test-at-update
          branch
-         ,(τ (mcmC 200 (model (let* ((x (dist categorical '((#t . .5) (#f . .25) (0 . .25)))))
-                                (if_ (lift identity x) 1 2))))))
+         ,(τ (mcmC 200 (do/monad
+                         (← x (dist categorical '((#t . .5) (#f . .25) (0 . .25))))
+                         (if_ (lift identity x) (return 1) (return 2))))))
        (a-node-of-a-previous-chain
          construction
-         ,(τ (mcmC 3 (model (let* ((x (dist normal 0. 1.))) (set! captured x) x)))
-             (mcmC 3 (model (dist normal captured 1.)))))
+         ,(τ (mcmC 3 (do/monad (← x (dist normal 0. 1.)) (let _ (set! captured x)) (return x)))
+             (mcmC 3 (dist normal captured 1.))))
+       (a-node-of-a-previous-chain-lifted-with-a-fresh-one
+         construction
+         ,(τ (mcmC 3 (do/monad (← x (dist normal 0. 1.)) (let _ (set! captured x)) (return x)))
+             (mcmC 3 (do/monad (← x (dist normal 0. 1.)) (dist normal (sexp+ x captured) 1.)))))
        (branch-escape
          branch
-         ,(τ (mcmC 3 (model (let* ((c (dist bern .5))
-                                   (leak #f))
-                              (if_ c (begin (set! leak (dist normal 0. 1.)) leak) 0.)
-                              (dist normal leak 1.))))))
+         ,(τ (mcmC 3 (do/monad
+                       (← c (dist bern .5))
+                       (let leak #f)
+                       (if_ c
+                            (do/monad (← l (dist normal 0. 1.)) (let _ (set! leak l)) (return l))
+                            (return 0.))
+                       (dist normal leak 1.)))))
        (kind-change
          construction
-         ,(τ (mcmC 200 (model (let* ((x (dist bern .5)))
-                                (dist (λ (xv) (if xv (bern .3) (condition #t (bern .3)))) x))))))
-       (memo/finite-unknown-key
-         construction
-         ,(τ (mcmC 3 (model (let* ((f (memo/finite '(1 2) (λ (k) (dist normal k 1.)))))
-                              (f 3))))))
+         ,(τ (mcmC 200 (do/monad
+                         (← x (dist bern .5))
+                         (dist (λ (xv) (if xv (bern .3) (condition #t (bern .3)))) x)))))
        (sampleable-entry
          internal
-         ,(τ (let* ((ch (new-chain (make-stdgen-source 17) 'upstream))
-                    (c (run-model! ch (model (dist bern .5)))))
-               (ifnode! ch c (τ (to-node! ch 1)) (τ (to-node! ch 2))))))))
+         ,(τ (eval-state (do/monad (← c (dist bern .5)) (ifnode c (to-node 1) (to-node 2)))
+                         (new-chain (make-stdgen-source 17) 'upstream))))))
    (for-each (Λ ((,name ,kind ,thunk)) (⊦ equal? (list name kind) (list name (hakaru10-kind thunk))))
              cases)
+   (let1 (k 0)
+     (⊦ eq? 'exn (raised (τ (mcmC 3 (do/monad (← x (dist bern .5)) (add1! k) (return x)))))))
    `(doc (p "L5: the static discipline of Syntax.hs as run-time errors (deviation 9; see the
             section on conditioning), each case naming the kind it raises.  Upstream's
             ill-typed examples are E:180-201:")
@@ -1460,29 +1611,50 @@ biased_coin_ill_typed_too c1 c2 = do
   dist (b  `condition` bern) 0.4
   return b
 -}")
-         (p "Without a counterpart in these examples: a Scheme container of SExps as the
-            result, which Haskell's types reject and the engine would otherwise take for a
-            constant (deviation 9), at any depth of pairs and vectors, and likewise inside the
-            value of a " (code/inline "diracN") "; a distribution constructor that answers
-            something other than a distribution (plan §7); a model that is not a thunk, for "
-            (code/inline "mcmC") " and " (code/inline "exact-posterior")
-            " alike (" (code/inline "check-model") "); a negative sample count, for each of "
-            (code/inline "mcmC") ", " (code/inline "mcmC-fold") " and "
-            (code/inline "mcmC§") " (deviation 10: upstream retries the build forever or
-            answers an infinite list, M:885-891, M:897-898); and a " (code/inline "#:check")
-            " that is neither a boolean nor a step count.")
-         (p "The last case calls the engine's " (code/inline "ifnode!") " directly: \"Entry
-            node for if should not be sampleable\" (M:643-647).  The " (code/inline "set!")
-            "s are fine here, under the one-shot trace builder; models must not use them
-            across operations (C28, embedding notes).")))
+         (p "Without a counterpart in these examples: a model where an SExp is expected (an
+            argument of " (code/inline "dist") " or of " (code/inline "lift")
+            ", the result, a model inside a Scheme value)
+            and a value where a model is expected (a number, a thunk, a branch of "
+            (code/inline "if_") "), for " (code/inline "mcmC") " and "
+            (code/inline "exact-posterior") " alike (" (code/inline "check-model")
+            "), which Haskell's types reject since a Model is a type of its own (plan §15
+            C32); a model or an SExp that a lifted function answers, whatever the node it
+            feeds, at the build or at an update, or a Scheme value it answers that holds
+            one, walked when the function first answers, at the build ("
+            (code/inline "check-lifted-value") "); an observation that is a model or a
+            Scheme value holding an SExp (" (code/inline "CondV a = a")
+            ", S:180-193); a Scheme container of SExps as the result, which the engine would
+            otherwise take for a constant (deviation 9), at any depth of pairs and vectors,
+            and likewise inside the value of a " (code/inline "diracN") " or of an argument
+            of " (code/inline "dist") ", also next to an SExp argument, where the pair or the
+            list of the arguments hides it from the node's construction (the "
+            (code/inline "Show") " of the sample type, S:144-151); a distribution
+            constructor that answers something other than a distribution (plan §7); a
+            negative sample count, for each of " (code/inline "mcmC") ", "
+            (code/inline "mcmC-fold") " and " (code/inline "mcmC§") " (deviation 10:
+            upstream retries the build forever or answers an infinite list, M:885-891,
+            M:897-898); a " (code/inline "#:check")
+            " that is neither a boolean nor a step count; and a node of an earlier run, which
+            a model captured with " (code/inline "set!") ", used alone ("
+            (code/inline "check-owner") ") or lifted together with a node of the current run,
+            whose NT would mix two chains.  A model built and discarded,
+            such as " (code/inline "(dist bern .5)") " evaluated outside any bind, makes no
+            node, as in Haskell, and raises nothing.")
+         (p "The case " (code/inline "sampleable-entry") " runs the engine's "
+            (code/inline "ifnode") " directly, on the chain " (code/inline "eval-state")
+            " threads: \"Entry node for if should not be sampleable\" (M:643-647).  The "
+            (code/inline "set!") "s run after the bind of the node they capture, so once per
+            run (plan §15 C35, embedding notes).  Not a kind: a bare clause that is not a
+            model, " (code/inline "(add1! k)") " between two binds, raises CHICKEN's own
+            error when the model runs, a Scheme " (code/inline "exn") ".")))
 
   ((test/language/constant-chain _)
-   (⊦ equal? '(3 3 3 3 3) (mcmC 5 (model 3)))
+   (⊦ equal? '(3 3 3 3 3) (mcmC 5 (return 3)))
    `(doc (p "L6, deviation 7: a model with no random node is a constant chain; upstream's
             step would pick from an empty list of resampleable nodes (M:962).")))
 
   ((test/language/no-active-resampleable _)
-   (⊦ equal? (make-list 10 3) (mcmC 10 (model (if_ #f (dist normal 0. 1.) 3))))
+   (⊦ equal? (make-list 10 3) (mcmC 10 (if_ #f (dist normal 0. 1.) (return 3))))
    `(doc (p "L7, deviation 6: the only resampleable node is in the inactive branch, so no
             node can be proposed and every step is a no-op; upstream's "
             (code/inline "resample_trace") " retries forever (M:966).")))
@@ -1491,10 +1663,11 @@ biased_coin_ill_typed_too c1 c2 = do
    (let1 (s (mcmC§ pcond4))
      (⊦ equal? (mcmC 100 pcond4) (§->list (take§ 100 s)))
      (⊦ equal? (cadr (mcmC 2 pcond4)) (car§ (cdr§ s))))
-   (⊦ equal? '() (mcmC§ (model (dist (condition 5. uniform) 0. 1.))))
-   (let1 (rare (model (let* ((c (dist bern .1)))
-                        (dist (condition #t bern) (lift (λ (cv) (if cv 1. 0.)) c))
-                        c)))
+   (⊦ equal? '() (mcmC§ (dist (condition 5. uniform) 0. 1.)))
+   (let1 (rare (do/monad
+                 (← c (dist bern .1))
+                 (dist (condition #t bern) (lift (λ (cv) (if cv 1. 0.)) c))
+                 (return c)))
      (⊦ equal? '() (mcmC 6 rare))
      (⊦ equal? (make-list 7 #t) (mcmC 7 rare))
      (⊦ equal? '() (mcmC§ rare #:retries 6))
@@ -1527,26 +1700,28 @@ biased_coin_ill_typed_too c1 c2 = do
      (⊦ (equal-approx? 1e-12) '((#f . .5315285572796303) (#t . .4684714427203697)) exact)
      (⊦ (equal-approx? .02) exact (likelihood-weighting 20000 grass))
      (⊦ (equal-approx? .04) exact (proportions (mcmC 20000 grass))))
-   `(doc (p "One model, three interpretations (PLAN-IDIOM C25): grass under exact
-            enumeration (a multi-shot handler building a Hansei search tree, explored and
+   `(doc (p "One model, three interpretations (plan §15 C37): grass under exact enumeration
+            (new: a Hansei search tree over the trace graph of one build, explored and
             normalized by " (code/inline "probcc-explore") " and "
-            (code/inline "probcc-normalize") "), under likelihood weighting (a one-shot
-            forward sampler) and under the incremental MH of the trace builder.  The exact
-            posterior is upstream's \"theoretical\" 0.4684714427203697 (E:322); likelihood
-            weighting agrees within 0.02, the Markov chain, autocorrelated, within 0.04.  The handler suite of hakaru10-exact.scm runs this check
-            on ten models.")))
+            (code/inline "probcc-normalize") "), under likelihood weighting (new: forward
+            sampling over the same graph) and under the incremental MH of the engine.  The
+            exact posterior is upstream's \"theoretical\" 0.4684714427203697 (E:322);
+            likelihood weighting agrees within 0.02, the Markov chain, autocorrelated, within
+            0.04.  The oracles suite of hakaru10-exact.scm runs this check on eleven models.")))
 
-  ((test/language/a-handler-of-your-own _)
-   (⊦ equal? '(4 4 3 4) (map count-paths (list grass pcond1 pcond4 ph2)))
-   `(doc (p "A fourth interpretation, written in this file against the engine's protocol:
-            the number of paths through a model whose choices have finite supports.  The
-            handler resumes the model's continuation, captured by the native "
-            (code/inline "shift") " of " (code/inline "(chicken continuation)")
-            ", once per support point of each choice and adds up the answers; the return
-            clause maps every completed run to 1.  Grass has the four paths of rain ×
-            sprinkler, pcond1 the four of x × the branch's choice, pcond4 one for x = 1 and
-            two for x = 2 (the observation resumes once), ph2 four.")
-         ,@(shown 'count-paths)))
+  ((test/language/search-tree-paths _)
+   (⊦ equal? '(4 4 3 4) (map search-tree-paths (list grass pcond1 pcond4 ph2)))
+   `(doc (p "A fourth reading of a model, written in this file over the search tree of "
+            (code/inline "model->search-tree") ", in the format of Hansei's "
+            (code/inline "probcc-reify/0") " (aux.hansei.scm): the number of paths through a
+            model whose choices have finite supports.  The tree has a subtree "
+            (code/inline "(C thunk)") " per support point of each active choice of the trace
+            graph and per active observation of positive weight, and a value "
+            (code/inline "(V v)") " at each leaf; forcing every subtree and counting the
+            leaves gives grass the four paths of rain × sprinkler, pcond1 the four of x × the
+            branch's choice, pcond4 one for x = 1 and two for x = 2 (the observation has one
+            subtree), ph2 four.")
+         ,@(shown 'search-tree-paths)))
 
   ((test/language/procedure-values _)
    (⊦ (equal-approx? 1e-12) '((1 . .5) (2 . .5)) (exact-posterior procedure-choice))
@@ -1560,8 +1735,9 @@ biased_coin_ill_typed_too c1 c2 = do
    (⊦ (equal-approx? 1e-12) (map (λ (v) (cons v (/ 1. 3.))) '(10 20 30))
       (exact-posterior procedure-built))
    (⊦ (equal-approx? 1e-12) '((#f . .5) (#t . .5)) (exact-posterior circular-value))
-   (let1 (scales (model (let* ((k (dist uniformly '(1 2 3))))
-                          (diracN (lift (λ (kv) (λ (x) (* kv x))) k)))))
+   (let1 (scales (do/monad
+                   (← k (dist uniformly '(1 2 3)))
+                   (diracN (lift (λ (kv) (λ (x) (* kv x))) k))))
      (⊦ equal? (map (λ (f) (f 10)) (mcmC 50 scales))
         (map (λ (f) (f 10)) (mcmC 50 scales #:check #t))))
    (for-each (λ (m)
@@ -1570,13 +1746,10 @@ biased_coin_ill_typed_too c1 c2 = do
                   (mcmC 50 m #:semantics 'extended #:check #t)))
              (list procedure-built circular-value))
    `(doc (p "L10: procedures as values.  A random choice may draw procedures, and "
-            (code/inline "(diracN (constant car))") " makes a Dirac node of one.  Under the
-            trace builder the node is the SExp; under the value handlers of exact enumeration
-            and of the forward sampler, " (code/inline "resume") " boxes a procedure value
-            with " (code/inline "constant") ", as " (code/inline "lift")
-            " does, so that the model can pass it on to " (code/inline "lift")
-            " (S:105-116 " (code/inline "Val f") ") rather than take it for a model
-            (deviation 9).  Exact enumeration, the chain (with and without "
+            (code/inline "(diracN car)") " makes a Dirac node of one.  A procedure is a
+            plain Val (S:107 " (code/inline "Val f") "), which a model passes on to "
+            (code/inline "lift") ": it is never taken for a model, a State computation of a
+            type of its own (plan §15 C32).  Exact enumeration, the chain (with and without "
             (code/inline "#:check") ") and likelihood weighting agree; the counts at seed 17
             are regression values.")
          ,@(shown 'procedure-choice 'procedure-constant)
@@ -1584,8 +1757,9 @@ biased_coin_ill_typed_too c1 c2 = do
             (code/inline "procedure-built") " keeps in a Dirac node: "
             (code/inline "#:check") " recomputes it as a fresh closure and takes two
             procedures for the same value (their consumers, which apply them, are checked
-            themselves), as it does for a model that answers such closures.  A value may be circular: in " (code/inline "circular-value")
-            " the Dirac node holds a circular list, which the trace builder's check for SExps
+            themselves), as it does for a model that answers such closures.  A value may be
+            circular: in " (code/inline "circular-value") " the Dirac node holds a circular
+            list, which the build's check for SExps
             inside a value (deviation 9) and the comparisons of " (code/inline "#:check")
             " walk to an end.  Both chains sample with " (code/inline "#:check")
             " what they sample without it, in both semantics, and agree with exact
@@ -1611,7 +1785,7 @@ biased_coin_ill_typed_too c1 c2 = do
         M:962), floating-point order, node creation order, (de)activation sums.")))
 
   ((test/replay/pdep _)
-   (⊦ equal? (mcmC 100 (model (dist normal 11. .5))) (mcmC 100 pdep1))
+   (⊦ equal? (mcmC 100 (dist normal 11. .5)) (mcmC 100 pdep1))
    `(doc (p "X1, " (code/inline "pdep_run") ": literally the same samples (E:16-22; P
             l.248-249).")
          ,@(shown 'pnorm 'pdep1)
@@ -1821,8 +1995,8 @@ _ = mcmC 10 (post_bias 1)
   ((test/replay/mixng-interleaved _)
    (⊦ = 1.3896442111895212e-2
       (kl (tabulate .5 (mcmC 5000 mixng))
-          (tabulate .5 (append (mcmC 2500 (model (dist normal 10. 2.)))
-                               (mcmC 2500 (model (dist gamma 3. (/ 1. 3.))))))))
+          (tabulate .5 (append (mcmC 2500 (dist normal 10. 2.))
+                               (mcmC 2500 (dist gamma 3. (/ 1. 3.)))))))
    `(doc (p "X12: the KL divergence of mixng against the two components' samples, upstream's
             \"now\" record (E:159-164; P l.361-364).")
          ,@(shown 'mixng)
@@ -1976,22 +2150,23 @@ tac3_run = length . filter id $ mcmC 1000 tac3
    `((structure/section "Laws")
      (p "The equational laws of model composition (P §2.1 l.250-281, §4.3 l.803-843):
         Dirac is the left and the right unit of composition, and an unused variable is
-        marginalized.  Under the trace builder the right unit law holds sample for sample
+        marginalized.  Under the MCMC engine the right unit law holds sample for sample
         (X2, X16); the left unit law and marginalization hold in distribution.  Under exact
-        enumeration, an independent oracle, they hold exactly.")
+        enumeration, which walks the built graph and reuses no incremental machinery (plan
+        §6.10), they hold exactly.")
      (displaymath (m "do {x ← p; diracN x} ≡ p,  do {x ← diracN v; p} ≡ let x = v in p"))))
 
   ((test/laws/left-unit _)
-   (⊦ equal? (mcmC 200 (model (dist normal 5. 1.)))
-      (mcmC 200 (model (let* ((x (diracN 5.))) (dist normal x 1.)))))
+   (⊦ equal? (mcmC 200 (dist normal 5. 1.))
+      (mcmC 200 (do/monad (← x (diracN 5.)) (dist normal x 1.))))
    `(doc (p "A1: " (code/inline "do {x <- diracN 5; dist normal x 1}") " is "
             (code/inline "dist normal 5 1") " sample for sample: the constant Dirac node
             draws nothing and is never proposed (P l.259-261).")))
 
   ((test/laws/diractest _)
    (⊦ (equal-approx? .03) .5
-      (frequency identity (mcmC 10000 (model (let* ((x (dist bern .5)))
-                                               (diracN (lift identity x)))))))
+      (frequency identity (mcmC 10000 (do/monad (← x (dist bern .5))
+                                                (diracN (lift identity x))))))
    `(doc (p "A2: the port of " (code/inline "diractest") " (M:1029-1037): \"The result
             should show both True and False, in the same proportion\".  The Dirac node is
             recomputed with its parent, so the proposals to change x are accepted.")
@@ -2006,8 +2181,8 @@ diractest = mcmc 10 $
 -- The result should show both True and False, in the same proportion")))
 
   ((test/laws/p2 _)
-   (⊦ <= 9990 (length (hist (mcmC 10000 (model (let* ((x (dist uniform 0. 1.)))
-                                                 (diracN (lift identity x))))))))
+   (⊦ <= 9990 (length (hist (mcmC 10000 (do/monad (← x (dist uniform 0. 1.))
+                                                  (diracN (lift identity x)))))))
    `(doc (p "A3: P's " (code/inline "p2 = do {x <- dist uniform 0 1; diracN x}")
             " (§4.3 l.812-825), the example on which an MH that treats Dirac as an ordinary
             distribution never moves: here the independence proposal is always accepted (the
@@ -2052,25 +2227,27 @@ _ = mcmC 100 pjoin")))
             " (S:370-371), sample for sample; see X16.")))
 
   ((test/laws/exact _)
-   (let ((coin (model (dist bern .4)))
-         (pmarg/coin (model (let* ((x (dist bern .4))
-                                   (y (dist bern .3)))
-                              y))))
+   (let ((coin (dist bern .4))
+         (pmarg/coin (do/monad
+                       (← x (dist bern .4))
+                       (← y (dist bern .3))
+                       (return y))))
      (⊦ equal? (exact-posterior coin)
-        (exact-posterior (model (let* ((x (dist bern .4))) (diracN x)))))
-     (⊦ equal? (exact-posterior (model (dist bern .3)))
-        (exact-posterior (model (let* ((p (diracN .3))) (dist bern p)))))
-     (⊦ (equal-approx? 1e-15) (exact-posterior (model (dist bern .3)))
+        (exact-posterior (do/monad (← x (dist bern .4)) (diracN x))))
+     (⊦ equal? (exact-posterior (dist bern .3))
+        (exact-posterior (do/monad (← p (diracN .3)) (dist bern p))))
+     (⊦ (equal-approx? 1e-15) (exact-posterior (dist bern .3))
         (exact-posterior pmarg/coin))
      (⊦ (equal-approx? 1e-15) (exact-posterior ph2)
-        (exact-posterior (model (let* ((x (dist bern .2))
-                                       (q (diracN (lift (λ (xv) (if xv .1 .7)) x))))
-                                  (dist bern q))))))
+        (exact-posterior (do/monad
+                           (← x (dist bern .2))
+                           (← q (diracN (lift (λ (xv) (if xv .1 .7)) x)))
+                           (dist bern q)))))
    `(doc (p "The laws under exact enumeration, where a model is its distribution: the right
             and left units, marginalization, and a Dirac node introduced for a lifted
-            parameter (ph2, whose posterior is 0.58, E:91).  Enumeration does not reuse the
-            engine: under its handler " (code/inline "diracN") " answers the value and "
-            (code/inline "lift") " evaluates at once.")))
+            parameter (ph2, whose posterior is 0.58, E:91).  Enumeration walks the built
+            graph; it reuses no incremental machinery (plan §6.10): a Dirac node's value is
+            recomputed from its parents' on each path.")))
 
   )
 
@@ -2569,6 +2746,16 @@ with e >>= diracN -- the desired behavior.")
                (pending-abort ,pending-abort)))
    (⊦ (equal-approx? .02) `((1 . ,(/ .3 1.3)) (2 . ,(/ 1. 1.3)))
       (proportions (mcmC 20000 pending-abort #:semantics 'extended)))
+   (let1 (far-inactive (do/monad
+                         (← c (dist bern .5))
+                         (if_ (lift not c)
+                              (do/monad (dist (condition 1000. normal) 0. .1) (return 1))
+                              (return 0))))
+     (for-each (λ (semantics)
+                 (⊦ equal? (list semantics #t 100)
+                    (list semantics (construction-check far-inactive #:semantics semantics)
+                          (length (mcmC 100 far-inactive #:semantics semantics #:check #t)))))
+               '(upstream extended)))
    (let1 (exact (exact-posterior act-update))
      (⊦ (equal-approx? 1e-12) `((0 . ,(/ .9 2.2)) (1 . ,(/ .3 2.2)) (2 . ,(/ 1. 2.2))) exact)
      (⊦ (equal-approx? .02) exact (proportions (mcmC 20000 act-update #:semantics 'extended))))
@@ -2578,15 +2765,21 @@ with e >>= diracN -- the desired behavior.")
                       (and (not (< residual 1e-12)) (cons name residual))))
                   `((act-update . ,act-update) (act-update/finite . ,act-update/finite))))
    `(doc (p "B4: " (code/inline "#:check #t") " on 300 samples of seven models, in both
-            semantics, raises no condition: the construction-order forward run reproduces
-            the initial trace (value, and LL within 1e-9), and after every step the
+            semantics, raises no condition: a rebuild of the model reproduces the initial
+            trace node by node (graph, values, and LLs within 1e-9), an address-order redraw
+            of its random choices reproduces their values and the trace's LL (plan §6.9, §15
+            C37; within 1e-9 of the sum of the LLs' magnitudes, so that "
+            (code/inline "far-inactive") ", whose build at seed 17 deactivates an observation
+            of LL about -5·10⁷, passes in both semantics: the 'upstream trace's LL adds and
+            then subtracts it, M:659, and the 'extended one never counts it), and after every
+            step the
             reference evaluator recomputes every node from scratch (activity counts, Dirac
             values, distributions and LLs, exits) and finds the incremental state, a
             rejected step restores the state exactly, and in " (code/inline "'extended")
             " mode an accepted step's Δ is the change of the extended target's LL; the
             next case shows that each of these checks fails when it should.")
-         (p "The construction-order run builds the branch its test does not select as the
-            trace builder does, under lazy lifting, so a model whose inactive branch applies "
+         (p "The rebuild builds the branch its test does not select as the first build
+            does, under lazy lifting, so a model whose inactive branch applies "
             (code/inline "car") " to the " (code/inline "'()") " its test rules out (a
             deferred Dirac value, M:99, M:120-129) passes the check, with a constant test and
             with a lifted one, in both semantics, and samples what it samples without "
@@ -2613,7 +2806,8 @@ with e >>= diracN -- the desired behavior.")
          ,@(shown 'act-update 'act-update/finite 'pending-abort)))
 
   ((test/semantics/check/negative _)
-   (let ((k 0) (j 0) (calls 0) (victim #f) (shifted #f) (tamper! #f))
+   (let ((k 0) (j 0) (u 0) (runs 0) (calls 0) (skips 0) (shifts 0) (victim #f) (shifted #f)
+         (tamper! #f))
      ; an LL that drifts with the number of calls of the log-density.
      (define (drifting)
        (let1 (d (normal 0. 1.))
@@ -2635,12 +2829,13 @@ with e >>= diracN -- the desired behavior.")
                                                                         (nstate-dst s)
                                                                         (nstate-tstamp s)))))
                                       (distribution-sample d src)))))
-     (define-model behind-the-journal
-       (let* ((x (dist (condition .5 normal) 0. 1.)))
-         (set! victim x)
-         (let* ((s (dist unjournaled)))
-           (dist (condition 3. normal) s .5)
-           s)))
+     (define behind-the-journal
+       (do/monad
+         (← x (dist (condition .5 normal) 0. 1.))
+         (let _ (set! victim x))
+         (← s (dist unjournaled))
+         (dist (condition 3. normal) s .5)
+         (return s)))
      ; replace the state of node n, or of the node at addr of ch, by (f val ll dst tstamp)
      ; of its fields, with the raw node-state-set!.
      (define (restate-node! n f)
@@ -2649,10 +2844,11 @@ with e >>= diracN -- the desired behavior.")
      (define (restate! ch addr f) (restate-node! (chain-node ch addr) f))
      ; the message of reference-check on the initial trace of shifted-normal, its x at
      ; address 1 and its Dirac node at 2, once corrupt! has changed it behind the engine's back.
-     (define-model shifted-normal (let* ((x (dist normal 0. 1.))) (diracN (sexp+ x 1.))))
+     (define shifted-normal (do/monad (← x (dist normal 0. 1.)) (diracN (sexp+ x 1.))))
      (define (corrupted-message corrupt! #!optional (m shifted-normal) (semantics 'upstream))
        (internal-message
-         (τ (receive (ch result) (build-chain m (make-stdgen-source 17) semantics)
+         (τ (receive (ch result) (build-chain (model->trace m 'test) (make-stdgen-source 17)
+                                              semantics)
               (corrupt! ch)
               (reference-check ch)))))
      ; add 1 to the stored LL of the first inactive resampleable node of ch.
@@ -2673,10 +2869,69 @@ with e >>= diracN -- the desired behavior.")
                                       (when tamper!
                                         (let1 (t! tamper!) (set! tamper! #f) (t!)))
                                       (distribution-sample d src)))))
-     (define-model tampered
-       (let* ((x (dist (condition .5 normal) 0. 1.)))
-         (set! shifted x)
+     (define tampered
+       (do/monad
+         (← x (dist (condition .5 normal) 0. 1.))
+         (let _ (set! shifted x))
          (dist tampering)))
+     ; counters that a run increments, once per run, after a bind (plan §15 C35): answered as
+     ; the result, and as an observation's standard deviation.
+     (define counter/k (>>= (return #f) (λ (_) (add1! k) (return k))))
+     (define counter/j
+       (>>= (return #f) (λ (_) (add1! j) (dist (condition 0. normal) 0. (exact->inexact j)))))
+     ; the same counter as the upper bound of the uniform of an observation in a branch never
+     ; taken, 1 on the first run and 10 on the next ones: the observation, 5, is impossible
+     ; (LL -inf) on the first build only, and 'extended mode, where the build sees its LL,
+     ; does not add it to llcum, which stays finite.
+     (define counter/bound
+       (>>= (return #f)
+            (λ (_)
+              (add1! u)
+              (if_ #f (dist (condition 5. uniform) 0. (if (= u 1) 1. 10.)) (return 0.)))))
+     ; the same counter read in an inactive branch by a lifted function that raises on it:
+     ; the Dirac node's value is deferred (deviation 11), and only its arguments differ.
+     (define counter/deferred
+       (do/monad
+         (← c (dist bern .5))
+         (>>= (return #f)
+              (λ (_)
+                (add1! k)
+                (if_ #t (return c) (diracN (lift (λ (kv) (car (list-tail '() kv))) k)))))
+         (return c)))
+     ; a Dirac node whose parent is x on odd runs and y on even ones, of equal values: the
+     ; values and LLs of two builds agree, their graphs do not.
+     (define switching
+       (do/monad
+         (← x (diracN 1.))
+         (← y (diracN 1.))
+         (>>= (return #f) (λ (_) (add1! runs) (diracN (sexp+ (if (odd? runs) x y) 0.))))))
+     ; normals whose sampler, on every third call, draws once more first (third-skips), or
+     ; answers its LL plus 1 (third-shifts): the third draw of construction-check is the
+     ; redraw's, after the build and the rebuild.
+     (define (third-skips)
+       (let1 (d (normal 0. 1.))
+         (make-distribution 'third-skips
+                            log-density: (λ (x) (distribution-log-density d x))
+                            sample: (λ (src)
+                                      (add1! skips)
+                                      (when (zero? (modulo skips 3)) (distribution-sample d src))
+                                      (distribution-sample d src)))))
+     (define (third-shifts)
+       (let1 (d (normal 0. 1.))
+         (make-distribution 'third-shifts
+                            log-density: (λ (x) (distribution-log-density d x))
+                            sample: (λ (src)
+                                      (add1! shifts)
+                                      (receive (x ll) (distribution-sample d src)
+                                        (values x (if (zero? (modulo shifts 3)) (+ ll 1.) ll)))))))
+     ; the internal message of construction-check, in semantics, on third-shifts' x followed
+     ; by an if_ whose inactive branch holds the observation obs, shifts reset first.
+     (define (third-shifts-message obs semantics)
+       (set! shifts 0)
+       (internal-message
+         (τ (construction-check
+              (do/monad (← x (dist third-shifts)) (if_ #f obs (return 0)) (return x))
+              #:semantics semantics))))
      ; the internal message of the 'extended chain of tampered under #:check check, read
      ; sample by sample for 20 steps, whose step k (from 1) adds 1 to the stored LL of x.
      (define (tampered-message check k)
@@ -2687,24 +2942,39 @@ with e >>= diracN -- the desired behavior.")
               (when (= i (sub1 k))
                 (set! tamper! (τ (restate-node! shifted (λ (v ll d t) (make-nstate v (+ 1. ll) d t))))))
               (when (< i 20) (loop (cdr§ s) (add1 i)))))))
-     (⊦ equal? "the construction-order run and the initial trace differ in value"
-        (internal-message (τ (construction-check (model (add1! k) k)))))
-     (⊦ equal? "the construction-order run and the initial trace differ in LL"
-        (internal-message
-          (τ (construction-check
-               (model (add1! j) (dist (condition 0. normal) 0. (exact->inexact j)))))))
-     (⊦ equal? "the construction-order run and the initial trace differ in value"
-        (internal-message (τ (mcmC 10 (model (add1! k) k) #:check #t))))
-     (⊦ equal? "the construction-order run and the initial trace differ in LL"
-        (internal-message
-          (τ (mcmC 10 (model (add1! j) (dist (condition 0. normal) 0. (exact->inexact j)))
-                   #:check #t))))
+     (⊦ equal? "a rebuild and the initial trace differ in value"
+        (internal-message (τ (construction-check counter/k))))
+     (⊦ equal? "a rebuild and the initial trace differ in LL"
+        (internal-message (τ (construction-check counter/j))))
+     (⊦ equal? "a rebuild and the initial trace differ in value"
+        (internal-message (τ (mcmC 10 counter/k #:check #t))))
+     (⊦ equal? "a rebuild and the initial trace differ in LL"
+        (internal-message (τ (mcmC 10 counter/j #:check #t))))
+     (⊦ equal? "a rebuild and the initial trace differ in LL"
+        (internal-message (τ (construction-check counter/bound #:semantics 'extended))))
+     (⊦ equal? (make-list 3 "a rebuild and the initial trace differ in value")
+        (list (internal-message (τ (construction-check counter/deferred)))
+              (internal-message (τ (construction-check counter/deferred #:semantics 'extended)))
+              (internal-message (τ (mcmC 10 counter/deferred #:check #t)))))
+     (⊦ equal? "a rebuild and the initial trace differ in graph"
+        (internal-message (τ (construction-check switching))))
+     (⊦ equal? "an address-order redraw and the initial trace differ in value"
+        (internal-message (τ (construction-check (dist third-skips)))))
+     (⊦ equal? "an address-order redraw and the initial trace differ in LL"
+        (internal-message (τ (construction-check (dist third-shifts)))))
+     (let ((impossible (dist (condition 5. (uniform 0. 1.))))
+           (far (dist (condition 1e12 normal) 0. 1.)))
+       (⊦ equal? (make-list 2 "an address-order redraw and the initial trace differ in LL")
+          (map (cut third-shifts-message <> 'extended) (list impossible far)))
+       (⊦ equal? '(none none) (map (cut third-shifts-message <> 'upstream) (list impossible far))))
      (⊦ equal? '("an LL differs from its recomputation" none)
         (map (λ (semantics) (corrupted-message shift-inactive-ll! tac1 semantics))
              '(extended upstream)))
      (for-each (Λ ((,expected ,corrupt!)) (⊦ equal? expected (corrupted-message corrupt!)))
                `(("an LL differs from its recomputation"
                   ,(λ (ch) (restate! ch 1 (λ (v ll d t) (make-nstate v (+ 1. ll) d t)))))
+                 ("an LL differs from its recomputation"
+                  ,(λ (ch) (restate! ch 1 (λ (v ll d t) (make-nstate v -inf.0 d t)))))
                  ("a value differs from its recomputation"
                   ,(λ (ch) (restate! ch 2 (λ (v ll d t) (make-nstate 99. ll d t)))))
                  ("a distribution differs from its recomputation"
@@ -2721,7 +2991,7 @@ with e >>= diracN -- the desired behavior.")
                  ("the card change differs from its recomputation"
                   ,(λ (ch) (chain-card-change-set! ch 1)))))
      (⊦ equal? "an LL differs from its recomputation"
-        (internal-message (τ (mcmC 50 (model (dist drifting)) #:check #t))))
+        (internal-message (τ (mcmC 50 (dist drifting) #:check #t))))
      (⊦ = 50 (length (mcmC 50 behind-the-journal)))
      (for-each (λ (semantics)
                  (⊦ equal? (list semantics "a rejected step did not restore the state")
@@ -2735,17 +3005,37 @@ with e >>= diracN -- the desired behavior.")
      (⊦ eq? 'none (tampered-message #f 3)))
    `(doc (p "B4′, the negative controls of B4: each oracle of " (code/inline "#:check")
             " reports a chain it should reject, with an " (code/inline "internal")
-            " condition.  " (code/inline "construction-check") " (PLAN-IDIOM §2.4) catches a
-            model whose two runs, the construction-order forward run and the trace builder's
-            first build, differ in value (a counter answered as the result) or in LL (the
-            same counter as an observation's standard deviation): both models break the
-            multi-shot purity of C28 on purpose.  " (code/inline "mcmC")
+            " condition.  " (code/inline "construction-check") " (plan §6.9, §15 C37) catches
+            a model whose two builds, the initial trace and a rebuild from the same seed,
+            differ in value (a counter answered as the result) or in LL (the same counter as
+            an observation's standard deviation): each run increments the counter after a
+            bind, so each build sees another value.  An LL -inf agrees only with -inf: in "
+            (code/inline "counter/bound") " the counter bounds the uniform of an observation
+            in a branch never taken, which is impossible on the first build only, and "
+            (code/inline "'extended") " mode, which keeps llcum finite, reports it.  "
+            (code/inline "mcmC")
             " runs it once per chain under " (code/inline "#:check")
-            ", and reports both models the same way.")
-         (p (code/inline "reference-check") " catches each of eight corruptions of the
+            ", and reports both models the same way.  A deferred value (deviation 11) is
+            compared by its arguments, since its closure is fresh per build: "
+            (code/inline "counter/deferred") " reads the counter in the inactive branch with a
+            function that raises, and its two builds differ only there.  The rebuild also
+            catches a model whose
+            graph alone changes, " (code/inline "switching") ", whose Dirac node reads x on
+            odd runs and y, of the same value, on even ones; and the address-order redraw
+            catches a sampler that draws once more on its third call, the redraw's ("
+            (code/inline "third-skips") ", another value), or that then reports its LL plus
+            1 (" (code/inline "third-shifts") ", another LL).  In " (code/inline "'extended")
+            " mode the LL that the redraw checks is the extended one, which never counts an
+            inactive observation, so neither does the check's tolerance: the shift is caught
+            next to an inactive observation that is impossible (LL -inf) or far off (LL about
+            -5·10²³).  In " (code/inline "'upstream") " mode, whose LL adds and then
+            subtracts that observation's (M:659), the first build is skipped (its LL is NaN),
+            and the shift is lost in the rounding of the second's.")
+         (p (code/inline "reference-check") " catches each of nine corruptions of the
             initial trace of " (code/inline "shifted-normal") ", x and the Dirac node x + 1,
             made behind the engine's back with its exported setters, each with its own
-            message: an LL, a value, a distribution or a tstamp after now in a node's state,
+            message: an LL shifted by 1 or made -inf, a value, a distribution or a tstamp
+            after now in a node's state,
             a deactivation count, a delayed update on an active node, a pending weight left
             over, and the chain's card change.  It also catches, through the wiring of "
             (code/inline "mcmC") ", a user distribution whose density drifts with the number
@@ -2774,14 +3064,15 @@ with e >>= diracN -- the desired behavior.")
   ((test/semantics/check/escaped-error _)
    (let ((armed #f))
      ; the update of y raises once, the first time x is proposed true once armed.
-     (define-model flaky
-       (let* ((x (dist bern .1))
-              (y (dist normal
-                       (lift (λ (xv)
-                               (if xv (if armed (begin (set! armed #f) (error "flaky")) 5.) 0.))
-                             x)
-                       1.)))
-         (pair x y)))
+     (define flaky
+       (do/monad
+         (← x (dist bern .1))
+         (← y (dist normal
+                    (lift (λ (xv)
+                            (if xv (if armed (begin (set! armed #f) (error "flaky")) 5.) 0.))
+                          x)
+                    1.))
+         (return (pair x y))))
      (let ((s (mcmC§ flaky #:check #t #:seed 3)))
        (set! armed #t)
        (let1 (reads (let loop ((i 0) (acc '()))
@@ -2817,11 +3108,18 @@ with e >>= diracN -- the desired behavior.")
    (let1 (xs (mcmC 2000 (invalid-inactive/branch .05)))
      (⊦ = 2000 (length xs))
      (⊦ any identity xs))
+   (⊦ equal? '(branch branch branch)
+      (map (λ (oracle) (hakaru10-kind (τ (oracle (invalid-inactive/branch .5)))))
+           (list exact-posterior (cut likelihood-weighting 100 <>) (cut weighted-samples 100 <>))))
+   (⊦ (equal-approx? 1e-12) '((#f . .95) (#t . .05))
+      (exact-posterior (invalid-inactive/branch .05)))
+   (⊦ equal? '(none none)
+      (map (λ (oracle) (hakaru10-kind (τ (oracle 100 (invalid-inactive/branch .05)))))
+           (list likelihood-weighting weighted-samples)))
    (for-each (λ (semantics)
                (⊦ equal? (list semantics 'parameter 'parameter)
                   (list semantics
-                        (hakaru10-kind (τ (mcmC 10 (model (dist normal 0. 0.))
-                                                #:semantics semantics)))
+                        (hakaru10-kind (τ (mcmC 10 (dist normal 0. 0.) #:semantics semantics)))
                         (hakaru10-kind (τ (mcmC 2000 active-invalid #:semantics semantics))))))
              '(extended upstream))
    (⊦ = 1 (length (mcmC 1 active-invalid #:semantics 'extended)))
@@ -2856,7 +3154,13 @@ with e >>= diracN -- the desired behavior.")
             update that proposes c true raises " (code/inline "branch") " instead of
             rejecting the step, which would keep the chain at c = #f.  In "
             (code/inline "'upstream") " mode the build raises too, while the update, which
-            leaves the inactive branch alone, runs the chain through c = #t.")
+            leaves the inactive branch alone, runs the chain through c = #t.  The oracles
+            (exact enumeration, likelihood weighting and weighted samples) walk the graph of
+            one 'extended build from seed 17, retried only when it is rejected (plan §15.3,
+            C22), so they share that build's fate: with p = 0.5 they raise "
+            (code/inline "branch") "; with p = 0.05 the build completes, a walk that takes c
+            true skips the inactive inner " (code/inline "if_")
+            ", and enumeration gives P(c) = 0.05.")
          (p "And of the nodes only the inactive ones reject: an active node's parameter error
             propagates in " (code/inline "'extended") " mode as in "
             (code/inline "'upstream") ", at construction (a normal of standard deviation 0)
@@ -2870,7 +3174,6 @@ with e >>= diracN -- the desired behavior.")
   ((test/semantics/deferred _)
    (let1 (thirds (map (λ (v) (cons v (/ 1. 3.))) '(a b none)))
      (⊦ (equal-approx? 1e-12) thirds (exact-posterior guarded-car))
-     (⊦ (equal-approx? 1e-12) thirds (exact-posterior guarded-car #:validate #f))
      (for-each (λ (semantics)
                  (⊦ (equal-approx? .02) thirds
                     (proportions (mcmC 6000 guarded-car #:semantics semantics)))
@@ -2897,29 +3200,32 @@ with e >>= diracN -- the desired behavior.")
                   `((guarded-car . ,guarded-car) (guarded-car/reversed . ,guarded-car/reversed)
                     (nested-guarded-car . ,nested-guarded-car))))
    (⊦ equal? '(a none) (list (car (mcmC 1 guarded-car/reversed)) (car (mcmC 1 guarded-car))))
+   (let1 (sixths (map (λ (v) (cons v (/ 1. 6.))) '(caught (0 #f) (1 #f) (1 #t) (2 #f) (2 #t))))
+     (⊦ (equal-approx? 1e-12) sixths (exact-posterior guarded-inside-lift)))
    (⊦ equal? '(exn none exn)
       (map (λ (m) (raised (τ (mcmC 3 m))))
            (list (strict-reader '()) (strict-reader '(5)) strict-reader/node)))
    (⊦ equal? '() (mcmC 3 (strict-reader '()) #:semantics 'extended))
    (⊦ every flonum? (mcmC 300 strict-reader/node #:semantics 'extended))
    (let1 (inner #f)
-     (mcmC 1 (model (let* ((c (dist bern .5)))
-                      (if_ #t
-                           c
-                           (diracN (lift (λ (k)
-                                           (set! inner
-                                             (raised (τ (exact-posterior
-                                                          (model (diracN (lift car '())))
-                                                          #:validate #f))))
-                                           k)
-                                         1))))))
+     (mcmC 1 (do/monad
+               (← c (dist bern .5))
+               (if_ #t
+                    (return c)
+                    (diracN (lift (λ (k)
+                                    (set! inner (raised (τ (exact-posterior
+                                                             (do/monad (← xs (return '()))
+                                                                       (let _ (lift car xs))
+                                                                       (return 'leaked))))))
+                                    k)
+                                  1)))))
      (⊦ eq? 'exn inner))
    `(doc (p "B6: deferred Dirac values (M:99, M:120-129).  Upstream never forces the value of a
             Dirac node that nothing reads, so in " (code/inline "guarded-car")
             " the else branch, inactive exactly when xs is empty, applies " (code/inline "car")
             " to " (code/inline "'()") " harmlessly.  Here the value of an inactive diracN node
             whose computation raises is a deferred value, which only a strict reader forces.
-            Exact enumeration, with and without the validation build, gives 1/3 to each of "
+            Exact enumeration gives 1/3 to each of "
             (code/inline "a") ", " (code/inline "b") " and " (code/inline "none")
             "; 6000 samples of the chain land within .02 of it in both semantics, and "
             (code/inline "#:check") " finds every state sound; the first five samples at seed
@@ -2940,6 +3246,11 @@ with e >>= diracN -- the desired behavior.")
             " included, which it must compute as lazily as the chain does, whichever
             assignment the node was last computed in.")
          ,@(shown 'nested-guarded-car 'guarded-car/reversed)
+         (p "A handler that a model sets up inside a lifted function, around no model, is an
+            ordinary Scheme handler: the error is raised and caught inside the lifted
+            function, on the values of two choices, and exact enumeration of "
+            (code/inline "guarded-inside-lift") " gives 1/6 to each of its six outcomes.")
+         ,@(shown 'guarded-inside-lift)
          (p "Deviation 11, strict propagation: " (code/inline "strict-reader")
             "'s mu is the cdr of a pair whose car is the deferred h, so upstream computes mu =
             1.0, while here mu is the deferred value itself and the normal, a strict reader,
@@ -2951,55 +3262,11 @@ with e >>= diracN -- the desired behavior.")
             (code/inline "strict-reader/node") " never takes its then branch.")
          ,@(shown 'strict-reader 'strict-reader/node)
          (p "Lazy lifting does not leak: a model run from inside an inactive branch's lifted
-            function, here an " (code/inline "exact-posterior") " of "
-            (code/inline "(diracN (lift car '()))") ", starts without it and raises.")))
-
-  ((test/semantics/escapes _)
-   (let ((halves '((0. . .5) (1. . .5)))
-         (sixths (map (λ (v) (cons v (/ 1. 6.))) '(caught (0 #f) (1 #f) (1 #t) (2 #f) (2 #t)))))
-     (⊦ (equal-approx? 1e-12) sixths (exact-posterior guarded-inside-lift))
-     (⊦ (equal-approx? .03) halves (likelihood-weighting 4000 guarded-after-choice))
-     (⊦ (equal-approx? .03) sixths (likelihood-weighting 4000 guarded-across-choices))
-     (if native-multishot-escapes?
-         (begin
-           (⊦ (equal-approx? 1e-12) halves (exact-posterior guarded-after-choice))
-           (⊦ (equal-approx? 1e-12) sixths (exact-posterior guarded-across-choices)))
-         (⊦ equal? '(construction construction)
-            (map (λ (m) (raised (τ (exact-posterior m))))
-                 (list guarded-after-choice guarded-across-choices))))
-     (let* ((build-handled 0)
-            (tree (condition-case (model->search-tree guarded-after-choice)
-                    (e (exn) (add1! build-handled) '())))
-            (explored (raised (τ (probcc-explore +inf.0 tree)))))
-       (⊦ equal? (list (if native-multishot-escapes? 'none 'construction) 0)
-          (list explored build-handled))))
-   (let1 (stale #f)
-     (mcmC 1 (model (let* ((x (dist bern .5))) (set! stale x) x)))
-     (⊦ eq? 'construction
-        (raised (τ (mcmC 2 (model (handle-exceptions e 0. (dist normal stale 1.))))))))
-   `(doc (p "B7: handlers that a model sets up itself.  " (code/inline "guarded-after-choice")
-            " and " (code/inline "guarded-across-choices") " raise, after a choice, an error
-            that their own " (code/inline "handle-exceptions") " catches; they are written for
-            the value handlers, where a choice is a plain value.  The forward sampler, one-shot,
-            gives their posteriors (1/2 each, and 1/6 to each of six outcomes) within .03.  Exact
-            enumeration resumes the continuation of a choice once per support point, and the
-            handler's escape must return to the resumption it was raised in.  CHICKEN main
-            (rev 55615603) sends it to the " (code/inline "reset") " of an earlier run
-            instead, which would drop the rest of the enumeration and answer a normalized but
-            wrong posterior: there " (code/inline "native-multishot-escapes?")
-            " is false and " (code/inline "exact-posterior") " raises "
-            (code/inline "construction") ".  So does the exploration of the tree that "
-            (code/inline "model->search-tree") " answers, built in one call and explored in
-            another: the error reaches the handler around the exploration, which resumed the
-            model, and not the handler around the build, which has returned.  On the
-            chicken-core branch delimcc-multishot the same calls answer the exact posteriors.  A guard around no operation, inside a
-            lifted function as in " (code/inline "guarded-inside-lift")
-            ", enumerates correctly on both.")
-         ,@(shown 'guarded-after-choice 'guarded-across-choices 'guarded-inside-lift)
-         (p "A handler runs outside the model: an error that the trace builder raises (here a
-            node of another chain, " (code/inline "construction") ") reaches the caller of "
-            (code/inline "mcmC") ", not the model's own " (code/inline "handle-exceptions")
-            ".")))
+            function, here an " (code/inline "exact-posterior") " of a model that computes "
+            (code/inline "(lift car xs)") " of an empty " (code/inline "xs")
+            " after a bind, and discards it, starts without it and raises.  With lazy
+            lifting leaked, " (code/inline "(lift car xs)") " would be deferred and never
+            forced, and the posterior would be " (code/inline "((leaked . 1.))") ".")))
 
   ((test/semantics/incremental _)
    (for-each (λ (semantics)
@@ -3011,7 +3278,11 @@ with e >>= diracN -- the desired behavior.")
                               (list semantics
                                     (map car (hist (update-traces 1000 m #:semantics semantics)))))
                            (⊦ = 300 (length (mcmC 300 m #:semantics semantics #:check #t))))
-                         (list upp1 upp2)))
+                         (list upp1 upp2))
+               (⊦ equal? (list semantics '(() (2 3 4 5)))
+                  (list semantics
+                        (map car (hist (update-traces 1000 upp1/raw #:semantics semantics)))))
+               (⊦ = 300 (length (mcmC 300 upp1/raw #:semantics semantics #:check #t))))
              '(upstream extended))
    `(doc (p "B8: incremental recomputation (P §4.2 l.765-800).  Every node's update is wrapped
             to record, step by step, which updates ran and in which order.  In "
@@ -3032,7 +3303,11 @@ with e >>= diracN -- the desired behavior.")
             d updates nothing.  Both models also run under " (code/inline "#:check #t")
             ", whose reference evaluator recomputes every node after each step, in both
             semantics.")
-         ,@(shown 'upp1 'upp2))))
+         ,@(shown 'upp1 'upp2)
+         (p "Upstream runs upp1 as M:336-341 writes it, on the raw trace API, where d depends
+            on c and on an extra Dirac node ab = a + b: resampling a updates b, c, ab and d,
+            each once, in this order.")
+         ,@(shown 'upp1/raw))))
 
 (unittest/✓ hakaru10-language)
 (unittest/✓ hakaru10-replay)

@@ -1,15 +1,15 @@
-; The suites for (aux hakaru10 exact), the exact oracles of (aux hakaru10).
+; The suites for (aux hakaru10 exact), the oracles of (aux hakaru10).
 ;   - hakaru10-exact: the exact posteriors of the finite models of Examples1.hs and
 ;     ColoredBalls.hs (E1-E8), a cross-check with Hansei's own programs (E9) and the kernel
 ;     residual of the 'extended semantics (E10): cases E1-E10 of the plan (WP8, plan §9.5).
-;   - hakaru10-handlers: one model, three interpretations (the trace builder of MCMC, exact
-;     enumeration, forward sampling), cases H1-H8 of PLAN-IDIOM §5, and H9, an interpretation
-;     written here with handle-model.
+;   - hakaru10-oracles: one model, three interpretations (the build of mcmC, exact enumeration
+;     and forward sampling over the trace graph of one build), cases H1-H8 of plan §15.5.
 ; Expected values are exact (closed forms, or the 'theoretical' values upstream records) unless
 ; a case says otherwise; statistical tolerances hold over the seeds 17 and 1-40 (H1).
-; Models create their nodes in sequence, with let*, fold, map-in-order, for-each and named let,
-; never two in the arguments of one call (plan C18), and are pure across their operations
-; (PLAN-IDIOM C28): exact enumeration resumes them once per support point of every choice.
+; Models are values of the State monad written with do/monad, as in Syntax.hs (plan §15, C32);
+; a model with arguments is a procedure answering one.  They create their nodes when they run,
+; in bind order (plan §15, C35), and they run more than once: the oracles build the graph, and
+; construction-check rebuilds it.
 
 (import scheme
         (chicken base)
@@ -19,12 +19,10 @@
         (aux unittest)
         (only (aux hansei)
               probcc-coin probcc-distribution probcc-when probcc-reify/exact/a
-              probcc-τ probcc-unit probcc-explore probcc-normalize)
+              probcc-explore probcc-normalize)
         (aux hakaru10)
         (only (aux hakaru10 random) rng-double!)
         (only (aux hakaru10 util) histogram-sort)
-        (only (aux hakaru10 distribution) distk-kind distk-value distribution-support)
-        (only (aux hakaru10 engine) perform handle-model value-handler val-of)
         (only (aux hakaru10 exact) construction-check kernel-residual))
 
 ;; -------------------------------------------------------------------------------------------
@@ -72,12 +70,31 @@
   (condition-case (begin (thunk) 'none)
     (e (hakaru10) (hakaru10-error-kind e))))
 
-; (new, PLAN-IDIOM §5 H4) the three interpretations of a model, by name: the trace builder of
-; MCMC, exact enumeration (without the validation build, C29, so that the exact handler itself
-; meets the model) and the forward sampler of likelihood weighting.
+; (new) hakaru10-kind, or 'exn for a Scheme error (one that is not an (exn hakaru10)).
+(define (error-kind thunk)
+  (condition-case (hakaru10-kind thunk)
+    (e (exn) 'exn)))
+
+; (new, H3) the leaves ((V v) p) of the search tree `tree`, explored level by level, the C
+; entries of each level forced in reverse order: out of probcc-explore's depth-first order, as
+; a Hansei consumer may force the thunks in any order.  A leaf weighs the product of the
+; probabilities on its path, and a value may have several leaves.
+(define (explore/reversed-levels tree)
+  (let loop ((level tree) (leaves '()))
+    (receive (vs cs) (partition (λ (entry) (eq? 'V (caar entry))) level)
+      (if (null? cs)
+          (append vs leaves)
+          (loop (append-map (Λ (((C ,thunk) ,p))
+                              (map (Λ ((,entry ,q)) (list entry (* p q))) (thunk)))
+                            (reverse cs))
+                (append vs leaves))))))
+
+; (new, plan §15.5 H4) the three interpretations of a model, by name: the build of mcmC, exact
+; enumeration and the forward sampler of likelihood weighting, the last two over the trace graph
+; of one build (plan §6.10, C37).
 (define interpretations
   `((builder . ,(λ (m) (mcmC 1 m)))
-    (exact . ,(λ (m) (exact-posterior m #:validate #f)))
+    (exact . ,(λ (m) (exact-posterior m)))
     (forward . ,(λ (m) (likelihood-weighting 1 m)))))
 
 ; (new) the kind of the error model raises under each interpretation: ((name . kind) ...).
@@ -99,98 +116,108 @@
 
 ; cf. E:299-304 `grass` (P §1 l.32-89, §2.3 l.438-451, W:80-95).
 (define/shown grass
-  (define-model grass
-    (let* ((rain (dist bern .3))
-           (sprinkler (dist bern .5)))
+  (define grass
+    (do/monad
+      (← rain (dist bern .3))
+      (← sprinkler (dist bern .5))
       (dist (condition #t (nor .9 .8 .1)) rain sprinkler)
-      rain)))
+      (return rain))))
 
 ; cf. E:344-352 `girl`, the eldest daughter puzzle, and its `fuzzy2`.
 (define/shown girl
-  (define-model girl
-    (define ((fuzzy2 pfuzz op) x y)
-      (let1 (v (op x y)) (categorical `((,v . ,(- 1. pfuzz)) (,(not v) . ,pfuzz)))))
-    (let* ((girl1 (dist bern .5))
-           (girl2 (dist bern .5)))
-      (dist (condition #t (fuzzy2 .01 (λ (x y) (or x y)))) girl1 girl2)
-      girl1)))
+  (define girl
+    (let ()
+      (define ((fuzzy2 pfuzz op) x y)
+        (let1 (v (op x y)) (categorical `((,v . ,(- 1. pfuzz)) (,(not v) . ,pfuzz)))))
+      (do/monad
+        (← girl1 (dist bern .5))
+        (← girl2 (dist bern .5))
+        (dist (condition #t (fuzzy2 .01 (λ (x y) (or x y)))) girl1 girl2)
+        (return girl1)))))
 
 ; cf. E:226-235 `pcorr` (Yufei Cai's example), returning the pair (x . y) instead of y.
 (define/shown pcorr/pair
-  (define-model (pcorr/pair pfuzz)
+  (define (pcorr/pair pfuzz)
     (define (xor y x) (not (eq? x y)))
     (define ((fuzzy2 pfuzz op) x y)
       (let1 (v (op x y)) (categorical `((,v . ,pfuzz) (,(not v) . ,(- 1. pfuzz))))))
-    (let* ((x (dist bern .5))
-           (y (dist bern .5)))
+    (do/monad
+      (← x (dist bern .5))
+      (← y (dist bern .5))
       (dist (condition #t (fuzzy2 pfuzz xor)) x y)
-      (pair x y))))
+      (return (pair x y)))))
 
 ; cf. E:88-90 `ph2`.
 (define/shown ph2
-  (define-model ph2
-    (let* ((x (dist bern .2)))
+  (define ph2
+    (do/monad
+      (← x (dist bern .2))
       (dist bern (lift (λ (xv) (if xv .1 .7)) x)))))
 
 ; cf. E:96-99 `ph21`.
 (define/shown ph21
-  (define-model ph21
-    (let* ((x (dist bern .2)))
+  (define ph21
+    (do/monad
+      (← x (dist bern .2))
       (dist bern (lift (λ (xv) (if xv .1 .7)) x))
-      x)))
+      (return x))))
 
 ; cf. E:108 `(==1) <$> x`.
 (define/shown one? (define (one? x) (lift (cut = <> 1) x)))
 
 ; cf. E:106-110 `pcond1`.
 (define/shown pcond1
-  (define-model pcond1
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond1
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (one? x)
            (dist categorical '((10 . .5) (11 . .5)))
            (dist categorical '((20 . .5) (21 . .5)))))))
 
 ; cf. E:116-120 `pcond2`.
 (define/shown pcond2
-  (define-model pcond2
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond2
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (one? x)
-           x
+           (return x)
            (dist categorical '((20 . .5) (21 . .5)))))))
 
-; cf. E:126-132 `pcond3`.
+; cf. E:126-132 `pcond3`: the inner do of two statements is `>>` (S:353).
 (define/shown pcond3
-  (define-model pcond3
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond3
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (one? x)
-           x
-           (begin
-             (dist normal 0. 1.)
-             (dist categorical '((20 . .5) (21 . .5))))))))
+           (return x)
+           (>> (dist normal 0. 1.)
+               (dist categorical '((20 . .5) (21 . .5))))))))
 
 ; cf. E:265-271 `pcond4`.
 (define/shown pcond4
-  (define-model pcond4
-    (let* ((x (dist categorical '((1 . .5) (2 . .5)))))
+  (define pcond4
+    (do/monad
+      (← x (dist categorical '((1 . .5) (2 . .5))))
       (if_ (one? x)
-           x
-           (begin
-             (dist (condition #t bern) .5)
-             (dist categorical '((20 . .5) (21 . .5))))))))
+           (return x)
+           (>> (dist (condition #t bern) .5)
+               (dist categorical '((20 . .5) (21 . .5))))))))
 
 ; cf. E:256-260 `post_bias`.
 (define/shown post-bias
-  (define-model (post-bias c)
-    (let* ((coin (dist bern .5)))
+  (define (post-bias c)
+    (do/monad
+      (← coin (dist bern .5))
       (if_ coin
            (dist (condition c normal) 0. 1.)
            (dist (condition c normal) 100. 1.))
-      coin)))
+      (return coin))))
 
 ; cf. E:140-144 `mixng`, the mixing model of P §2.2 l.331-366.
 (define/shown mixng
-  (define-model mixng
-    (let* ((x (dist normal 0. 1.)))
+  (define mixng
+    (do/monad
+      (← x (dist normal 0. 1.))
       (if_ (lift (cut > <> 0.) x)
            (dist normal 10. 2.)
            (dist gamma 3. (/ 1. 3.))))))
@@ -198,27 +225,29 @@
 ; (new, plan §6.8; Design 3 §0.1) the counterexample to upstream's reactivation: P(c) = 1/2,
 ; the stationary P(c) of upstream's kernel is 0.377286.
 (define/shown pswitch
-  (define-model pswitch
-    (let* ((c (dist bern .5))
-           (m (dist uniformly '(0 1))))
+  (define pswitch
+    (do/monad
+      (← c (dist bern .5))
+      (← m (dist uniformly '(0 1)))
       (if_ c
            (dist categorical (lift (λ (mv) `((,mv . .9) (,(- 1 mv) . .1))) m))
            (diracN (lift identity m)))
-      c)))
+      (return c))))
 
 ; (new, deviation 8) an inner if_ that tests the same choice as its outer one, with observations
 ; directly in its branches: when x moves from 1 to 3, the outer then branch activates the
 ; observation .3 (now pending) and the inner if_ deactivates it in the same step, which must
 ; subtract nothing from the log-likelihood.  P(x) = (.6 .3 .1) for x = 1, 2, 3.
 (define/shown nested-dispatch
-  (define-model nested-dispatch
-    (let* ((x (dist uniformly '(1 2 3))))
+  (define nested-dispatch
+    (do/monad
+      (← x (dist uniformly '(1 2 3)))
       (if_ (lift (cut > <> 1) x)
            (if_ (lift (cut > <> 2) x)
                 (dist (condition #t bern) .1)
                 (dist (condition #t bern) .3))
            (dist (condition #t bern) .6))
-      x)))
+      (return x))))
 
 ; (new) a coin whose declared support (.5/.5) disagrees with its density (.9/.1), so the forced
 ; independence proposal is not the one the acceptance ratio assumes: the positive control of
@@ -233,11 +262,12 @@
 
 ; (new) the liar and a .3 coin, under a noisy observation of their disjunction.
 (define/shown liar-or
-  (define-model liar-or
-    (let* ((a (dist liar))
-           (b (dist bern .3)))
+  (define liar-or
+    (do/monad
+      (← a (dist liar))
+      (← b (dist bern .3))
       (dist (condition #t bern) (lift (λ (av bv) (if (or av bv) .8 .2)) a b))
-      a)))
+      (return a))))
 
 ; cf. CB:30-32 `opposite_color`.
 (define/shown opposite-color
@@ -248,40 +278,46 @@
   (define (observed-color color)
     (categorical `((,color . .8) (,(opposite-color color) . .2)))))
 
-; cf. CB:41-44 `balls_prior`, with the stochastic memoization of the balls' colors replaced by
-; their pre-allocation (memo/finite; footnote 5, P l.566-569).
+; cf. CB:41-44 `balls_prior`: the balls' colors pre-allocated, `sequence . replicate n` of a
+; uniform choice (replicate/monad), ball i first, and keyed by [1..] in an alist where upstream
+; builds an IntMap; the pre-allocation that replaces stochastic memoization (footnote 5,
+; P l.566-569).
 (define/shown balls-prior
   (define (balls-prior max-balls)
-    (memo/finite (iota max-balls 1) (λ (i) (dist uniformly '(blue green))))))
+    (do/monad
+      (← balls (replicate/monad max-balls (dist uniformly '(blue green))))
+      (return (map cons (iota max-balls 1) balls)))))
 
-; cf. CB:74-89 `balls_observe`: for each observation, in order (mapM_), a ball b is drawn among
-; nballs and the observation conditioned on its color, through the chain of if_'s that
-; `foldr observe (return (pure color)) [1..maxBalls]` builds.
+; cf. CB:74-89 `balls_observe`: for each observation, in order (mapM_, for-each/monad), a ball
+; b is drawn among nballs and the observation conditioned on its color, through the chain of
+; if_'s that `foldr observe (return (pure color)) [1..maxBalls]` builds; then `return (pure ())`.
 (define/shown balls-observe
   (define (balls-observe max-balls balls obs nballs)
-    (for-each (λ (color)
-                (let* ((b (dist uniformly (iota nballs 1))))
-                  (let observe ((i 1))
-                    (if (> i max-balls)
-                        color
-                        (if_ (lift (cut = <> i) b)
-                             (dist (condition color observed-color) (balls i))
-                             (observe (add1 i)))))))
-              obs)
-    (void)))
+    (>> (for-each/monad
+          (λ (color)
+            (do/monad
+              (← b (dist uniformly (iota nballs 1)))
+              (fold-right (λ (i rest)
+                            (if_ (lift (cut = <> i) b)
+                                 (dist (condition color observed-color) (alist-ref i balls))
+                                 rest))
+                          (return color)
+                          (iota max-balls 1))))
+          obs)
+        (return (void)))))
 
-; cf. CB:91-99 `cballs_model`, with maxBalls a parameter (CB:38-39 fixes it at 8).
+; cf. CB:91-99 `cballs_model`, with maxBalls a parameter (CB:38-39 fixes it at 8): the if_'s
+; of `foldr obs_number (return (pure ())) [1..maxBalls]`.
 (define/shown cballs-model
-  (define-model (cballs-model max-balls obs)
-    (let* ((balls (balls-prior max-balls))
-           (nballs (dist uniformly (iota max-balls 1))))
-      (let obs-number ((i 1))
-        (if (> i max-balls)
-            (void)
-            (if_ (lift (cut = <> i) nballs)
-                 (balls-observe max-balls balls obs i)
-                 (obs-number (add1 i)))))
-      nballs)))
+  (define (cballs-model max-balls obs)
+    (do/monad
+      (← balls (balls-prior max-balls))
+      (← nballs (dist uniformly (iota max-balls 1)))
+      (fold-right (λ (i rest)
+                    (if_ (lift (cut = <> i) nballs) (balls-observe max-balls balls obs i) rest))
+                  (return (void))
+                  (iota max-balls 1))
+      (return nballs))))
 
 ; (new) the posterior of the number of balls in closed form: given m balls, k of them blue, a
 ; draw is seen blue with probability p_k = (.8k + .2(m - k))/m, so P(m | n blues) is
@@ -299,28 +335,32 @@
            (z (fold + 0. ls)))
       (map (cut / <> z) ls))))
 
-; cf. BE:14-15 `phier n = (iterate (\m -> do {x<-m; dist normal x 3}) $ dist normal 0 1) !! n`.
+; cf. BE:14-15 `phier n = (iterate (\m -> do {x<-m; dist normal x 3}) $ dist normal 0 1) !! n`:
+; the fold builds Models, and the outermost creates x0 first when it runs.
 (define/shown phier
-  (define-model (phier n)
-    (fold (λ (_ x) (dist normal x 3.)) (dist normal 0. 1.) (iota n))))
+  (define (phier n)
+    (fold (λ (_ m) (do/monad (← x m) (dist normal x 3.))) (dist normal 0. 1.) (iota n))))
 
-; cf. B1:103-107 `normals`: independent normals of the given means, created in order (mapM).
+; cf. B1:103-107 `normals`: independent normals of the given means, created in order (mapM,
+; traverse/monad).
 (define/shown normals
-  (define (normals means sd) (map-in-order (cut dist normal <> sd) means)))
+  (define (normals means sd) (traverse/monad (cut dist normal <> sd) means)))
 
 ; cf. B1:110-111 `dot xs ays = foldr1 (+) $ zipWith (\x ay -> (*x) <$> ay) xs ays`.
 (define/shown dot
   (define (dot xs ws) (reduce-right sexp+ 0. (map (λ (x w) (lift (cut * <> x) w)) xs ws))))
 
 ; cf. P §3 l.461-504, Bayesian linear regression (PPAML problem 4.1): data is a list of
-; (xs . y), xs of length k.
+; (xs . y), xs of length k.  The noise sd is P l.482's `(1/) <$> dist gamma 0.5 0.5`, a Model
+; mapped by `<$>` (no Dirac node), and the observations P l.485's mapM.
 (define/shown regression
-  (define-model (regression k data)
-    (let* ((w-mean (normals (make-list k 0.) 2.))
-           (w (normals w-mean 1.))
-           (noise-sd (lift (cut / 1. <>) (dist gamma .5 .5))))
-      (for-each (Λ ((,xs . ,y)) (dist (condition y normal) (dot xs w) noise-sd)) data)
-      (collect w))))
+  (define (regression k data)
+    (do/monad
+      (← w-mean (normals (make-list k 0.) 2.))
+      (← w (normals w-mean 1.))
+      (← noise-sd (<$> (cut lift (cut / 1. <>) <>) (dist gamma .5 .5)))
+      (traverse/monad (Λ ((,xs . ,y)) (dist (condition y normal) (dot xs w) noise-sd)) data)
+      (return (collect w)))))
 
 ; (new) n synthetic regression points in k dimensions, deterministic: x_ij = sin(1.3i + .7j),
 ; y_i = x_i . w + .1cos(i), w = (1 -2 .5 3 -1 ...).
@@ -334,84 +374,118 @@
 ; cf. the `nested` model of the WP4b harness: two levels of if_, branch-local choices whose
 ; parameters depend on outer nodes, observations in both levels, diracN of a lifted expression.
 (define/shown nested
-  (define-model nested
-    (let* ((c (dist bern .5))
-           (d (dist bern .4))
-           (z (dist normal 0. 1.)))
+  (define nested
+    (do/monad
+      (← c (dist bern .5))
+      (← d (dist bern .4))
+      (← z (dist normal 0. 1.))
       (if_ c
-           (let* ((e (dist bern (lift (λ (zv) (if (> zv 0.) .7 .2)) z))))
+           (do/monad
+             (← e (dist bern (lift (λ (zv) (if (> zv 0.) .7 .2)) z)))
              (if_ (lift (λ (ev dv) (and ev dv)) e d)
                   (dist (condition .5 normal) z 1.)
-                  (begin
-                    (dist (condition #t bern) .3)
-                    (diracN (lift (cut * 2. <>) z)))))
+                  (>> (dist (condition #t bern) .3)
+                      (diracN (lift (cut * 2. <>) z)))))
            (if_ d (dist normal z 2.) (dist gamma 2. 1.))))))
 
-; (new, PLAN-IDIOM C29) a uniform choice over a list of lists, then one over the list drawn:
+; (new, plan §15 C37) a uniform choice over a list of lists, then one over the list drawn:
 ; when that is '(), the then branch is inactive and draws from `uniformly '()`, an error
-; (D:76) that the validation build must not take for a breach of the discipline.
+; (D:76) that the build of the static graph must not take for a breach of the discipline.
 (define/shown nested-uniformly
-  (define-model (nested-uniformly choices)
-    (let* ((xs (dist uniformly choices)))
-      (if_ (lift pair? xs) (dist uniformly xs) 'none))))
+  (define (nested-uniformly choices)
+    (do/monad
+      (← xs (dist uniformly choices))
+      (if_ (lift pair? xs) (dist uniformly xs) (return 'none)))))
 
-; (new, PLAN-IDIOM C29) nested-uniformly followed by an observation of a choice, ill-typed
-; upstream (E:196-201): the validation build must find it whatever seed 17 draws first.
+; (new, plan §15 C37) nested-uniformly followed by an observation of a choice, ill-typed
+; upstream (E:196-201): the build of the static graph must find it whatever seed 17 draws
+; first.
 (define/shown nested-uniformly/ill-typed
-  (define-model (nested-uniformly/ill-typed choices)
-    (let* ((xs (dist uniformly choices)))
-      (if_ (lift pair? xs) (dist uniformly xs) 'none)
-      (let* ((y (dist bern .5)))
-        (dist (condition y bern) .5)
-        xs))))
+  (define (nested-uniformly/ill-typed choices)
+    (do/monad
+      (← xs (dist uniformly choices))
+      (if_ (lift pair? xs) (dist uniformly xs) (return 'none))
+      (← y (dist bern .5))
+      (dist (condition y bern) .5)
+      (return xs))))
 
-; (new, PLAN-IDIOM §5 H6) a finite model with nested if_'s, diracN of a node of the enclosing
+; (new, plan §15.5 H5) a model that every 'extended build rejects (plan C22): its else branch
+; is never taken, but its normal is drawn as an inactive choice, from a mean that forces the
+; deferred `(car '())` (deviation 11).
+(define/shown always-rejected
+  (define always-rejected
+    (do/monad
+      (← c (dist bern .5))
+      (if_ #t
+           (return c)
+           (do/monad
+             (← h (diracN (lift car '())))
+             (← mu (diracN (lift cdr (pair h 1.))))
+             (dist normal mu 1.))))))
+
+; (new) a model whose result is c, after an if_ whose else branch, taken when c is #f, answers
+; the car of '(): deferred while that branch is inactive (deviation 11), raised when the exit
+; becomes active, by mcmC's step and by every walk of the graph that takes that branch.  At
+; seed 17 the graph's build draws c = #t, so the else branch is inactive in the graph;
+; guarded-result/mirror, the same model with the test negated, builds it active and raises
+; there.
+(define/shown guarded-result
+  (define guarded-result
+    (do/monad
+      (← c (dist bern .5))
+      (← r (if_ c (return 'ok) (diracN (lift car '()))))
+      (return c))))
+
+(define/shown guarded-result/mirror
+  (define guarded-result/mirror
+    (do/monad
+      (← c (dist bern .5))
+      (← r (if_ (lift not c) (return 'ok) (diracN (lift car '()))))
+      (return c))))
+
+; (new) a model whose then branch, taken when c is #f, makes a Dirac node of the car of xs,
+; '() exactly then, and answers 'then: the node is not the branch's result, so only its own
+; recomputation raises, and it raises only if its deactivation count says it is active, which
+; a walk of the graph must write before it (walk-active!), as mcmC's step keeps it.  At seed 17
+; the graph's build draws c = #t, so the then branch is inactive in the graph and its node's
+; value deferred; guarded-head/mirror, the same model with the test and xs negated, builds it
+; active and raises there.
+(define/shown guarded-head
+  (define guarded-head
+    (do/monad
+      (← c (dist bern .5))
+      (let xs (lift (λ (cv) (if cv '(1) '())) c))
+      (if_ (lift not c) (>> (diracN (lift car xs)) (return 'then)) (return 'else)))))
+
+(define/shown guarded-head/mirror
+  (define guarded-head/mirror
+    (do/monad
+      (← c (dist bern .5))
+      (let xs (lift (λ (cv) (if cv '() '(1))) c))
+      (if_ c (>> (diracN (lift car xs)) (return 'then)) (return 'else)))))
+
+; (new, plan §15.5 H6) a finite model with nested if_'s, diracN of a node of the enclosing
 ; scope and of a lifted expression, and an observation whose parameter depends on an outer
 ; node; its branch-local choices have constant parameters, so 'upstream is unbiased on it.
 (define/shown two-levels
-  (define-model two-levels
-    (let* ((c (dist bern .4))
-           (d (dist uniformly '(0 1 2))))
+  (define two-levels
+    (do/monad
+      (← c (dist bern .4))
+      (← d (dist uniformly '(0 1 2)))
       (if_ c
-           (let* ((e (dist bern .7)))
+           (do/monad
+             (← e (dist bern .7))
              (if_ e
                   (diracN d)
                   (diracN (lift (cut + 10 <>) d))))
-           (let* ((y (dist categorical '((5 . .5) (6 . .5)))))
+           (do/monad
+             (← y (dist categorical '((5 . .5) (6 . .5))))
              (dist (condition #t bern) (lift (λ (yv dv) (if (= yv 5) .8 (/ (+ dv 1.) 4.))) y d))
-             y)))))
-
-; (new, PLAN-IDIOM C28) a model that breaks multi-shot purity: it mutates `seen`, which outlives
-; its operations, so the paths of exact enumeration share it.
-(define/shown impure
-  (define-model impure
-    (let1 (seen '())
-      (let* ((a (dist bern .5)))
-        (push! a seen)
-        (let* ((b (dist bern .5)))
-          (push! b seen)
-          (length seen))))))
-
-; (new, PLAN-IDIOM §2.3, H9) a user-defined interpretation: exact enumeration of the prior,
-; which answers an observation with its value without weighing it.
-(define/shown prior-handler
-  (define prior-handler
-    (value-handler
-      (λ (dk resume)
-        (if (eq? (distk-kind dk) 'observed)
-            (resume (distk-value dk))
-            (filter-map (Λ ((,x . ,p)) (and (positive? p) (probcc-τ p (resume x))))
-                        (distribution-support dk)))))))
-
-; (new, H9) the prior of a finite model, as exact-posterior answers a posterior.
-(define/shown prior
-  (define (prior model)
-    (hansei->histogram
-      (probcc-explore +inf.0 (handle-model model prior-handler (o probcc-unit val-of))))))
+             (return y))))))
 
 ;; -------------------------------------------------------------------------------------------
-;; Hansei's own programs (E9), in (aux hansei) over aux's delimcc: they never run inside a
-;; hakaru10 handler.
+;; Hansei's own programs (E9), in (aux hansei) over aux's delimcc: the only oracle that shares
+;; no code with the engine (plan §6.10, C37).
 ;; -------------------------------------------------------------------------------------------
 
 ; cf. test/hansei.scm:87-100 (Kiselyov and Shan, "Embedded probabilistic programming", DSL
@@ -448,24 +522,23 @@
 
   ((doc r) `((structure/section "Exact oracles")
              (p "Hakaru10 infers by Markov chain Monte Carlo, so its answers are estimates.  To
-                test them we need exact answers, and an oracle that does not share code with
-                the engine it checks.  This page is about the oracles of "
+                test them we need exact answers, and oracles that share as little code as
+                possible with the engine they check.  This page is about the oracles of "
                 (code/inline "(aux hakaru10 exact)") ": exact enumeration, a reference
                 evaluator, and the exact kernel of the 'extended semantics.  None of them is in
                 upstream: they are new in the port.")
-             (p "A model is a direct-style Scheme program that " (i "performs") " three
-                operations: " (code/inline "dist") " (an observation is the "
-                (code/inline "dist") " of a " (code/inline "condition") "ed distribution), "
-                (code/inline "diracN") " and " (code/inline "if_") ".  What they mean is up to
-                the " (i "handler") " that runs the model, which "
-                (code/inline "handle-model") " installs under the native "
-                (code/inline "reset") " of " (code/inline "(chicken continuation)")
-                ": the handler receives the request and the model's continuation up to that "
-                (code/inline "reset") ", and may resume it once, many times or never.  The
-                trace builder of " (code/inline "mcmC") " resumes it once per operation and
-                builds upstream's trace graph.  Exact enumeration resumes it once per point of
-                the finite support of every random choice, and so builds a lazy search tree in
-                the format of "
+             (p "A model is a value of the State monad that threads the chain
+                (Syntax.hs:82), written with " (code/inline "do/monad") ": "
+                (code/inline "dist") " (an observation is the " (code/inline "dist")
+                " of a " (code/inline "condition") "ed distribution), "
+                (code/inline "diracN") " and " (code/inline "if_") " are models, and running
+                the model creates upstream's trace graph, node by node in bind order.  The
+                oracles do not run a model in a semantics of their own: they build it once, in
+                'extended mode, and walk the graph of that build (plan §6.10, C37).  One build
+                is the whole graph, because SExp is applicative, not a monad (Syntax.hs:118),
+                and " (code/inline "if_") " builds both of its branches
+                (Metropolis.hs:650-661).  Exact enumeration visits the nodes in address order,
+                which is their creation order, and builds a lazy search tree in the format of "
                 (cite/a "https://okmij.org/ftp/kakuritu/Hansei.html"
                         "Embedded probabilistic domain-specific language HANSEI")
                 ":")
@@ -473,29 +546,32 @@
              (p "in Scheme the list " (code/inline "(((V v) p) ...)") " and "
                 (code/inline "(((C thunk) p) ...)") ".  A choice becomes one "
                 (code/inline "C") " entry per support point " (code/inline "(x . p)") " with "
-                (code/inline "p > 0") ", whose thunk resumes the model with "
+                (code/inline "p > 0") ", whose thunk continues the walk with "
                 (code/inline "x") ".  An observation becomes one entry weighted by its
-                likelihood, or no entry at all when that likelihood is 0.  An "
-                (code/inline "if_") " runs only the branch its test selects.  "
+                likelihood, or no entry at all when that likelihood is 0.  The nodes of a
+                branch that the values on the path leave inactive are skipped.  A thunk may be
+                forced in any order, so it first restores the node states of its own path.  "
                 (code/inline "probcc-explore") " and " (code/inline "probcc-normalize")
                 " of " (code/inline "(aux hansei)") " then explore and normalize the tree.  Only
-                Hansei's data-level tools are used, so the native " (code/inline "shift")
-                "/" (code/inline "reset") " of the model and the delimited control of aux's "
-                (code/inline "resetcc") " never meet in one control context.")
-             (p "Under exact enumeration an SExp is a plain value, so "
-                (code/inline "lift") " evaluates at once and no node exists.  The oracle
-                therefore does not reuse the engine's construction or propagation code.  The
-                same plain values hide the static discipline, such as observations external to
-                the model or no node escaping its branch, so " (code/inline "exact-posterior")
-                " first builds the model once with the trace builder (" (code/inline "#:validate #t")
-                ", the default).  Continuous observations weigh by their density, which is right
+                Hansei's data-level tools are used: no oracle uses delimited control.")
+             (p "Enumeration and forward sampling share the graph and the node functions with
+                the engine, but none of its incremental machinery: propagation, the update
+                queue, the switch of branches, the delayed and pending updates, the journal
+                and the acceptance ratio.  So an exact posterior against an MH chain tests the
+                kernel and the incremental update.  The build checks the static discipline as
+                it goes, such as observations external to the model or no node escaping its
+                branch (H5).  Continuous observations weigh by their density, which is right
                 for posteriors over discrete choices.  A continuous " (i "choice")
-                " on a path the enumeration takes is a " (code/inline "support") " error.")
-             (p "Exact enumeration resumes a continuation many times, so a model must not
-                mutate, across an operation, state that outlives the operation: sibling paths
-                would share it (H8).  The " (code/inline "memo/finite") " table, folds,
-                " (code/inline "map-in-order") " and named " (code/inline "let")
-                " are all safe.")
+                " on a path the enumeration takes is a " (code/inline "support")
+                " error, and so are more paths than " (code/inline "#:max-paths") ".")
+             (p "A model runs several times: once per oracle call, and once more for the
+                rebuild of " (code/inline "construction-check")
+                ".  So a Scheme effect that must happen once per run goes inside a bind (plan
+                §15, C35).  Pre-allocation with " (code/inline "replicate/monad")
+                " (H8), folds and traversals are all safe.  One build stands for every build
+                only if the model does not branch in plain Scheme on a node or on a value drawn
+                while it is built.  Nothing enforces that; only the rebuild of "
+                (code/inline "construction-check") " (H2) catches a model that breaks it.")
              (p "The " (b "kernel residual") " (E10) checks the MH kernel itself, not one of
                 its chains.  In 'extended mode the inactive resampleable nodes are auxiliary
                 variables with their prior.  Over every assignment " (m "x")
@@ -669,8 +745,8 @@ pcond4 = do
    (⊦= 'none (hakaru10-kind (τ (mcmC 10 pcond3))))
    `(doc (p "E5b.  " (code/inline "pcond3") " draws a normal in its else branch, so exact
             enumeration raises a " (code/inline "support") " error when it takes that
-            branch.  The trace builder builds the model without complaint, so the error comes
-            from the exact handler, not from the validation build.")
+            branch.  The build of the graph completes without complaint, so the error comes
+            from the enumeration, not from the build.")
          ,@(shown 'pcond3)
          (code/lang "haskell" "pcond3 = do
   x <- dist categorical (pure [(1,0.5), (2,0.5)])
@@ -683,7 +759,7 @@ pcond4 = do
 
   ((test/post-bias _)
    (⊦ equal? '((#t . 1.)) (exact-posterior (post-bias 1.)))
-   (⊦ equal? '() (exact-posterior (model (dist (condition 5. uniform) 0. 1.))))
+   (⊦ equal? '() (exact-posterior (dist (condition 5. uniform) 0. 1.)))
    `(doc (p "E6.  A coin selects which of two normals, centered at 0 and 100, the observation
             1 comes from.  The likelihood of the observation under N(100, 1) is "
             (m "e⁻⁴⁹⁰⁰·⁵/√(2π)") ", which underflows to 0, so the posterior of the
@@ -746,8 +822,9 @@ let
    (0.0777907061915841, V 4); (0.123751456856916756, V 3);
    (0.211354336837841883, V 2); (0.416368552153129956, V 1)]
  = t2;;")
-         (p "The model, with the number of balls a parameter and memoization replaced by
-            pre-allocation (" (code/inline "memo/finite") "):")
+         (p "The model, with the number of balls a parameter and the balls' colors
+            pre-allocated by " (code/inline "replicate/monad") ", as upstream's "
+            (code/inline "sequence . replicate") " does:")
          ,@(shown 'opposite-color 'observed-color 'balls-prior 'balls-observe 'cballs-model
                  'cballs-closed-form)
          (code/lang "haskell" "-- Distribution for the observing of a ball, with the failure rate 20%
@@ -838,10 +915,17 @@ return c")))
                    (let1 (residual (kernel-residual model))
                      (and (not (< residual 1e-12)) (cons name residual))))
                  models))
-   (⊦ = 0. (kernel-residual (model (if_ #f (dist bern .5) 0))))
+   (⊦ = 0. (kernel-residual (if_ #f (dist bern .5) (return 0))))
+   (⊦ > 1e-12 (kernel-residual (dist (uniformly '(1 1 2)))))
    (⊦ < 1e-3 (kernel-residual liar-or))
    (⊦ < 1e-2 (kernel-residual pswitch #:semantics 'upstream))
    (⊦ > 1e-12 (kernel-residual pswitch #:semantics 'extended))
+   (⊦= 'support (hakaru10-kind (τ (kernel-residual (dist bern/flip .5)))))
+   (⊦= 'construction
+       (hakaru10-kind (τ (kernel-residual (do/monad
+                                             (← b (dist bern .5))
+                                             (dist (condition #t bern) 0.)
+                                             (return b))))))
    `(doc (p "E10.  The 'extended semantics leaves its target invariant: the kernel residual "
             (m "maxₓ |(πT)(x) − π(x)|") " is below " (m "10⁻¹²")
             " on the finite models below.  The colored balls are cut to at most 3 balls and 2
@@ -850,13 +934,17 @@ return c")))
             the same step activated (deviation 8): subtracting its stale LL there would bias
             the kernel, with a residual of about .078.")
          ,@(shown 'nested-dispatch)
-         (p "hakaru10.scm runs the kernel residual on four more models, next to their other
+         (p "hakaru10.scm runs the kernel residual on five more models, next to their other
             checks: " (code/inline "act-update") " and " (code/inline "act-update/finite")
             " (case B4), whose step activates an observation and updates its parameters at
-            once, and " (code/inline "guarded-car") " and " (code/inline "nested-guarded-car")
+            once, and " (code/inline "guarded-car") ", " (code/inline "guarded-car/reversed")
+            " and " (code/inline "nested-guarded-car")
             " (case B6), whose inactive branches hold a deferred Dirac value.")
          (p "A state with no active resampleable node stays put (deviation 6): the residual
-            is 0 on a model whose only choice sits in a branch never taken.")
+            is 0 on a model whose only choice sits in a branch never taken.  A support with
+            duplicate points gives a value the weight of all its points, as the sampler
+            does: the residual of " (code/inline "uniformly '(1 1 2)") ", whose 1 weighs 2/3,
+            is below " (m "10⁻¹²") ".")
          (p "As a positive control, the residual exceeds " (m "10⁻³") " (it is about .063)
             on a model whose " (code/inline "liar") " declares a support that disagrees with
             its density, so that its proposal is not the one the acceptance ratio assumes.")
@@ -866,46 +954,54 @@ return c")))
             states where no update is delayed.  On " (code/inline "pswitch")
             " its residual is .05, while the extended kernel's is below "
             (m "10⁻¹²") ": the reactivation bias of E8, seen in one step.")
+         (p "T is the independence proposal's (Distribution.hs:29-32), the default kernel: a
+            choice whose distribution has another kernel, such as "
+            (code/inline "bern/flip") "'s flip (Distribution.hs:64-70), is a "
+            (code/inline "support") " error, since T would not describe the engine's step.  A
+            model where no state has a positive weight, here one that observes "
+            (code/inline "#t") " from " (code/inline "bern 0") ", has no target π: a "
+            (code/inline "construction") " error.")
          (p "cf. plan §6.11; Design 3 §5.9.")))
 
   )
 
 ;; -------------------------------------------------------------------------------------------
-;; Suite hakaru10-handlers (PLAN-IDIOM §5, H1-H8; H9 new)
+;; Suite hakaru10-oracles (plan §15.5, H1-H8)
 ;; -------------------------------------------------------------------------------------------
 
-(define-suite hakaru10-handlers
+(define-suite hakaru10-oracles
 
   ((doc r) `((structure/section "One model, three interpretations")
-             (p "A Hakaru10 model is a thunk that performs three operations through the native "
-                (code/inline "shift") " of " (code/inline "(chicken continuation)") ":")
-             (code/scheme (dist d args) (diracN e) (if test then-thunk else-thunk))
-             (p "An interpretation is a " (i "handler") ", a procedure "
-                (code/inline "(λ (request resume) ...)") " that " (code/inline "handle-model")
-                " installs under a " (code/inline "reset") ".  The handler is deep, by
-                trampoline: " (code/inline "resume") " runs the model up to its next request
-                and hands that request to the handler again.  " (code/inline "if")
-                " answers a " (i "thunk") ", which the model calls in its own context: the
-                trace builder answers one that builds both branches, the inactive one first, as
-                upstream's " (code/inline "ifnode") " does (Metropolis.hs:641-686), and a value
-                handler answers the branch its test selects.  "
-                (code/inline "condition") ", " (code/inline "lift") " and "
-                (code/inline "memo/finite") " are not operations: conditioning makes an
-                observed distribution (Syntax.hs:174-193), lifting is pure (Syntax.hs:99-116),
-                and " (code/inline "memo/finite") " is an in-order map over its keys.")
+             (p "A Hakaru10 model is a value of the State monad of "
+                (code/inline "(aux category state)") ", whose state is the chain: "
+                (code/inline "Model a = MCMCM (SExp a)") " (Syntax.hs:82) and "
+                (code/inline "MCMCM a = State MCState a") " (Metropolis.hs:200).  "
+                (code/inline "dist") ", " (code/inline "diracN") " and " (code/inline "if_")
+                " are models, and " (code/inline "do/monad") ", " (code/inline "←") " and "
+                (code/inline "return") " combine them as Haskell's " (code/inline "do")
+                " does:")
+             (code/scheme (do/monad (← x (dist d args)) (diracN e) (if_ test then-model else-model)
+                                    (return x)))
+             (p "Running a model creates its nodes in bind order, and " (code/inline "if_")
+                " builds both branches, the inactive one first, as upstream's "
+                (code/inline "ifnode") " does (Metropolis.hs:641-686).  "
+                (code/inline "condition") " and " (code/inline "lift")
+                " are not models: conditioning makes an observed distribution
+                (Syntax.hs:174-193), and lifting is pure (Syntax.hs:99-116).")
              (p "The three interpretations are:")
-             (ul (li (b "the trace builder") " of " (code/inline "mcmC")
-                     ", one-shot: it builds upstream's trace graph, node by node and in
-                     upstream's order, which incremental Metropolis-Hastings then updates.  It
-                     is upstream's " (code/inline "Model a = MCMCM (SExp a)")
-                     " (Syntax.hs:82), with the state monad replaced by a handler that holds the
-                     chain;")
-                 (li (b "exact enumeration") ", multi-shot: a lazy Hansei search tree (page
-                     hakaru10-exact);")
-                 (li (b "the forward sampler") ", one-shot: likelihood weighting, and the
-                     construction-order run of " (code/inline "#:check") "."))
-             (p "Under the last two an SExp is a plain value, so each is an oracle independent
-                of the engine.  The tests below run the same models under all three.")))
+             (ul (li (b "the build") " of " (code/inline "mcmC")
+                     ": the model runs once on a fresh chain, as upstream's "
+                     (code/inline "initial_step") " runs it (Metropolis.hs:872-880), and
+                     incremental Metropolis-Hastings then updates the graph it built;")
+                 (li (b "exact enumeration") ": a walk of the graph of one build into a lazy
+                     Hansei search tree (page hakaru10-exact);")
+                 (li (b "the forward sampler") ": walks of the same graph that draw its
+                     active choices in address order and weigh its active observations, for
+                     likelihood weighting."))
+             (p "The last two share the graph and the node functions with the engine, but none
+                of its incremental machinery, so each is an oracle of the kernel and of the
+                incremental update (plan §6.10, C37).  The tests below run the same models
+                under all three.")))
 
   ((test/three-interpretations _)
    (define models
@@ -951,17 +1047,23 @@ return c")))
                   (construction-check model #:semantics 'upstream)
                   (construction-check model #:semantics 'extended)))
           models))
-   `(doc (p "H2.  The forward sampler, run in construction order on a copy of the same rng
-            source, reproduces the trace builder's initial trace: the same value, and an LL
-            within " (m "10⁻⁹") ", each run from its own copy of one rng source.  In
-            construction order an " (code/inline "if_")
-            " first runs the branch it does not take, drawing that branch's choices without
-            weighing its observations, as " (code/inline "ifnode")
+   `(doc (p "H2.  " (code/inline "construction-check") ", the first check of "
+            (code/inline "#:check") ", builds the model, rebuilds it and redraws it, each from
+            its own copy of one rng source.  The rebuild must give the same graph (the kind,
+            role, parents and scope of every node), the same values and the same LLs: a model
+            that is not the same each time it runs fails it (plan §15, C35).  The redraw draws
+            every resampleable node in address order, from its distribution and its stored
+            parents, and must give back every stored value, and the drawn LLs plus those of
+            the active observations must give the trace's LL within " (m "10⁻⁹")
+            ".  In address order an " (code/inline "if_")
+            " first has the branch it does not take, whose choices are drawn and whose
+            observations are not weighed, as " (code/inline "ifnode")
             " builds it (Metropolis.hs:650-661).  The LL is not bit-identical, because
-            deactivation adds and then subtracts the inactive observations' LL.  The two runs
-            make the same draws, so this oracle checks the node creation order (plan
-            C18), the draw order and the LL accounting, without the engine's construction
-            code.  " (code/inline "#:check") " runs this check once per chain.")
+            deactivation adds and then subtracts the inactive observations' LL.  So the redraw
+            checks the draw order against the graph and the LL accounting.  It runs the
+            engine's construction code, so with the replays of hakaru10.scm it stands for an
+            oracle of the node creation order (plan C18) that would not.  "
+            (code/inline "#:check") " runs this check once per chain.")
          ,@(shown 'nested 'phier 'normals 'dot 'regression)
          (code/lang "haskell" "phier n =
   (iterate (\\m -> do {x<-m; dist normal x 3}) $ dist normal 0 1) !! n")
@@ -978,35 +1080,38 @@ dot xs ays = foldr1 (+) $ zipWith (\\x ay -> (*x) <$> ay) xs ays")))
      (⊨ (any (λ (entry) (eq? 'C (caar entry))) shallow)))
    (⊦ (equal-approx? 1e-12) (exact-posterior grass)
      (hansei->histogram (probcc-explore +inf.0 (model->search-tree grass))))
+   (for-each (Λ ((,name . ,m))
+               (⊦ (equal-approx? 1e-12) (list name (exact-posterior m))
+                 (list name (hansei->histogram
+                              (probcc-explore 0 (explore/reversed-levels (model->search-tree m)))))))
+             `((grass . ,grass) (pcond4 . ,pcond4)))
    `(doc (p "H3.  " (code/inline "model->search-tree") " answers a genuine Hansei search tree.
             Explored to depth 0 it still has suspended " (code/inline "C")
             " entries, and explored fully and normalized it is the exact posterior:")
-         (code/scheme ,(probcc-explore 0 (model->search-tree grass)))))
+         (code/scheme ,(probcc-explore 0 (model->search-tree grass)))
+         (p "Its thunks may be forced in any order: each first restores the states of its
+            path's nodes.  Explored level by level, the thunks of each level forced in
+            reverse order, the trees of " (code/inline "grass") " and of "
+            (code/inline "pcond4") ", whose observation is a thunk of its own, give the exact
+            posterior too.")))
 
   ((test/errors _)
-   (⊦= 'construction (hakaru10-kind (τ (dist bern .5))))
-   (⊦= 'construction (hakaru10-kind (τ (diracN 3))))
-   (⊦= 'construction (hakaru10-kind (τ (if_ #t 1 2))))
    (⊦ equal? '((builder . construction) (exact . construction) (forward . construction))
      (kinds-under-interpretations
-       (model (let* ((x (dist bern .5))) (lift (λ (xv) (dist bern .5)) x)))))
+       (do/monad (← x (dist bern .5)) (return (lift (λ (xv) (dist bern .5)) x)))))
    (⊦ equal? '((builder . branch) (exact . branch) (forward . branch))
      (kinds-under-interpretations
-       (model (let* ((x (dist uniformly '(0 1)))) (if_ x 1 2)))))
-   (⊦ equal? '((builder . internal) (exact . internal) (forward . internal))
-     (kinds-under-interpretations (model (perform 'observe #t))))
+       (do/monad (← x (dist uniformly '(0 1))) (if_ x (return 1) (return 2)))))
    `(doc (p "H4.  The run-time checks that replace Haskell's types (plan §7) hold under every
-            handler.  " (code/inline "dist") ", " (code/inline "diracN") " and "
-            (code/inline "if_") " outside a model are " (code/inline "construction")
-            " errors.  So is a " (code/inline "dist") " inside a lifted function, which runs
-            in pure context.  A non-boolean test is a " (code/inline "branch")
-            " error (" (code/inline "SExp Bool") ", Syntax.hs:275).  An unknown request is "
-            (code/inline "internal") ".")))
+            interpretation.  A model answered by a lifted function (the function of a node,
+            run when the node is built or updated) is a " (code/inline "construction")
+            " error (deviation 9).  A non-boolean
+            test is a " (code/inline "branch") " error (" (code/inline "SExp Bool")
+            ", Syntax.hs:275).")))
 
-  ((test/validation _)
-   (define observes-a-choice (model (let* ((x (dist bern .5))) (dist (condition x bern) .5))))
+  ((test/static-graph _)
+   (define observes-a-choice (do/monad (← x (dist bern .5)) (dist (condition x bern) .5)))
    (⊦= 'conditioning (hakaru10-kind (τ (exact-posterior observes-a-choice))))
-   (⊦= 'none (hakaru10-kind (τ (exact-posterior observes-a-choice #:validate #f))))
    (for-each (λ (choices)
                (⊦ (equal-approx? 1e-12) (list choices '((1 . .25) (2 . .25) (none . .5)))
                  (list choices (exact-posterior (nested-uniformly choices))))
@@ -1014,12 +1119,24 @@ dot xs ays = foldr1 (+) $ zipWith (\\x ay -> (*x) <$> ay) xs ays")))
                   (list choices (hakaru10-kind (τ (exact-posterior
                                                      (nested-uniformly/ill-typed choices)))))))
              '(((1 2) ()) (() (1 2))))
-   `(doc (p "H5.  Under a value handler a choice is a plain value, so conditioning on it looks
-            legal.  Upstream's types reject it: observations are external to the model
-            (Syntax.hs:38-42, P §2.3 l.412-421).  " (code/inline "exact-posterior")
-            " therefore builds the model once with the trace builder first, which raises "
-            (code/inline "conditioning") ".  " (code/inline "#:validate #f")
-            " skips that build, and the program is then silently accepted.")
+   (⊦= 'construction (hakaru10-kind (τ (exact-posterior always-rejected))))
+   (⊦= 'support (hakaru10-kind (τ (exact-posterior grass #:max-paths 3))))
+   (⊦ (equal-approx? 1e-12) (exact-posterior grass) (exact-posterior grass #:max-paths 4))
+   (let1 (tree (model->search-tree grass #:max-paths 4))
+     (⊦ (equal-approx? 1e-12) (exact-posterior grass)
+        (hansei->histogram (probcc-explore +inf.0 tree)))
+     (⊦= 'support (hakaru10-kind (τ (probcc-explore +inf.0 tree)))))
+   (for-each (Λ ((,name . ,m))
+               (⊦ equal? (list name 'exn 'exn 'exn)
+                  (list name (error-kind (τ (exact-posterior m)))
+                        (error-kind (τ (likelihood-weighting 100 m)))
+                        (error-kind (τ (mcmC 100 m))))))
+             `((guarded-result . ,guarded-result) (guarded-result/mirror . ,guarded-result/mirror)
+               (guarded-head . ,guarded-head) (guarded-head/mirror . ,guarded-head/mirror)))
+   `(doc (p "H5.  Conditioning on a random choice is ill-typed upstream: observations are
+            external to the model (Syntax.hs:38-42, P §2.3 l.412-421).  "
+            (code/inline "exact-posterior") " walks the graph of a build, and the build raises "
+            (code/inline "conditioning") ".")
          (code/lang "haskell" "{-
 biased_coin_ill_typed_too c1 c2 = do
   b <- dist bern 0.5
@@ -1027,12 +1144,15 @@ biased_coin_ill_typed_too c1 c2 = do
   return b
 -}")
          (p "cf. Examples1.hs:196-201.")
-         (p "The validation build is a build of the trace builder, which builds both branches
-            of an " (code/inline "if_") ", so a branch the drawn values leave inactive may
-            raise a parameter error that enumeration, taking only the selected branch, never
-            meets.  It is a dynamic condition, not a breach of the discipline: the build runs
-            in 'extended mode, where it rejects the build (plan C22), and is retried until one
-            completes.  So the answer does not depend on what seed 17 draws first.  In "
+         (p "The graph is that of a build, which builds both branches of an "
+            (code/inline "if_") ", so a branch the drawn values leave inactive may raise a
+            parameter error that enumeration, which skips the inactive branches, never meets.
+            It is a dynamic condition, not a breach of the discipline: the build runs in
+            'extended mode, where it rejects the build (plan C22), and is retried until one
+            completes.  So the answer does not depend on what seed 17 draws first, for an
+            error that rejects the build; another error of the build is raised, as in
+            hakaru10.scm's "
+            (code/inline "invalid-inactive/branch") " (case B5).  In "
             (code/inline "nested-uniformly") ", when xs is the empty list, the inactive then
             branch draws from " (code/inline "uniformly '()") ", an error; with the support
             of xs in either order the posterior is the same:")
@@ -1042,16 +1162,42 @@ biased_coin_ill_typed_too c1 c2 = do
             " observes a choice after the branch, and raises "
             (code/inline "conditioning") " with the support in either order, also when the
             first build is rejected.")
-         ,@(shown 'nested-uniformly/ill-typed)))
+         ,@(shown 'nested-uniformly/ill-typed)
+         (p "A model that every build rejects has no graph, so the oracles raise "
+            (code/inline "construction") " after 1000 builds (plan §6.10).  Below, the else
+            branch is never taken, but in 'extended mode its normal is drawn as an inactive
+            choice, from a mean that needs " (code/inline "(car '())") ":")
+         ,@(shown 'always-rejected)
+         (p "Enumeration stops at " (code/inline "#:max-paths")
+            " leaves, with a " (code/inline "support") " error: "
+            (code/inline "grass") " has 4 paths, more than 3, and as many as 4.  A tree that "
+            (code/inline "model->search-tree") " builds with " (code/inline "#:max-paths")
+            " counts the leaves of all its explorations, so it can be explored once: the
+            second exploration of grass's tree of 4 paths raises.")
+         (p "A walk of the graph forces the value of an active exit, as the engine's step
+            does (deviation 11), so the oracles fail where " (code/inline "mcmC")
+            " does, whichever branch the graph's build took: in "
+            (code/inline "guarded-result") " the step that makes c false forces the deferred "
+            (code/inline "(car '())") " of the else branch, which the graph's build leaves
+            inactive, and the walks that take that branch raise the same Scheme error; "
+            (code/inline "guarded-result/mirror") "'s build takes it, and raises there.")
+         ,@(shown 'guarded-result 'guarded-result/mirror)
+         (p "A walk also writes each node's deactivation count before it recomputes the
+            node, which reads it: in " (code/inline "guarded-head")
+            " the then branch's Dirac node, which is not the branch's result, applies "
+            (code/inline "car") " to " (code/inline "'()") " whenever that branch is active,
+            and the walks that take it raise, though the graph's build left it inactive; "
+            (code/inline "guarded-head/mirror") "'s build takes it, and raises there.")
+         ,@(shown 'guarded-head 'guarded-head/mirror)))
 
   ((test/nested-branches _)
    (let1 (exact (exact-posterior two-levels))
      (⊦ (histograms-within .02) exact (mcmc-posterior 20000 two-levels))
      (⊦ (histograms-within .02) exact (mcmc-posterior 20000 two-levels #:semantics 'extended))
      (⊦ (histograms-within .02) exact (likelihood-weighting 20000 two-levels)))
-   `(doc (p "H6.  Nested " (code/inline "if_") "s under the value handlers.  A branch answers "
-            (code/inline "(diracN d)") " of a node of the enclosing scope, which the trace
-            builder shares and does not copy (Syntax.hs:164-169), or the "
+   `(doc (p "H6.  Nested " (code/inline "if_") "s under the oracles.  A branch answers "
+            (code/inline "(diracN d)") " of a node of the enclosing scope, which the build
+            shares and does not copy (Syntax.hs:164-169), or the "
             (code/inline "diracN") " of a lifted expression.  The else branch observes a coin
             whose parameter depends on an outer node.  The MCMC chains, in both semantics,
             and likelihood weighting each run 20000 samples and agree with exact enumeration
@@ -1064,10 +1210,13 @@ biased_coin_ill_typed_too c1 c2 = do
      (likelihood-weighting 20000 pcond3))
    (⊦ (equal-approx? .4) 5.5
      (fold (Λ ((,x . ,p) ,mean) (+ mean (* x p))) 0. (likelihood-weighting 20000 mixng)))
+   (⊦ equal? '() (likelihood-weighting 100 (dist (condition 5. uniform) 0. 1.)))
    `(doc (p "H7.  Likelihood weighting needs no finite support.  "
             (code/inline "pcond3") " (E5b) gets its exact answer within .02, and the mean of "
             (code/inline "mixng") " is " (m "0.5 · 10 + 0.5 · 1 = 5.5")
-            " within .4.")
+            " within .4.  A run of zero likelihood counts for nothing, so a model whose every
+            run has one, an observation of 5 from " (code/inline "uniform 0 1")
+            ", gives the empty histogram, as " (code/inline "exact-posterior") " does (E6).")
          ,@(shown 'mixng)
          (code/lang "haskell" "mixng = do
   x <- dist normal 0 1
@@ -1076,35 +1225,22 @@ biased_coin_ill_typed_too c1 c2 = do
            (dist gamma 3 (1/3))")
          (p "cf. Examples1.hs:139-144; P §2.2 l.331-366.")))
 
-  ((test/multi-shot _)
+  ((test/pre-allocation _)
    (⊦ (equal-approx? 1e-12) '(((#f . #f) . .25) ((#f . #t) . .25) ((#t . #f) . .25)
                               ((#t . #t) . .25))
-     (exact-posterior (model (let* ((coins (memo/finite '(a b) (λ (_) (dist bern .5)))))
-                               (pair (coins 'a) (coins 'b))))))
+     (exact-posterior (do/monad (← coins (replicate/monad 2 (dist bern .5)))
+                                (let table (map cons '(a b) coins))
+                                (return (pair (alist-ref 'a table) (alist-ref 'b table))))))
    (⊦ (equal-approx? 1e-12) (map cons '(1 2 3) (cballs-closed-form 3 4))
      (exact-posterior (cballs-model 3 (make-list 4 'blue))))
-   `(doc (p "H8.  Exact enumeration resumes a model many times, so a model must be pure across
-            its operations (PLAN-IDIOM C28).  " (code/inline "memo/finite")
-            " is: each path builds its own table after its last choice, so two memoized coins
-            are independent and E7 holds.  The model below is not pure, because "
-            (code/inline "seen") " outlives the operations that mutate it, and enumeration
-            answers lengths other than 2 (shown, not asserted):")
-         ,@(shown 'impure)
-         (code/scheme ,(exact-posterior impure #:validate #f))))
-
-  ((test/new-interpretation _)
-   (⊦ (equal-approx? 1e-12) '((#f . .7) (#t . .3)) (prior grass))
-   (⊦ (equal-approx? 1e-12) '((1 . .5) (20 . .25) (21 . .25)) (prior pcond4))
-   (⊦ (equal-approx? 1e-12) '((10 . .25) (11 . .25) (20 . .25) (21 . .25)) (prior pcond1))
-   `(doc (p "H9.  The protocol is open: a fourth interpretation is a few lines over "
-            (code/inline "handle-model") " and " (code/inline "value-handler")
-            ".  The prior, by enumeration, is the exact handler with observations answered
-            without being weighed: the rain of " (code/inline "grass")
-            " gets back its prior .3, and the else branch of " (code/inline "pcond4")
-            " its weight 1/2.")
-         ,@(shown 'prior-handler 'prior)))
+   `(doc (p "H8.  Pre-allocation, upstream's way to stand for stochastic memoization
+            (ColoredBalls.hs:41-44): " (code/inline "replicate/monad")
+            " creates one coin per key, in order, and a table maps the keys to them.  The
+            table is built inside a bind, so each run of the model has its own (plan §15,
+            C35).  Enumeration gives each coin its own value on each path, so two
+            pre-allocated coins are independent, and so are the colors of E7's balls.")))
 
   )
 
 (unittest/✓ hakaru10-exact)
-(unittest/✓ hakaru10-handlers)
+(unittest/✓ hakaru10-oracles)
