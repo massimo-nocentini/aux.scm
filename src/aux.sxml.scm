@@ -26,7 +26,7 @@
 
   (define highlight-version "11.11.1")
   (define mermaid-version "11")
-  (define highlight-languages '(scheme lisp python mathematica javascript htmlxml css bash c cpp java ruby go rust ocaml pgsql))
+  (define highlight-languages '(scheme lisp python mathematica javascript htmlxml css bash c cpp java ruby go rust ocaml pgsql haskell))
 
   (define (sxml-tree title body)
     (let ((maintitle (if (pair? title) (car title) title))
