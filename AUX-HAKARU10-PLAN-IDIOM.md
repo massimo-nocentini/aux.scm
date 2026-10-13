@@ -1,5 +1,7 @@
 # PLAN-IDIOM: amendment to AUX-HAKARU10-PLAN.md (native shift/reset, aux abstractions, Scheme idiom)
 
+> **Superseded on 2026-10-13** by AUX-HAKARU10-PLAN.md §15 (user decision: State-monad construction, as upstream). C23′ and C30 are restated there; everything else here (C18′, C25-C29, C31, §2-§6) is a historical record of the delimited-control design and no longer describes the code.
+
 This amendment implements the user directive of 2026-10-12:
 
 > "keep in mind to use chicken delim shift and reset from chicken-core and the abstractions in aux modules. please be more scheme-idiomatic as possible"

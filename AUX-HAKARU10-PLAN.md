@@ -2,10 +2,10 @@
 
 > **Status.** This is the implementation plan that `src/aux.hakaru10*.scm` and `src/test/hakaru10*.scm` were written from; their `plan §N` references point here. Two things changed afterwards, and the code is the reference wherever the two disagree:
 >
-> - **Native delimited control instead of a construction monad.** A model is a direct-style Scheme program, and `dist`, `diracN`, `condition` and `if_` `shift` to the `reset` of the handler that runs it, using the native `shift`/`reset` of `(chicken continuation)`. The same model runs under three handlers: the trace-graph builder of the MH engine, exact enumeration into `(aux hansei)` search trees, and likelihood weighting. Each source file's header describes this.
+> - **State-monad construction (decision of 2026-10-13, §15).** Models are State-monad computations written with do/monad, mirroring Syntax.hs; the construction functions mirror Metropolis.hs by name; the MH step keeps the mutable chain and the undo journal (C5); the oracles walk the static trace graph (§6.10). The intermediate delimited-control design of AUX-HAKARU10-PLAN-IDIOM.md is superseded.
 > - **Review fixes.** Four review rounds added, among others, lazy values for inactive Dirac nodes, the construction error for SExps inside Scheme values, the rollback of a step left open by an error, and deviation 11. The deviation register in `src/test/hakaru10.scm` is the current one.
 >
-> The amendment that made the first change, cited as `PLAN-IDIOM` in the sources, is `AUX-HAKARU10-PLAN-IDIOM.md`; where the two plans disagree, the amendment wins. The Python transcription of §0 is in `src/test/hakaru10-python/`.
+> The amendment that made the first change is §15, cited as `plan §15` in the sources; where it disagrees with the sections before it, §15 wins. The Python transcription of §0 is in `src/test/hakaru10-python/`.
 
 This plan is complete on its own. The implementer needs only this plan and the upstream folder `upstream/okmij-hakaru10/`. No repository file was modified while preparing it.
 
@@ -94,6 +94,8 @@ This plan is complete on its own. The implementer needs only this plan and the u
 | C23 | `mcmC§` stream | Built with aux.base `δ`, which is `delay` and so compatible with `(aux stream)`'s `take§`. No dependency on `(aux stream)`. | Avoids pulling in the continuation modules. |
 | C24 | `momenta` result | A pair `(mean . var)`. | Works directly with `equal-approx?` on pairs. |
 
+> See §15.1: C32-C39 are added; C6, C19 and C23 are superseded, and C18's rule is restated as bind order (C35).
+
 ---
 
 ## 2. Files, modules, dependencies
@@ -108,6 +110,8 @@ This plan is complete on its own. The implementer needs only this plan and the u
 | `aux.hakaru10.scm` | `(aux hakaru10)` | S (public syntax), re-exports | all of the above, `(aux base)` |
 
 The internal modules export `*`, as `(aux lua internal)` does. The public module has the explicit export list in §3.
+
+> See §15.6 for the imports since §15: `(aux category state)` (engine, public), `(aux stream)` (public), `(aux hansei)` (exact); no module imports `(chicken continuation)`.
 
 **Not ported**, but each is mentioned in a comment that cites its lines:
 - M:1174-1415 (the old Wingate-style `Measure` code);
@@ -134,6 +138,8 @@ D:383-411 (Laplace and symmetric Dirichlet, commented out upstream) are optional
 ## 3. Public API: `(aux hakaru10)`
 
 ### 3.1 Models and construction
+
+> Superseded by §15.4: a model is a State-monad computation (C32), written with `do/monad`; `model`, `define-model`, `if_*`, `letlift`, `constant`, `sexp?` and `memo/finite` are dropped (C38).
 
 A **model** is a thunk run in a construction context. It is the Scheme form of `Model a = MCMCM (SExp a)` (S:82; P §4.1 l.737-747).
 - Calling a model while a chain is being built creates nodes and returns an SExp.
@@ -271,6 +277,8 @@ Optional (WP12):
 
 ### 4.4 `(aux hakaru10 engine)`, internal
 
+> See §15.2 for the construction API, State actions named after upstream's (C33).
+
 - **Chain record and accessors** (§5.3).
 - **Parameters.** `current-chain` (`#f` outside construction and inside pure functions). The scope stack is a chain field.
 - **SExp.** `nref` record `(chain addr)`, `nt` record `(leaves fn)`, `sexp?`, `(sexp-value e)` (`eval_nctor`, S:201-208), `(sexp-leaves e)`, `(lift* f es)`.
@@ -290,6 +298,8 @@ Optional (WP12):
 
 ### 4.5 `(aux hakaru10 exact)`, internal
 
+> See §15.3: the oracles over the static graph (C37) replace `exact-posterior*`.
+
 `(reference-check ch)` (§6.9), `(exact-posterior* ch)` (§6.10), `(load-state! ch assignment)`, `(forced-step-log-alpha ch addr v)`, `(ext-states ch)`, `(kernel-residual model #!key (seed 17))` (§6.11).
 
 ---
@@ -297,6 +307,8 @@ Optional (WP12):
 ## 5. Data structures
 
 ### 5.1 SExp (S:85-93)
+
+> See §15.6: a procedure in an SExp position is a plain Val (S:107 `Val f`), and `constant` is gone; a Model there is the `construction` error.
 
 - **Val**: any Scheme value that is not an `nref` or `nt` record and not a procedure. A procedure in an SExp position is an error ("a model where an SExp is expected; bind it with let* first"); use `(constant f)` to pass one deliberately.
 - **NRef**: `(nref chain addr)`. The `chain` field is the **owner check**: using an nref whose chain is not `eq?` to the current chain is an error. That catches stale nodes from an earlier `mcmC`, from a discarded initial-retry build (M:882-892), or from a `memo/finite` table that outlived its build.
@@ -443,6 +455,8 @@ It is not libm, so replay stays exact.
 
 ### 6.3 SExp and construction (S:137-279; M:233-526)
 
+> See §15.2: construction is State actions (`create-node`, `new-nref`, `with-node-ctor`, `to-node`, `dist`, `diracN`); `pure-call` and `current-chain` are gone.
+
 **`(pure-call thunk)`** runs `(parameterize ((current-chain #f)) (thunk))`. Every user function goes through it: lift bodies, ctors and `fn`. So `dist`, `diracN` and `if_` inside them raise "called outside model construction or inside a pure function" (`construction`). During MH steps `current-chain` is already `#f`.
 
 **`create-node!`** (M:404-419, M:233-243):
@@ -486,6 +500,8 @@ It is not libm, so replay stays exact.
 **`diracN`** (S:166-169). Val → `create-node! root (diracS v)`. NRef → returned as is. NT → `with-node-ctor! e diracS`.
 
 ### 6.4 Branches: `if_*` → `ifnode!` (S:275-279; M:641-686; P §4.4 p.17 l.844-869)
+
+> See §15.2: `if_*` and `ifnode` are State actions in this order, and `if_` delays its branch models (C36).
 
 ```
 (if_* test th el):
@@ -586,6 +602,8 @@ transit!:
 
 ### 6.7 Driver (M:856-906; S:196-197)
 
+> See §15.2: `build-chain` runs a TraceM, `(model->trace model who)`, as `initial_step'` = `runState pgm init_state` (M:872-880).
+
 **`build-chain model src semantics`.** Make a fresh chain on `src` with `now = 1`. Then:
 - `(parameterize ((current-chain ch)) (to-node! ch (model)))`, i.e. `m >>= to_node` (S:197);
 - check that the model returned an SExp, not a procedure;
@@ -655,7 +673,11 @@ Upstream examples are unaffected in distribution, because their branch-local Res
 
 The public `mcmC` installs a `step-hook` that calls `reference-check` for the requested number of steps. It also snapshots the state before each checked step, for the rollback comparison.
 
+> See §15.3: `check:` first runs `construction-check` once (rebuild and address-order redraw, C37).
+
 ### 6.10 `exact-posterior` (exact module)
+
+> Restored, (new): exact enumeration walks this static graph again (C37), into a lazy Hansei search tree with a frame restore per thunk and `#:max-paths`; see §15.3, which also states the behaviour change and the assumption that one build is the whole graph.
 
 1. Build once with seed 17 to obtain the static graph.
 2. DFS over addresses 1..count with an environment of values and a weight. For each node:
@@ -671,7 +693,7 @@ The public `mcmC` installs a `step-hook` that calls `reference-check` for the re
 - categorical: each entry with its normalized p. These are the *sampling* semantics; duplicate keys are documented.
 - Poisson, continuous distributions, and `make-distribution` without `support`: no support.
 
-The result is the model's posterior, which is also the marginal of the extended target.
+The result is the model's posterior. It is also the marginal of the extended target only when every inactive node is valid in every state: under C22 the extended target excludes the states where an inactive node has invalid parameters or forces a deferred error, and then the two differ (`pending-abort`: exact enumeration gives x = 0 a positive probability, and the `'extended` chain never visits it, case B4).
 
 ### 6.11 Kernel residual (exact module; tests only; `'extended`; finite supports)
 
@@ -680,7 +702,8 @@ The result is the model's posterior, which is also the marginal of the extended 
 3. For each active resampleable `a` (probability `1/N(x)`) and each `(v . q)` in the support of its dst:
    - `forced-step-log-alpha` runs `journal-begin!`, `now += 1`, `apply-proposal!` with `fb = ll_v − ll_old` (D:29-32), `propagate!`, and computes `ratio`;
    - then it rolls back;
-   - `T[x→x'] += (q/N)·min(1, e^ratio)` (0 if Δ is infinite or NaN), and the rest goes to `T[x→x]`.
+   - `T[x→x'] += (q/N)·min(1, e^ratio)` (0 if Δ is infinite or NaN), and the rest goes to `T[x→x]`;
+   - T is the independence proposal's (D:29-32): a choice whose distribution has another kernel (`bern/flip`, D:64-70, or a `resample:` of `make-distribution`) is a `support` error.
 4. Return `max_x |(πT)(x) − π(x)|`.
 
 ### 6.12 Utilities (U)
@@ -696,9 +719,11 @@ The result is the model's posterior, which is also the marginal of the extended 
 
 ## 7. Run-time checks replacing Haskell's types
 
+> See §15.6: a Model is a type of its own (C32), so the rows on binds, pure context and procedures in SExp positions changed.
+
 | Haskell guarantee | Source | Scheme check (raised kind) |
 |---|---|---|
-| Observations are external (`CondV a = a`) | S:38-42, S:174-193; P §2.3 l.412-421, §4.1 l.751-759; E:194-201 | `condition` with an SExp `obs` raises "observation must be external to the model" (`conditioning`) |
+| Observations are external (`CondV a = a`) | S:38-42, S:174-193; P §2.3 l.412-421, §4.1 l.751-759; E:194-201 | `condition` with an SExp `obs` raises "observation must be external to the model" (`conditioning`); so does an `obs` that is a Model, or a Scheme value holding an SExp or a Model (§15) |
 | Only resampleable distributions can be conditioned: no double conditioning, no Dirac | S:180-186; P l.397-402; E:180-186 | kind check, at once for a distk and at application for a procedure (`conditioning`) |
 | Condition distributions, not boolean formulas | S:43-48; P l.393-398, 653-673 | No boolean `observe` is exported |
 | SExp is not a monad, so the graph is static | S:118; P l.739-747 | No bind is exported. `dist`/`diracN`/`if_` raise in pure context and outside `mcmC` (`construction`). |
@@ -714,6 +739,8 @@ The result is the model's posterior, which is also the marginal of the extended 
 ---
 
 ## 8. Deviation register (each one carries a `; deviation N (file:lines)` comment)
+
+> See §15.6: the numbers are unchanged; items 9 and 11 are amended.
 
 1. **`update-exit`** returns self unchanged when neither the entry nor the active result is newer; upstream fails (M:788-792).
 2. **Gamma density** uses the scale form; upstream's formula is wrong (D:298-304).
@@ -824,6 +851,8 @@ The result is the model's posterior, which is also the marginal of the extended 
 
 ### 9.4 `hakaru10.scm`
 
+> See §15.5 for the models in do/monad and the changed cases; every replay value stays.
+
 **Suite `hakaru10-language`.**
 
 | Id | Model / check | Expected | Source |
@@ -924,6 +953,8 @@ Notes on the replay suite:
 
 ### 9.5 `hakaru10-exact.scm` (suite `hakaru10-exact`)
 
+> See §15.5 for the models in do/monad and the changed cases; every replay value stays.
+
 | Id | Model | Expected | Kind | Source |
 |---|---|---|---|---|
 | E1 | `exact-posterior` grass | `((#f . 0.5315285572796303) (#t . 0.4684714427203697))` | tol 1e-12 | E:321-322 |
@@ -943,6 +974,8 @@ The doc also records the full 8-ball closed form (not computable by enumeration)
 
 ### 9.6 `hakaru10-examples.scm` (suite `hakaru10-examples`)
 
+> See §15.5 for the models in do/monad and the changed cases; every replay value stays.
+
 | Id | Check | Expected | Source |
 |---|---|---|---|
 | C1 | colored balls (8, 10 × `'blue`), 20000 | P(1) .412 ±.06; P(1) > P(2) > P(3) | CB:85-103; P §3 l.505-616 |
@@ -955,6 +988,8 @@ The doc also records the full 8-ball closed form (not computable by enumeration)
 | C5 | Bayesian regression: k = 2, 20 points from w = (1.5 −0.7), fixed xs, noise sd .5, priors as P l.476-504; 20000 (2000 burn-in) | posterior means within .4 of w | P §3 l.461-504; B1:106-114 |
 
 ### 9.7 Not in `make test`
+
+> See §15.5 for the models in do/monad and the changed cases; every replay value stays.
 
 **`hakaru10-bench.scm`** is compiled with `csc -O3`. It runs `./hakaru10-bench n nchain` and prints `(momenta (mcmC nchain (phierN n)))` plus elapsed milliseconds (BE:1-21). Reference values in comments:
 - 1e3: exactly (3.4117556376053577, 32.27027981263249);
@@ -981,7 +1016,7 @@ Each suite has `((doc r) …)` returning SXML with `structure/section`, `p`, `ci
 3. **Branching models.** P §2.2 l.328-366 (mixng, mixng', Hur et al. Fig. 2).
 4. **Conditioning.** P §2.3 l.367-451: why one conditions on distributions (P l.393-398, §4 l.653-673), the static discipline turned into run-time checks (§7 table), grass (P l.438-451, W:80-95).
 5. **Implementation.** §4.1 trace DAG (l.721-764); §4.2 incremental recomputation and creation order as topological order (l.765-800); §4.3 Dirac (l.801-843); §4.4 branching with inactivation counts (l.844-869). Map each to the Scheme procedures.
-6. **Embedding notes.** Models are thunks; `let*` and evaluation order (C18); `condition` vs `chicken.condition#condition`; `memo/finite` (footnote 5).
+6. **Embedding notes:** Models are State computations; bind order (C35). The eight notes: Models are State computations (C32, C33); bind order is creation order (C35); `if_` delays its branches (C36); running a model several times; a clause that is not a Model; the static discipline is the build; pre-allocation with `replicate/monad` (CB:41-44, footnote 5); sampling. Also `condition` vs `chicken.condition#condition` (C15).
 7. **Findings and deviations.** The §8 register with file:line cites; the pswitch bias and the extended semantics (§6.8, M:1145-1168); the paper errata.
 8. **Related work.** P §5 l.870-902 (Wingate et al. [21]; Hur et al. [10, 11]; Ścibior et al. [20]; the original Hakaru [24]).
 
@@ -994,6 +1029,8 @@ Each suite has `((doc r) …)` returning SXML with `structure/section`, `p`, `ci
 ---
 
 ## 11. Registration and running
+
+> See §15 for the State monad: aux.egg registers `(extension aux.category.state (modules (aux category state) (aux category monad state)))` after the reader's line, like the sibling category lines with no `component-dependencies`; `aux.hakaru10.engine` depends on `aux.base aux.category.monad aux.category.state aux.hakaru10.random aux.hakaru10.distribution`, and `aux.hakaru10` also on `aux.category.monad aux.category.state`. The Makefile's `test:` runs `category-state.scm` after `category-difflist.scm`. Build order: the category modules (`aux.category.monad` first, then the instances, `aux.category.state` among them), `aux.continuation.delimited`, `aux.continuation`, `aux.hansei`, `aux.stream`, then the hakaru10 modules in the order below.
 
 **`src/aux.egg`**, after `(extension aux.hansei)` (line 59), in this order:
 
@@ -1019,7 +1056,8 @@ There are no new egg dependencies: srfi-1, srfi-69 and the srfi-4 core module ar
 
 ```
 R=<scratchpad>/h10repo; mkdir -p $R; cd src
-for m in aux.base aux.sxml aux.unittest aux.continuation aux.continuation.delimited aux.hansei \
+for m in aux.base aux.sxml aux.unittest aux.category.monad aux.category.state \
+         aux.continuation.delimited aux.continuation aux.hansei aux.stream \
          aux.hakaru10.random aux.hakaru10.distribution aux.hakaru10.util aux.hakaru10.engine \
          aux.hakaru10.exact aux.hakaru10; do
   CSC_OPTIONS=-I/home/mnocentini/.local/include csc -s -J -O3 -d1 $m.scm -o $R/$m.so
@@ -1037,23 +1075,10 @@ Adjust the module list to whatever `aux.hansei`'s imports need. Generated `.impo
 ## 12. chicken-core work item (separate, optional; aux never depends on it)
 
 **Rules.**
-- Work in a clone, never in place: core's `config.make` is generated for `PREFIX=/home/mnocentini/.local`.
 - Never install into `/home/mnocentini/.local`.
 - The aux module stays pure Scheme on the installed 6.0.1pre1. There is no `cond-expand` on these changes in this project.
 
-```
-S=<scratchpad>; git clone /data/bitcoin/mnocentini-home/Developer/working-copies/chicken-core $S/cc
-cd $S/cc && ./configure --prefix $S/prefix --chicken /home/mnocentini/.local/bin/chicken --c-compiler clang
-env -u LD_LIBRARY_PATH -u CHICKEN_REPOSITORY_PATH make -j && make check && make install   # into $S/prefix only
-# after editing c-platform.scm / lfa2.scm / types.db: rebuild with make CHICKEN=./chicken (README:131-151)
-```
-
-Take baselines under `env -u LD_LIBRARY_PATH -u CHICKEN_REPOSITORY_PATH` (IMPLEMENTATION-NOTES.md §11.7, l.2356-2373).
-
-**Conventions.**
-- Branch off `main`; one item per commit or branch.
-- Each commit touches code, `types.db`, `manual/`, `NEWS` (6.1.0 section) and `tests/*.scm` with `runtests.sh` and `runtests-wasm.sh`, plus `distribution/manifest` for new files.
-- Add an IMPLEMENTATION-NOTES §11.N entry with the commit hash and measurements.
+The table lists the CHICKEN bugs found while porting; the `(chicken random)` adapter keeps its workaround for A and B (`aux.hakaru10.random.scm`).
 
 | Prio | Item | Change | Test |
 |---|---|---|---|
@@ -1116,3 +1141,222 @@ Take baselines under `env -u LD_LIBRARY_PATH -u CHICKEN_REPOSITORY_PATH` (IMPLEM
 - **Runtime of `make test`.** About 140k replay steps plus about 300k statistical steps, compiled engine with interpreted model closures. Target: under 2 minutes. If it is slower, move S4, S5 and C1 to `test-hakaru10-long`.
 - **Upstream folder.** Committing `upstream/okmij-hakaru10/` (no licence stated, third-party PDFs) is the user's decision.
 - **Upstream sources that are absent.** Bird data, ReadCSV and the ground truth (B1:11, 141-189) are missing. Only synthetic tests are possible by default.
+
+---
+
+## 15. Amendment of 2026-10-13: State-monad construction
+
+This amendment records the user decision of 2026-10-13. It supersedes AUX-HAKARU10-PLAN-IDIOM.md, the intermediate design in which a model was a direct-style thunk run under delimited-control handlers, and it wins wherever it disagrees with the sections above. The sources cite it as `plan §15, C32`, `plan §15.5` and so on.
+
+**The decision.**
+1. Stick to upstream. `type Model a = MCMCM (SExp a)` (S:82) and `type MCMCM a = State MCState a` (M:200): models are State-monad computations written with `do/monad`, as in Syntax.hs and Examples1.hs. A new `(aux category state)`, with its instance `(aux category monad state)`, sits on the `(aux category monad)` functor.
+2. The MH step and propagation keep the mutable chain and the undo journal (C5). The State monad is for **model construction** only.
+3. The parts that upstream does not have are kept as test oracles, marked "(new)": exact enumeration, likelihood weighting, weighted samples, forward sampling, the `#:check` oracles, `kernel-residual` and `mcmC§`. They work on the static trace graph (§6.10, restored), with no delimited control.
+4. No hakaru10 module imports `(chicken continuation)`, and nothing depends on a modified CHICKEN.
+
+**What does not change.** Node-creation order (C18), and with it every replay value of §9; every `cf.` citation (a deleted definition's citation moves to its replacement); the deviation register's numbers 1-11 (§8; items 9 and 11 are amended, §15.6).
+
+### 15.1 Decisions
+
+| # | Decision | Supersedes |
+|---|---|---|
+| **C32 Model = State** | `Model a = MCMCM (SExp a)` (S:82), `MCMCM a = State MCState a` (M:200), `TraceM a = MCMCM (NodeRef a)` (M:202), over `(aux category state)`. A computation is a `category-state` record, the runtime image of Haskell's `newtype State`, so a Model is distinct from an SExp and from a procedure value, as the two types are distinct upstream. | PLAN-IDIOM C25, C27, C31; §3.1 "a model is a thunk" |
+| **C33 Construction mirrors S/M** | The construction functions keep upstream's names (with hyphens, C30), argument order and decomposition: S:137-279, M:233-256, M:399-526, M:641-686. Each is a State action carrying a `cf.` citation (§15.2). `with_node2` (M:492-499) and `refresh_nref` (M:253) have no definition of their own, and the comments say why. | PLAN-IDIOM §2.1-2.2; §6.3-6.4 code shape |
+| **C34 The chain is the state** | The mutable chain record is the State's state. `get`/`gets` read it, and `modify!` mutates it in place where upstream uses `modify`/`put`. Node updates, propagation and the MH step stay imperative (C5). This is sound because a construction action runs once on a given fresh chain (`initial_step'` = `runState pgm init_state`, M:872-880). | extends C5 |
+| **C35 Bind order is creation order** | Nodes are created only when an action runs, in bind order: `do/monad` top to bottom, and `fold/monad`, `traverse/monad`, `for-each/monad`, `replicate/monad` head first. Building an action creates no node, whether in an argument position or inside `map`. A Model value may run several times: initial-step retries, `construction-check`'s rebuild, the oracles' graph. A Scheme effect that must happen once per run belongs inside a bind. | PLAN-IDIOM C18′ and C28 (C18 itself unchanged) |
+| **C36 `if_` delays its branches** | `if_` is syntax over the procedure `if_*` (S:275-279). Its branch expressions become Models evaluated when `ifnode` builds the branch, inside its scope and, for an inactive branch, under lazy lifting. This is the stand-in for Haskell's non-strict arguments, on which deviation 11 relies. | PLAN-IDIOM C27 |
+| **C37 Oracles over the static graph (new)** | Exact enumeration, forward sampling, `construction-check` and `kernel-residual` work on the trace graph of one `'extended` build (§6.10 restored, §15.3), with no delimited control. | PLAN-IDIOM C26, C28, C29, §2.3-2.4 |
+| **C38 Minimal public API** | Dropped: `model`, `define-model`, `if_*`, `letlift`, `memo/finite`, `constant`, `sexp?` (§15.4). A procedure is a plain Val (S:107 `Val f`). The monad vocabulary that upstream's examples use is re-exported; MonadState is not, as Syntax.hs exports none (S:8-14). | §3.1 table, §5.1 procedure rule |
+| **C39 No delimited control** | No hakaru10 module imports `(chicken continuation)`. `(aux hansei)`, whose data-level `probcc-τ`, `probcc-unit`, `probcc-explore` and `probcc-normalize` the exact module keeps using, itself imports `(chicken continuation)` (aux.hansei.scm:6) for its own programs; the hakaru10 oracles never call into its control operators. | PLAN-IDIOM's "Runtime" caveats |
+
+**Restated unchanged from PLAN-IDIOM.**
+- **C23′ `mcmC§`.** `mcmC§` is `(τ->§ next)` from `(aux stream)` over the engine's generator thunk: a `δ` stream compatible with `take§`, `§->list`, `map§`, `car§`/`cdr§`. `(aux hakaru10)` imports `(only (aux stream) τ->§)`, and aux.egg lists `aux.stream` among its dependencies.
+- **C30 Names.** Scheme names everywhere, with the upstream name in the `cf.` comment (`bernS` → `bern`, `sampleK` → `distk-sample`, `mkStdGen` → `seed->stdgen`, `new_nref` → `new-nref`, `with_node_ctor` → `with-node-ctor`). The user API keeps its upstream names: `mcmC`, `dist`, `diracN`, `if_`, `condition`.
+
+No source cites PLAN-IDIOM after this amendment. Its C18′, C25-C29 and C31 are retired.
+
+### 15.2 Construction
+
+**The State monad** (`src/aux.category.state.scm`, new; Control.Monad.State.Strict, the flavour M:8 imports).
+- A computation is a `category-state` record around its transition `s -> (a . s)`: Haskell's `(a, s)` tuple as a pair, the newtype as a record, as `category-writer` and `category-difflist` wrap theirs. The record costs 1.4-2 times a bare procedure per bind, paid at construction only.
+- `run-state`, `eval-state`, `exec-state` (`runState`, `evalState`, `execState`); `return` and a strict `>>=`; `fail`, which raises when the computation runs; `get`, `put`, `modify`, `gets`, `state`, `with-state`.
+- `(aux category monad state)` is the functor instance. The functor gains `traverse/monad` (`mapM`), `sequence/monad` (`sequence`), `for-each/monad` (`mapM_`, `forM_`), `replicate/monad` (`replicateM`), `when/monad` and `unless/monad`, all head first; `fold/monad` already is `foldM`. `list->monad` is `return` of a pure list, **not** `sequence`.
+- Test: `src/test/category-state.scm` (17 cases).
+
+**Types.**
+
+| Upstream | Scheme |
+|---|---|
+| `MCMCM a = State MCState a` (M:200) | a `category-state` whose run is `(λ (ch) (cons a ch))`; the answered state is always the same chain, mutated in place (C34) |
+| `TraceM a` (M:202) | an action answering a node (`prog` in signatures) |
+| `Model a` (S:82) | an action answering an SExp: a node (NRef), an `nt` (NT) or any other value (Val) |
+| `MCState`, `init_state` (M:165-197, M:875-880) | `chain` and `new-chain`, unchanged (§5.3) |
+| `fmap NRef` | identity: a node is its own NRef |
+| `next = (>>=)` (M:446) | `>>=` / `▷` |
+| `refresh_nref` (M:253), `with_node2` (M:492-499) | no definition: nodes are shared and never copied, and the flat NT leaf vector makes `with_node2` the two-leaf case of `with-node-tree` |
+
+**The construction API** (engine, section "Construction: the State monad").
+
+| Scheme | Upstream | Kind |
+|---|---|---|
+| `model?`, `check-model` | S:82; M:856-869 | predicate; `construction` error unless a Model |
+| `modify!` | M:200, upstream's `modify $ \s -> s{...}` | syntax: an `MCMCM ()` mutating the chain in place |
+| `hakaru10-fail` | `fail msg = error msg` (M:475, M:647) | `MCMCM a` that raises when it runs |
+| `lazy-model` | deviation 11, C36 | Model calling its thunk when it runs |
+| `new-nref` | M:233-243 `new_nref` | TraceM |
+| `new-dependency` | M:246-250 `new_dependency` (with deviation 10's branch-escape check) | `MCMCM ()` |
+| `create-node` | M:404-419 `create_node`; the only draw of construction | TraceM |
+| `with-node-none` | M:421-423 `with_node_none` | TraceM |
+| `with-node-tree` | S:224-228, S:255-261 (the general case of `with_node_ctor`); `with_node2` is its two-leaf case | TraceM |
+| `with-node` | M:451-456 `with_node` | TraceM |
+| `lazy-tree` | S:214 with deviation 11 | TraceM |
+| `with-node-ctor` | S:218-228 `with_node_ctor` | TraceM |
+| `to-node` | S:210-214 `to_node` | TraceM |
+| `dist` | S:137-151 (`Args`, `StochasticPrim`) | Model |
+| `diracN` | S:161-169 | Model |
+| `if_*` (and the public syntax `if_`) | S:275-279 | Model |
+| `ifnode` | M:641-686, line by line | TraceM |
+| `deactivate` | M:696-717 (at construction, M:659) | `MCMCM ()` |
+| `in-branch` | deviation 10 (the construction scope) and 11 (lazy lifting) | `MCMCM a` |
+| `model->trace` | S:196-197 `m >>= to_node` | TraceM |
+| `build-chain` | M:872-880 `initial_step'` = `runState pgm init_state` | driver: `(values ch result)` |
+| `initial-step`, `mcmc-generator`, `mcmc-fold` | M:856-891 | take a TraceM |
+| `pair`, `collect` | S:134-135, B1:113-114 | pure SExp functions, moved from the public module |
+
+**Order.** Each primitive keeps upstream's internal order, so C18 holds:
+- `dist`: the distk, the node, then the dependencies leaf by leaf;
+- `diracN`/`to-node`: no node for an NRef;
+- `if_`: the entry, the inactive branch with its result's `to-node`, `deactivate`, the active branch with its result's `to-node`, the exit, the dependencies entry, active, inactive, then the entry's update wrapper;
+- the model's result: `to-node` last, outside every branch (S:197).
+
+**`dist`'s decomposition.** `dist` passes `with-node-ctor` the SExp `(pair x y)` or `(collect args)` with an uncurried constructor, as S:150-151 does. This is equivalent to lifting the constructor: `pair` and `collect` draw nothing; their leaves are the same; the constructor is applied at the same point, inside `build-guard`. When `dist` is applied, a Model argument raises `construction`, and so does a Val argument holding an SExp or a Model (`check-no-sexp`; upstream, the `Show` of the sample type, S:144-151): next to an SExp argument such a Val is only a constant of the NT of `pair` or `collect`, which `with-node-ctor`'s Val check never walks. `lift/fuse`'s mixing check ("nodes of different model runs") fires then too, so `pair` and `collect` can fail there; under lazy lifting they may answer a deferred argument in place of the pair or list, whose force raises its error again when the node is made. The owner check (`check-owner`, §5.1) fires when the model runs, and so does `with-node-ctor`'s check of a Val (`check-no-sexp`) for `diracN` and the test of `if_`. The fallback, should a fingerprint ever diverge, keeps the old imperative core behind the upstream-named wrapper; §15.6 records any use.
+
+**What stays imperative.** The node `update` closures (M:131-142), `doupdate` (S:233-253, M:463-489, M:503-526), activation and branch switching (M:719-794), `modify-node!` and `propagate!` (M:258-317), `transit!` and `resample-trace!` (M:897-977), and the journal. They run at step time and are not observable through the monad, so they are not a deviation (C34). `pure-call`, `constant` and `val-of` are gone.
+
+**Rules for model authors.**
+- A model is a value, `(define m (do/monad ...))`, or a procedure answering one, `(define (m arg ...) (do/monad ...))`, as Haskell's `m = do ...`.
+- The first clause of a top-level `do/monad` is evaluated when the definition is: harmless for `dist`, `diracN`, `if_` and `return`, which only build actions. A computation that must run per build goes after a bind, `(>>= (return #f) (λ (_) ...))`.
+- A clause that is not a Model, such as a bare `(add1! k)`, fails with CHICKEN's record-type error when the model runs (a Scheme `exn`, not a `construction` error).
+
+### 15.3 The oracles over the static graph (C37; §6.10 restored; all "(new)")
+
+**The seam.** `(build model src semantics who)` = `(build-chain (model->trace model who) src semantics)` is the only place the exact module runs a model. `static-graph`, `construction-check` and `kernel-residual` call it.
+
+**The graph.** `(static-graph model who)` is an `'extended` build (C22: a parameter error in a branch the drawn values leave inactive rejects the build instead of failing it) from a private stdgen seeded with 17 (M:858), retried on the same advanced source while rejected, at most 1000 builds (M:882-891), and a `construction` error when none completes. SExp is applicative, not a monad (S:118), and `if_` builds both branches (M:650-661), so one complete build is the whole graph; the build also checks the static discipline (deviations 9, 10). A completed build with llcum −∞ is accepted as the graph: its −∞ belongs to that build's draws only, since the walk recomputes every node on every path, and enumeration answers `'()` only when no path has a positive weight.
+
+**The walk** (shared by enumeration and sampling). Addresses 1..count in order, which is creation order and draw order (C18). For node n:
+1. Write its deactivation count by scope from the current entry values **before** any evaluation, because the lazy diracN function reads it (as `load-state!` does). An inactive node is skipped.
+2. Active resampleable: enumeration branches over `distribution-support` (p > 0; no support raises `support`, E5b); sampling draws `(distk-sample (node-distk n) src)`. Then the node's state is recomputed with that value.
+3. Active observed: the recomputed LL; enumeration weighs by `exp ll` and prunes a weight of 0, sampling adds it to the log-weight.
+4. Dirac, entry, exit: recomputed; an entry checks its boolean test; an exit takes the active result, forced when the exit is active, as `update-exit` does (deviation 11).
+5. The result: `(force-value (node-value result))`.
+
+**Definitions.**
+- `(graph->search-tree ch result #!key (max-paths #f) (who 'exact-posterior))`, cf. Hansei's `probcc-reify/0` (the tree format): one `((C thunk) p)` per support point of an active choice, one `((C thunk) w)` per active observation, `(probcc-unit v)` at the leaves. A thunk may be forced in any order (`probcc-explore` to depth 0), so it first restores its **frame**, the `(node . nstate)` of its path's active nodes, newest first, tails shared (nstates are immutable, C5). More than `max-paths` leaves is a `support` error.
+- `(model->search-tree model #!key (max-paths #f))` and `(exact-posterior model #!key (max-paths #f))`: `histogram-sort` of `probcc-normalize` of `(probcc-explore +inf.0 ...)`, cf. Hansei's `probcc-reify/exact`. **`#:validate` is removed** (the graph build validates); `#:max-paths` is new.
+- `(graph-forward ch result src)` → `(values value log-likelihood)`: active resampleable and observed nodes call `distk-sample` (an observed node answers its observation and LL without drawing, M:97-100); only observed LLs count.
+- `(weighted-samples n model #!key (seed 17) (rng #f))`: the graph from `static-graph`, then n walks on `(or rng (make-stdgen-source seed))`. The active nodes in address order are the old forward run's operations in model order, so every draw sequence is unchanged, and so are `forward-sample` and the seed-17 synthetic data of the examples. `likelihood-weighting` is unchanged over it.
+- `(construction-check model #!key (seed 17) (rng #f) (semantics 'upstream))`, the first check of `#:check` (§6.9). It answers `#t`, `'skipped` (the first build has no result or an infinite llcum), or raises `internal` with `who` `'check`:
+  1. a first build, from a copy of the source;
+  2. a **rebuild** from a second copy, compared node by node (address, kind, role, parents, scope, the result's address), then by value (`same-value?`; a deferred value compares by its arguments) and by LL (`ll-close?`): "a rebuild and the initial trace differ in graph / value / LL". This takes over the purity check: a model whose Scheme effects change from run to run fails it.
+  3. an **address-order redraw** on a third copy: every resampleable node drawn in address order from its stored parents must give the stored value, and Σ resampleable LL + Σ active observed LL must equal llcum within 1e-9 relative to Σ |LL| over the LLs that went into llcum: in `'upstream` mode the resampleable nodes and every observed node, the inactive ones included (their LL is added at creation and subtracted at deactivation, M:659, with a rounding error that grows with it); in `'extended` mode, whose llcum the build recomputes as `chain-extended-ll` from the same terms in the same order, the resampleable and the active observed nodes only, so that an inactive observation, impossible or far off, does not widen the tolerance: "an address-order redraw and the initial trace differ in value / LL". This checks the draw order against the graph, and M:659's add-then-subtract.
+- `kernel-residual` (§6.11), `reference-check` (§6.9), `load-state!`, `ext-states` and `forced-step-log-alpha` are unchanged, except that `kernel-residual` builds through the seam and raises `support` for an active choice whose distribution has a kernel other than the independence proposal (`bern/flip`, a `resample:` of `make-distribution`; the rdistr records it), which its T does not describe, and that its π sums the weights of the combinations of support points that give one assignment (`uniformly '(1 1 2)` lists 1 twice), as the sampler does.
+
+**Behaviour change.** A model that every `'extended` build rejects, such as a strict reader of `(car '())`, raises `construction` under the oracles; under `mcmC` in `'extended` mode its chain is still `'()`. A build is retried only when it is rejected (C22), so an error of another kind in an inactive branch of the graph's build makes every oracle raise it, where the old forward runs met it only on the paths that build that branch: `(invalid-inactive/branch .5)`, whose seed-17 build draws c true and meets the inner test 0, raises `branch` under `exact-posterior`, `likelihood-weighting` and `weighted-samples` (at HEAD `weighted-samples` answered samples), while with p = .05 the build draws c false and the oracles answer (P(c) = .05 exactly). Case B5 of `test/hakaru10.scm` pins both.
+
+**Assumption.** "One build is the whole graph" holds because SExp is applicative and no model branches in plain Scheme on node identity or on build-time values. Nothing enforces it: a model that tests `(node? x)` or a drawn value in Scheme could change shape from build to build. The oracles then use the first build's shape, and only `construction-check`'s rebuild (under `#:check`) can catch it.
+
+**Independence.** Exact enumeration and likelihood weighting share only the graph and the node functions with the engine, none of the incremental machinery (`propagate!`, the queue, branch switching, delayed and pending updates, the journal, the acceptance ratio). So exact against MH still tests the kernel and the incremental update; `kernel-residual` tests the kernel exactly; `reference-check` tests every incremental state against a recomputation. Hansei's own programs over aux's `resetcc` (E9) are the only oracle fully independent of the engine. **Lost:** an oracle of creation order that does not run the construction code; the replays, the redraw and the per-node signatures replace it.
+
+**Complexity.** N nodes, P positive-weight paths, c active choices on a path.
+
+| Oracle | Time | Space |
+|---|---|---|
+| Graph | one build of O(N + E), rarely retried | |
+| Enumeration | O(P·N) | O(P·c) frame cells for unforced thunks, tails shared; bounded by `#:max-paths` |
+| Forward sampling | O(n·N) | |
+| `construction-check` | 2 builds + O(N) | |
+
+### 15.4 The public API (`src/aux.hakaru10.scm`)
+
+```scheme
+(module (aux hakaru10) (dist diracN condition if_ lift pair collect sexp-map sexp+ sexp- sexp* sexp/
+                        return >>= >> ▷ do/monad <$> <*> fold/monad traverse/monad sequence/monad
+                        for-each/monad replicate/monad
+                        bern bern/flip categorical uniformly uniform normal gamma beta poisson
+                        laplace dirichlet/symmetric
+                        make-distribution distribution-log-density distribution-sample
+                        mcmC mcmC-fold mcmC§ model-graph
+                        exact-posterior model->search-tree likelihood-weighting weighted-samples
+                        make-stdgen-source make-mrg32k3a-source make-chicken-random-source
+                        hist frequency momenta tabulate tabulate/bins kl plot
+                        hakaru10-error? hakaru10-error-kind)
+```
+
+| Old export | Now | Note |
+|---|---|---|
+| `model`, `define-model` | — | Use `(define m (do/monad ...))` and `(define (m . args) (do/monad ...))`. |
+| `dist`, `diracN`, `condition` | same | `dist` and `diracN` are Models (S:137-169); `condition` is pure (S:174-193). |
+| `if_` | same | `(if_ test th el)` = `(if_* test (lazy-model 'if_ (τ th)) (lazy-model 'if_ (τ el)))` (C36), expanding into engine procedures that the public module imports but does not export. A branch that is not a Model, `(if_ c 1 2)`, raises `construction` when the branch is built. |
+| `if_*`, `letlift`, `memo/finite`, `constant`, `sexp?` | — | `sexp?` stays importable from the engine, for the tests. |
+| `lift`, `pair`, `collect`, `sexp-map`, `sexp+` … `sexp/` | same | the SExp functor, applicative and Num instances (S:99-135, B1:113-114) |
+| — | `return >>= >> ▷ do/monad <$> <*> fold/monad traverse/monad sequence/monad for-each/monad replicate/monad` | the Prelude/Control.Monad vocabulary of upstream's models: `>>` (S:353), `>>=` (S:364), `<$>` on Models (B1:52, P l.482), `<*>`, `sequence . replicate` (CB:43), `mapM_` (CB:70, CB:76), `forM_` (B1:57, B1:69), `foldM_` (B1:58), `mapM` (B1:107, P l.485). `get`, `put`, `modify`, `gets`, `state` and `run-state` are not exported (S:8-14). |
+| `mcmC mcmC-fold mcmC§ model-graph` | same keys | take a Model and run `(model->trace model 'mcmC)` (`'model-graph` for `model-graph`, which takes only `seed`, `rng` and `semantics`, and does not retry) |
+| `exact-posterior model->search-tree likelihood-weighting weighted-samples` | same names | (new) over the graph (§15.3); `exact-posterior` and `model->search-tree` lose `#:validate` and gain `#:max-paths` |
+
+**`<$>` and `<*>`** exported here are the **Model** functor and applicative. The SExp ones are `lift`, `sexp-map` and `pair`, Haskell's same names at type SExp: S:286's `(&&) <$> e <*> d` is written `(lift (λ (ev dv) (and ev dv)) e d)`.
+
+**API break.** `model`, `define-model`, `if_*`, `letlift`, `memo/finite`, `constant` and `sexp?` disappear; they had no users outside the tests. A model in an SExp position, a model answered by a lifted function (at the build or at an update, whatever the node it feeds) and a model inside a Scheme value (a Val, a Dirac value, or the first answer of a lifted function, walked once since walking every answer would slow the steps) raise `construction`; the "outside a model" errors are gone, because `dist`, `diracN` and `if_` outside `mcmC` are legal Model values, as upstream.
+
+### 15.5 Tests
+
+**Rewrite recipe** (direct style → upstream do-notation; the textual order is kept, so the replays hold).
+
+| Direct style | Upstream-shaped form |
+|---|---|
+| `(define-model name body)`, `(define-model (f a ...) body)` | `(define name (do/monad clause ...))`, `(define (f a ...) (do/monad ...))` |
+| `(model e)` / `(model v)` | `e` / `(return v)` |
+| `let*` binding of an operation or model | `(← x m)`, in the same position |
+| `let*` binding of a pure value or SExp; tail SExp | `(let x e)`; `(return e)`, never `diracN` (it would add a node) |
+| statement | bare clause |
+| `if_` with value branches | `(if_ t (return v) m)`; a `begin` branch becomes `(>> m1 m2)` (S:353) |
+| node in an argument position | bind it first, or upstream's `(>>= (dist uniform 10. 20.) diracN)` (S:364) |
+| `(lift f (dist …))` | `(<$> (cut lift f <>) (dist …))` (B1:52, P l.482), the lifted function verbatim |
+| named-let loop threading a node; `map-in-order`; `for-each` making nodes | `fold/monad`, a recursive procedure answering a Model, `foldr`; `traverse/monad`; `for-each/monad` |
+| `memo/finite` over 1..n | `(replicate/monad n m)` and an alist (CB:41-44) |
+| `letlift` | the Model applicative, `(<*> (<$> (λ (a) (cut f a <>)) m1) m2)` |
+| `set!`/`add1!` across operations | after the bind that produces the value, `(let _ (set! v x))`; with no bound value, `(>>= (return #f) (λ (_) (add1! k) (return k)))` |
+| `(constant car)` | `car` |
+
+Literals stay verbatim, including exact versus inexact; names and calling conventions stay.
+
+**Per file.**
+- `test/category-state.scm` (new): 17 cases, among them the laws, bind order, the traversals, `list->monad` versus `sequence/monad`, and `label`.
+- `test/hakaru10.scm`: every model rewritten. `hakaru10-language`: L5 drops the three "outside a model" rows, `dist-in-a-lifted-function-during-mcmC` and `memo/finite-unknown-key`, and adds `a-thunk-is-not-a-model`, `a-branch-that-is-not-a-model` and `a-model-inside-a-value`, then, for deviation 9's checks of observations and of lifted functions, `condition-on-a-model`, `condition-on-an-sexp-inside-a-value` (`conditioning`), `model-from-a-lifted-function-at-update`, `sexp-from-a-lifted-function-at-update`, `model-from-a-lifted-function-as-a-parameter` and `model-inside-a-lifted-value` (`construction`), and for `dist`'s check of its Val arguments `an-sexp-inside-a-dist-argument`, `an-sexp-inside-a-dist-argument-next-to-an-sexp` and `a-model-inside-a-dist-argument-next-to-sexps` (`construction`), and in review round 3 `a-model-as-a-lift-argument`, `a-model-as-the-only-lift-argument` and `a-node-of-a-previous-chain-lifted-with-a-fresh-one` (`construction`) (28 → 38 rows, plus one assertion that a bare non-Model clause raises a Scheme `exn`); `a-handler-of-your-own` becomes `search-tree-paths`, `(4 4 3 4)` for grass, pcond1, pcond4, ph2. `hakaru10-semantics`: B4 adds `far-inactive` (in `'upstream` mode the redraw's LL tolerance scales with the inactive observations' LL; the `'extended` LL never counts them); B4′'s messages become the rebuild's "value" and "LL", and it adds the rebuild's "graph" (`switching`), its "value" for a deferred value compared by its arguments (`counter/deferred`), and the redraw's "value" and "LL" (`third-skips`, `third-shifts`, the latter also next to an inactive observation, impossible or far off, in `'extended` mode), and in review round 3 the rebuild's "LL" for an LL -inf on one build only (`counter/bound`) and `reference-check`'s "LL" for a stored LL made -inf (an infinity agrees only with itself); B5 pins the oracles' outcome on `invalid-inactive/branch` (`branch` at p = .5, P(c) = .05 at p = .05; §15.3); B6 drops `#:validate` and takes `guarded-inside-lift`'s sixths; its last assertion (`inner`) still checks that a build started inside an inactive branch's lifted function resets lazy lifting; B7 (the misrouted escapes) is dropped; B8 adds `upp1/raw`, upstream's live upp1 (M:336-341) on the engine's trace API, whose resampling of a updates b, c, ab and d. The replay, laws and statistics suites keep every value.
+- `test/hakaru10-exact.scm`: `hakaru10-exact` keeps its 11 cases (E5b's `support` comes from the enumeration, not from the build). `hakaru10-handlers` becomes `hakaru10-oracles`: H4 keeps "a model as a lifted value" (`construction`) and "non-boolean test" (`branch`); H3 adds an exploration that forces the thunks level by level in reverse order (grass, pcond4); H5 is renamed `static-graph` and adds the always-rejected model (`construction`), `#:max-paths 3` (`support`) and 4 (the posterior) on grass, and that a tree built with `#:max-paths` counts the leaves of all its explorations (review round 3), and `guarded-result`, `guarded-head` and their mirrors, on which every oracle raises as `mcmC` does (`guarded-head` needs the walk to write each node's deactivation count before recomputing it); E10 adds that `kernel-residual` of a `bern/flip` choice is a `support` error, and that a support with duplicate points (`uniformly '(1 1 2)`) has a residual below 1e-12, and (review round 3) that a model where no state has a positive weight is a `construction` error; H7 adds (review round 3) that likelihood weighting answers `'()` when every run has zero likelihood; H8 is renamed `pre-allocation` (`replicate/monad`); H9 is dropped.
+- `test/hakaru10-examples.scm`, `-birds.scm`, `-bench.scm`: the models per the recipe (`dispatch` is CB's `foldr` of `if_`; `birds` is B1:50-74 with `replicate/monad`, `forM_` and `foldM_`); every value unchanged, among them C1′, C4, C5 and the bench's 1000 and 10000 records. `-distribution.scm`: its doc only.
+
+**Census.**
+
+| File | Before | After |
+|---|---|---|
+| `category-state.scm` | — | 17 |
+| `hakaru10.scm` | 66 (language 13, replay 16, laws 7, statistics 20, semantics 10) | 65 (semantics 9) |
+| `hakaru10-exact.scm` | 20 (exact 11, handlers 9) | 19 (exact 11, oracles 8) |
+| `hakaru10-examples.scm` | 7 | 7 |
+| `hakaru10-birds.scm` | 2 | 2 |
+
+### 15.6 Superseded items
+
+- **§1.** C6: `model`, `define-model`, `if_*`, `letlift` and `constant` are dropped (C38). C18: unchanged, its rule restated as bind order (C35). C19: `memo/finite` is replaced by pre-allocation with `replicate/monad` (CB:41-44). C23 → C23′.
+- **§2.** The engine imports `(aux category state)` and `(aux category monad state)`; the public module those and `(aux stream)`; the exact module `(aux hansei)` (C39). No module imports `(chicken continuation)`.
+- **§3.1** entirely (§15.4); **§3.3** `exact-posterior`'s keys (§15.3).
+- **§4.4** construction API (§15.2); **§4.5** list (§15.3).
+- **§5.1.** A procedure in an SExp position is a plain Val (S:107), not an error; `constant` is gone.
+- **§6.3, §6.4** (§15.2); **§6.7** `build-chain` runs a TraceM (§15.2); **§6.9** gains `construction-check` (§15.3); **§6.10** restored over the static graph (§15.3).
+- **§7.** "No bind is exported" and "a procedure in an SExp position is an error" no longer hold: the monad vocabulary is exported (§15.4), and SExp is still not a monad.
+- **§8.** No new deviation number. Item 9 is amended: a Model is a value of its own type (C32), so a model where an SExp is expected, a model answered by a lifted function and a model inside a Scheme value are `construction` errors; a bare non-model clause is a Scheme error; procedures are plain values (S:107); a Val argument of `dist` holding an SExp is rejected. Item 11 is amended: Scheme is strict, so `if_` delays its branch models until `ifnode` builds them (C36), where a partial `lift` of an inactive branch is deferred; an SExp computed outside any branch, e.g. by a top-level `(define m (diracN (lift car '())))`, raises at once where upstream raises when the value is forced. The register in `src/test/hakaru10.scm` carries both.
+- **§9.4-9.7** (§15.5); **§10** item 6; **§11** (aux.category.state); **§12** (trimmed to the bug table).
+- **AUX-HAKARU10-PLAN-IDIOM.md** entirely, kept as a historical record.
+- **The §15.2 fallback for `dist`'s decomposition:** not used at the time of writing; a package that uses it for a primitive records it here.
+- **Construction time.** Written as `do/monad` blocks, `create-node`, `with-node-tree` and `in-branch` paid several binds per node (a `category-state` record, a closure and a pair each), and 50 builds of the colored-balls model of 10 draws (2114 nodes) took 12-25% longer than at HEAD, against a +10% budget. Each is now one transition written with `state`, as `new-nref` is, keeping its statements, their order and its `cf.` citations, and running the actions it calls (`new-nref`, `create-node`, `register-dependencies`, the branch's TraceM) with `run-state`/`exec-state`; the other construction functions keep their `do/monad` form. The replays and the per-node signatures are unchanged.
