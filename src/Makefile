@@ -3,7 +3,7 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable install format simdjson-fetch \
+        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long bench-hakaru10 install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors
 
 echo:
@@ -28,6 +28,12 @@ test:
 	cd test && ${CSI} -s bootstrap.scm
 	cd test && ${CSC} learning.scm bar.c -I/usr/local/include && ./learning && rm learning
 	cd test && ${CSI} -s hansei.scm
+	cd test && ${CSI} -s hakaru10-random.scm
+	cd test && ${CSI} -s hakaru10-distribution.scm
+	cd test && ${CSI} -s hakaru10-util.scm
+	cd test && ${CSI} -s hakaru10.scm
+	cd test && ${CSI} -s hakaru10-exact.scm
+	cd test && ${CSI} -s hakaru10-examples.scm
 	cd test && ${CSI} -s fds.queue.scm
 	cd test && ${CSI} -s fds.sbral.scm
 # 	cd test && ${CSI} -s judy.scm
@@ -108,6 +114,15 @@ test-on-scheme:
 test-learning-matchable:
 	cd test && ${CSI} -s learning-matchable.scm
 
+# (aux hakaru10): the statistical suite over several seeds, and the bird migration model on the
+# real data when HAKARU10_BIRDS_DIR names a folder with its CSV files: not part of `test`.
+test-hakaru10-long:
+	cd test && HAKARU10_SEEDS=17,1,2,3,4 ${CSI} -s hakaru10.scm
+	cd test && ${CSI} -s hakaru10-birds.scm
+
+bench-hakaru10:
+	cd test && ${CSC} -O3 hakaru10-bench.scm && ./hakaru10-bench 10 10000
+
 # (aux lua) needs Lua 5.5 (headers and liblua): not part of `test`.
 test-lua:
 	cd test && ${CSI} -s lua.scm
@@ -126,6 +141,14 @@ format:
 	scheme-indent -T 2 < test/bootstrap.scm > test/bootstrap.scm.tmp && mv test/bootstrap.scm.tmp test/bootstrap.scm
 	scheme-indent -T 2 < test/learning.scm > test/learning.scm.tmp && mv test/learning.scm.tmp test/learning.scm
 	scheme-indent -T 2 < test/hansei.scm > test/hansei.scm.tmp && mv test/hansei.scm.tmp test/hansei.scm
+	scheme-indent -T 2 < test/hakaru10-random.scm > test/hakaru10-random.scm.tmp && mv test/hakaru10-random.scm.tmp test/hakaru10-random.scm
+	scheme-indent -T 2 < test/hakaru10-distribution.scm > test/hakaru10-distribution.scm.tmp && mv test/hakaru10-distribution.scm.tmp test/hakaru10-distribution.scm
+	scheme-indent -T 2 < test/hakaru10-util.scm > test/hakaru10-util.scm.tmp && mv test/hakaru10-util.scm.tmp test/hakaru10-util.scm
+	scheme-indent -T 2 < test/hakaru10.scm > test/hakaru10.scm.tmp && mv test/hakaru10.scm.tmp test/hakaru10.scm
+	scheme-indent -T 2 < test/hakaru10-exact.scm > test/hakaru10-exact.scm.tmp && mv test/hakaru10-exact.scm.tmp test/hakaru10-exact.scm
+	scheme-indent -T 2 < test/hakaru10-examples.scm > test/hakaru10-examples.scm.tmp && mv test/hakaru10-examples.scm.tmp test/hakaru10-examples.scm
+	scheme-indent -T 2 < test/hakaru10-bench.scm > test/hakaru10-bench.scm.tmp && mv test/hakaru10-bench.scm.tmp test/hakaru10-bench.scm
+	scheme-indent -T 2 < test/hakaru10-birds.scm > test/hakaru10-birds.scm.tmp && mv test/hakaru10-birds.scm.tmp test/hakaru10-birds.scm
 	scheme-indent -T 2 < test/microkanren.scm > test/microkanren.scm.tmp && mv test/microkanren.scm.tmp test/microkanren.scm
 	scheme-indent -T 2 < test/fds.queue.scm > test/fds.queue.scm.tmp && mv test/fds.queue.scm.tmp test/fds.queue.scm
 	scheme-indent -T 2 < test/fds.sbral.scm > test/fds.sbral.scm.tmp && mv test/fds.sbral.scm.tmp test/fds.sbral.scm
@@ -146,6 +169,12 @@ format:
 	scheme-indent -T 2 < aux.nondeterministic.scm > aux.nondeterministic.scm.tmp && mv aux.nondeterministic.scm.tmp aux.nondeterministic.scm
 	scheme-indent -T 2 < aux.sxml.scm > aux.sxml.scm.tmp && mv aux.sxml.scm.tmp aux.sxml.scm
 	scheme-indent -T 2 < aux.hansei.scm > aux.hansei.scm.tmp && mv aux.hansei.scm.tmp aux.hansei.scm
+	scheme-indent -T 2 < aux.hakaru10.random.scm > aux.hakaru10.random.scm.tmp && mv aux.hakaru10.random.scm.tmp aux.hakaru10.random.scm
+	scheme-indent -T 2 < aux.hakaru10.distribution.scm > aux.hakaru10.distribution.scm.tmp && mv aux.hakaru10.distribution.scm.tmp aux.hakaru10.distribution.scm
+	scheme-indent -T 2 < aux.hakaru10.util.scm > aux.hakaru10.util.scm.tmp && mv aux.hakaru10.util.scm.tmp aux.hakaru10.util.scm
+	scheme-indent -T 2 < aux.hakaru10.engine.scm > aux.hakaru10.engine.scm.tmp && mv aux.hakaru10.engine.scm.tmp aux.hakaru10.engine.scm
+	scheme-indent -T 2 < aux.hakaru10.exact.scm > aux.hakaru10.exact.scm.tmp && mv aux.hakaru10.exact.scm.tmp aux.hakaru10.exact.scm
+	scheme-indent -T 2 < aux.hakaru10.scm > aux.hakaru10.scm.tmp && mv aux.hakaru10.scm.tmp aux.hakaru10.scm
 	scheme-indent -T 2 < aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm
 	scheme-indent -T 2 < aux.kanren.micro.show.scm > aux.kanren.micro.show.scm.tmp && mv aux.kanren.micro.show.scm.tmp aux.kanren.micro.show.scm
 	scheme-indent -T 2 < aux.anthropic.scm > aux.anthropic.scm.tmp && mv aux.anthropic.scm.tmp aux.anthropic.scm
