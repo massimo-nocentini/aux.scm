@@ -106,6 +106,8 @@
       R))
 
   ; list->monad :: (Monad m) => [a] -> m [a]
+  ; `list->monad` is `return` of the mconcat of a pure list, not `sequence`: use
+  ; `sequence/monad` to run a list of actions.
   (define list->monad (monoids->monad '() cons))
 
   ; foldM :: (Monad m) => (a -> b -> m a) -> a -> [b] -> m a
@@ -125,6 +127,42 @@
                     (if b
                       (do/monad (← xs* (filter/monad f xs)) ,(cons x xs*))
                       (filter/monad f xs))))))
+
+  ; The Prelude's traversals run their actions left to right, the head's first: in a monad
+  ; with effects (state, writer) that order is observable, so they recur on the head before
+  ; the tail, as fold/monad does.
+
+  ; mapM :: (Monad m) => (a -> m b) -> [a] -> m [b]   (`map/monad` is fmap, so this is traverse)
+  (define (traverse/monad f lst)
+    (match/first lst
+      (() (M:return '()))
+      ((,x . ,xs) (do/monad
+                    (← y (f x))
+                    (← ys (traverse/monad f xs))
+                    ,(cons y ys)))))
+
+  ; sequence :: (Monad m) => [m a] -> m [a]
+  (define (sequence/monad ms) (traverse/monad identity ms))
+
+  ; mapM_, forM_ :: (Monad m) => (a -> m b) -> [a] -> m ()
+  (define (for-each/monad f lst)
+    (match/first lst
+      (() (M:return (void)))
+      ; not (>> (f x) (for-each/monad f xs)), which would build the whole chain before running it
+      ((,x . ,xs) (▷ (f x) (λ (_) (for-each/monad f xs))))))
+
+  ; replicateM :: (Monad m) => Int -> m a -> m [a], that is sequence . replicate n
+  (define (replicate/monad n m)
+    (if (positive? n)
+      (do/monad
+        (← x m)
+        (← xs (replicate/monad (sub1 n) m))
+        ,(cons x xs))
+      (M:return '())))
+
+  ; when, unless :: (Monad m) => Bool -> m () -> m ()
+  (define (when/monad b m) (if b m (M:return (void))))
+  (define (unless/monad b m) (if b (M:return (void)) m))
 
   ; zip :: (Monad m) => m a -> m b -> m (a, b)
   (define (zip/monad m1 m2) (lift/monad cons m1 m2))

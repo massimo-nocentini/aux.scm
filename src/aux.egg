@@ -28,6 +28,7 @@
   (extension aux.category.difflist (modules (aux category difflist) (aux category monad difflist) (aux category writer difflist) (aux category monad writer difflist)))
   (extension aux.category.ziplist (modules (aux category ziplist) (aux category monad ziplist)))
   (extension aux.category.reader (modules (aux category reader) (aux category monad reader)))
+  (extension aux.category.state (modules (aux category state) (aux category monad state)))
   (extension aux.category.prob (modules (aux category prob) (aux category monad prob)))
   (extension aux.category.maybe (modules (aux category maybe) (aux category monad maybe)))
   (extension aux.libc)
