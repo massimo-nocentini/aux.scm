@@ -36,7 +36,10 @@
 ;;   - `if_` delays its branches, which are Models built when the if_ runs (C36, deviation
 ;;     11);
 ;;   - the static discipline (external observations, no node of another run, no node escaping
-;;     its branch, stable kinds) is checked by the build.
+;;     its branch) is checked by the build, and by the updates and the oracles' recomputation
+;;     for what only a later value can show: a node's kind, the boolean test of if_, a lifted
+;;     function's answer, and an observation that a distribution constructor computes from its
+;;     argument (deviations 9, 10).
 ;; `<$>` and `<*>` are those of Models (fmap and ap of the State monad: B1:52 `abs <$> dist
 ;; normal 0 10`).  The SExp functor and applicative are `lift`, `sexp-map` and `pair`,
 ;; Haskell's same names at type SExp: S:286's `(&&) <$> e <*> d` is (lift (λ (ev dv) (and ev
@@ -154,7 +157,11 @@
 
   ; (new, plan §6.9) the checks of one step against the snapshot `before`: a rejected step
   ; (M:904-906) must restore the state, `now` included (C5); in 'extended mode (plan §6.8) an
-  ; accepted step's Δ must be the change of the extended LL, within 1e-9 relative to it.
+  ; accepted step's Δ must be the change of the extended LL, within 1e-9 relative to it,
+  ; unless the extended LL before or after is not finite: the chain keeps an initial trace of
+  ; LL NaN (only an infinite LL is retried, M:853-854) and moves on such traces by steps that
+  ; leave the NaN term alone, whose change no NaN difference can check (as redraw-check skips
+  ; a NaN llcum).
   (define (check-step before ch accepted? delta)
     (let1 (after (take-step-snapshot ch))
       (cond
@@ -162,7 +169,9 @@
          (unless (same-state? before after)
            (hakaru10-error 'internal 'check "a rejected step did not restore the state"
                            (step-snapshot-now before))))
-        ((extended? ch)
+        ((and (extended? ch)
+              (finite? (step-snapshot-ll before))
+              (finite? (step-snapshot-ll after)))
          (let* ((ll0 (step-snapshot-ll before))
                 (expected (- (step-snapshot-ll after) ll0)))
            (unless (<= (abs (- delta expected)) (* 1e-9 (max 1. (abs ll0))))

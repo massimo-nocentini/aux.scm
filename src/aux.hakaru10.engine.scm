@@ -72,9 +72,11 @@
 ;;     (with-node-none dk)     M:421-423
 ;;     (with-node-tree leaves fn [who]) (with-node ndr f [who])   S:224-228, M:451-456
 ;;     (with-node-ctor e df [who lazy])            S:218-228 -> TraceM
-;;     (to-node e [who])       S:210-214 -> TraceM
+;;     (to-node e [who])       S:210-214 -> TraceM (a shared node must be in scope)
 ;;     (dist d arg ...)        S:137-151: d a distk (no args) or a distk constructor (a
-;;                             procedure) of SExps/Vals; a Model answering the node.
+;;                             procedure) of SExps/Vals; a Model answering the node.  d
+;;                             applied to the wrong number of arguments is a `construction`
+;;                             error (deviation 9).
 ;;     (diracN e)              S:161-169, a Model.
 ;;     (if_* test th el)       S:275-279, th and el Models; a Model answering the exit node.
 ;;     (ifnode entry th el)    M:641-686: entry a node, th and el TraceMs; answers the exit.
@@ -101,8 +103,10 @@
 ;;                             or forces it; deferred-args are the values it was computed from,
 ;;                             which construction-check compares.
 ;;     (lift* f es [checked?]) Applicative lifting (S:99-116): a Val if no e is an sexp (f
-;;                             applied now), otherwise one fused nt; f's answer, at any depth,
-;;                             must hold no SExp nor Model (unless checked? is #f).
+;;                             applied now), otherwise one fused nt; f's answer must hold no
+;;                             SExp nor Model: applied to Vals at any depth, for an nt at any
+;;                             depth on its first run and at the top on the next ones (unless
+;;                             checked? is #f).
 ;;   The imperative core of construction
 ;;     (add-dependency! parent child)                 M:246-250 (with the branch-escape check)
 ;;     (check-owner ch e who)  e must be a Val or an sexp of ch (`construction`).
@@ -128,6 +132,9 @@
 ;;     (node-state n) -> nstate (val ll dst tstamp)    (node-value n)
 ;;     (make-nstate val ll dst tstamp)   a new state, for the reference evaluator and the
 ;;                             kernel residual of (aux hakaru10 exact) (recomputed-state).
+;;     (check-observation n obs)   deviation 9: a `conditioning` error unless obs is the
+;;                             observation the observed node n was built with (doupdate,
+;;                             recomputed-state).
 ;;     (node-inactive n) count, 0 = active  (node-inactive? n)  (node-delayed n)  (node-pending n)
 ;;     (node-queued n)         #t while n is in the update queue (not journaled).
 ;;     (set-node-state! n s) (set-inactive! n k) (set-delayed! n flag) (set-pending! n flag):
@@ -139,8 +146,10 @@
 ;;     (chain-samp ch) vector of the resampleable nodes, (chain-sampleable ch) its list.
 ;;   MH (M:262-317, M:897-977)
 ;;     (modify-node! n s') -> children to enqueue (journaled store, Δ accounting)
-;;     (enqueue-all! ch nodes) (propagate! ch)   propagate! ends, in 'extended mode, with
-;;                             (settle-pending! ch) (see Semantics below)
+;;     (enqueue-all! ch nodes) (propagate! ch)   propagate! ends with (settle-pending! ch):
+;;                             the weights of the activated observed nodes, in 'extended mode
+;;                             (see Semantics below), and the deferred values of the activated
+;;                             Dirac nodes, forced (deviation 11, activate!)
 ;;     (resample-trace! ch) -> fwd-bwd      (apply-proposal! n v ll fb) -> fb
 ;;     (log-acceptance-ratio ch sampleables card-old fb)   M:929-934
 ;;     (rejected-ll? x)        M:853-854: whether x is infinite (a NaN is not).
@@ -186,22 +195,24 @@
 ;;                             #f if no initial trace is found in `limit` builds, else a
 ;;                             generator: a thunk answering the initial trace's value, then one
 ;;                             value per MH step.  build-hook, if given, is called once as
-;;                             (build-hook ch) when the generator is made.  A negative limit
-;;                             is a `construction` error (deviation 10).
+;;                             (build-hook ch) when the generator is made.  A limit that is
+;;                             not an exact integer (deviation 9) or is negative (deviation
+;;                             10) is a `construction` error.
 ;;     (mcmc-fold kons knil limit prog #!key ...)   (kons sample acc) over the `limit` first
 ;;                             samples, in chain order (the same keys).
 
 (module (aux hakaru10 engine) *
 
   (import scheme
-          (only (scheme base) vector-map vector-for-each make-parameter)
+          (only (scheme base) vector-map vector-for-each make-parameter exact-integer?)
           (chicken base)
           (chicken fixnum)
           (chicken flonum)
           (only (chicken format) fprintf)
           (only (chicken port) with-output-to-port)
           (only (chicken sort) sort!)
-          (only (chicken condition) make-property-condition signal condition-case)
+          (only (chicken condition) make-property-condition signal condition-case
+                with-exception-handler condition-predicate condition-property-accessor)
           (only srfi-1 any every find delete-duplicates append-map list-index iota)
           (only srfi-69 make-hash-table hash-table-exists? hash-table-set!)
           (aux base)
@@ -285,8 +296,10 @@
   ;   samp         its vector, frozen after construction, samp[i] = (list-ref sampleable i);
   ;   card-change  activated minus deactivated resampleable nodes, cumulative (M:193-194);
   ;   queue        the update queue (M:273-295), made by chain-freeze!;
-  ;   pending      the observed nodes activated during the step and still waiting for their
-  ;                weight ('extended only, see activate!), newest first;
+  ;   pending      the nodes activated during the step that wait for the end of its
+  ;                propagation, newest first: the observed nodes, for their weight ('extended
+  ;                only), and the Dirac nodes that hold a deferred value, to force it (see
+  ;                activate!);
   ;   journal      #f, or the undo thunks of the current step (plan C5), newest first;
   ;   scope        the current construction scope, a list of (entry . polarity);
   ;   step-hook    #f or (λ (ch accepted? delta)).
@@ -514,7 +527,12 @@
   ;; builds upstream (mu = snd (⊥, 1.0) = 1.0) and is an error here ('upstream mode; in
   ;; 'extended mode the error, being deferrable?, rejects the build or the step instead, C22).
   ;; Likewise an active diracN or exit computes its value at once, which upstream forces only
-  ;; when it is read.  Case B6 of test/hakaru10.scm (strict-reader) shows both.
+  ;; when it is read: when it is made or updated, and when a switch activates it holding a
+  ;; deferred value that no update of the step recomputes (activate!, settle-pending!).  Case
+  ;; B6 of test/hakaru10.scm shows both: strict-reader and ignoring-reader the first,
+  ;; strict-active the second (and strict-active/val that a lift of Vals in an active branch is
+  ;; applied at once, lazy-lifting being off there); case H5 of test/hakaru10-exact.scm the
+  ;; switch (guarded-head/constant, guarded-exit/constant).
   ;; Calling the function on the deferred records themselves would compute a wrong value for
   ;; one that branches on its argument's type, so the error is kept.
   ;; ---------------------------------------------------------------------------------------
@@ -781,6 +799,19 @@
                       dk))
     dk)
 
+  ; deviation 9 (S:38-42, S:174-176, S:251-252, M:487-488): the observation of the observed
+  ; node n, obs, recomputed by its distribution function, must be the one it was built with.
+  ; Upstream's types accept a constructor that observes its argument, `\xv -> condition xv
+  ; (bern 0.8)` (CondV a = a, S:180-193), and its update keeps the built observation
+  ; (`Observed d _ -> self{ll = logDensity d (val self), dst = d}`), so the chain silently
+  ; observes the first value.  The observation must be external to the model: obs not equal?
+  ; to it raises `conditioning`.  The oracles of (aux hakaru10 exact) check it too
+  ; (recomputed-state).
+  (define (check-observation n obs)
+    (unless (equal? obs (node-value n))
+      (hakaru10-error 'conditioning 'update "observation must be external to the model"
+                      n (node-value n) obs)))
+
   ; (helper) whether the node being created now is inactive: some enclosing branch, (entry .
   ; polarity) in the construction scope, is not the one its entry's value selects.
   (define (inactive-scope? ch)
@@ -806,15 +837,19 @@
                                e))))
         (thunk)))
 
+  ; (helper) whether the scope s is a tail of the scope s* (eq?): the scope of s* itself or of
+  ; a branch that encloses it.
+  (define (scope-tail? s s*)
+    (let tail? ((cs s*)) (or (eq? cs s) (and (pair? cs) (tail? (cdr cs))))))
+
   ; deviation 10 (no upstream counterpart; Haskell's lexical scoping guarantees it): a node
   ; may depend only on nodes of its own branch or of an enclosing one, i.e. the parent's scope
-  ; must be a tail of the child's.  Exit nodes depend on both branches by design (M:670-673).
+  ; must be a tail of the child's.  Exit nodes depend on both branches by design (M:670-673):
+  ; each result was checked by to-node, inside its own branch.
   (define (check-branch-escape parent child)
-    (unless (eq? (node-role child) 'exit)
-      (let1 (ps (node-scope parent))
-        (unless (let tail? ((cs (node-scope child)))
-                  (or (eq? cs ps) (and (pair? cs) (tail? (cdr cs)))))
-          (hakaru10-error 'branch 'if_ "node escapes its branch" parent child)))))
+    (unless (or (eq? (node-role child) 'exit)
+                (scope-tail? (node-scope parent) (node-scope child)))
+      (hakaru10-error 'branch 'if_ "node escapes its branch" parent child)))
 
   ; cf. M:246-250 `new_dependency`, the write: add child to the dependents of parent (IntSet
   ; union), after deviation 10's branch-escape check.
@@ -846,9 +881,10 @@
   ; the update of a plain node.  It never resamples: a Dirac node gets the new value and always
   ; a new tstamp (M:482, the note on Dirac, P §4.3 l.801-843); a resampleable or observed node
   ; keeps its value and tstamp and gets the new LL "and !!! Don't forget to update the
-  ; distribution" (M:483-488).  Answers (values nstate' '()).  The node's fn forces the deferred
-  ; values it reads, but that of an inactive diracN node (see lazy-value).  Imperative, as every
-  ; update (C34): it runs during a step, under the journal, not as a State action.
+  ; distribution" (M:483-488), an observed node also its observation (check-observation).
+  ; Answers (values nstate' '()).  The node's fn forces the deferred values it reads, but that
+  ; of an inactive diracN node (see lazy-value).  Imperative, as every update (C34): it runs
+  ; during a step, under the journal, not as a State action.
   (define (doupdate n)
     (let ((ch (node-chain n)) (self (node-state n)) (leaves (node-parents n)))
       (unless (extended? ch) (check-active-update n leaves))
@@ -866,6 +902,7 @@
           (if (eq? kind 'dirac)
               (make-nstate (check-lifted-value 'update (distk-value dk)) 0. #f (chain-now ch))
               (let ((rd (distk-rd dk)) (v (nstate-val self)))
+                (when (eq? kind 'observed) (check-observation n (distk-value dk)))
                 (make-nstate v ((rdistr-log-density rd) v) rd (nstate-tstamp self))))
           '()))))
 
@@ -975,10 +1012,20 @@
   ; this reference (shares) rather than creating a copy of it!", S:164-165, S:213), an NT a
   ; lazy Dirac node (S:214, deviation 11).  A Val that contains an SExp is an error
   ; (check-no-sexp, deviation 9).
+  ; deviation 10 (no upstream counterpart; Haskell's lexical scoping): a shared node must be of
+  ; the current scope or an enclosing one (scope-tail?), as add-dependency! requires of a
+  ; parent.  So a node captured with set! in one branch is a `branch` error as the result of
+  ; another branch, which its exit would read (ifnode runs `th >>= to_node` in the branch's
+  ; scope, S:279), or as the model's result (model->trace, at the top-level scope '()).
   (define (to-node e #!optional (who 'to_node))
     (check-not-model who e)
     (cond
-      ((node? e) (do/monad (gets (λ (ch) (check-owner ch e who))) (return e)))  ; S:213
+      ((node? e) (do/monad                                                       ; S:213
+                   (gets (λ (ch)
+                           (check-owner ch e who)
+                           (unless (scope-tail? (node-scope e) (chain-scope ch))
+                             (hakaru10-error 'branch who "node escapes its branch" e))))
+                   (return e)))
       ((nt? e) (with-node-ctor e dirac who #t))                                  ; S:214
       (else (check-no-sexp who e) (with-node-none (dirac e)))))                  ; S:212
 
@@ -988,6 +1035,39 @@
   ; cf. B1:113-114 and P l.503-504, `sequenceA` of a list of SExps: one SExp of the list of
   ; their values; (collect '()) is '().
   (define (collect es) (lift* list es #f))
+
+  ; deviation 9 (S:137-151, `type family Args`): the number of `dist`'s arguments is part of
+  ; the constructor's type upstream, so `dist normal 0` does not compile.  Here it is a
+  ; `construction` error, located at dist, raised when the node is made, in both semantics:
+  ; not CHICKEN's (exn arity) condition, which deferrable? accepts, so that build-guard would
+  ; take it for a rejection in an inactive branch ('extended, C22).  `call` is the application
+  ; of the constructor d to the argument values `args`, checked with check-distk; `applied?`,
+  ; a variable of the caller, is #f until a first application returns: an arity cannot change
+  ; from one application to the next, so the later ones, an update's, run unguarded.
+  (define-syntax-rule (ctor-apply applied? d args call)
+    (check-distk 'dist (if applied?
+                           call
+                           (let1 (dk (call/arity-check d (λ () call) args))
+                             (set! applied? #t)
+                             dk))))
+
+  ; (helper of ctor-apply) call thunk, which applies d to args: an (exn arity) condition of d
+  ; itself, whose `arguments` property is (d) for an interpreted and a compiled d alike, is
+  ; the `construction` error; any other condition, one raised inside d's body included, is
+  ; signaled again, to the handlers around the call.  A handler that does not escape, rather
+  ; than condition-case's, costs half as much on this path, a node's construction.
+  (define (call/arity-check d thunk args)
+    (with-exception-handler
+      (λ (e)
+        (if (and (arity-condition? e) (memq d (exn-arguments e)))
+            (hakaru10-error 'construction 'dist
+                            "wrong number of arguments for the distribution constructor" d args)
+            (signal e)))
+      thunk))
+
+  ; (helpers of call/arity-check) CHICKEN's (exn arity) conditions and their `arguments`.
+  (define arity-condition? (condition-predicate 'arity))
+  (define exn-arguments (condition-property-accessor 'exn 'arguments '()))
 
   ; cf. S:137-151 `type family Args`, `class StochasticPrim`: `dist d = fmap NRef $
   ; with_node_none d` (S:144-145), `dist d x = with_node_ctor x d` (S:147-148), `dist d x y =
@@ -1002,7 +1082,8 @@
   ; `construction` at once for nodes of different model runs (lift/fuse), and under
   ; lazy-lifting may answer a deferred argument in place of the pair or list, whose force
   ; raises its error again when the node is made.  The owner check (check-owner) fires when
-  ; the model runs (plan §15.2).  It always creates a new node.
+  ; the model runs (plan §15.2), and so does the arity check (ctor-apply).  It always creates
+  ; a new node.
   (define (dist d . args)
     (cond
       ((distk? d) (unless (null? args)
@@ -1014,13 +1095,15 @@
                                 args))
       (else (hakaru10-error 'construction 'dist
                             "a distribution or a distribution constructor is expected" d)))
-    (match/first args
-      (() (if (distk? d)
-              (with-node-none d)                                                  ; S:144-145
-              (with-node-ctor '() (λ (_) (check-distk 'dist (d))))))
-      ((,x) (with-node-ctor x (λ (v) (check-distk 'dist (d v)))))                 ; S:147-148
-      ((,x ,y) (with-node-ctor (pair x y) (Λ ((,a . ,b)) (check-distk 'dist (d a b)))))  ; S:150-151
-      (else (with-node-ctor (collect args) (λ (vs) (check-distk 'dist (apply d vs)))))))
+    (let1 (applied? #f)
+      (match/first args
+        (() (if (distk? d)
+                (with-node-none d)                                                ; S:144-145
+                (with-node-ctor '() (λ (_) (ctor-apply applied? d '() (d))))))
+        ((,x) (with-node-ctor x (λ (v) (ctor-apply applied? d (list v) (d v)))))  ; S:147-148
+        ((,x ,y) (with-node-ctor (pair x y)                                       ; S:150-151
+                                 (Λ ((,a . ,b)) (ctor-apply applied? d (list a b) (d a b)))))
+        (else (with-node-ctor (collect args) (λ (vs) (ctor-apply applied? d vs (apply d vs))))))))
 
   ; cf. S:161-169 `diracN`: its three cases are to_node's (S:167-169 = S:212-214).
   (define (diracN e) (to-node e 'diracN))
@@ -1029,11 +1112,11 @@
   ; entry (th >>= to_node) (el >>= to_node)`: "Always make a new node, for the sake of ifnode"
   ; (a root for a constant test).  deviation 9 (S:275 `if_ :: SExp Bool -> ...`): the test
   ; must be a boolean (plan C7).  th and el are Models (the public `if_` delays them, C36).
-  ; Answers the exit node.
+  ; Answers the exit node.  The checks of the test (owner, a Val holding an SExp) name if_.
   (define (if_* test th el)
     (check-not-model 'if_ test)
     (do/monad
-      (← entry (with-node-ctor test (λ (v) (dirac (check-test 'if_ v)))))     ; S:277-278
+      (← entry (with-node-ctor test (λ (v) (dirac (check-test 'if_ v))) 'if_))  ; S:277-278
       (modify! (ch) (node-role-set! entry 'entry))                              ; plan §5.2
       (ifnode entry (▷ (check-model th 'if_) to-node) (▷ (check-model el 'if_) to-node))))  ; S:279
 
@@ -1086,11 +1169,12 @@
   ; 1 for activate: IntMap's `updateLookupWithKey` answers the count *before* the update,
   ; M:733-746) changes activity: it adds its weight to llc, `(observed-weight n)` if it is
   ; observed and 0 otherwise ("We look only at Conditioned nodes", M:690-695, M:707-711,
-  ; M:736-740), and counts in k if it is resampleable (M:712-715, M:741-744).  Answers (values
-  ; llc k).  A count driven below 0 is upstream's "cannot happen" (M:747-751): an internal error.
+  ; M:736-740), counts in k if it is resampleable (M:712-715, M:741-744), and is passed to
+  ; `dirac-switched` if it is a Dirac node (deviation 11, see activate!).  Answers (values llc
+  ; k).  A count driven below 0 is upstream's "cannot happen" (M:747-751): an internal error.
   ; A pending observed node ('extended, deviation 8) weighs 0.: adding 0. to llc changes no bit,
   ; llc starting at 0. and so never being -0.
-  (define (move-activity! ch lo hi step switching observed-weight)
+  (define (move-activity! ch lo hi step switching observed-weight dirac-switched)
     (let loop ((a (fx+ lo 1)) (llc 0.) (k 0))
       (if (fx> a hi)
           (values llc k)
@@ -1100,7 +1184,10 @@
             (set-inactive! n (fx+ count step))
             (if (fx= count switching)
                 (loop (fx+ a 1)
-                      (fp+ llc (if (eq? kind 'observed) (observed-weight n) 0.))
+                      (fp+ llc (case kind
+                                 ((observed) (observed-weight n))
+                                 ((dirac) (dirac-switched n) 0.)
+                                 (else 0.)))
                       (if (eq? kind 'resampleable) (fx+ k 1) k))
                 (loop (fx+ a 1) llc k))))))
 
@@ -1115,7 +1202,8 @@
                                      (λ (n)
                                        (if (node-pending n)
                                            (begin (set-pending! n #f) 0.)
-                                           (nstate-ll (node-state n)))))
+                                           (nstate-ll (node-state n))))
+                                     void)
       (chain-llcum-set! ch (fp- (chain-llcum ch) llc))
       (chain-card-change-set! ch (fx- (chain-card-change ch) k))))
 
@@ -1127,24 +1215,47 @@
   ; has then.  The sum is the same, stale LL plus the change made by the node's own update in
   ; this step, but an inactive observed node may hold a -inf LL in 'extended mode (its updates
   ; run and do not count), and -inf + (ll - -inf) would be NaN, rejecting a valid proposal.
+  ; deviation 11 (M:99, M:120-129): an activated Dirac node (a diracN, a root of a Val, an
+  ; exit) that holds a deferred value, computed while it was inactive, joins the pending list
+  ; too, in both semantics: when the propagation ends, settle-pending! forces the value, unless
+  ; an update of the step has recomputed it, as an active diracN or exit computes its value at
+  ; once (doupdate, update-exit) where upstream forces it only when it is read.  Not now: a
+  ; parent updated later in the step (queued, or the child of a queued node) may give it
+  ; another value, and a delayed update ('upstream) runs after the switch.
   (define (activate! ch lo hi)
     (receive (llc k) (move-activity! ch lo hi -1 1
                                      (if (extended? ch)
                                          (λ (n) (set-pending! n #t) 0.)
-                                         (λ (n) (nstate-ll (node-state n)))))
+                                         (λ (n) (nstate-ll (node-state n))))
+                                     (λ (n)
+                                       (when (deferred? (node-value n))
+                                         (chain-pending-set! ch (cons n (chain-pending ch))))))
       (chain-llcum-set! ch (fp+ (chain-llcum ch) llc))
       (chain-card-change-set! ch (fx+ (chain-card-change ch) k))))
 
   ; deviation 8 (M:735-737, plan §6.8): at the end of a step's propagation in 'extended mode, add
   ; to llcum the current LL of every observed node activated during the step and still active
   ; (in ascending address order), clearing their pending flags.
+  ; deviation 11 (M:99, M:120-129): in both semantics, force the deferred value that a Dirac
+  ; node activated during the step and still active still holds (see activate!): no update of
+  ; the step recomputed it, so it is the value of the node's current parents, and forcing it
+  ; raises its error again (the node's function, applied to the same values, raised it), which
+  ; escapes the step as an active node's error does.  Should the function answer this time,
+  ; its value is stored, with the node's tstamp.
   (define (settle-pending! ch)
     (let1 (pending (chain-pending ch))
       (when (pair? pending)
         (for-each (λ (n)
-                    (when (node-pending n)
-                      (set-pending! n #f)
-                      (chain-llcum-set! ch (fp+ (chain-llcum ch) (nstate-ll (node-state n))))))
+                    (cond
+                      ((node-pending n)
+                       (set-pending! n #f)
+                       (chain-llcum-set! ch (fp+ (chain-llcum ch) (nstate-ll (node-state n)))))
+                      ((and (eq? (node-kind n) 'dirac) (not (node-inactive? n)))
+                       (let1 (s (node-state n))
+                         (when (deferred? (nstate-val s))
+                           (set-node-state! n (make-nstate (force-value (nstate-val s))
+                                                           (nstate-ll s) (nstate-dst s)
+                                                           (nstate-tstamp s))))))))
                   (sort! pending (λ (a b) (node<? a b))))  ; a duplicate finds its flag cleared
         (chain-pending-set! ch '()))))
 
@@ -1324,12 +1435,13 @@
   ; (exn hakaru10) errors, and any error of an active node, propagate (upstream never runs
   ; the inactive update, M:298-303; an active node's error is upstream's too).  When
   ; the queue is empty, the weights of the observed nodes activated in this step are added
-  ; (settle-pending!).
+  ; (settle-pending!), which in both semantics also forces the deferred values that the Dirac
+  ; nodes activated in this step still hold (deviation 11).
   (define (propagate! ch)
     (let ((q (chain-queue ch)) (extended (extended? ch)) (now (chain-now ch)))
       (let loop ()
         (if (update-queue-empty? q)
-            (when extended (settle-pending! ch))
+            (settle-pending! ch)
             (let1 (n (dequeue! q))
               (cond
                 ((and (not extended) (node-inactive? n))
@@ -1496,15 +1608,18 @@
   ; generator over the TraceM prog (model->trace): the first value is the initial trace's,
   ; then each call takes one MH step and answers the result's value, a rejected step repeating
   ; the previous one.  `rng` (an rng source) overrides `seed` (mkStdGen 17, M:858) and is used
-  ; as is.  If the initial step finds no trace in `limit`
-  ; builds, the answer is #f (upstream's `[]`, M:868).
+  ; as is.  If the initial step finds no trace in `limit` builds, the answer is #f (upstream's
+  ; `[]`, M:868).
+  ; deviation 9 (S:196, M:856 `mcmc :: Integer -> ...`): a `limit` that is not an exact
+  ; integer, such as 2.5, 1/2 or +inf.0, is a `construction` error, as the type check is
+  ; upstream.
   ; deviation 10 (M:885-891, M:897-898, no upstream counterpart): a negative `limit` is a
   ; `construction` error.  Upstream stops only at limit 0 (`go 0`, `transition _ _ 0`), so it
   ; would retry the build forever or answer an infinite list.
   (define (mcmc-generator limit prog #!key (seed 17) (rng #f) (semantics 'upstream)
                           (step-hook #f) (build-hook #f))
-    (unless (and (real? limit) (>= limit 0))
-      (hakaru10-error 'construction 'mcmC "limit: must be a non-negative number" limit))
+    (unless (and (exact-integer? limit) (>= limit 0))
+      (hakaru10-error 'construction 'mcmC "limit: must be a non-negative integer" limit))
     (receive (ch result limit*) (initial-step limit prog (or rng (make-stdgen-source seed))
                                               semantics)
       (and ch
@@ -1516,7 +1631,8 @@
 
   ; cf. M:856-869 `mcmc`: fold kons over the chain's first `limit` samples, counted with the
   ; original limit (M:869), so limit - 1 steps run; knil if there is no initial trace (M:868).
-  ; The keys are mcmc-generator's, which rejects a negative limit (deviation 10).
+  ; The keys are mcmc-generator's, which rejects a limit that is not an exact integer
+  ; (deviation 9) or is negative (deviation 10).
   (define (mcmc-fold kons knil limit prog . keys)
     (let1 (next (apply mcmc-generator limit prog keys))
       (if next

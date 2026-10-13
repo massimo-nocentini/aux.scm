@@ -85,6 +85,14 @@
     (e (hakaru10) (hakaru10-error-kind e))
     (e (exn) 'exn)))
 
+; (new) what thunk raises, as `raised` does, an (exn hakaru10) condition as (kind location):
+; the location names the primitive that reports the error.
+(define (raised/location thunk)
+  (condition-case (begin (thunk) 'none)
+    (e (hakaru10) (list (hakaru10-error-kind e)
+                        ((condition-property-accessor 'exn 'location) e)))
+    (e (exn) 'exn)))
+
 ; (new) the message of the 'internal (exn hakaru10) condition that thunk raises, the oracles'
 ; reports; else the kind of the condition, or 'none.
 (define (internal-message thunk)
@@ -424,7 +432,8 @@
                 (diracN d)))
       (diracN (sexp+ d e)))))
 
-; cf. S:323-335 exif2, with its `where` clauses.
+; cf. S:323-335 exif2, with its `where` clauses: `if_ d cl3 (diracN x)` gives x the type of
+; `a + b`, so 10 and 20 are Doubles.
 (define/shown exif2
   (define exif2
     (let ()
@@ -439,7 +448,7 @@
           (diracN (sexp+ a b))))
       (do/monad
         (← c (dist bern .5))
-        (if_ c (cl1 10) (cl1 20))))))
+        (if_ c (cl1 10.) (cl1 20.))))))
 
 ; cf. S:340-345 tac1.
 (define/shown tac1
@@ -599,6 +608,31 @@
            (return 'z))
       (return x))))
 
+; (new) an initial trace of LL NaN: at seed 17 the build draws b = 3, whose observation of 0
+; from a normal of standard deviation 0 has LL NaN, which the build keeps (only an infinite LL
+; is retried, M:853-854, M:882-891).  A step that moves b has a NaN ratio and is rejected
+; (M:939-944); one that flips c leaves the NaN term alone and has Δ = 0.
+(define/shown nan-initial
+  (define nan-initial
+    (do/monad
+      (← b (dist uniformly '(1 2 3)))
+      (dist (condition 0. normal) 0. (lift (λ (bv) (case bv ((3) 0.) ((2) 1.) (else 2.))) b))
+      (← c (dist bern .5))
+      (return (pair b c)))))
+
+; (new) a Dirac node whose value is NaN, the mean of an empty selection, when k = 0, and a
+; categorical whose table lists that mean, computed from k again, as a key of weight 0: a
+; recomputation gives a fresh NaN, equal? to no flonum, in the value and in the
+; distribution's parameters.  At seed 107336 the build draws k = 0.
+(define/shown nan-mean
+  (define nan-mean
+    (do/monad
+      (let mean-of (λ (kv) (/ (exact->inexact (* kv 3)) (exact->inexact kv))))
+      (← k (dist uniformly '(0 1 2)))
+      (← mean (diracN (lift mean-of k)))
+      (← z (dist categorical (lift (λ (kv) `((,(mean-of kv) . 0) (a . 1) (b . 1))) k)))
+      (return (pair k z)))))
+
 ; cf. B1:103-107 normals, `mapM (\m -> dist normal m std) means`: independent normals of the
 ; given means and sd, made head first.
 (define/shown normals
@@ -735,6 +769,27 @@
       (← cyc (diracN (lift (λ (bv) (circular-list bv)) b)))
       (return (lift car cyc)))))
 
+; (new) Dirac values that hold a closure built at run time inside a record: a distribution (a
+; distk, whose rdistr holds its sampler's and its density's closures), from which x is drawn,
+; then a record of the model's own and a promise.  Recomputing them builds fresh ones, which
+; `#:check` must not take for a difference.
+(define/shown distribution-value
+  (define distribution-value
+    (do/monad
+      (← c (dist bern .5))
+      (← d (diracN (lift (λ (cv) (if cv (uniformly '(1 2)) (uniformly '(1 2 3 4)))) c)))
+      (← x (dist identity d))
+      (dist (condition #t bern) (lift (λ (xv) (if (odd? xv) .8 .3)) x))
+      (return (pair c x)))))
+(define-record scaler f)
+(define/shown record-value
+  (define record-value
+    (do/monad
+      (← k (dist uniformly '(1 2 3)))
+      (← s (diracN (lift (λ (kv) (make-scaler (λ (x) (* kv x)))) k)))
+      (← p (diracN (lift (λ (kv) (delay (* kv 10))) k)))
+      (return (lift (λ (sv pv) (list ((scaler-f sv) 10) (force pv))) s p)))))
+
 ; (new) cf. M:99 and M:120-129 (a Dirac node's value is lazy upstream): `car` guarded by an if_
 ; whose else branch is inactive exactly when xs is empty, where it applies car to '().
 (define/shown guarded-car
@@ -808,6 +863,38 @@
            (do/monad
              (← h (diracN (lift car xs)))
              (← mu (diracN (lift cdr (pair h 1.))))
+             (dist normal mu 1.))))))
+
+; (new) deviation 11: an active diracN computes its value at once.  The then branch of the
+; constant test #t is active, so its diracN of the car of the node xs, always '(), raises when
+; it is made; upstream never forces it, since nothing reads it.
+(define/shown strict-active
+  (define strict-active
+    (do/monad
+      (← c (dist bern .5))
+      (← xs (diracN (lift (λ (cv) '()) c)))
+      (if_ #t (>> (diracN (lift car xs)) (return c)) (return c)))))
+
+; (new) deviation 11: lifting is lazy only in an inactive branch.  In the active then branch,
+; the lift of car over the Val '() is applied at once and raises, before any diracN.
+(define/shown strict-active/val
+  (define strict-active/val
+    (do/monad
+      (← c (dist bern .5))
+      (if_ #t (>> (diracN (lift car '())) (return c)) (return c)))))
+
+; (new) deviation 11: in the inactive else branch d is the deferred car of '(), and a lifted
+; function applied to it is not called, even one that ignores it: mu is d itself, which the
+; normal, a strict reader, forces.  Upstream computes mu = 1.0 there.
+(define/shown ignoring-reader
+  (define ignoring-reader
+    (do/monad
+      (← c (dist bern .5))
+      (if_ #t
+           (return c)
+           (do/monad
+             (let d (lift car '()))
+             (← mu (diracN (lift (λ (x) 1.) d)))
              (dist normal mu 1.))))))
 
 ; (new) a model with a handler of its own inside a lifted function, around no Model: the
@@ -1032,7 +1119,9 @@
         (code/inline "test/language/errors") "):")
      (ul (li "observations are external (S:38-42, S:174-193): " (code/inline "condition")
              " of a stochastic expression, of a model, or of a Scheme value holding either
-             raises " (code/inline "conditioning") ";")
+             raises " (code/inline "conditioning") ", and so does an observation that a
+             distribution constructor computes from its argument, at the update that
+             changes it;")
          (li "only resampleable distributions are conditioned, never twice (S:185-193,
              E:180-186): " (code/inline "conditioning") ";")
          (li "SExp is not a monad (S:118, P l.739-747): a model answered by a lifted function,
@@ -1046,8 +1135,8 @@
          (li "the test of " (code/inline "if_") " is " (code/inline "SExp Bool")
              " (S:275): a non-boolean raises " (code/inline "branch") ";")
          (li "lexical scoping, implicit upstream (deviation 10): a node of another chain raises "
-             (code/inline "construction") ", a node escaping its branch " (code/inline "branch")
-             ";")
+             (code/inline "construction") ", a node escaping its branch, as a parent or as the
+             result of another branch or of the model, " (code/inline "branch") ";")
          (li "the static kind of a node (M:46-60; deviation 10): a constructor that changes
              kind raises " (code/inline "construction") "."))
      (p "The conditioned grass model of P §1 (l.73-89) and its posterior P(rain | wet) =
@@ -1183,13 +1272,20 @@
          (li (b "The static discipline is the build") " (plan §15 C37).  SExp is applicative,
              not a monad (S:118), and " (code/inline "if_") " builds both branches
              (M:650-661), so one build is the whole trace graph, and it checks the static
-             discipline (deviations 9, 10) as it goes.  " (code/inline "exact-posterior") ", "
+             discipline (deviations 9, 10) as it goes, but for what only a later value can
+             show, which the updates and the oracles' recomputation check: a node's kind, the
+             boolean test of " (code/inline "if_") ", a lifted function's answer, and an
+             observation that a distribution constructor computes from its argument (case
+             L5).  " (code/inline "exact-posterior") ", "
              (code/inline "model->search-tree") ", " (code/inline "weighted-samples") " and "
              (code/inline "likelihood-weighting") " walk the graph of one "
              (code/inline "'extended") " build (plan §6.10), reusing none of the incremental
              machinery.  That assumes a model whose Scheme code does not branch on
-             build-time values, which only the rebuild of " (code/inline "#:check")
-             " would catch.")
+             build-time values, which nothing catches: the rebuild of "
+             (code/inline "#:check") " draws the same values from a copy of the same source,
+             so it takes the same branch, and catches only a construction that depends on
+             state outliving a run (the counters and " (code/inline "switching")
+             " of case B4′).")
          (li (b (code/inline "condition") ".") "  " (code/inline "(chicken condition)")
              " exports a procedure of the same name: import it as "
              (code/inline "(except (chicken condition) condition)") ", as this file does.")
@@ -1235,12 +1331,18 @@
              value (a Val, a Dirac value, or the first answer of a lifted function) are
              run-time " (code/inline "construction") " errors; a bare non-model
              clause is a Scheme error; procedures are plain values (S:107); a Val argument of "
-             (code/inline "dist") " holding an SExp is rejected;")
-         (li "extra checks with no upstream counterpart: branch escape, owner chain, kind
-             stability (M:46-60), the parameter checks of beta, laplace and dirichlet
-             (D:318-328, D:384-391, D:407-411), and a negative sample count, where upstream
-             retries the build forever or answers an infinite list (M:885-891, M:897-898;
+             (code/inline "dist") " holding an SExp is rejected, and so is a constructor
+             applied to the wrong number of arguments (S:137-151; case L5); a sample count
+             must be an exact integer (S:196); and an observation must be external to the model, so one
+             that a distribution constructor computes from its argument raises "
+             (code/inline "conditioning") " at the update that changes it, where upstream's
+             types accept it and its update keeps the first value (S:251-252, M:487-488;
              case L5);")
+         (li "extra checks with no upstream counterpart: branch escape, as a parent or as the
+             result of a branch or of the model, owner chain, kind stability (M:46-60), the
+             parameter checks of beta, laplace and dirichlet (D:318-328, D:384-391,
+             D:407-411), and a negative sample count, where upstream retries the build
+             forever or answers an infinite list (M:885-891, M:897-898; case L5);")
          (li "strict propagation of a deferred value: the value of an inactive Dirac node
              whose computation raises is deferred, as upstream's lazy values are (M:99,
              M:120-129), but a function applied to it in an inactive branch is not called, so
@@ -1250,7 +1352,13 @@
              " builds them (plan §15 C36), where a partial " (code/inline "lift")
              " of an inactive branch is deferred; an SExp computed outside any branch, e.g. by
              a top-level " (code/inline "(define m (diracN (lift car '())))")
-             ", raises at once where upstream raises when the value is forced."))
+             ", raises at once where upstream raises when the value is forced.  Likewise an
+             active diracN or exit, or a lift of Vals in an active branch, computes its value
+             at once, where upstream forces it only when it is read: when it is made or
+             updated (case B6, " (code/inline "strict-active") " and "
+             (code/inline "strict-active/val") "), and when a step activates it holding a
+             deferred value that no update of the step recomputes (case H5 of
+             hakaru10-exact.scm)."))
      (p "Kept as upstream, with a comment in the source: the reactivation bias in "
         (code/inline "'upstream") " mode (M:1159-1165), the categorical duplicate-key
         asymmetry (the sampler sums, the density takes the first match, D:98), beta raising
@@ -1456,6 +1564,21 @@ diracN x = fmap NRef $ with_node_ctor x diracS")
 
   ((test/language/errors _)
    (define captured #f)
+   ; a node of the then branch of one if_, captured with set!, as the result of the then
+   ; branch of the next one (a sibling), or of the model.
+   (define leaked/sibling
+     (do/monad
+       (← c (dist bern .5))
+       (let leak #f)
+       (if_ c (do/monad (← h (dist bern .9)) (let _ (set! leak h)) (return h)) (return #f))
+       (← y (if_ #t (return leak) (return #f)))
+       (return (pair c y))))
+   (define leaked/result
+     (do/monad
+       (← c (dist bern .5))
+       (let leak #f)
+       (if_ c (do/monad (← h (dist normal 10. 1.)) (let _ (set! leak h)) (return h)) (return 0.))
+       (return leak)))
    (define cases
      `((condition-on-a-random-choice
          conditioning
@@ -1482,6 +1605,12 @@ diracN x = fmap NRef $ with_node_ctor x diracS")
                        (← b (dist beta 1. 1.))
                        (dist (condition #t (condition #f bern)) b)
                        (return b)))))
+       (condition-on-a-constructor-argument
+         conditioning
+         ,(τ (mcmC 50 (do/monad
+                        (← x (dist bern .5))
+                        (dist (λ (xv) (condition xv (bern .8))) x)
+                        (return x)))))
        (dist-in-a-lifted-function
          construction
          ,(τ (mcmC 3 (do/monad
@@ -1545,9 +1674,15 @@ diracN x = fmap NRef $ with_node_ctor x diracS")
        (ctor-not-a-distribution
          construction
          ,(τ (mcmC 3 (do/monad (← x (dist normal 0. 1.)) (dist (λ (m) 42) x)))))
+       (a-distribution-with-arguments construction ,(τ (dist (bern .5) 1)))
+       (not-a-distribution construction ,(τ (dist 42)))
        (negative-limit construction ,(τ (mcmC -1 (dist bern .5))))
        (negative-limit/fold construction ,(τ (mcmC-fold cons '() -1 (dist bern .5))))
        (negative-limit/stream construction ,(τ (mcmC§ (dist bern .5) #:retries -1)))
+       (fractional-limit construction ,(τ (mcmC 2.5 (dist bern .4))))
+       (rational-limit construction ,(τ (mcmC 1/2 (dist bern .4))))
+       (inexact-limit/fold construction ,(τ (mcmC-fold cons '() 3. (dist bern .5))))
+       (infinite-limit/stream construction ,(τ (mcmC§ (dist bern .5) #:retries +inf.0)))
        (check-not-a-boolean-or-a-count construction ,(τ (mcmC 3 (dist bern .5) #:check 'yes)))
        (check-a-negative-count construction ,(τ (mcmC 3 (dist bern .5) #:check -1)))
        (non-boolean-test branch ,(τ (mcmC 3 (if_ 1 (return 1) (return 2)))))
@@ -1573,6 +1708,11 @@ diracN x = fmap NRef $ with_node_ctor x diracS")
                             (do/monad (← l (dist normal 0. 1.)) (let _ (set! leak l)) (return l))
                             (return 0.))
                        (dist normal leak 1.)))))
+       (branch-escape/as-the-result-of-a-sibling-if_ branch ,(τ (mcmC 3 leaked/sibling)))
+       (branch-escape/as-the-result-of-a-sibling-if_/exact
+         branch
+         ,(τ (exact-posterior leaked/sibling)))
+       (branch-escape/as-the-model-result branch ,(τ (mcmC 3 leaked/result)))
        (kind-change
          construction
          ,(τ (mcmC 200 (do/monad
@@ -1584,8 +1724,53 @@ diracN x = fmap NRef $ with_node_ctor x diracS")
                          (new-chain (make-stdgen-source 17) 'upstream))))))
    (for-each (Λ ((,name ,kind ,thunk)) (⊦ equal? (list name kind) (list name (hakaru10-kind thunk))))
              cases)
+   ; the checks that if_'s test goes through name if_, not dist: a node of an earlier run, a
+   ; Val holding a model, a Val holding an SExp.
+   (mcmC 3 (do/monad (← x (dist bern .5)) (let _ (set! captured x)) (return x)))
+   (⊦ equal? '((construction if_) (construction if_) (construction if_))
+      (list (raised/location (τ (mcmC 3 (if_ captured (return 1) (return 2)))))
+            (raised/location (τ (mcmC 3 (if_ (list (return 1)) (return 1) (return 2)))))
+            (raised/location (τ (mcmC 3 (do/monad
+                                          (← c (dist bern .5))
+                                          (if_ (list c) (return 1) (return 2))))))))
+   ; a distribution constructor applied to the wrong number of arguments (the `Args` family,
+   ; S:137-151): a `construction` error located at dist, also in an inactive branch in
+   ; 'extended mode, where a Scheme error would reject the build, and under enumeration; an
+   ; arity error inside the constructor stays a Scheme error.
+   (let1 (inactive-typo (do/monad
+                          (← c (dist bern .5))
+                          (if_ #f (dist normal 0.) (return 1))
+                          (return c)))
+     (⊦ equal? (make-list 6 '(construction dist))
+        (list (raised/location (τ (mcmC 3 (dist normal 0.))))
+              (raised/location (τ (mcmC 3 (dist (λ (m) (normal m 1.))))))
+              (raised/location (τ (mcmC 3 (dist (λ (m s) (normal m s)) 0. 1. 2.))))
+              (raised/location (τ (mcmC 3 inactive-typo)))
+              (raised/location (τ (mcmC 3 inactive-typo #:semantics 'extended)))
+              (raised/location (τ (exact-posterior inactive-typo))))))
+   (⊦ eq? 'exn (raised (τ (mcmC 3 (dist (λ (m) (normal m)) 0.)))))
+   ; the positive controls of condition-on-a-constructor-argument: an observation that the
+   ; constructor recomputes as a fresh value, equal? to the first, is unchanged.
+   (let1 (fresh-list (do/monad
+                       (← x (dist bern .5))
+                       (dist (λ (xv) (condition (list 1)
+                                                (uniformly (if xv '((1) (2)) '((1) (3) (4))))))
+                             x)
+                       (return x)))
+     (⊦ (equal-approx? 1e-12) '((#f . .4) (#t . .6)) (exact-posterior fresh-list))
+     (⊦ equal? (mcmC 500 fresh-list) (mcmC 500 fresh-list #:check #t)))
+   (let1 (fresh-flonum (do/monad
+                         (← x (dist normal 0. 1.))
+                         (dist (λ (xv) (condition (exact->inexact 1) (normal xv 1.))) x)
+                         (return x)))
+     (⊦ equal? (mcmC 500 fresh-flonum) (mcmC 500 fresh-flonum #:check #t)))
    (let1 (k 0)
      (⊦ eq? 'exn (raised (τ (mcmC 3 (do/monad (← x (dist bern .5)) (add1! k) (return x)))))))
+   (⊦ equal?
+      (mcmC 50 (do/monad (← a (dist normal 0. 1.))
+                         (dist (λ (m s) (normal (- m 10.) s)) a 1.)))
+      (mcmC 50 (do/monad (← a (dist normal 0. 1.))
+                         (dist (λ (m s k) (normal (- m k) s)) a 1. 10.))))
    `(doc (p "L5: the static discipline of Syntax.hs as run-time errors (deviation 9; see the
             section on conditioning), each case naming the kind it raises.  Upstream's
             ill-typed examples are E:180-201:")
@@ -1623,21 +1808,50 @@ biased_coin_ill_typed_too c1 c2 = do
             one, walked when the function first answers, at the build ("
             (code/inline "check-lifted-value") "); an observation that is a model or a
             Scheme value holding an SExp (" (code/inline "CondV a = a")
-            ", S:180-193); a Scheme container of SExps as the result, which the engine would
+            ", S:180-193), or that a distribution constructor computes from its argument,
+            raised by the update that changes it, where upstream keeps the observation the
+            node was built with (S:251-252, M:487-488) and so silently observes the first
+            value; a Scheme container of SExps as the result, which the engine would
             otherwise take for a constant (deviation 9), at any depth of pairs and vectors,
             and likewise inside the value of a " (code/inline "diracN") " or of an argument
             of " (code/inline "dist") ", also next to an SExp argument, where the pair or the
             list of the arguments hides it from the node's construction (the "
             (code/inline "Show") " of the sample type, S:144-151); a distribution
-            constructor that answers something other than a distribution (plan §7); a
-            negative sample count, for each of " (code/inline "mcmC") ", "
-            (code/inline "mcmC-fold") " and " (code/inline "mcmC§") " (deviation 10:
-            upstream retries the build forever or answers an infinite list, M:885-891,
-            M:897-898); a " (code/inline "#:check")
+            constructor that answers something other than a distribution (plan §7), a
+            distribution given arguments, and a value given to " (code/inline "dist")
+            " that is neither a distribution nor a constructor; a sample count that is not
+            an exact integer (" (code/inline "mcmC :: Integer -> Model a -> [a]")
+            ", S:196) or is negative, for each of " (code/inline "mcmC") ", "
+            (code/inline "mcmC-fold") " and " (code/inline "mcmC§") " (deviation 10 for a
+            negative one: upstream retries the build forever or answers an infinite list,
+            M:885-891, M:897-898); a " (code/inline "#:check")
             " that is neither a boolean nor a step count; and a node of an earlier run, which
             a model captured with " (code/inline "set!") ", used alone ("
             (code/inline "check-owner") ") or lifted together with a node of the current run,
-            whose NT would mix two chains.  A model built and discarded,
+            whose NT would mix two chains.  A node captured in a branch escapes it as a
+            parent of a node outside (" (code/inline "branch-escape")
+            "), and also as the result of a sibling " (code/inline "if_")
+            "'s branch, which that if_'s exit would read, or as the model's result: each
+            raises " (code/inline "branch") " (deviation 10), for " (code/inline "mcmC")
+            " and " (code/inline "exact-posterior") " alike, whose walks rely on it to skip
+            the inactive nodes.  The errors of an " (code/inline "if_")
+            "'s test, a node of an earlier run or a Val that holds a model or an SExp, name "
+            (code/inline "if_") ".  An observation that a constructor recomputes as a fresh
+            value equal to the first, a list or a flonum, is unchanged: both chains sample
+            with " (code/inline "#:check") ", and enumeration gives P(x) = .6.  "
+            (code/inline "dist")
+            " takes any number of arguments (deviation 9): three, combined with "
+            (code/inline "collect") ", give the chain of the equivalent two-argument
+            constructor; but as many as its constructor takes, which upstream's "
+            (code/inline "Args") " family makes part of the type (S:137-151): "
+            (code/inline "(dist normal 0.)") ", a nullary " (code/inline "dist")
+            " of a one-argument constructor and three arguments to a two-argument one raise "
+            (code/inline "construction") ", located at " (code/inline "dist")
+            ", also in an inactive branch in " (code/inline "'extended")
+            " mode, which would otherwise take CHICKEN's arity error for a rejection of the
+            build (C22) and silently empty the chain, and under enumeration; an arity error
+            raised inside the constructor's own body is a Scheme error.  A model built and
+            discarded,
             such as " (code/inline "(dist bern .5)") " evaluated outside any bind, makes no
             node, as in Haskell, and raises nothing.")
          (p "The case " (code/inline "sampleable-entry") " runs the engine's "
@@ -1716,7 +1930,8 @@ biased_coin_ill_typed_too c1 c2 = do
             (code/inline "probcc-reify/0") " (aux.hansei.scm): the number of paths through a
             model whose choices have finite supports.  The tree has a subtree "
             (code/inline "(C thunk)") " per support point of each active choice of the trace
-            graph and per active observation of positive weight, and a value "
+            graph and per active observation of positive weight and finite LL (an LL of
+            NaN or +inf prunes its path, as one of weight 0 does), and a value "
             (code/inline "(V v)") " at each leaf; forcing every subtree and counting the
             leaves gives grass the four paths of rain × sprinkler, pcond1 the four of x × the
             branch's choice, pcond4 one for x = 1 and two for x = 2 (the observation has one
@@ -1735,6 +1950,13 @@ biased_coin_ill_typed_too c1 c2 = do
    (⊦ (equal-approx? 1e-12) (map (λ (v) (cons v (/ 1. 3.))) '(10 20 30))
       (exact-posterior procedure-built))
    (⊦ (equal-approx? 1e-12) '((#f . .5) (#t . .5)) (exact-posterior circular-value))
+   (⊦ (equal-approx? 1e-12)
+      (map (Λ ((,v . ,w)) (cons v (/ w 11.)))
+           '(((#f . 1) . 2.) ((#f . 2) . .75) ((#f . 3) . 2.) ((#f . 4) . .75) ((#t . 1) . 4.)
+             ((#t . 2) . 1.5)))
+      (exact-posterior distribution-value))
+   (⊦ (equal-approx? 1e-12) (map (λ (v) (cons (list v v) (/ 1. 3.))) '(10 20 30))
+      (exact-posterior record-value))
    (let1 (scales (do/monad
                    (← k (dist uniformly '(1 2 3)))
                    (diracN (lift (λ (kv) (λ (x) (* kv x))) k))))
@@ -1744,7 +1966,7 @@ biased_coin_ill_typed_too c1 c2 = do
                (⊦ equal? (mcmC 50 m) (mcmC 50 m #:check #t))
                (⊦ equal? (mcmC 50 m #:semantics 'extended)
                   (mcmC 50 m #:semantics 'extended #:check #t)))
-             (list procedure-built circular-value))
+             (list procedure-built circular-value distribution-value record-value))
    `(doc (p "L10: procedures as values.  A random choice may draw procedures, and "
             (code/inline "(diracN car)") " makes a Dirac node of one.  A procedure is a
             plain Val (S:107 " (code/inline "Val f") "), which a model passes on to "
@@ -1759,12 +1981,21 @@ biased_coin_ill_typed_too c1 c2 = do
             procedures for the same value (their consumers, which apply them, are checked
             themselves), as it does for a model that answers such closures.  A value may be
             circular: in " (code/inline "circular-value") " the Dirac node holds a circular
-            list, which the build's check for SExps
-            inside a value (deviation 9) and the comparisons of " (code/inline "#:check")
-            " walk to an end.  Both chains sample with " (code/inline "#:check")
-            " what they sample without it, in both semantics, and agree with exact
-            enumeration.")
-         ,@(shown 'procedure-built 'circular-value))))
+            list, which the build's check for SExps inside a value (deviation 9) and the
+            comparisons of " (code/inline "#:check") " walk to an end.  Both chains sample
+            with " (code/inline "#:check") " what they sample without it, in both
+            semantics, and agree with exact enumeration.")
+         ,@(shown 'procedure-built 'circular-value)
+         (p "The closure may also sit inside a record: in " (code/inline "distribution-value")
+            " a Dirac node holds a distribution (a distk, whose rdistr holds its sampler's and
+            its density's closures), from which " (code/inline "(dist identity d)")
+            " draws x, and in "
+            (code/inline "record-value") " a record of the model's own and a promise.  "
+            (code/inline "#:check") " walks a record's fields as a vector's and takes two
+            promises for the same value (a forced one holds its value, a fresh one a closure),
+            so their recomputations match, and the chains sample with it what they sample
+            without it.")
+         ,@(shown 'distribution-value 'record-value))))
 
 ;; ---------------------------------------------------------------------------------------------
 ;; Suite hakaru10-replay: upstream's records, bit for bit (seed 17, 'upstream)
@@ -2492,8 +2723,8 @@ tac11_run = length . filter id $ mcmC 100 tac11
                  (⊦≈ seed .8 13.5 (mean xs))
                  (⊦≈ seed .05 .5 (frequency (λ (x) (> x 10.)) xs)))
                (let1 (xs (mcmC 20000 exif2 #:seed seed))
-                 (⊦≈ seed .04 .25 (frequency (λ (x) (eqv? x 10)) xs))
-                 (⊦≈ seed .04 .25 (frequency (λ (x) (eqv? x 20)) xs))
+                 (⊦≈ seed .04 .25 (frequency (λ (x) (eqv? x 10.)) xs))
+                 (⊦≈ seed .04 .25 (frequency (λ (x) (eqv? x 20.)) xs))
                  (⊦≈ seed .04 .5 (frequency (λ (x) (<= x 2.)) xs))))
              seeds)
    `(doc (p "S14: exif1 is 2d with d ~ N(1, 1) when c holds, else 5 + N(20, 1): mean 13.5,
@@ -2759,6 +2990,23 @@ with e >>= diracN -- the desired behavior.")
    (let1 (exact (exact-posterior act-update))
      (⊦ (equal-approx? 1e-12) `((0 . ,(/ .9 2.2)) (1 . ,(/ .3 2.2)) (2 . ,(/ 1. 2.2))) exact)
      (⊦ (equal-approx? .02) exact (proportions (mcmC 20000 act-update #:semantics 'extended))))
+   (for-each (λ (semantics)
+               (let1 (xs (mcmC 200 nan-initial #:semantics semantics))
+                 (⊦ equal? (list semantics #t xs)
+                    (list semantics (construction-check nan-initial #:semantics semantics)
+                          (mcmC 200 nan-initial #:semantics semantics #:check #t)))
+                 (⊦ equal? (list semantics '(3))
+                    (list semantics (delete-duplicates (map car xs))))
+                 (⊦ equal? (list semantics 2)
+                    (list semantics (length (delete-duplicates (map cdr xs)))))))
+             '(upstream extended))
+   (for-each (λ (semantics)
+               (⊦ equal? (list semantics #t (mcmC 300 nan-mean #:semantics semantics) 0)
+                  (list semantics (construction-check nan-mean #:seed 107336 #:semantics semantics)
+                        (mcmC 300 nan-mean #:semantics semantics #:check #t)
+                        (car (car (mcmC 1 nan-mean #:seed 107336 #:semantics semantics
+                                        #:check #t))))))
+             '(upstream extended))
    (⊦ equal? '()
       (filter-map (Λ ((,name . ,m))
                     (let1 (residual (kernel-residual m))
@@ -2772,12 +3020,12 @@ with e >>= diracN -- the desired behavior.")
             (code/inline "far-inactive") ", whose build at seed 17 deactivates an observation
             of LL about -5·10⁷, passes in both semantics: the 'upstream trace's LL adds and
             then subtracts it, M:659, and the 'extended one never counts it), and after every
-            step the
-            reference evaluator recomputes every node from scratch (activity counts, Dirac
-            values, distributions and LLs, exits) and finds the incremental state, a
-            rejected step restores the state exactly, and in " (code/inline "'extended")
-            " mode an accepted step's Δ is the change of the extended target's LL; the
-            next case shows that each of these checks fails when it should.")
+            step the reference evaluator recomputes every node from scratch (activity
+            counts, Dirac values, distributions and LLs, exits) and finds the incremental
+            state, a rejected step restores the state exactly, and in "
+            (code/inline "'extended") " mode an accepted step's Δ is the change of the
+            extended target's LL; the next case shows that each of these checks fails when it
+            should.")
          (p "The rebuild builds the branch its test does not select as the first build
             does, under lazy lifting, so a model whose inactive branch applies "
             (code/inline "car") " to the " (code/inline "'()") " its test rules out (a
@@ -2803,7 +3051,24 @@ with e >>= diracN -- the desired behavior.")
             (m "10⁻¹²") " on both " (code/inline "act-update") " models.  Counting the
             weight at activation, or again at the update, makes the residual of "
             (code/inline "act-update") " about .18, and its chain never leaves x = 2.")
-         ,@(shown 'act-update 'act-update/finite 'pending-abort)))
+         ,@(shown 'act-update 'act-update/finite 'pending-abort)
+         (p "The chain keeps an initial trace of LL NaN, which only an infinite LL would make
+            it rebuild (Metropolis.hs:853-854, 882-891): at seed 17 "
+            (code/inline "nan-initial") "'s build draws b = 3, whose observation has LL NaN.
+            A step that moves b has a NaN ratio, which fails both acceptance tests
+            (Metropolis.hs:939-944), so b stays 3, while c, whose steps leave the NaN term
+            alone, takes both values.  The step check of " (code/inline "#:check")
+            " cannot compare a Δ with a change of NaN extended LLs and skips it there, so
+            both chains sample with it what they sample without it.")
+         ,@(shown 'nan-initial)
+         (p "A value of NaN is equal? to no flonum, not even to itself, and a recomputation
+            builds a fresh one, so the checks match two NaNs, in a value and in a
+            distribution's parameters (" (code/inline "same-value?")
+            "): the 300 samples of " (code/inline "nan-mean")
+            " are the same with and without " (code/inline "#:check")
+            ", in both semantics, and the rebuild check passes at seed 107336, where k = 0
+            and the mean is NaN.")
+         ,@(shown 'nan-mean)))
 
   ((test/semantics/check/negative _)
    (let ((k 0) (j 0) (u 0) (runs 0) (calls 0) (skips 0) (shifts 0) (victim #f) (shifted #f)
@@ -2966,7 +3231,12 @@ with e >>= diracN -- the desired behavior.")
            (far (dist (condition 1e12 normal) 0. 1.)))
        (⊦ equal? (make-list 2 "an address-order redraw and the initial trace differ in LL")
           (map (cut third-shifts-message <> 'extended) (list impossible far)))
-       (⊦ equal? '(none none) (map (cut third-shifts-message <> 'upstream) (list impossible far))))
+       (⊦ equal? '(none none) (map (cut third-shifts-message <> 'upstream) (list impossible far)))
+       (set! skips 0)
+       (⊦ equal? "an address-order redraw and the initial trace differ in value"
+          (internal-message
+            (τ (construction-check
+                 (do/monad (← x (dist third-skips)) (if_ #f impossible (return 0)) (return x)))))))
      (⊦ equal? '("an LL differs from its recomputation" none)
         (map (λ (semantics) (corrupted-message shift-inactive-ll! tac1 semantics))
              '(extended upstream)))
@@ -3013,33 +3283,35 @@ with e >>= diracN -- the desired behavior.")
             (code/inline "counter/bound") " the counter bounds the uniform of an observation
             in a branch never taken, which is impossible on the first build only, and "
             (code/inline "'extended") " mode, which keeps llcum finite, reports it.  "
-            (code/inline "mcmC")
-            " runs it once per chain under " (code/inline "#:check")
+            (code/inline "mcmC") " runs it once per chain under " (code/inline "#:check")
             ", and reports both models the same way.  A deferred value (deviation 11) is
             compared by its arguments, since its closure is fresh per build: "
             (code/inline "counter/deferred") " reads the counter in the inactive branch with a
             function that raises, and its two builds differ only there.  The rebuild also
-            catches a model whose
-            graph alone changes, " (code/inline "switching") ", whose Dirac node reads x on
-            odd runs and y, of the same value, on even ones; and the address-order redraw
-            catches a sampler that draws once more on its third call, the redraw's ("
-            (code/inline "third-skips") ", another value), or that then reports its LL plus
-            1 (" (code/inline "third-shifts") ", another LL).  In " (code/inline "'extended")
+            catches a model whose graph alone changes, " (code/inline "switching")
+            ", whose Dirac node reads x on odd runs and y, of the same value, on even ones;
+            and the address-order redraw catches a sampler that draws once more on its third
+            call, the redraw's (" (code/inline "third-skips")
+            ", another value), or that then reports its LL plus 1 ("
+            (code/inline "third-shifts") ", another LL).  In " (code/inline "'extended")
             " mode the LL that the redraw checks is the extended one, which never counts an
             inactive observation, so neither does the check's tolerance: the shift is caught
             next to an inactive observation that is impossible (LL -inf) or far off (LL about
             -5·10²³).  In " (code/inline "'upstream") " mode, whose LL adds and then
-            subtracts that observation's (M:659), the first build is skipped (its LL is NaN),
-            and the shift is lost in the rounding of the second's.")
+            subtracts that observation's (M:659), the shift is lost: next to the impossible
+            observation the LL is NaN, which the redraw cannot compare, and next to the far
+            one it is lost in the rounding.  A build of LL NaN is still checked, all but the
+            redraw's LL, since " (code/inline "initial-step") " keeps it (it retries only an
+            infinite LL, M:853-854): next to the impossible observation, the redraw of "
+            (code/inline "third-skips") " reports its value.")
          (p (code/inline "reference-check") " catches each of nine corruptions of the
             initial trace of " (code/inline "shifted-normal") ", x and the Dirac node x + 1,
             made behind the engine's back with its exported setters, each with its own
             message: an LL shifted by 1 or made -inf, a value, a distribution or a tstamp
-            after now in a node's state,
-            a deactivation count, a delayed update on an active node, a pending weight left
-            over, and the chain's card change.  It also catches, through the wiring of "
-            (code/inline "mcmC") ", a user distribution whose density drifts with the number
-            of its calls.  In " (code/inline "'extended")
+            after now in a node's state, a deactivation count, a delayed update on an active
+            node, a pending weight left over, and the chain's card change.  It also catches,
+            through the wiring of " (code/inline "mcmC") ", a user distribution whose
+            density drifts with the number of its calls.  In " (code/inline "'extended")
             " mode, where no update is delayed, it checks the inactive nodes' states too: the
             LL of the inactive branch's choice of " (code/inline "tac1")
             ", shifted by 1, is reported in an " (code/inline "'extended")
@@ -3207,6 +3479,14 @@ with e >>= diracN -- the desired behavior.")
            (list (strict-reader '()) (strict-reader '(5)) strict-reader/node)))
    (⊦ equal? '() (mcmC 3 (strict-reader '()) #:semantics 'extended))
    (⊦ every flonum? (mcmC 300 strict-reader/node #:semantics 'extended))
+   (for-each (λ (m)
+               (⊦ equal? '(exn exn exn)
+                  (list (raised (τ (mcmC 3 m)))
+                        (raised (τ (mcmC 3 m #:semantics 'extended)))
+                        (raised (τ (exact-posterior m))))))
+             (list strict-active strict-active/val))
+   (⊦ equal? '(exn ())
+      (list (raised (τ (mcmC 3 ignoring-reader))) (mcmC 3 ignoring-reader #:semantics 'extended)))
    (let1 (inner #f)
      (mcmC 1 (do/monad
                (← c (dist bern .5))
@@ -3261,6 +3541,20 @@ with e >>= diracN -- the desired behavior.")
             (code/inline "(strict-reader '())") " is rejected, so the chain is empty, and "
             (code/inline "strict-reader/node") " never takes its then branch.")
          ,@(shown 'strict-reader 'strict-reader/node)
+         (p "A function applied to a deferred value in an inactive branch is not called, even
+            one that ignores it: in " (code/inline "ignoring-reader")
+            " mu is the deferred car of " (code/inline "'()") " itself, so the normal raises
+            in " (code/inline "'upstream") " mode and rejects every build in "
+            (code/inline "'extended") " mode, where upstream computes mu = 1.0.  And an
+            active diracN computes its value at once: " (code/inline "strict-active")
+            "'s then branch, always active, makes a Dirac node of the car of a node whose
+            value is " (code/inline "'()") ", which raises " (code/inline "car")
+            "'s error when it is made, in both semantics and under enumeration, where
+            upstream, which never reads that node, never forces it.  Lifting too is lazy only
+            in an inactive branch: in " (code/inline "strict-active/val")
+            " the lift of " (code/inline "car") " over the Val " (code/inline "'()")
+            " raises as it is applied.")
+         ,@(shown 'ignoring-reader 'strict-active 'strict-active/val)
          (p "Lazy lifting does not leak: a model run from inside an inactive branch's lifted
             function, here an " (code/inline "exact-posterior") " of a model that computes "
             (code/inline "(lift car xs)") " of an empty " (code/inline "xs")

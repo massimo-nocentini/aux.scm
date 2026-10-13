@@ -213,6 +213,31 @@
            (dist (condition c normal) 100. 1.))
       (return coin))))
 
+; (new) deviation 9: a distribution constructor that observes its argument, which upstream's
+; types accept (S:180-193) and whose update keeps the first observation (S:251-252,
+; M:487-488): a `conditioning` error when an update or a walk changes it.
+(define/shown observes-its-argument
+  (define observes-its-argument
+    (do/monad
+      (← x (dist bern .5))
+      (dist (λ (xv) (condition xv (bern .8))) x)
+      (return x))))
+
+; (new) observations whose LL is not finite on some paths: 0 observed from a normal of standard
+; deviation 0 (k = 0; LL NaN), and from beta .5 1 (b true; LL +inf) or beta 2 1 (LL -inf).
+(define/shown nan-path
+  (define nan-path
+    (do/monad
+      (← k (dist uniformly '(0 1 2)))
+      (dist (condition 0. normal) 0. (lift exact->inexact k))
+      (return k))))
+(define/shown infinite-path
+  (define infinite-path
+    (do/monad
+      (← b (dist bern .5))
+      (dist (condition 0. beta) (lift (λ (bv) (if bv .5 2.)) b) 1.)
+      (return b))))
+
 ; cf. E:140-144 `mixng`, the mixing model of P §2.2 l.331-366.
 (define/shown mixng
   (define mixng
@@ -268,6 +293,27 @@
       (← b (dist bern .3))
       (dist (condition #t bern) (lift (λ (av bv) (if (or av bv) .8 .2)) a b))
       (return a))))
+
+; (new) liar-or next to a choice k whose observation has LL NaN at k = 0 (as in nan-path):
+; the states of k = 0 weigh nothing, and the residual is still positive.
+(define/shown liar-or/nan
+  (define liar-or/nan
+    (do/monad
+      (← a (dist liar))
+      (← b (dist bern .3))
+      (dist (condition #t bern) (lift (λ (av bv) (if (or av bv) .8 .2)) a b))
+      (← k (dist uniformly '(0 1 2)))
+      (dist (condition 0. normal) 0. (lift exact->inexact k))
+      (return a))))
+
+; (new) a choice whose observation has LL +inf at b = 1 (0 observed from a uniform on [0, 0]),
+; and finite LLs at b = 2 and 3 (the uniforms on [0, 1] and [0, 2]).
+(define/shown plus-inf-state
+  (define plus-inf-state
+    (do/monad
+      (← b (dist uniformly '(1 2 3)))
+      (dist (condition 0. uniform) 0. (lift (λ (bv) (case bv ((1) 0.) ((2) 1.) (else 2.))) b))
+      (return b))))
 
 ; cf. CB:30-32 `opposite_color`.
 (define/shown opposite-color
@@ -464,6 +510,37 @@
       (let xs (lift (λ (cv) (if cv '() '(1))) c))
       (if_ c (>> (diracN (lift car xs)) (return 'then)) (return 'else)))))
 
+; (new) guarded-head with xs the constant '(), a Dirac node: when a step makes c false, the
+; then branch becomes active and nothing updates its Dirac node, which keeps the deferred car
+; of '() it got while inactive; the step forces it when its propagation ends (deviation 11,
+; settle-pending!), as every walk of the graph that takes that branch does.  Upstream, which
+; never reads that node, samples 'then and 'else.  At seed 17 the build draws c = #t.
+(define/shown guarded-head/constant
+  (define guarded-head/constant
+    (do/monad
+      (← c (dist bern .5))
+      (← xs (diracN '()))
+      (if_ (lift not c) (>> (diracN (lift car xs)) (return 'then)) (return 'else)))))
+
+; (new) the same through an exit: the then branch holds an if_ on the constant #t whose result
+; is the Dirac node of the deferred Val (lift car '()), so the inner exit, activated with the
+; branch, holds that deferred value too.
+(define/shown guarded-exit/constant
+  (define guarded-exit/constant
+    (do/monad
+      (← c (dist bern .5))
+      (if_ (lift not c)
+           (do/monad (← inner (if_ #t (diracN (lift car '())) (return 'x))) (return 'then))
+           (return 'else)))))
+
+; (new) the same with a Dirac root: the deferred Val (lift car '()) of the inactive then branch
+; (lazy lifting) is the value of a root node, which no update ever recomputes.
+(define/shown guarded-root/constant
+  (define guarded-root/constant
+    (do/monad
+      (← c (dist bern .5))
+      (if_ (lift not c) (>> (diracN (lift car '())) (return 'then)) (return 'else)))))
+
 ; (new, plan §15.5 H6) a finite model with nested if_'s, diracN of a node of the enclosing
 ; scope and of a lifted expression, and an observation whose parameter depends on an outer
 ; node; its branch-local choices have constant parameters, so 'upstream is unbiased on it.
@@ -548,7 +625,8 @@
                 (code/inline "C") " entry per support point " (code/inline "(x . p)") " with "
                 (code/inline "p > 0") ", whose thunk continues the walk with "
                 (code/inline "x") ".  An observation becomes one entry weighted by its
-                likelihood, or no entry at all when that likelihood is 0.  The nodes of a
+                likelihood, or no entry at all when that likelihood is 0 or its LL is not
+                finite (NaN, +inf; E6).  The nodes of a
                 branch that the values on the path leave inactive are skipped.  A thunk may be
                 forced in any order, so it first restores the node states of its own path.  "
                 (code/inline "probcc-explore") " and " (code/inline "probcc-normalize")
@@ -570,8 +648,11 @@
                 §15, C35).  Pre-allocation with " (code/inline "replicate/monad")
                 " (H8), folds and traversals are all safe.  One build stands for every build
                 only if the model does not branch in plain Scheme on a node or on a value drawn
-                while it is built.  Nothing enforces that; only the rebuild of "
-                (code/inline "construction-check") " (H2) catches a model that breaks it.")
+                while it is built.  Nothing enforces that, and nothing catches a model that
+                breaks it: the rebuild of " (code/inline "construction-check")
+                " (H2) draws the same values from a copy of the same source, so it takes the
+                same branch.  The rebuild catches only a construction that depends on state
+                outliving a run, such as a counter (hakaru10.scm, case B4′).")
              (p "The " (b "kernel residual") " (E10) checks the MH kernel itself, not one of
                 its chains.  In 'extended mode the inactive resampleable nodes are auxiliary
                 variables with their prior.  Over every assignment " (m "x")
@@ -760,6 +841,13 @@ pcond4 = do
   ((test/post-bias _)
    (⊦ equal? '((#t . 1.)) (exact-posterior (post-bias 1.)))
    (⊦ equal? '() (exact-posterior (dist (condition 5. uniform) 0. 1.)))
+   (⊦ (equal-approx? 1e-12) `((1 . ,(/ 2. 3.)) (2 . ,(/ 1. 3.))) (exact-posterior nan-path))
+   (⊦ equal? '((1 2) (1 2) ((0 . 30)))
+      (list (map car (likelihood-weighting 1000 nan-path)) (map car (hist (mcmC 1000 nan-path)))
+            (hist (mcmC 30 nan-path #:seed 110866))))
+   (⊦ equal? '(() () ())
+      (list (exact-posterior infinite-path) (likelihood-weighting 100 infinite-path)
+            (mcmC 5 infinite-path)))
    `(doc (p "E6.  A coin selects which of two normals, centered at 0 and 100, the observation
             1 comes from.  The likelihood of the observation under N(100, 1) is "
             (m "e⁻⁴⁹⁰⁰·⁵/√(2π)") ", which underflows to 0, so the posterior of the
@@ -769,6 +857,21 @@ pcond4 = do
             observed from the uniform on [0, 1], has the empty posterior "
             (code/inline "'()") ".")
          ,@(shown 'post-bias)
+         (p "An observation whose LL is not finite weighs nothing either, as likelihood
+            weighting drops such a run: in "
+            (code/inline "nan-path") " the normal of standard deviation 0 gives 0 the LL NaN,
+            so k = 0 is pruned and the posterior is the 2 : 1 of the densities at k = 1 and 2,
+            which likelihood weighting visits alone.  MH rejects a step to k = 0, whose ratio
+            is NaN and fails both acceptance tests (Metropolis.hs:939-944), but keeps an
+            initial trace of LL NaN, since only an infinite LL makes it rebuild
+            (Metropolis.hs:853-854, 882-891), and then never leaves it: at seed 17 the build
+            draws k = 2, so the chain visits 1 and 2 alone (a regression value), while at seed
+            110866 it draws k = 0 and the chain stays there, where the oracles and the chain
+            disagree, as upstream's would.  In "
+            (code/inline "infinite-path") " the observation's LL is +inf when b is true and
+            -inf when it is false, so no path has a positive finite weight and enumeration,
+            likelihood weighting and the chain all answer " (code/inline "'()") ".")
+         ,@(shown 'nan-path 'infinite-path)
          (code/lang "haskell" "post_bias c = do
   coin <- dist bern 0.5
   if_ coin (dist (c `condition` normal) 0 1)
@@ -918,6 +1021,11 @@ return c")))
    (⊦ = 0. (kernel-residual (if_ #f (dist bern .5) (return 0))))
    (⊦ > 1e-12 (kernel-residual (dist (uniformly '(1 1 2)))))
    (⊦ < 1e-3 (kernel-residual liar-or))
+   (⊦ < 1e-3 (kernel-residual liar-or/nan))
+   (⊦ > 1e-12 (kernel-residual nan-path))
+   (⊦ > 1e-12 (kernel-residual plus-inf-state))
+   (⊦ (equal-approx? 1e-12) `((2 . ,(/ 2. 3.)) (3 . ,(/ 1. 3.)))
+      (exact-posterior plus-inf-state))
    (⊦ < 1e-2 (kernel-residual pswitch #:semantics 'upstream))
    (⊦ > 1e-12 (kernel-residual pswitch #:semantics 'extended))
    (⊦= 'support (hakaru10-kind (τ (kernel-residual (dist bern/flip .5)))))
@@ -949,6 +1057,13 @@ return c")))
             on a model whose " (code/inline "liar") " declares a support that disagrees with
             its density, so that its proposal is not the one the acceptance ratio assumes.")
          ,@(shown 'liar 'liar-or)
+         (p "A state whose extended LL is NaN or +inf weighs nothing, as exact enumeration
+            prunes it (E6) and no step enters it: the residual is that of the other states.  It
+            is still positive on " (code/inline "liar-or/nan") ", the liar next to "
+            (code/inline "nan-path") "'s choice, and below " (m "10⁻¹²") " on "
+            (code/inline "nan-path") " and on " (code/inline "plus-inf-state")
+            ", whose b = 1 has LL +inf and whose posterior is 2/3 and 1/3 on b = 2 and 3.")
+         ,@(shown 'liar-or/nan 'plus-inf-state)
          (p "With " (code/inline "#:semantics 'upstream") " the kernel is upstream's, whose
             step delays the updates of inactive nodes (Metropolis.hs:298-303), run from the
             states where no update is delayed.  On " (code/inline "pswitch")
@@ -991,7 +1106,7 @@ return c")))
              (p "The three interpretations are:")
              (ul (li (b "the build") " of " (code/inline "mcmC")
                      ": the model runs once on a fresh chain, as upstream's "
-                     (code/inline "initial_step") " runs it (Metropolis.hs:872-880), and
+                     (code/inline "initial_step'") " runs it (Metropolis.hs:872-880), and
                      incremental Metropolis-Hastings then updates the graph it built;")
                  (li (b "exact enumeration") ": a walk of the graph of one build into a lazy
                      Hansei search tree (page hakaru10-exact);")
@@ -1058,12 +1173,14 @@ return c")))
             ".  In address order an " (code/inline "if_")
             " first has the branch it does not take, whose choices are drawn and whose
             observations are not weighed, as " (code/inline "ifnode")
-            " builds it (Metropolis.hs:650-661).  The LL is not bit-identical, because
-            deactivation adds and then subtracts the inactive observations' LL.  So the redraw
-            checks the draw order against the graph and the LL accounting.  It runs the
-            engine's construction code, so with the replays of hakaru10.scm it stands for an
-            oracle of the node creation order (plan C18) that would not.  "
-            (code/inline "#:check") " runs this check once per chain.")
+            " builds it (Metropolis.hs:650-661).  In 'upstream mode the LL is not
+            bit-identical, because deactivation adds and then subtracts the inactive
+            observations' LL; in 'extended mode the build recomputes it from the redraw's
+            terms, in the redraw's order.  So the redraw checks the draw order against the
+            graph and the LL accounting.  It runs the engine's construction code, so with the
+            replays of hakaru10.scm it stands for an oracle of the node creation order (plan
+            C18) that would not.  " (code/inline "#:check") " runs this check once per
+            chain.")
          ,@(shown 'nested 'phier 'normals 'dot 'regression)
          (code/lang "haskell" "phier n =
   (iterate (\\m -> do {x<-m; dist normal x 3}) $ dist normal 0 1) !! n")
@@ -1112,6 +1229,10 @@ dot xs ays = foldr1 (+) $ zipWith (\\x ay -> (*x) <$> ay) xs ays")))
   ((test/static-graph _)
    (define observes-a-choice (do/monad (← x (dist bern .5)) (dist (condition x bern) .5)))
    (⊦= 'conditioning (hakaru10-kind (τ (exact-posterior observes-a-choice))))
+   (⊦ equal? (make-list 4 'conditioning)
+      (map (λ (run) (hakaru10-kind (τ (run observes-its-argument))))
+           (list exact-posterior (cut likelihood-weighting 100 <>) (cut mcmC 50 <> #:check #t)
+                 kernel-residual)))
    (for-each (λ (choices)
                (⊦ (equal-approx? 1e-12) (list choices '((1 . .25) (2 . .25) (none . .5)))
                  (list choices (exact-posterior (nested-uniformly choices))))
@@ -1132,7 +1253,18 @@ dot xs ays = foldr1 (+) $ zipWith (\\x ay -> (*x) <$> ay) xs ays")))
                         (error-kind (τ (likelihood-weighting 100 m)))
                         (error-kind (τ (mcmC 100 m))))))
              `((guarded-result . ,guarded-result) (guarded-result/mirror . ,guarded-result/mirror)
-               (guarded-head . ,guarded-head) (guarded-head/mirror . ,guarded-head/mirror)))
+               (guarded-head . ,guarded-head) (guarded-head/mirror . ,guarded-head/mirror)
+               (guarded-head/constant . ,guarded-head/constant)
+               (guarded-exit/constant . ,guarded-exit/constant)
+               (guarded-root/constant . ,guarded-root/constant)))
+   (for-each (Λ ((,name . ,m))
+               (⊦ equal? (list name 'else 'exn 'exn 'exn)
+                  (list name (car (mcmC 1 m)) (error-kind (τ (mcmC 100 m #:semantics 'extended)))
+                        (error-kind (τ (mcmC 100 m #:check #t)))
+                        (error-kind (τ (kernel-residual m))))))
+             `((guarded-head/constant . ,guarded-head/constant)
+               (guarded-exit/constant . ,guarded-exit/constant)
+               (guarded-root/constant . ,guarded-root/constant)))
    `(doc (p "H5.  Conditioning on a random choice is ill-typed upstream: observations are
             external to the model (Syntax.hs:38-42, P §2.3 l.412-421).  "
             (code/inline "exact-posterior") " walks the graph of a build, and the build raises "
@@ -1143,7 +1275,15 @@ biased_coin_ill_typed_too c1 c2 = do
   dist (b  `condition` bern) 0.4
   return b
 -}")
-         (p "cf. Examples1.hs:196-201.")
+         (p "cf. Examples1.hs:196-201.  Upstream's types accept a distribution constructor
+            that observes its argument, and its update keeps the observation the node was
+            built with (Syntax.hs:251-252, Metropolis.hs:487-488), so its chain silently
+            observes the first value (deviation 9).  Here the engine's update raises "
+            (code/inline "conditioning") " when the observation changes, and so do the
+            oracles, which recompute every node: enumeration, likelihood weighting, the
+            reference evaluator of " (code/inline "#:check") " and the kernel residual all
+            agree with the chain.")
+         ,@(shown 'observes-its-argument)
          (p "The graph is that of a build, which builds both branches of an "
             (code/inline "if_") ", so a branch the drawn values leave inactive may raise a
             parameter error that enumeration, which skips the inactive branches, never meets.
@@ -1174,8 +1314,8 @@ biased_coin_ill_typed_too c1 c2 = do
             (code/inline "model->search-tree") " builds with " (code/inline "#:max-paths")
             " counts the leaves of all its explorations, so it can be explored once: the
             second exploration of grass's tree of 4 paths raises.")
-         (p "A walk of the graph forces the value of an active exit, as the engine's step
-            does (deviation 11), so the oracles fail where " (code/inline "mcmC")
+         (p "A walk of the graph forces the value of an active exit or Dirac node, as the
+            engine's step does (deviation 11), so the oracles fail where " (code/inline "mcmC")
             " does, whichever branch the graph's build took: in "
             (code/inline "guarded-result") " the step that makes c false forces the deferred "
             (code/inline "(car '())") " of the else branch, which the graph's build leaves
@@ -1188,7 +1328,20 @@ biased_coin_ill_typed_too c1 c2 = do
             (code/inline "car") " to " (code/inline "'()") " whenever that branch is active,
             and the walks that take it raise, though the graph's build left it inactive; "
             (code/inline "guarded-head/mirror") "'s build takes it, and raises there.")
-         ,@(shown 'guarded-head 'guarded-head/mirror)))
+         ,@(shown 'guarded-head 'guarded-head/mirror)
+         (p "A node that a switch activates may also keep the deferred value it got while
+            inactive, when no update of the step recomputes it: the Dirac node of "
+            (code/inline "guarded-head/constant") " reads a constant, the inner exit of "
+            (code/inline "guarded-exit/constant") " an inner result that does not change, the
+            root of " (code/inline "guarded-root/constant")
+            " has no update.  The step forces such a value when its propagation ends, so it
+            raises as the build of that branch active does, and as the walks that take the
+            branch do, in both semantics, with or without " (code/inline "#:check")
+            ", and under the kernel residual: the chain's first sample is "
+            (code/inline "'else") ", and a later step raises " (code/inline "car")
+            "'s error.  Upstream, which never reads these nodes, samples "
+            (code/inline "'then") " and " (code/inline "'else") " about half the time each.")
+         ,@(shown 'guarded-head/constant 'guarded-exit/constant 'guarded-root/constant)))
 
   ((test/nested-branches _)
    (let1 (exact (exact-posterior two-levels))

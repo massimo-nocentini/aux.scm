@@ -249,11 +249,11 @@
 ; (forM_, for-each/monad), the bird starts in cell 1 (B1:73) and flies each night (foldM_,
 ; fold/monad) to a cell drawn from the categorical of theta (B1:68), where every cell's count
 ; is a Poisson observation of the indicator of the bird being there (B1:69-71, BMP:62 and
-; 134-138).  With `pin` (the default),
-; the cell of a day where birdpos finds the bird is observed rather than drawn: the alternative
-; B1:62-67 that upstream comments out.  The posterior is the same, since a Poisson of intensity
-; 0 cannot count a bird (D:362), but B1:68's drawn cell must guess every observed day, so its
-; initial trace has a finite LL with a negligible probability (M:882-891 retries the build).
+; 134-138).  With `pin` (the default), the cell of a day where birdpos finds the bird is
+; observed rather than drawn: the alternative B1:62-67 that upstream comments out.  The
+; posterior is the same, since a Poisson of intensity 0 cannot count a bird (D:363), but
+; B1:68's drawn cell must guess every observed day, so its initial trace has a finite LL with a
+; negligible probability (M:882-891 retries the build).
 (define/shown birds
   (define (birds features obs #!key (years 30) (days 20) (pin #t))
     (do/monad

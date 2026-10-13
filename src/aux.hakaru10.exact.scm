@@ -17,6 +17,9 @@
 ;;   - the reference evaluator (plan §6.9), which recomputes every node from scratch and
 ;;     compares it with the incremental state, and the kernel residual of the 'extended
 ;;     semantics (plan §6.11).
+;; Their histograms are those of
+;;   U  Util.hs (https://okmij.org/ftp/kakuritu/Hakaru10/Util.hs): hist (U:11-12), sorted by
+;;      key (U:25), through histogram-sort of (aux hakaru10 util).
 ;; What they share with the engine is the graph and the node functions only, none of the
 ;; incremental machinery (propagate!, the update queue, switch-branches!, the delayed and
 ;; pending updates, the journal, the acceptance ratio): so exact posteriors against MH test the
@@ -28,7 +31,8 @@
 ;; build rejects raises a `construction` error here, even where mcmC samples it.  One build is
 ;; the whole graph because SExp is applicative, not a monad (S:118), and if_ builds both
 ;; branches (M:650-661); that assumes that no model branches in Scheme on a node or on a value
-;; drawn at build time, which nothing enforces and only construction-check's rebuild catches.
+;; drawn at build time, which nothing enforces nor catches: construction-check's rebuild draws
+;; the same values from a copy of the same source, so it takes the same branch.
 ;;
 ;; Hakaru10 code version: November 2016 (W:52-53); web page last updated July 14, 2018 (W:179).
 ;; Paper: O. Kiselyov, "Probabilistic Programming Language and its Incremental Evaluation",
@@ -50,6 +54,7 @@
 
   (import scheme
           (chicken base)
+          (only (chicken memory representation) record-instance? record->vector)
           (only srfi-1 filter-map count fold iota any)
           srfi-69
           (aux base)
@@ -74,20 +79,27 @@
         (and (finite? a) (finite? b) (<= (abs (- a b)) (* 1e-9 (max 1. scale))))))
 
   ; (new, plan §6.9) whether the value a check recomputed matches the incremental one: equal?,
-  ; except that two procedures match and that a value too large to walk matches.  A lifted
+  ; except that two NaNs match, that two procedures match and that a value too large to walk
+  ; matches.  A NaN is equal? to no flonum, itself included, and a recomputation builds a
+  ; fresh one (the mean of an empty selection, 0./0.); 0. and -0. still differ.  A lifted
   ; function or a diracN may answer a closure built at run time (check-lifted-value rejects
   ; only SExps and Models), and recomputing it builds a fresh one, which equal? (eq? on
   ; procedures) would report as a difference: its consumers, which apply it, are checked
-  ; themselves.  The walk stops, matching, after 100000 pairs and vector slots, so that a
-  ; circular value (which equal? would walk forever, and which the engine accepts,
-  ; check-no-sexp) ends the check.
+  ; themselves.  Two promises match likewise: one holds a closure until it is forced, then its
+  ; value.  The closure may sit inside a pair, a vector or a record (a distk, a user's
+  ; record), whose slots are walked as a vector's, the type tag first; a deferred value
+  ; (deviation 11) is compared by equal?, since its function is the node's own.  The walk
+  ; stops, matching, after 100000 pairs and slots, so that a circular value (which equal?
+  ; would walk forever, and which the engine accepts, check-no-sexp) ends the check.
   (define (same-value? a b)
     (let1 (budget 100000)
       (define (spent?) (set! budget (sub1 budget)) (negative? budget))
       (let walk ((a a) (b b))
         (cond
           ((eq? a b) #t)
+          ((and (flonum? a) (flonum? b)) (or (eqv? a b) (and (nan? a) (nan? b))))
           ((and (procedure? a) (procedure? b)) #t)
+          ((and (promise? a) (promise? b)) #t)
           ((and (pair? a) (pair? b))
            (or (spent?) (and (walk (car a) (car b)) (walk (cdr a) (cdr b)))))
           ((and (vector? a) (vector? b))
@@ -96,6 +108,9 @@
                   (or (= i (vector-length a))
                       (spent?)
                       (and (walk (vector-ref a i) (vector-ref b i)) (loop (add1 i)))))))
+          ((or (deferred? a) (deferred? b)) (equal? a b))
+          ((and (record-instance? a) (record-instance? b))
+           (walk (record->vector a) (record->vector b)))
           (else (equal? a b))))))
 
   ; (new, plan §6.10) the finite support ((x . p) ...) of the distk of a random choice, in its
@@ -121,7 +136,8 @@
   ; build is the whole graph, and it checks the static discipline (deviations 9, 10) as it goes.
   ; A complete build of LL -inf is the graph too (an observation impossible on that build).
   ; The graph is the whole model only if no model branches in Scheme on a node or on a value
-  ; drawn at build time: unenforced, and caught only by construction-check's rebuild.
+  ; drawn at build time: unenforced, and caught by nothing (construction-check's rebuild
+  ; draws the same values, so it takes the same branch).
   (define (static-graph model who)
     (let1 (src (make-stdgen-source 17))
       (let retry ((builds 1000))
@@ -173,15 +189,22 @@
 
   ; (new, plan §6.10) cf. Hansei's probcc-reify/0 (aux.hansei.scm), the tree format: the lazy
   ; search tree of the graph ch: one ((C thunk) p) per support point of an active choice, one
-  ; ((C thunk) w) per active observation (none when w = 0), (probcc-unit v) at the leaves.  A
-  ; thunk may be forced in any order (probcc-explore to depth 0, H3), so it first restores
-  ; `frame`, the (node . nstate) of its path's active nodes, newest first, tails shared (nstates
-  ; are immutable, C5).  More than max-paths leaves reached is a `support` error; the count is
-  ; the tree's, over all its explorations, so a tree built with max-paths is explored once.
+  ; ((C thunk) w) per active observation (none when w = 0 or its LL is not finite, see below),
+  ; (probcc-unit v) at the leaves.  A thunk may be forced in any order (probcc-explore to depth
+  ; 0, H3), so it first restores `frame`, the (node . nstate) of its path's active nodes, newest
+  ; first, tails shared (nstates are immutable, C5).  More than max-paths leaves reached is a
+  ; `support` error; the count is the tree's, over all its explorations, so a tree built with
+  ; max-paths is explored once.
   ; The walk visits addresses 1..count in order, creation and draw order (C18), recomputing
   ; each active node from its parents (recomputed-state): an observation is weighed by its
   ; likelihood exp(log-density), a density for a continuous distribution (right for posteriors
-  ; over discrete choices); a choice without a finite support is a `support` error.
+  ; over discrete choices); a choice without a finite support is a `support` error.  An
+  ; observation whose LL is not finite (-inf, +inf, NaN) prunes its path, as one of weight 0
+  ; does and as likelihood-weighting drops such a run.  MH rejects a step into such a state
+  ; (an infinite Δ, M:853-854, M:927; a NaN ratio fails both tests, M:939-944), but keeps an
+  ; initial trace of LL NaN, since only an infinite LL is retried (M:853-854, M:882-891): the
+  ; chain then never leaves the traces of LL NaN, where it and the oracles disagree, as
+  ; upstream's would.
   (define (graph->search-tree ch result #!key (max-paths #f) (who 'exact-posterior))
     (let ((last (chain-count ch)) (now (chain-now ch)) (starts (branch-starts ch)) (paths 0))
       (define (restore! frame)
@@ -209,7 +232,7 @@
                              (choice-support (node-distk n) who)))
                 ((eq? (node-kind n) 'observed)
                  (let* ((s (recomputed-state n now)) (w (exp (nstate-ll s))))
-                   (if (zero? w)
+                   (if (or (not (finite? (nstate-ll s))) (zero? w))
                        '()
                        (list (probcc-τ w (restore! frame) (enter n s))))))
                 (else (enter n (recomputed-state n now)))))))))
@@ -225,9 +248,12 @@
   ; cf. plan §6.10 and Hansei's probcc-reify/exact: the posterior of a model whose random
   ; choices, in the branches it takes, all have finite supports (else a `support` error), by
   ; exhaustive exploration of the search tree of its static graph: the histogram ((value .
-  ; probability) ...) sorted by generic<?, '() when no path has a positive weight.  The build
-  ; of the graph checks the static discipline (observations external to the model, no node
-  ; escaping its branch, ...); more than max-paths paths is a `support` error.
+  ; probability) ...) sorted by generic<?, '() when no path has a positive weight (an
+  ; observation of LL -inf, +inf or NaN weighs nothing, graph->search-tree).  The build of the
+  ; graph checks the static discipline (observations external to the model, no node escaping
+  ; its branch, ...); more than max-paths paths is a `support` error.  Values are collected
+  ; by equal?, so a NaN value, equal? to no other, is an entry of its own per path, as with
+  ; upstream's `hist` (U:11-12, `M.insertWith`, where `compare` on a NaN never answers EQ).
   (define (exact-posterior model #!key (max-paths #f))
     (receive (ch result) (static-graph model 'exact-posterior)
       (histogram-sort
@@ -278,7 +304,8 @@
   ; forward runs (weighted-samples, the same keys): the histogram ((value . probability) ...)
   ; sorted by generic<?, each run weighing exp(ll - max ll), for numerical stability; runs of
   ; zero likelihood count for nothing, and '() is the answer when every run has one.  It works
-  ; for continuous choices too, where exact-posterior does not.
+  ; for continuous choices too, where exact-posterior does not.  Values are collected by
+  ; equal?, so a NaN value is an entry of its own per run, as in exact-posterior.
   (define (likelihood-weighting n model #!key (seed 17) (rng #f))
     (let* ((samples (filter-map (Λ ((,v . ,ll)) (and (finite? ll) (cons v ll)))
                                 (weighted-samples n model #:seed seed #:rng rng)))
@@ -334,12 +361,14 @@
   ;     terms and order are the redraw's, and an inactive observation's LL, which never went
   ;     into it, does not widen the tolerance.
   ; Answers #t; 'skipped when the build is one initial-step would retry (M:882-891): no result
-  ; ('extended, C22) or an llcum that is not finite (an observation of LL -inf, NaN when it is
-  ; inactive, plan §8); else raises an `internal` error at the first difference.
+  ; ('extended, C22) or an infinite llcum (rejected-ll?, M:853-854: an active observation of LL
+  ; -inf); else raises an `internal` error at the first difference.  A NaN llcum ('upstream:
+  ; an inactive observation of LL -inf, added then subtracted, M:659, plan §8) is a build
+  ; initial-step keeps, so it is checked, all but the redraw's LL, which cannot match NaN.
   (define (construction-check model #!key (seed 17) (rng #f) (semantics 'upstream))
     (let1 (src (or rng (make-stdgen-source seed)))
       (receive (ch result) (build model (rng-source-copy src) semantics 'check)
-        (if (not (and result (finite? (chain-llcum ch))))
+        (if (or (not result) (rejected-ll? (chain-llcum ch)))
             'skipped
             (receive (ch* result*) (build model (rng-source-copy src) semantics 'check)
               (rebuild-check ch result ch* result*)
@@ -371,7 +400,8 @@
   ; with llcum, and the sum of the magnitudes of the LLs that went into llcum: every observed
   ; node's in 'upstream mode, the inactive ones added at their creation and subtracted at
   ; deactivation (M:659); only the active ones' in 'extended mode, whose llcum the build
-  ; recomputes as chain-extended-ll.
+  ; recomputes as chain-extended-ll.  A NaN llcum (construction-check) is compared for values
+  ; only.
   (define (redraw-check ch src)
     (define (differ what . args)
       (apply hakaru10-error 'internal 'check
@@ -390,8 +420,9 @@
                                 (if (and inactive? (extended? ch)) scale (+ scale (abs llo))))))
                        (else (cons ll scale))))
                    '(0. . 0.) ch)
-      ((,ll . ,scale) (unless (ll-close? ll (chain-llcum ch) scale)
-                        (differ "LL" ll (chain-llcum ch))))))
+      ((,ll . ,scale) (let1 (llcum (chain-llcum ch))
+                        (unless (or (nan? llcum) (ll-close? ll llcum scale))
+                          (differ "LL" ll llcum))))))
 
   ;; ---------------------------------------------------------------------------------------
   ;; The reference evaluator (plan §6.9)
@@ -409,10 +440,15 @@
   ; (new, plan §6.9, §6.11) the state of node n recomputed from its parents' current values, as
   ; its construction or its update gives it, with tstamp ts and, if n is resampleable, value v
   ; (by default its own: it is not a function of the parents):
-  ;   - an exit: the value of the result its entry selects (M:778-794), LL 0, forced if the exit
-  ;     is active, as update-exit does (deviation 11), so n's deactivation count must be set;
+  ;   - an exit: the value of the result its entry selects (M:778-794), LL 0;
   ;   - a Dirac node, entries included: the distk's value, LL 0 (M:52, M:55, M:482);
-  ;   - an observed node: the observation and its LL (M:97-100, M:483-488);
+  ; the value of an exit or a Dirac node forced if the node is active (the deferred value of an
+  ; inactive diracN's parent, or a root's deferred Val), as update-exit and doupdate compute it
+  ; and as the step that activates the node forces it (settle-pending!, deviation 11), so n's
+  ; deactivation count must be set;
+  ;   - an observed node: the observation and its LL (M:97-100, M:483-488), the observation
+  ;     being the one n was built with (check-observation, deviation 9), which the engine's
+  ;     update keeps (M:487-488);
   ;   - a resampleable node: v and its LL under the new distribution (M:483-488).
   ; deviation 10 (M:46-60): a distribution function that changes the kind of its node raises
   ; `construction`, as doupdate does.
@@ -427,8 +463,11 @@
                             "a distribution constructor changed the kind of its node"
                             n (node-kind n) kind))
           (case kind
-            ((dirac) (make-nstate (distk-value dk) 0. #f ts))
+            ((dirac) (make-nstate (let1 (x (distk-value dk))
+                                    (if (node-inactive? n) x (force-value x)))
+                                  0. #f ts))
             ((observed) (let1 (obs (distk-value dk))
+                          (check-observation n obs)
                           (make-nstate obs ((rdistr-log-density rd) obs) rd ts)))
             (else (make-nstate v ((rdistr-log-density rd) v) rd ts))))))
 
@@ -439,10 +478,12 @@
     (count (Λ ((,entry . ,polarity)) (not (eq? (node-value entry) polarity))) (node-scope n)))
 
   ; (new, plan §6.9) whether two rdistrs (or #f, a Dirac's) are the same distribution: the
-  ; same name and equal? parameters.
+  ; same name and parameters that match by same-value? (a NaN parameter, which an NT may
+  ; compute, matches its recomputation).
   (define (same-rdistr? a b)
     (if (and a b)
-        (and (eq? (rdistr-name a) (rdistr-name b)) (equal? (rdistr-params a) (rdistr-params b)))
+        (and (eq? (rdistr-name a) (rdistr-name b))
+             (same-value? (rdistr-params a) (rdistr-params b)))
         (eq? a b)))
 
   ; (new, plan §6.9) the reference evaluator of `check:`, run on the initial trace and after
@@ -597,7 +638,10 @@
   ; at x; a state with no active resampleable node stays put (deviation 6).  The model is
   ; built once (rng seeded with `seed`); every resampleable node must have a finite support,
   ; and every active one the default kernel.  Below 1e-12 the kernel leaves π invariant.  A
-  ; model where no state has a positive finite weight has no target π: a `construction` error.
+  ; state whose extended LL is NaN or +inf weighs 0, as exact-posterior prunes it: no step
+  ; enters it (rejected-ll? for +inf, M:853-854, M:927; a NaN ratio fails both tests,
+  ; M:939-944).  A model where no state has a positive finite weight has no target π: a
+  ; `construction` error.
   ; Kept as upstream (plan C10): a categorical with duplicate keys weighs each of a key's
   ; points by the density of its first weight, where its sampler gives the key the sum of its
   ; weights, so such a model has a positive residual.
@@ -615,13 +659,14 @@
       (let* ((nodes (resampleable-nodes ch))
              (states (ext-states ch #:max-states max-states))
              (log-weights (map (λ (xs) (load-state! ch xs) (chain-extended-ll ch)) states))
-             (top (let1 (top (fold max -inf.0 log-weights))
+             (top (let1 (top (fold (λ (l top) (if (finite? l) (max l top) top))
+                                   -inf.0 log-weights))
                     (if (finite? top)
                         top
                         (hakaru10-error 'construction 'kernel-residual
                                         "no state of the model has a positive finite weight"
                                         top))))
-             (weights (map (λ (l) (exp (- l top))) log-weights))
+             (weights (map (λ (l) (if (finite? l) (exp (- l top)) 0.)) log-weights))
              (z (fold + 0. weights))
              (π (make-hash-table equal?))
              (πT (make-hash-table equal?)))
