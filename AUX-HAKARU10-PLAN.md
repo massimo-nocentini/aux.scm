@@ -805,7 +805,7 @@ The result is the model's posterior. It is also the marginal of the extended tar
 | D2 | bern 0.4: LL(#t), LL(#f) | −0.916290731874155, −0.5108256237659907 | tol 1e-15 | D:53-62 |
 | D3 | uniform 10 20 at 15, 10, 20, 9.99 | −2.3025850929940455 (×3), −∞ | exact | D:107-117 |
 | D4 | log-gamma at 0.3, 5.0, 7.5, 20.0 | 1.0957979947868837, 3.1780538330716963, 7.534364243376615, 39.33988418719949 (prototype) | tol 1e-14 | D:212-272 |
-| D4b | log-gamma vs `libm-lgamma` at 0.3, 1.5, 3.9, 5, 7.5, 11.9, 20, 1e7 | agree | tol 1e-8 | D:212-219 |
+| D4b | log-gamma vs `libm-lgamma` at 0.3, 1.5, 3.9, 5, 7.5, 11.9, 20, 1e7 | agree | tol 1e-8 (1e7: 1e-12 relative, one ulp of 1.5e8 being 3e-8) | D:212-219 |
 | D4c | log-gamma at 0 and −1 | +∞ | exact | D:222 |
 | D5 | corrected gamma(3, 1/3) at x = 1 | −0.397310314667487 (AS 245) | tol 1e-12 | deviation 2 |
 | | closed form | −0.3973103145556162 | tol 1e-9 | |

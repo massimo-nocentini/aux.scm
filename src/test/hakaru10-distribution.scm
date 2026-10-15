@@ -196,13 +196,17 @@ instance Distribution Uniform Double where
    (⊦ (equal-approx? 1e-14) '(1.0957979947868837 3.1780538330716963 7.534364243376615
                               39.33988418719949)
      (map log-gamma '(.3 5. 7.5 20.)))
-   (⊦ (equal-approx? 1e-8) (map libm-lgamma '(.3 1.5 3.9 5. 7.5 11.9 20. 1e7))
-     (map log-gamma '(.3 1.5 3.9 5 7.5 11.9 20 1e7)))
+   (⊦ (equal-approx? 1e-8) (map libm-lgamma '(.3 1.5 3.9 5. 7.5 11.9 20.))
+     (map log-gamma '(.3 1.5 3.9 5 7.5 11.9 20)))
+   ; relative at 1e7: lgamma is 1.5e8 there, whose ulp (2^-25) exceeds 1e-8, and glibc's lgamma
+   ; is one ulp away from AS 245
+   (⊦ (lambda (a b) (< (abs (- a b)) (* 1e-12 (abs a)))) (libm-lgamma 1e7) (log-gamma 1e7))
    (⊦ equal? '(+inf.0 +inf.0 +inf.0) (map log-gamma '(0 -1. 1.5e308)))
    `(doc (p "D4.  " (code/inline "log-gamma") " is AS 245: at 0.3, 5, 7.5 and 20 it answers "
             "1.0957979947868837, 3.1780538330716963, 7.534364243376615 and 39.33988418719949
             (the prototype's values, through all four branches); it agrees with libm's "
-            (code/inline "lgamma") " within " (m "10⁻⁸") " from 0.3 to " (m "10⁷")
+            (code/inline "lgamma") " within " (m "10⁻⁸") " from 0.3 to 20, and within "
+            (m "10⁻¹²") " relatively at " (m "10⁷")
             " (where only Stirling's leading terms are kept); it is " (m "+∞")
             " at 0, below 0 and above " (m "10³⁰⁸") ":")
          (code/lang "haskell" "logGamma :: Double -> Double
