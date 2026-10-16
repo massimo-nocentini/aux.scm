@@ -3,7 +3,7 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long bench-hakaru10 install format simdjson-fetch \
+        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors
 
 echo:
@@ -29,6 +29,10 @@ test:
 	cd test && ${CSI} -s bootstrap.scm
 	cd test && ${CSC} learning.scm bar.c -I/usr/local/include && ./learning && rm learning
 	cd test && ${CSI} -s hansei.scm
+	cd test && ${CSI} -s hansei-random.scm
+	cd test && ${CSI} -s hansei-lazy.scm
+	cd test && ${CSI} -s hansei-examples.scm
+	cd test && ${CSI} -s hansei-logic.scm
 	cd test && ${CSI} -s hakaru10-random.scm
 	cd test && ${CSI} -s hakaru10-distribution.scm
 	cd test && ${CSI} -s hakaru10-util.scm
@@ -115,6 +119,10 @@ test-on-scheme:
 test-learning-matchable:
 	cd test && ${CSI} -s learning-matchable.scm
 
+# (aux hansei): zebra, the parser replays of 30000 samples, and the statistical sampling tests.
+test-hansei-long:
+	cd test && ${CSI} -s hansei-long.scm
+
 # (aux hakaru10): the statistical suite over several seeds, and the bird migration model on the
 # real data when HAKARU10_BIRDS_DIR names a folder with its CSV files: not part of `test`.
 test-hakaru10-long:
@@ -142,6 +150,11 @@ format:
 	scheme-indent -T 2 < test/bootstrap.scm > test/bootstrap.scm.tmp && mv test/bootstrap.scm.tmp test/bootstrap.scm
 	scheme-indent -T 2 < test/learning.scm > test/learning.scm.tmp && mv test/learning.scm.tmp test/learning.scm
 	scheme-indent -T 2 < test/hansei.scm > test/hansei.scm.tmp && mv test/hansei.scm.tmp test/hansei.scm
+	scheme-indent -T 2 < test/hansei-random.scm > test/hansei-random.scm.tmp && mv test/hansei-random.scm.tmp test/hansei-random.scm
+	scheme-indent -T 2 < test/hansei-lazy.scm > test/hansei-lazy.scm.tmp && mv test/hansei-lazy.scm.tmp test/hansei-lazy.scm
+	scheme-indent -T 2 < test/hansei-examples.scm > test/hansei-examples.scm.tmp && mv test/hansei-examples.scm.tmp test/hansei-examples.scm
+	scheme-indent -T 2 < test/hansei-logic.scm > test/hansei-logic.scm.tmp && mv test/hansei-logic.scm.tmp test/hansei-logic.scm
+	scheme-indent -T 2 < test/hansei-long.scm > test/hansei-long.scm.tmp && mv test/hansei-long.scm.tmp test/hansei-long.scm
 	scheme-indent -T 2 < test/hakaru10-random.scm > test/hakaru10-random.scm.tmp && mv test/hakaru10-random.scm.tmp test/hakaru10-random.scm
 	scheme-indent -T 2 < test/hakaru10-distribution.scm > test/hakaru10-distribution.scm.tmp && mv test/hakaru10-distribution.scm.tmp test/hakaru10-distribution.scm
 	scheme-indent -T 2 < test/hakaru10-util.scm > test/hakaru10-util.scm.tmp && mv test/hakaru10-util.scm.tmp test/hakaru10-util.scm
@@ -170,6 +183,10 @@ format:
 	scheme-indent -T 2 < aux.nondeterministic.scm > aux.nondeterministic.scm.tmp && mv aux.nondeterministic.scm.tmp aux.nondeterministic.scm
 	scheme-indent -T 2 < aux.sxml.scm > aux.sxml.scm.tmp && mv aux.sxml.scm.tmp aux.sxml.scm
 	scheme-indent -T 2 < aux.hansei.scm > aux.hansei.scm.tmp && mv aux.hansei.scm.tmp aux.hansei.scm
+	scheme-indent -T 2 < aux.hansei.pmap.scm > aux.hansei.pmap.scm.tmp && mv aux.hansei.pmap.scm.tmp aux.hansei.pmap.scm
+	scheme-indent -T 2 < aux.hansei.random.scm > aux.hansei.random.scm.tmp && mv aux.hansei.random.scm.tmp aux.hansei.random.scm
+	scheme-indent -T 2 < aux.hansei.lazy.scm > aux.hansei.lazy.scm.tmp && mv aux.hansei.lazy.scm.tmp aux.hansei.lazy.scm
+	scheme-indent -T 2 < aux.hansei.parsec.scm > aux.hansei.parsec.scm.tmp && mv aux.hansei.parsec.scm.tmp aux.hansei.parsec.scm
 	scheme-indent -T 2 < aux.hakaru10.random.scm > aux.hakaru10.random.scm.tmp && mv aux.hakaru10.random.scm.tmp aux.hakaru10.random.scm
 	scheme-indent -T 2 < aux.hakaru10.distribution.scm > aux.hakaru10.distribution.scm.tmp && mv aux.hakaru10.distribution.scm.tmp aux.hakaru10.distribution.scm
 	scheme-indent -T 2 < aux.hakaru10.util.scm > aux.hakaru10.util.scm.tmp && mv aux.hakaru10.util.scm.tmp aux.hakaru10.util.scm
