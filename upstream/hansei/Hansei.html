@@ -1,0 +1,410 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+ "http://www.w3.org/TR/html4/loose.dtd"><html><head><title>HANSEI: Embedded Probabilistic Programming</title>
+<meta name="description" content="Design and implementation of the embedded DSL for probabilistic programming. Examples of models, inference and nested inference">
+<meta name="Author" content="oleg-at-okmij.org">
+<meta name="Date-Revision-yyyymmdd" content="20160301">
+<meta name="Date-Creation-yyyymmdd" content="20090428">
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+<link rel="up" href="index.html">
+<link rel="top" href="http://okmij.org/ftp/">
+<link rel="prev" href="index.html">
+<link rel="next" href="../lift-reduce/lift-reduce.html"></head>
+<body bgcolor="#FFFFFF"><div align="center"><a href="index.html">previous</a>  &nbsp; <a href="../lift-reduce/lift-reduce.html">next</a>  &nbsp; <a href="index.html">up</a>  &nbsp; <a href="http://okmij.org/ftp/">top</a><hr></div>
+<div align="center"><h1>Embedded probabilistic domain-specific language HANSEI (discrete distributions, importance sampling, nested inference)</h1>
+</div>
+<p>&nbsp;</p>
+<ul><li><a href="#introduction">Introduction</a></li>
+<li><a href="#implementation">The implementation of HANSEI</a></li>
+<li><a href="#derivation">Embedded probabilistic programming</a></li>
+<li><a href="#uai2009">Monolingual Probabilistic Programming Using Generalized Coroutines</a></li>
+<li><a href="#ML2010">Probabilistic programming using first-class stores and first-class continuations</a>
+<br>
+&nbsp;</li>
+<li><a href="#examples-tests">Introductory examples and regression tests</a></li>
+<li><a href="#colored-balls">Example: colored balls</a></li>
+<li><a href="#blood-type">Example: blood types</a></li>
+<li><a href="#hmm">Example: Hidden Markov Model (HMM)</a></li>
+<li><a href="#noisy-or">Example: Noisy <code>OR</code></a>
+<br>
+&nbsp;</li>
+<li><a href="#music">Realistic Example: Motivic development in classical music</a></li>
+<li><a href="#blip">Realistic Example: Multitarget tracking</a></li>
+<li><a href="#sorted">Realistic Example: sorted list</a></li>
+<li><a href="#bounded-rationality">Bounded-Rational Theory of Mind for Conversational Implicature</a></li>
+<li><a href="#all-different">Correlated memoization and lazy permutations</a>
+<br>
+&nbsp;</li>
+<li><a href="logic-programming.html">HANSEI as a Declarative Logic Programming Language</a></li>
+<li><a href="logic-programming.html#many">Maximal munch, committed choice and nested inference</a></li>
+<li><a href="../Computation/monads.html#lazy-sharing-nondet">Purely Functional Lazy Non-deterministic Programming</a></li></ul>
+<hr>
+<p><a name="introduction">&nbsp;</a></p><h2>Introduction</h2>
+<dl><dd>HANSEI is the the embedded domain-specific language for probabilistic programming: for writing potentially infinite discrete-distribution models and performing exact inference, importance sampling and inference of inference.<p>HANSEI is an ordinary OCaml library, with probability distributions represented as ordinary OCaml programs. Delimited continuations let us reify non-deterministic programs as lazy search trees, which we may then traverse, explore, or sample. Thus an inference procedure and a model invoke each other as co-routines. Thanks to the delimited control, deterministic expressions look exactly like ordinary OCaml expressions, and are evaluated as such, without any overhead.</p>
+<p>Inference procedures and probabilistic models are both ordinary OCaml functions. Both may be defined and extended by library users; both may appear in each other's code. Performing inference on a model that includes calls to inference procedures lets us parameterize distributions by distributions, and lets inference procedures measure their own accuracy. One application is modeling agents reasoning about each other's limited reasoning.</p>
+<p>This is joint work with Chung-chieh Shan.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="../continuations/shift-v-fork.html#introduction">Probabilistic modeling in a general-purpose programming language</a>
+<br>
+The web page also explains the advantage of delimited continuations for representing non-deterministic and stochastic computations.<p><a href="nips2008.pdf">nips2008.pdf</a> [266K]
+<br>
+Abstract of the poster at the NIPS2008 workshop ``Probabilistic Programming: Universal Languages, Systems and Applications''</p></dd></dl>
+<p><a name="derivation">&nbsp;</a></p><h2>Embedded probabilistic programming</h2>
+<dl><dd>[The Abstract of the paper]
+<br>
+Two general techniques for implementing a domain-specific language (DSL) with less overhead are the <em>finally-tagless</em> embedding of object programs and the <em>direct-style</em> representation of side effects.  We use these techniques to build a DSL for probabilistic programming, for expressing countable probabilistic models and performing exact inference and importance sampling on them. Our language is embedded as an ordinary OCaml library and represents probability distributions as ordinary OCaml programs. We use delimited continuations to reify probabilistic programs as lazy search trees, which inference algorithms may traverse without imposing any interpretive overhead on deterministic parts of a model.  We thus take advantage of the existing OCaml implementation to achieve competitive performance and ease of use.  Inference algorithms can easily be embedded in probabilistic programs themselves.<p>The paper, in particular, presents a step-by-step refining of the finally-tagless to a <em>very shallow</em> embedding of the probabilistic DSL. That is, probabilistic functions are embedded as host-language functions, calls to them are embedded as host function calls, and random integers can be added using the addition operation of the host language. This approach lets us take advantage of the existing infrastructure of the host language while also reducing notational and interpretive overhead.</p>
+<p>This is joint work with Chung-chieh Shan.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="dsl-paper.pdf">dsl-paper.pdf</a> [189K]
+<br>
+In proceedings of the IFIP working conference on domain-specific languages, ed. Walid Taha. LNCS 5658, Springer, 2009, pp. 360-384.<p><a href="../continuations/index.html#reify-search">Delimited control and breadth-first, depth-first, and iterative deepening search</a>
+<br>
+Another illustration, only in Haskell rather than OCaml, and without probabilities</p></dd></dl>
+<p><a name="uai2009">&nbsp;</a></p><h2>Monolingual Probabilistic Programming Using Generalized Coroutines</h2>
+<dl><dd>[The Abstract of the paper]
+<br>
+Probabilistic programming languages and modeling toolkits are two modular ways to build and reuse stochastic models and inference procedures.  Combining strengths of both, we express models and inference as generalized coroutines in the <em>same</em> general-purpose language.  We use existing facilities of the language, such as rich libraries, optimizing compilers, and types, to develop concise, declarative, and realistic models with competitive performance on exact and approximate inference.  In particular, a wide range of models can be expressed using memoization.  Because deterministic parts of models run at full speed, custom inference procedures are trivial to incorporate, and inference procedures can reason about themselves without interpretive overhead.  Within this framework, we introduce a new, general algorithm for importance sampling with look-ahead.<p>This is joint work with Chung-chieh Shan.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="embedpp.pdf">embedpp.pdf</a> [125K]
+<br>
+In proceedings of the 25th conference on uncertainty in artificial intelligence (UAI), 2009.</dd></dl>
+<p><a name="ML2010">&nbsp;</a></p><h2>Probabilistic programming using first-class stores and first-class continuations</h2>
+<dl><dd>[The Summary]
+<br>
+
+ Probabilistic inference is a popular way to deal with uncertainty in
+ many areas of science and engineering.  Following the declarative
+ approach of expressing <em>probabilistic models</em> and <em>inference
+ algorithms</em> as separate, reusable modules, we built
+ a <em>probabilistic programming language</em> as an OCaml library and
+ applied it to several problems.  We describe this embedded
+ domain-specific language using aircraft tracking as an example.  We
+ focus on our use of <em>first-class stores</em> and first-class
+ continuations to perform faster inference (with <em>local laziness</em>
+ and <em>full-speed determinism</em>) and express more models (with
+ <em>stochastic memoization</em> and <em>nested inference</em>).<p>This is joint work with Chung-chieh Shan.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="ML2010.pdf">ML2010.pdf</a> [60K]
+<br>
+The extended abstract published in the informal proceedings of the 2010 ACM SIGPLAN Workshop on ML.</dd></dl>
+<p><a name="implementation">&nbsp;</a></p><h2>The implementation of HANSEI</h2>
+<dl><dd>The language HANSEI is shallowly embedded in OCaml and is, therefore, a regular OCaml library. Here is the code.</dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is April 2009.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="ptypes.mli">ptypes.mli</a> [&lt;1K]
+<br>
+Library type declarations<p><a href="probM.mli">probM.mli</a> [4K]
+<br>
+The interface of the library: the `syntax' of HANSEI</p>
+<p><a href="probM.ml">probM.ml</a> [18K]
+<br>
+The implementation of the library core: The <code>dist</code> function, evidence assertion, reification and reflection, call-by-need evaluation, sharing and memoization, reification and memoization in nested scopes</p>
+<p><a href="inference.mli">inference.mli</a> [3K]
+<br>
+<a href="inference.ml">inference.ml</a> [13K]
+<br>
+Exact and approximate inference procedures: the explorers of the lazy search tree resulting from reifying probabilistic programs</p>
+<p><a href="pMap.ml">pMap.ml</a> [7K]
+<br>
+<a href="pMap.mli">pMap.mli</a> [5K]
+<br>
+Dependency: PMap - Polymorphic maps, by Xavier Leroy, Nicolas Cannasse, and Markus Mottl. The original code was augmented with the function <code>insert_with</code></p>
+<p>Dependency: <a href="../continuations/implementations.html#caml-shift">Delimited continuations in OCaml</a></p>
+<p><a href="Makefile">Makefile</a> [3K]
+<br>
+How to compile the library and run the tests and examples</p></dd></dl>
+<p><a name="examples-tests">&nbsp;</a></p><h2>Introductory examples and regression tests</h2>
+<dl><dt><strong>References</strong></dt>
+<dd><a href="paper_examples.ml">paper_examples.ml</a> [4K]
+<br>
+The lawn/grass model: a simple Bayesian net. A taste of nested inference<p><a href="exactInfM.ml">exactInfM.ml</a> [11K]
+<br>
+Exact inference, variable elimination, likening to IBAL</p>
+<p><a href="samplingM.ml">samplingM.ml</a> [16K]
+<br>
+Importance sampling with look-ahead: a new, general algorithm for approximate inference; contrast with rejection sampling</p>
+<p><a href="slazy.ml">slazy.ml</a> [27K]
+<br>
+Lazy evaluation (or, evidence pulling) and sharing. Probabilistic context-free grammars. Memoization of stochastic functions</p>
+<p><a href="nested.ml">nested.ml</a> [16K]
+<br>
+Many examples and regression tests of nested inference and nested call-by-need probabilistic computations</p></dd></dl>
+<p><a name="colored-balls">&nbsp;</a></p><h2>Example: colored balls</h2>
+<dl><dd>This is an elegant example of a model with indefinite number of objects whose `real' identity is unobservable. The example is a simplified version of population estimation. HANSEI's implementation of the example makes the case for memoization of stochastic functions. The example was introduced as example 1.1 in Milch's et al. chapter on BLOG:<p>``An urn contains an unknown number of balls--say, a number chosen from a Poisson or a uniform distributions. Balls are equally likely to be blue or green. We draw some balls from the urn, observing the color of each and replacing it. We cannot tell two identically colored balls apart; furthermore, observed colors are wrong with probability 0.2.  How many balls are in the urn? Was the same ball drawn twice?''</p></dd>
+<dt><strong>References</strong></dt>
+<dd>Brian Milch, Bhaskara Marthi, Stuart Russell, David Sontag, Daniel L. Ong, Andrey Kolobov. BLOG: Probabilistic Models with Unknown Objects.
+<br>
+In: Lise Getoor and Ben Taskar, eds. Introduction to Statistical Relational Learning. MIT Press, 2007 -- pp. 373--398
+<br>
+<a href="http://people.csail.mit.edu/milch/papers/blog-chapter.pdf">&lt; http://people.csail.mit.edu/milch/papers/blog-chapter.pdf &gt;</a><p><a href="blip/colored_balls.ml">colored_balls.ml</a> [5K]
+<br>
+The implementation of the model and sample inferences: e.g., of the posterior distribution of the number of balls in the urn given that we drew ten balls and all appeared blue. Our results seem in excellent agreement with those by BLOG.</p></dd></dl>
+<p><a name="blood-type">&nbsp;</a></p><h2>Example: blood types</h2>
+<dl><dd>This is an example from Manfred Jaeger's benchmark of probabilistic logic languages and systems: ``A simple genetic model for the inheritance of bloodtypes in a pedigree. Input domains consist of pedigrees with individuals and father and mother relation. The reference model comes from Balios.'' The hidden variables are the presence of genes A and B in the chromosomes inherited from the mother and the father. The observed variable is the blood type, which is a stochastic function of the genotype. A typical query asks for the distribution of blood types for a particular individual, possibly conditioned on the known genotype of some of the ancestors.</dd>
+<dt><strong>References</strong></dt>
+<dd>Manfred Jaeger: Comparative Study of Probabilistic Logic Languages and Systems.
+<br>
+<a href="http://www.cs.aau.dk/~jaeger/plsystems/models.html">&lt; http://www.cs.aau.dk/~jaeger/plsystems/models.html &gt;</a><p><a href="bloodtype/bloodtype.ml">bloodtype.ml</a> [9K]
+<br>
+The well-commented code of the model and sample inferences</p></dd></dl>
+<p><a name="hmm">&nbsp;</a></p><h2>Example: Hidden Markov Model (HMM)</h2>
+<dl><dd>A simple HMM model with a single hidden 8-state variable. Our implementation demonstrates the investigation of time complexity of the inference -- in an interactive session at the OCaml top level -- and changing the model by introducing variable elimination, which speeds up inference exponentially.</dd>
+<dt><strong>References</strong></dt>
+<dd>Manfred Jaeger: Comparative Study of Probabilistic Logic Languages and Systems.
+<br>
+<a href="http://www.cs.aau.dk/~jaeger/plsystems/models.html">&lt; http://www.cs.aau.dk/~jaeger/plsystems/models.html &gt;</a><p><a href="HMM/hmm.ml">hmm.ml</a> [11K]
+<br>
+The well-commented code of the model and the record of time complexity investigations and optimization</p></dd></dl>
+<p><a name="noisy-or">&nbsp;</a></p><h2>Example: Noisy <code>OR</code></h2>
+<dl><dd>This is another problem from Manfred Jaeger's benchmark: ``A very basic model that uses the noisy-or function for combining several causal inputs. Input structures are directed acyclic graphs on which a random unary attribute is propagated from the roots downward. Reference model comes from Primula.''<p>We write the model to be independent from the structure of the graph. Typical queries ask for the (distribution of the) values of the attribute at a particular node. Therefore, we express the attribute propagation backwards: rather the specifying how the attribute of a node propagates to its descendants, we describe how a node obtains the attribute from its ancestors. The process is trivially declared in OCaml, as a recursive function that, given a non-root node, finds its ancestors and combines their attributes using noisy-or. We easily extend this function with assertions of available evidence, to support conditional queries.</p>
+<p>Although the graph does not have directed cycles, it does have many undirected ones. As we work backwards, we may encounter a given node several times. Each time the value of node's random attribute must be the same. We have to use memoization.</p></dd>
+<dt><strong>References</strong></dt>
+<dd>Manfred Jaeger: Comparative Study of Probabilistic Logic Languages and Systems.
+<br>
+<a href="http://www.cs.aau.dk/~jaeger/plsystems/models.html">&lt; http://www.cs.aau.dk/~jaeger/plsystems/models.html &gt;</a><p><a href="noisy-or/noisy_or.ml">noisy_or.ml</a> [8K]
+<br>
+The well-commented code of several variations of the model. All in all, our exact inference scales to the large version of the benchmark, with 19 nodes.</p></dd></dl>
+<p><a name="music">&nbsp;</a></p><h2>Realistic Example: Motivic development in classical music</h2>
+<dl><dd>This model developed by Avi Pfeffer is said to be of realistic complexity. It illustrates impressively advanced importance sampling of IBAL. The model describes the transformation of melodic motives in classical music as a combination of transposition, inversion, deletion and insertion operations. The number of operations and their sequence are random, as is the effect of transposition on each note. Given two motives (sequences of notes) we wish to determine how likely one motive could have been developed from the other.<p>The very large search space and the very low probability of evidence make exact inference or rejection sampling hopeless. IBAL was able to handle the model using a combination of very clever and extensive analyses of model's code. Since HANSEI is embedded in OCaml and is a regular OCaml library, it cannot obtain the code of the whole program. It turns out that with the combination of reification and lazy evaluation we are able to handle this model with accuracy roughly comparable to that of IBAL.</p></dd>
+<dt><strong>References</strong></dt>
+<dd>Avi Pfeffer: A General Importance Sampling Algorithm for Probabilistic Programs.
+<br>
+Harvard University Technical Report TR-12-07, 2007. Dagstuhl Seminar 07161.
+<br>
+<a href="ftp://ftp.deas.harvard.edu/techreports/tr-12-07.pdf">&lt; ftp://ftp.deas.harvard.edu/techreports/tr-12-07.pdf &gt;</a><p><a href="music1a.ml">music1a.ml</a> [6K]
+<br>
+Warm-up: splitting a note sequence in two parts at a random place, and applying a randomly chosen operation (deletion, identity, or a note transposition by various amounts) to both parts of the sequence. Crucially this simplified model does not recursively subdivide and transform the sequence. Therefore, the state space remains sufficiently small even for exact inference. The lazy evaluation was essential.</p>
+<p><a href="music2.ml">music2.ml</a> [16K]
+<br>
+The full model, with recursive subdivision. The state space is very large, and the probability of evidence is very low, of the order 10^(-7). Only importance sampling is feasible.</p></dd></dl>
+<p><a name="blip">&nbsp;</a></p><h2>Realistic Example: Multitarget tracking</h2>
+<dl><dd>Milch's et al. BLOG chapter, Example 1.3, briefly described the problem of radar tracking of several aircrafts. David Poole posted the complete AILog2 code for a simple version of the example. After removing the over-simplification, we obtain the following model.<p>A flat region of space is observed by a radar on a 10x10 screen. A number of aircrafts fly through the region. The state (the location and the velocity) of an aircraft at each time step is a stochastic function of its state at the previous time step. With certain probability, the radar detects an aircraft, displaying a blip on the the screen. Due to the limited resolution of the radar, several aircrafts can give rise to the same blip. A number of false alarms may occur, each producing a blip. We observe the screen at several time moments and note the blips. The problem is to estimate the number of aircrafts. We may also want to identify the trajectory of each aircraft. A more general model allows aircrafts to disappear and new aircrafts to appear at each time step.</p>
+<p>We found it crucial to sample the state of an aircraft and the location of a false alarm lazily. If the x-coordinate of the detected aircraft does not match the x-coordinate of any observed blip, we immediately report the contradiction (of the possible world with the evidence). We do not need to compute the y-coordinate of the aircraft, let alone the locations of other aircrafts and false alarms. Because of laziness, extending our model to 3D would increase the computation time by 50% (rather than ten-fold, for the 10x10x10 grid).</p>
+<p>Sequential Monte Carlo was another necessary technique. We compute the complete distribution for the state of all the aircrafts at each time step. We can use exact inference or our importance sampling. For the ideal case without noise, we did both and observed good agreement, even with only 1500 samples. Computing the state of the system requires roughly the same amount of work per time step. This fact lets us trace the evolution of the system for as long as needed. As the noise decreases, the sampling results seem to converge to the `ground truth' (which can be inferred exactly). For simple cases, the computed results match calculations by hand.</p>
+<p>The very end of the code file shows the results for the general case, of three blips moving horizontally. As the time progresses, the observed evidence favors more and more there being three aircrafts.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="blip/blip.ml">blip.ml</a> [30K]
+<br>
+The successful attempt to express the model and do the inference. We used laziness systematically, almost mechanically, resisting the temptation to ``optimize.''<p>Brian Milch, Bhaskara Marthi, Stuart Russell, David Sontag, Daniel L. Ong, Andrey Kolobov. BLOG: Probabilistic Models with Unknown Objects.
+<br>
+In: Lise Getoor and Ben Taskar, eds. Introduction to Statistical Relational Learning. MIT Press, 2007 -- pp. 373--398
+<br>
+<a href="http://people.csail.mit.edu/milch/papers/blog-chapter.pdf">&lt; http://people.csail.mit.edu/milch/papers/blog-chapter.pdf &gt;</a></p>
+<p>David Poole: the AILog2 web page
+<br>
+<a href="http://www.cs.ubc.ca/spider/poole/aibook/code/ailog/ailog2.html">&lt; http://www.cs.ubc.ca/spider/poole/aibook/code/ailog/ailog2.html &gt;</a>
+<br>
+The web page refers to the complete AILog2 code for the airplane-blip example. The code simplifies the problem: first, it restricts aircraft movements to a plane. Then it assumes that observations of the radar screen are incomplete: the screen may contain other blips. The latter assumption is an over-simplification. For our model we used the observation procedure as given in Example 1.3 of Milch's et al. BLOG chapter. Alas, that BLOG code did not specify various priors; we picked what we considered reasonable priors, taking a hint from the AILog model whenever possible.</p>
+<p><a href="blip/blip_ailog.ml">blip_ailog.ml</a> [9K]
+<br>
+<a href="blip/blip_naive.ml">blip_naive.ml</a> [13K]
+<br>
+The re-implementation of the AILog code and the naive but ultimately unsuccessful attempt at the full model.</p></dd></dl>
+<p><a name="sorted">&nbsp;</a></p><h2>Realistic Example: sorted list</h2>
+<dl><dd>This problem may appear trivial to be called realistic. What makes it interesting is the astoundingly large search space. The problem has been posed by Georges Harik:<blockquote><p>
+ Draw <code>N</code> independent random samples from the uniform distribution
+ of integers within the interval <code>0..M-1</code>.
+ What is the probability that the sequence of samples is sorted?</p></blockquote>
+ Theoretically, when <code>M</code> is large (and so duplicates are unlikely),
+ the probability of the drawn samples being ordered is
+ <code>1/N!</code>. The task is to estimate that probability in
+ one's favorite probabilistic system, setting <code>M</code> to be 1 million and
+ <code>N</code> at least 10. With these parameters, the size of the search space is
+ <code>10^60</code>. Clearly exact inference and rejection sampling
+ are preposterous to consider.<p>Harik's problem is ideal for a benchmark: it is easy to explain and to model. The expected result is also known. Getting any useful estimate of the result is rather difficult, especially without extensive fine-tuning of the inference algorithm.</p>
+<p>Here are the results of solving the problem in HANSEI, using the importance sampling procedure from HANSEI library. In the model, the numbers are represented as lazy lists of bits, which proved crucial. Run times are in seconds on EeePC 701 (633 MHz CPU).</p>
+<pre>     M = 2^20, N = 10
+      1000 samples  runtime 8 secs   estimated prob is 1.69e-07
+      2000 samples  runtime 16 secs  estimated prob is 1.83e-07
+      4000 samples  runtime 32 secs  estimated prob is 1.83e-07
+      8000 samples  runtime 64 secs  estimated prob is 2.23e-07
+     
+         1/10! is 2.76e-07
+     
+     M = 2^20, N = 20
+      24000 samples  runtime 468 secs  estimated prob is 3.64e-20
+     
+        1/20! is 4.11e-19
+</pre>The convergence is a bit slow. We stress the use of a <em>general-purpose</em> importance sampling procedure, which knows nothing about numbers and numeric order, and which has not been tuned for the problem at hand.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="sorted.ml">sorted.ml</a> [9K]
+<br>
+The source code for the model expressed in HANSEI. Most of the code is comprised of various tests. The full sorted problem is tackled near the end of the file. OCaml comments show the results of sample runs.</dd></dl>
+<p><a name="bounded-rationality">&nbsp;</a></p><h2>Bounded-Rational Theory of Mind for Conversational Implicature</h2>
+<dl><dd>[The Abstract of the talk]
+<br>
+Game-theoretic and relevance-theoretic accounts of pragmatic reasoning often implement Grice's maxim of Manner by penalizing utterances for their syntactic complexity or processing effort.  In ongoing work, we propose to explain this penalty as the <em>risk of misinterpretation</em> in a bounded-rational theory of mind.  The core of this explanation is an executable representation of probabilistic inference in which probabilistic models and inference algorithms are expressed as interacting programs in the same language.  The payoff is that the same cognitive machinery that the hearer uses to decide what to do, by interpreting utterances, can also be used by the speaker to decide what to say, by predicting how potential utterances would be interpreted or misinterpreted by the hearer.<p>This is joint work with Chung-chieh Shan.</p></dd>
+<dt><strong>References</strong></dt>
+<dd>Chung-chieh Shan. The abstract of the Invited talk at Texas Linguistics Society XII. November 13-15 2009.
+<br>
+<a href="http://uts.cc.utexas.edu/~tls/tls2009/abstracts/invited_shan.pdf">&lt; http://uts.cc.utexas.edu/~tls/tls2009/abstracts/invited_shan.pdf &gt;</a><p><a href="incite.ml">incite.ml</a> [17K]
+<br>
+The code for the model and for several experiments with it</p></dd></dl>
+<p><a name="all-different">&nbsp;</a></p><h2>Correlated memoization and lazy permutations</h2>
+<dl><dd>
+ Sampling of permutations, stochastic bijective functions, sequences
+ of correlated random variables, the all-different constraint -- are
+ related to the same problem. A problem with so many names must be
+ important, and so must be its efficient solution.  We explain the
+ efficient solution on a sequence of simple examples, stressing
+ correlated stochastic memoization. We then discuss connections with
+ sorting and applications to various puzzles, such as zebra and
+ permutation sort.<p>
+ Our goal thus is to build a sequence of <code>N</code> all-different random
+ variables with the same range: a sample from the sequence should have
+ no duplicates.  If the value of each variable is an integer from <code>0</code>
+ through <code>N-1</code>, the problem is then the building of a stochastic
+ bijective <em>function</em><code>[0..N-1] -&gt; [0..N-1]</code>. Defining a stochastic
+ relation that is a function demands care: the naively
+ <code>[0,1] -&gt; [0,1]</code> stochastic relation <code>f1</code> below is not a function, which is
+ clearly seen from the probability table for the tuple <code>(f1 0, f1 1, f1
+ 0, f1 1)</code> computed by Hansei. (In the OCaml session
+ transcript below, the responses of the OCaml top-level are
+ indented.)</p>
+<pre>     open ProbM;;
+     let uniformly_list lst = List.nth lst (uniform (List.length lst));;
+         val uniformly_list : 'a list -&gt; 'a = &lt;fun&gt;
+     
+     exact_reify (fun () -&gt; 
+       let f1 = function
+         | 0 -&gt; uniformly_list [0;1]
+         | 1 -&gt; uniformly_list [0;1]
+       in 
+       (f1 0, f1 1, f1 0, f1 1))
+         - : (int * int * int * int) Ptypes.pV =
+         [(0.0625, Ptypes.V (1, 1, 1, 1)); (0.0625, Ptypes.V (1, 1, 1, 0));
+          (0.0625, Ptypes.V (1, 1, 0, 1)); (0.0625, Ptypes.V (1, 1, 0, 0));
+          (0.0625, Ptypes.V (1, 0, 1, 1)); (0.0625, Ptypes.V (1, 0, 1, 0));
+          (0.0625, Ptypes.V (1, 0, 0, 1)); (0.0625, Ptypes.V (1, 0, 0, 0));
+          (0.0625, Ptypes.V (0, 1, 1, 1)); (0.0625, Ptypes.V (0, 1, 1, 0));
+          (0.0625, Ptypes.V (0, 1, 0, 1)); (0.0625, Ptypes.V (0, 1, 0, 0));
+          (0.0625, Ptypes.V (0, 0, 1, 1)); (0.0625, Ptypes.V (0, 0, 1, 0));
+          (0.0625, Ptypes.V (0, 0, 0, 1)); (0.0625, Ptypes.V (0, 0, 0, 0))]
+</pre>
+ The transcript shows importing the Hansei library and defining a
+ procedure to uniformly sample from a list. The probability table
+ computed next makes it patent that repeated evaluations of <code>f1 0</code> may
+ give different results: <code>f1</code> is not a function. We have to use
+ the <code>memo</code> facility of Hansei to define <em>stochastic functions</em>, 
+ such as <code>f2</code>:<pre>     exact_reify (fun () -&gt;
+      let f2 = memo (function
+        | 0 -&gt; uniformly_list [0;1]
+        | 1 -&gt; uniformly_list [0;1])
+      in 
+      (f2 0, f2 1, f2 0, f2 1));;
+     
+         - : (int * int * int * int) Ptypes.pV =
+         [(0.25, Ptypes.V (1, 1, 1, 1)); (0.25, Ptypes.V (1, 0, 1, 0));
+          (0.25, Ptypes.V (0, 1, 0, 1)); (0.25, Ptypes.V (0, 0, 0, 0))]
+</pre>
+ The value of <code>f2 0</code> is non-deterministic: it can be <code>0</code> in one
+ possible world and <code>1</code> in another. Once the value of <code>f2 0</code> is chosen,
+ however, it stays the same. Therefore, <code>f2</code> is a function: repeated
+ applications of <code>f2</code> to the same argument give the same value.
+ The stochastic function <code>f2</code> however is not injective: there are
+ possible worlds (the first and the last one, in the above table)
+ in which <code>f2 0</code> and <code>f2 1</code> have the same value.<p>
+ The simplest way to turn <code>f2</code> into an injective function is to reject
+ the worlds in which it turns out not injective. We define <code>f3</code> by
+ asserting that applying it to different arguments must give different
+ values:</p>
+<pre>     exact_reify (fun () -&gt;
+      let f2 = memo (function
+        | 0 -&gt; uniformly_list [0;1]
+        | 1 -&gt; uniformly_list [0;1])
+      in
+      let f3 x = 
+        if f2 0 == f2 1 then fail ();
+        f2 x
+      in
+      (f3 0, f3 1, f3 0, f3 1));;
+     
+        - : (int * int * int * int) Ptypes.pV =
+        [(0.25, Ptypes.V (1, 0, 1, 0)); (0.25, Ptypes.V (0, 1, 0, 1))]
+</pre>
+ We obtained <code>f3</code> that is stochastic, is a function (applying it to the same
+ arguments gives the same values) and is injective (applying it
+ to different arguments gives different values). Alas, it is not
+ efficient. The weights in the resulting probability table sum to <code>0.5</code>
+ rather than to one, betraying the waste of the half of 
+ the choice space. We would like to avoid making choices that we
+ come to regret later. It behooves us to generate only the `right'
+ worlds.<p>
+ An injective and surjective function 
+ <code>[0..N-1] -&gt; [0..N-1]</code> is a permutation of the sequence <code>[0..N-1]</code>.
+ Hence we merely need to compute all permutations of the sequence, and sample
+ from it (using the already defined <code>uniformly_list</code>). For <code>N=2</code>, 
+ there are only two permutations, leading us to <code>f4</code> (here <code>letlazy</code>
+ is a version of <code>memo</code> specialized to thunks):</p>
+<pre>     exact_reify (fun () -&gt;
+      let perms = letlazy (fun () -&gt; uniformly_list [ [0;1]; [1;0] ]) in
+      let f4 = List.nth (perms ())
+      in 
+      (f4 0, f4 1, f4 0, f4 1));;
+     
+       - : (int * int * int * int) Ptypes.pV =
+       [(0.5, Ptypes.V (1, 0, 1, 0)); (0.5, Ptypes.V (0, 1, 0, 1))]
+</pre>
+<p>
+ The function <code>f4</code> is stochastic, is a function, is injective, and is
+ defined without wasting any choices. Yet we are still not satisfied.
+ For the general <code>N</code>, we will have to generate all permutations of
+ the sequence <code>[0..N-1]</code> so to sample from them. The first
+ application <code>f4 x</code> to any argument <code>x</code> involves sampling from <code>N!</code> choices.
+ (Further applications of <code>f4</code> use already made choices.) If the value
+ of <code>f4 x</code> turns out inconsistent with further constraints on the
+ world, we have to reject not only the choice that has lead to <code>f4 x</code>
+ but also <code>(N-1)!</code> choices that have lead to <code>f4 y</code> for all
+ other arguments <code>y</code>. We will have wasted a lot of choice space.</p>
+<p>
+ The waste can be reduced by computing the permutations on demand. We introduce
+ a function <code>lazy_permutation : 'a list -&gt; (unit -&gt; 'a) list</code>
+ that maps a list <code>lst</code> of values to a list of random variables.
+ The variables are <em>correlated</em>.
+ Sampling the first random variable gives a value uniformly chosen
+ from <code>lst</code>. Sampling the second variable gives an element of <code>lst</code>
+ that is different from the one chosen by the first variable, etc. Sampling
+ all the random variables gives a permutation of <code>lst</code>. Crucially,
+ if we reject the sample of one random variable, all further random
+ variables are left unsampled: The permutation is computed
+ to the needed extent. If we handle the result of
+ <code>lazy_permutation</code> as a list, in sequence, we can save quite many choices.
+ The source code below demonstrates that <code>lazy_permutation</code> indeed
+ samples from all permutations, <em>uniformly</em>. The code defines
+ the lazy stochastic injective function <code>f5</code> such that determining 
+ <code>f5 0</code> requires only <code>N</code> choices, <code>f5 1</code> -- N*(N-1) choices, etc.</p>
+<p>
+ The code for <code>lazy_permutation</code> relies on the function
+ <code>uniformly_uncons : 'a list -&gt; 'a * 'a list</code> that
+ uniformly selects one element from a list, returning the element
+ and the remainder of the list. The code thus illustrates an acute
+ observation by Dylan Thurston and Chung-chieh Shan that a sorting
+ algorithm corresponds to a permutation algorithm. To further
+ illustrate the relationship, the code implements a lazy permutation
+ function that is based on insertion sort, non-deterministically
+ inserting elements one-by-one into the initially empty list.
+ It turns out slower than the selection-sort--based permutation.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is December 2010.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="lazy_permutations.mli">lazy_permutations.mli</a> [2K]
+<br>
+<a href="lazy_permutations.ml">lazy_permutations.ml</a> [12K]
+<br>
+The complete source code and the tests<p><a href="../Computation/monads.html#lazy-sharing-nondet">Purely Functional Lazy Non-deterministic Programming</a>
+<br>
+
+    The cited paper describes an alternative implementation of lazy
+    permutations, which corresponds to insertion sort rather than
+    selection sort. This alternative method requires defining a data
+    structure for lists with a non-deterministic tail. The alternative
+    method is more general since it represents lists whose size is
+    random as well. On the other hand, the selection-sort--based method
+    here works with the ordinary lists of OCaml, and is faster.</p>
+<p><a href="logic-programming.html#zebra">Solving the zebra puzzle</a> with a sequence of all-different random variables.</p></dd></dl>
+<br>
+<div><hr></div><h3>Last updated March 1, 2016</h3>
+This site's top page is <a href="http://okmij.org/ftp/"><strong>http://okmij.org/ftp/</strong></a><div><p><cite>oleg-at-okmij.org</cite>
+<br>
+Your comments, problem reports, questions are very welcome!</p></div>
+<p><font size="-2">Converted from HSXML by HSXML-&gt;HTML</font></p></body></html>

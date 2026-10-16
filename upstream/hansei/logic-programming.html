@@ -1,0 +1,1257 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN"
+ "http://www.w3.org/TR/html4/loose.dtd"><html><head><title>Logic Programming in HANSEI</title>
+<meta name="description" content="Using Hansei for the ordinary logic programming">
+<meta name="Author" content="oleg-at-okmij.org">
+<meta name="Date-Revision-yyyymmdd" content="20140911">
+<meta name="Date-Creation-yyyymmdd" content="20101215">
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+<link rel="up" href="kakuritu.html">
+<link rel="top" href="http://okmij.org/ftp/">
+<link rel="prev" href="../Prolog/Prolog.html">
+<link rel="next" href="../Computation/monads.html"></head>
+<body bgcolor="#FFFFFF"><div align="center"><a href="../Prolog/Prolog.html">previous</a>  &nbsp; <a href="../Computation/monads.html">next</a>  &nbsp; <a href="kakuritu.html">up</a>  &nbsp; <a href="http://okmij.org/ftp/">top</a><hr></div>
+<div align="center"><h1>HANSEI as a Declarative Logic Programming Language</h1>
+</div>
+<p>&nbsp;</p>
+<ul><li><a href="#vs-prolog">Re-thinking Prolog</a></li>
+<li><a href="#StrangeLoop">Guess Lazily! Making a program guess, and guess well</a></li>
+<li><a href="#introduction">Why HANSEI?</a></li>
+<li><a href="#logic-var">No logic variables? No unification?</a>
+<br>
+&nbsp;</li>
+<li><a href="#append">The append relation</a></li>
+<li><a href="#daily-schedule">Solving scheduling problems</a></li>
+<li><a href="#zebra">Zebra puzzle</a>
+<br>
+&nbsp;</li>
+<li><a href="#parsec">`Reversible' parser combinators</a></li>
+<li><a href="#many">Maximal munch, committed choice and nested inference</a>
+<br>
+&nbsp;</li>
+<li><a href="Hansei.html">HANSEI: Embedded Probabilistic Programming</a></li></ul>
+<hr>
+<p><a name="vs-prolog">&nbsp;</a></p><h2>Re-thinking Prolog</h2>
+<dl><dd>[Abstract]
+<br>
+
+Classical Prolog is an elegant language that concisely represents the
+fundamental concepts of term algebra, non-determinism, unification,
+counter-example driven search, and the separation of logic and
+control.  The ability to run a program forwards and backwards is
+uncanny.  However, real Prolog programs are replete with cuts, FFI
+calls, committed choice and unexpected divergence-- defiling the
+Classical purity.<p>
+Classical Prolog is an enchanting misconception. It ought to be
+studied, for its ideas and lessons. One lesson is that guessing--
+non-determinism-- is fundamental, but should not be the default mode
+of execution. One should guess, but guess lazily.</p>
+<p>
+The strong points of Prolog can be brought into an ordinary functional
+programming language. Using OCaml as a representative, we implement lazy
+guessing as a library, with which we reproduce classical Prolog
+examples. Furthermore, we demonstrate parser combinators that use
+committed choice (maximal munch) and can still be run forwards and
+backwards. They cannot be written in Classical Prolog. Logic variables,
+unification, and its WAM compilation strategy naturally emerge as
+a ``mere optimization'' of the Herbrand universe enumeration.</p></dd>
+<dt><strong>References</strong></dt>
+<dd><a href="rethinking.pdf">rethinking.pdf</a> [361K]
+<br>
+Proc. 31st meeting of the Japan Society for Software Science and Technology (JSSST). Sep 8-10, 2014. Nagoya, Japan<p><a href="rethinking-talk.pdf">rethinking-talk.pdf</a> [261K]
+<br>
+Annotated slides of the talk at the 31st JSSST meeting, Sep 9, 2014</p>
+<p><a href="prolog_drawbacks.pro">prolog_drawbacks.pro</a> [6K]
+<br>
+Source code for the Prolog examples in the first part of the talk</p>
+<p><a href="logic_vars.ml">logic_vars.ml</a> [13K]
+<br>
+The complete source code for the Hansei examples in the second part of the talk</p>
+<p><a href="NII2012.pdf">NII2012.pdf</a> [198K]
+<br>
+Non-deterministic choice in a conventional programming language: Enough for logic programming?
+<br>
+
+Annotated slides of the presentation at the 55th Tokyo Programming Seminar
+(ToPS) at the National Institute of Informatics, Japan. December 18, 2012.</p></dd></dl>
+<p><a name="introduction">&nbsp;</a></p><h2>Why HANSEI?</h2>
+<dl><dd>
+ Hansei is a probabilistic programming language embedded in OCaml,
+ an OCaml library. It has not been intended for logic programming.
+ It provides no logic variables or unification. Furthermore,
+ tracking and accumulating probabilities is overkill for
+ logic programming.<p>
+ An inspiring conversation with Mikael More brought up unthought-of
+ questions. What if we do try to use Hansei to solve typical logic
+ programming puzzles? Can we even do it? Can we do it efficiently? How
+ much of logic programming will remain?  In particular, can we read
+ the Hansei code as a clear, declarative statement of the problem,
+ without being distracted by the details of the solution? This present web
+ page documents the attempts to answer all these questions. Hansei
+ turns out suitable for logic programming after all.</p>
+<p>
+ We discuss logic programming without logic variables in a separate
+ article below. Here we argue why one might want to consider Hansei
+ when solving a typical logic programming problem.</p>
+<p>
+ Hansei adheres to declarative programming, by
+ separating building probabilistic models from inference.  A model
+ describes the properties of a possible world and defines computations and
+ constraints on them. Inference finds possible worlds satisfying the
+ properties and the constraints. Building models and writing
+ inference (search) procedures are distinct activities with distinct
+ abstractions; writing custom inference procedures is rare since the
+ ones in Hansei often suffice.</p>
+<p>
+ Many uses of cuts, negation and committed choice in Prolog are a way
+ of telling that certain predicate is (semi-)deterministic; in other
+ words, the underlying relation is functional.  In Hansei, it is the
+ determinism that is the default; deterministic computations run `at
+ full speed' of OCaml, with no overhead. Hansei is thus particularly
+ suitable for logic programs with a large portion of deterministic,
+ especially numeric, computations. Hansei, as underlying OCaml, is
+ typed. Types are notably useful in logic programming, to avoid
+ a typical Prolog problem, of a mis-spelled constant or variable 
+ leading to an incorrect answer rather than an error message. 
+ Without types, such errors are frustratingly difficult to find.</p>
+<p>
+ Probability estimations turn out useful too: if we prematurely
+ terminate a Hansei search, we obtain an estimate of the probability of
+ missing a solution. Assigning different weights to different choices
+ (that is, using non-uniform probability distributions) is a way to
+ supply heuristics to bias the search.</p>
+<p>
+ Except for probability, the arguments for Hansei are the arguments
+ for functional logic programming, equally applicable to the languages
+ like Curry. The strong case for functional-logic programming has been
+ made elsewhere, see in particular surveys by Michael Hanus. The
+ advantage of Hansei is that it is not a separate language: it is just
+ a user-extensible OCaml library. The arguments for Hansei also
+ apply to embeddings of non-determinism in a typed functional language
+ (for example, MonadPlus in Haskell), <em>provided</em> the crucial feature
+ of lazy sharing is supported.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is November 2010.</dd>
+<dt><strong>References</strong></dt>
+<dd>Michael Hanus: Multi-paradigm Declarative Languages
+<br>
+A survey. ICLP 2007, Springer LNCS 4670.
+<br>
+<a href="http://www.informatik.uni-kiel.de/~mh/papers/ICLP07.html">&lt; http://www.informatik.uni-kiel.de/~mh/papers/ICLP07.html &gt;</a><p><a href="Hansei.html">HANSEI: Embedded Probabilistic Programming</a></p>
+<p><a href="../Computation/monads.html#lazy-sharing-nondet">Purely Functional Lazy Non-deterministic Programming</a>
+<br>
+The paper describes the importance, the equational theory and the implementation of lazy sharing. The implementation of <code>letlazy</code> in Hansei is based on the technique explained in the paper.</p></dd></dl>
+<p><a name="StrangeLoop">&nbsp;</a></p><h2>Guess Lazily! Making a program guess, and guess well</h2>
+<dl><dd>[The Abstract of the talk]<blockquote>
+Guessing is a part of life and science. We form a hypothesis, work out
+the consequences and compare with observations. Lots of problems are
+formulated by first assuming that the solution exists and then
+describing the properties it should have. Planning, scheduling,
+diagnostic, learning problems and Sudoku all follow this pattern.
+Guessing is good not only for describing these problems but also for
+solving them. We make a guess -- often a series of guesses -- to
+build, for example, a schedule, and check if it satisfies resource,
+timeliness and other constraints. Often, we guess again.<p>
+How do we write ``guess the value of this variable'' in code? How do
+we code ``guess again''? How to put in prior knowledge favoring some
+guesses? The talk first will answer these questions.</p>
+<p>
+Naive guessing however is hopeless even for toy problems. We often
+have to make lots of guesses before getting a candidate solution to
+check against the constraints. Only a tiny or even infinitesimal
+proportion of these guesses yield a successful candidate. How to make
+good guesses? That is very hard to know: Most physical, biological,
+sociological, etc. models are set up to compute the consequences of
+causes rather than the other way around. It helps to reformulate the
+question: how to avoid too many bad guesses?  The talk will describe
+and illustrate a general principle, found in any serious logic,
+non-deterministic or probabilistic programming system.</p>
+<p>
+The techniques explained in the talk are not tied to any language and
+can be used even in C. However, functional, especially typed
+functional languages have a serious advantage, as we shall see.  No
+prior knowledge of logic or non-deterministic programming is
+required. The ability to read introductory OCaml or Haskell code will
+be helpful. The participants will learn how to guess in their favorite
+language, and what it takes to succeed.  They will see
+laziness, unification and constraint propagation in the same light.</p></blockquote>
+<p>
+There are several programming languages build around non-determinism:
+standalone -- such as Icon, Prolog, Curry -- or deeply embedded like Kanren.
+The talk is not about them. It is about <em>your</em> language. Although the talk
+uses OCaml for concreteness, the main points are not OCaml-specific
+and have been realized in other languages. We will <em>not</em>
+be talking about <em>implementing</em> a dialect of Prolog in your language.
+Rather, we argue for using non-determinism in your language directly.
+There is no new language to learn or a strict convention to follow. You write
+code as you normally do; you call any function in any library as 
+usual -- without any wrappers and without pondering how to turn that 
+third-party function into a relation or to make it reversible. 
+Likewise, you can give non-deterministic callbacks to unsuspecting
+third-party functions.</p>
+<p>
+Does this `direct guessing' measure up to bona fide logic programming?
+After all, your language, like OCaml, may have no logic variables,
+unification, or constraint solvers. The talk -- and this page --
+describe several classical examples of logic programming, all
+implemented in OCaml, with Hansei library. You can do logic
+programming in your language.  All you need is <code>fork(2)</code> -- a form of
+clonable threads with a backtrackable (world-local) state.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is September 2012.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="StrangeLoop.pdf">StrangeLoop.pdf</a> [167K]
+<br>
+Annotated slides of the talk presented at the <em>Strange Loop</em> conference. St Louis, MO, U.S.A. September 25, 2012<p>Tim Menzies, David Owen and Julian Richardson: ``The Strangest Thing About Software''
+<br>
+IEEE Computer, January 2007, pp. 54-60.
+<br>
+<a href="http://menzies.us/pdf/07strange.pdf">&lt; http://menzies.us/pdf/07strange.pdf &gt;</a>
+<br>
+
+Abstract: ``Although there are times when random search is dangerous and should
+be avoided, software analysis should start with random methods because
+they are so cheap, moving to the more complex methods only when random
+methods fail.''
+<br>
+
+The article makes the compelling case for guessing as a way of solving
+problems. It details two examples, scheduling and finite-model
+checking, where random search turns out faster than sophisticated
+methods. These examples are not accidental, the authors argue.</p>
+<p><a href="puzzle.ml">puzzle.ml</a> [6K]
+<br>
+The code for the puzzle at the beginning of the talk</p>
+<p><a href="#parsec">`Reversible' parser combinators</a>
+<br>
+The second example in the talk</p>
+<p><a href="type_inference.ml">type_inference.ml</a> [10K]
+<br>
+The code for the reversible type inference, the last example in the talk</p></dd></dl>
+<p><a name="logic-var">&nbsp;</a></p><h2>No logic variables? No unification?</h2>
+<dl><dd>
+ Logic variables and accompanying unification are such salient
+ features of popular logic programming languages that logic programming seems 
+ inconceivable without them. The story of programming in logic without
+ logic variables is dramatic, filled with theoretically inspired
+ hopes dashed in practice. We show that although theoretical advances
+ and improvements in the Hansei implementation are welcome, Hansei
+ <em>as it is</em> is already capable of expressing the standard Prolog idioms,
+ <em>retaining</em> their spirit. We can indeed do proper logic programming in Hansei:
+ declaring relations and asking the system to find their model.<p>
+ Logic programming without logic variables should be obvious. The
+ minimal model semantics of Prolog needs no logic variables; after all,
+ Herbrand basis is by definition a set of <em>ground</em> atoms.  The
+ fixpoint construction (iterating the immediate consequence operator)
+ gives the algorithm of finding the minimal model with no use for
+ variables or unification. The reality dims the hope: although the
+ fixpoint construction is viable for definite Datalog programs, it is
+ difficult to perform when the Herbrand basis is infinite and the
+ logic program contains negation and committed choice.</p>
+<p>
+ Two recent theoretical results in functional logic programming, Antoy
+ and Hanus (2006) and Dios Castro and Lopez-Fraguas (2006), point out
+ that logic variables and non-determinism due to overlapping rules have
+ the same computational power. The main idea is representing a logic
+ variable by a generator of its domain, with sharing of the generator
+ expressing repeated occurrences of the variable. The idea is
+ intuitively clear: a logic variable indeed stands for <em>some</em> term,
+ non-deterministically chosen from a suitable domain.  The papers
+ derive a systematic transformation of a program with logic variables
+ into the one without, while preserving the set of derivations. Alas,
+ preserving the <em>set</em> of derivations (reductions) is a rather weak
+ notion of program equivalence. For example, it does not account for
+ the multiplicity of results, considering a program that yields, say, a
+ single 0 equivalent to a program yielding the infinite
+ sequence of 0s. In logic programming practice, we usually do
+ distinguish such programs, valuing programs that produce a finite set
+ of answers in finite time. The other drawback of the theoretical
+ frameworks used in both papers is the inability to reason about finite
+ failure. A logic program that returns &quot;NO&quot; and a
+ program that loops forever are regarded as equivalent in these
+ frameworks. In practice we consider such programs as very
+ different. Since the papers are written as theoretical, the details
+ about sharing and fairness of generators are sketchy.</p>
+<p>
+ Aware of the theoretical hopes and practical shortcomings, we decided
+ to press ahead and see just how far we can go expressing standard
+ Prolog idioms in a language without logic variables.  Pending adequate
+ theoretical analysis, empirical case studies seem the only
+ choice. The present web page documents our results. The somewhat
+ unexpected conclusion is that we go quite far. Hansei
+ as it is appears suitable for logic programming.</p>
+<p>
+ We have gone back to Herbrand: we build the Herbrand universe (the set of
+ all ground terms) and explore it to find a model of a program
+ (that is, tuples of terms that model all declared relations).
+ We build the universe by modeling `logic variables'
+ as generators for their domains. It greatly helps that Hansei is
+ typed; the type of a `logic variable' specifies its domain and, hence,
+ the generator. Since the Herbrand universe for most logic programs
+ is infinite, we need
+ non-strict evaluation. Furthermore, since logic variables may
+ occur several times, we must be able to correlate the generators. Although
+ Hansei is embedded in OCaml, which is strict, Hansei supports
+ on-demand evaluated non-deterministic computations with sharing:
+ so-called <code>letlazy</code> computations. Finally, since the search space
+ is generally infinite, we need a systematic way of exploring it,
+ without getting stuck in one infinite sub-region. Again Hansei provides
+ a number of search strategies, including sampling and iterative deepening.
+ (We shall use the latter in all our examples.)</p>
+<p>
+ Logic variables and unification have been introduced by Robinson
+ as a way to `lift' ground resolution proofs of Herbrand, to avoid
+ generating the vast number of ground terms. Logic variables effectively
+ delay the generation of ground terms to the last possible moment and
+ to the least extent. Doing computations only as far as needed is also
+ the goal of lazy evaluation. It appears that lazy evaluation can make
+ up for logic variables, rendering Herbrand's original approach practical.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is December 2010.</dd>
+<dt><strong>References</strong></dt>
+<dd>Portoraro, Frederic: Automated Reasoning
+<br>
+The Stanford Encyclopedia of Philosophy (Winter 2010 Edition), Edward N. Zalta (ed.)
+<br>
+<a href="http://plato.stanford.edu/archives/win2010/entries/reasoning-automated/">&lt; http://plato.stanford.edu/archives/win2010/entries/reasoning-automated/ &gt;</a>
+<br>
+Section 2.1 ``Resolution'' describes Robinson's idea of unification, which made Herbrand's approach practical. We avoid unification, using lazy evaluation rather than logic variables to improve the efficiency of the original Herbrand approach.<p>John Alan Robinson: ``Computational Logic: Memories of the Past and Challenges for the Future''
+<br>
+Proceedings of the First International Conference on Computational Logic, LNAI 1861, pp. 1-24, 2000.
+<br>
+John Alan Robinson reminisces about Herbrand, unification and the discovery of resolution.</p>
+<p>Sergio Antoy and Michael Hanus: Overlapping rules and logic variables in Functional Logic Programs
+<br>
+ICLP 2006.</p>
+<p>J. de Dios Castro and F.J. Lopez-Fraguas: Elimination of Extra Variables in Functional Logic Programs
+<br>
+Proc. V Jornadas sobre Programacion y Lenguajes (PROLE'06), pp. 121-135, 2006.</p></dd></dl>
+<p><a name="append">&nbsp;</a></p><h2>The append relation</h2>
+<dl><dd>
+ We introduce logic programming in Hansei on the classical example
+ of the <code>append</code><em>relation.</em> Append relates three lists <code>l1</code>, <code>l2</code> and <code>l3</code>
+ such that <code>l3</code> is the concatenation of <code>l1</code> and <code>l2</code>. All throughout we 
+ take our lists to be lists of booleans. We will contrast Prolog code 
+ with Hansei code, developing both incrementally and interactively.
+ The responses of Prolog resp. OCaml top-level are indented.<p>
+ In Prolog, the append relation is stated as:</p>
+<pre>     append([],L,L).
+     append([H|T],L,[H|R]) :- append(T,L,R).
+</pre>
+ declaring that an empty list is a prefix of any list,
+ a list is a suffix of itself, and prepending to the prefix of a list prepends
+ to the list. Certainly <code>append</code> can concatenate two lists:<pre>     ?- append([t,t,t],[f,f],X).
+          X = [t, t, t, f, f].
+</pre>
+ By passing a free logic variable as one of the two first arguments,
+ we can concatenate not fully-determined lists:<pre>     ?- append([t,t,t],X,R).
+          R = [t, t, t|X].
+</pre>
+ We see the single result, which stands for every
+ list with the prefix <code>[t,t,t]</code>. Such a compact representation of an infinite
+ set is an asset. Alas, it is not always available, and is often a mirage.
+ For example, if we pass a free variable as the first argument of
+ <code>append</code>, Prolog responds differently:<pre>     ?- append(X,[f,f],R).
+          R = [f, f] ;
+          R = [_G328, f, f] ;
+          R = [_G328, _G334, f, f] ;
+          R = [_G328, _G334, _G340, f, f] . 
+</pre>
+ with an infinite set of answers, to be enumerated indefinitely. It
+ may not be fully apparent that our Prolog code has not faithfully
+ represented the original problem: to relate <em>boolean</em> lists. The last
+ two answers describe lists of more than mere booleans. We have to
+ impose the restriction, by defining the type predicates<pre>     bool(t).
+     bool(f).
+     boollist([]).
+     boollist([H|T]) :- bool(H), boollist(T).
+</pre>
+ and re-writing our queries:<pre>     ?- append([t,t,t],X,R), boollist(X), boollist(R).
+          R = [t, t, t] ;
+          R = [t, t, t, t] ;
+          R = [t, t, t, t, t] ;
+          R = [t, t, t, t, t, t] ;
+          R = [t, t, t, t, t, t, t, t, t] .
+     
+     ?- append(X,[f,f],R), boollist(X), boollist(R).
+          R = [f, f] ;
+          R = [t, f, f] ;
+          R = [f, f, f] . 
+</pre>
+ One of <code>boollist(X)</code> or <code>boollist(R)</code> would have
+ been enough: if <code>X</code> is a boolean list, so is <code>R</code>. Alas, Prolog has no 
+ type inference and is unable to infer or take advantage of that fact.
+ To be safe, we add both predicates. The compact representation for the 
+ lists with the <code>[t, t, t]</code> prefix has disappeared.
+ More seriously, the default depth-first search strategy of Prolog gives
+ us only half of the answers; we won't ever see the lists with an <code>f</code> 
+ after the first three <code>t</code>.<p>
+ We switch to Hansei. In a typed language, types -- the specification
+ of the problem -- come first. We start by defining the type <code>blist</code> of 
+ boolean lists with a non-deterministic spine, along with the convenient
+ constructors:</p>
+<pre>     type bl = Nil | Cons of bool * blist
+     and blist = unit -&gt; bl;;
+     
+     let nil  : blist = fun () -&gt; Nil;;
+     let cons : bool -&gt; blist -&gt; blist = fun h t () -&gt; Cons (h,t);;
+</pre>
+ and the conversion to ordinary, fully deterministic lists, 
+ to see the results.<pre>     let rec list_of_blist bl = match bl () with
+       | Nil        -&gt; []
+       | Cons (h,t) -&gt; h:: list_of_blist t;;
+     
+         val list_of_blist : blist -&gt; bool list = &lt;fun&gt;
+</pre>
+<p>
+ We now define <code>append</code>, seemingly as a function, in the fully standard,
+ also declarative, way.</p>
+<pre>     let rec append l1 l2 = match l1 () with
+       | Nil        -&gt; l2
+       | Cons (h,t) -&gt; cons h (fun () -&gt; append t l2 ());;
+     
+         val append : blist -&gt; blist -&gt; blist = &lt;fun&gt;
+</pre>
+<p>
+ An attempt to concatenate two sample lists:</p>
+<pre>     let t3 = cons true (cons true (cons true nil));;
+     let f2 = cons false (cons false nil);;
+     append t3 f2;;
+         - : blist = &lt;fun&gt;
+</pre>
+<p>
+ turns out not informative. Recall that we use the Hansei library
+ to build a probabilistic model, which we then have to <em>run</em>.
+ Running the model determines the set of possible worlds consistent
+ with the probabilistic model: the model of the model. The set of
+ model outputs in these worlds is the set of answers.
+ Hansei offers a number of ways to run models and obtain the answers
+ and their weights. We will be using iterative deepening:</p>
+<pre>     val reify_part : int option -&gt; (unit -&gt; 'a) -&gt; (Ptypes.prob * 'a) list
+</pre>
+ The first argument is the depth search bound (infinite, if <code>None</code>).<pre>     reify_part None (fun () -&gt; list_of_blist (append t3 f2));;
+         - : (Ptypes.prob * bool list) list = [(1., [true; true; true; false; false])]
+</pre>
+ Running our first append model has given the expected result, with the expected
+ weight. Following along the Prolog code, we turn to appending to an
+ indeterminate list.<p>
+ Indeterminate lists are represented by generators. Hence, we need
+ generators for bool and bool list domains. The generators must use <code>letlazy</code>,
+ to delay the generation until the value is needed; once the value has been
+ determined, it stays the same.</p>
+<pre>     let a_boolean () = letlazy (fun () -&gt; flip 0.5);;
+         val a_boolean : unit -&gt; unit -&gt; bool = &lt;fun&gt;
+     let rec a_blist () = letlazy (fun () -&gt; dist [(0.5, Nil); (0.5, Cons(flip 0.5, a_blist ()))]);;
+         val a_blist : unit -&gt; blist = &lt;fun&gt;
+</pre>
+<p>
+ Let us see a sample of generated values, as a spot-check:</p>
+<pre>     reify_part (Some 5) (fun() -&gt; list_of_blist (a_blist ()));;
+         - : (Ptypes.prob * bool list) list =
+           [(0.5,     []); 
+            (0.125,   [false]); 
+            (0.03125, [false; false]);
+            (0.03125, [false; true]); 
+            (0.125,   [true]);
+            (0.03125, [true; false]);
+            (0.03125, [true; true])]
+</pre>
+ The lists of different lengths have different probabilities, or
+ different likelihoods of encountering them. We could use the accumulated
+ probability mass as the measure of the explored search space, terminating
+ the search once a threshold is reached. One is reminded of probabilistic
+ algorithms such as the Rabin-Miller primality test.<p>
+ We are now ready to reproduce the Prolog code, passing a `free' variable
+ as an argument to <code>append</code> and obtaining a sequence of lists with the
+ given prefix or suffix. Unlike Prolog, we are
+ not stuck in a corner of the search space. We generate all lists
+ with the given prefix <code>[true; true; true]</code>.</p>
+<pre>     reify_part (Some 5) (fun() -&gt;
+      let x = a_blist () in
+      list_of_blist (append t3 x));;
+         - : (Ptypes.prob * bool list) list =
+     	 [(0.5,     [true; true; true]); 
+     	  (0.125,   [true; true; true; false]);
+     	  (0.03125, [true; true; true; false; false]);
+     	  (0.03125, [true; true; true; false; true]);
+     	  (0.125,   [true; true; true; true]);
+     	  (0.03125, [true; true; true; true; false]);
+     	  (0.03125, [true; true; true; true; true])]
+     
+     reify_part (Some 5) (fun() -&gt;
+      let x = a_blist () in
+      list_of_blist (append x f2));;
+         - : (Ptypes.prob * bool list) list =
+     	 [(0.5,     [false; false]); 
+     	  (0.125,   [false; false; false]);
+     	  (0.03125, [false; false; false; false]);
+     	  (0.03125, [false; true; false; false]); 
+     	  (0.125,   [true; false; false]);
+     	  (0.03125, [true; false; false; false]);
+     	  (0.03125, [true; true; false; false])]
+</pre>
+<p>
+ Prolog's <code>append</code> is so elegant because it defines a relation among 
+ three lists. One can specify any two lists and query for 
+ the other one that makes the relation hold. For example, we check if
+ a given list has a given prefix, and if so, remove it:</p>
+<pre>     ?- append([t,t],X,[t,t,t,f,f]).
+         X = [t, f, f].
+</pre>
+<p>
+ We can do the same in Hansei, effectively `running <code>append</code> backwards.'
+ We introduce a sample list to deconstruct and a function two compare
+ two lists. It is an ordinary function, not a built-in.</p>
+<pre>     let t3f2 = append t3 f2;;
+     
+     let rec bl_compare l1 l2 = match (l1 (), l2 ()) with
+      | (Nil,Nil)  -&gt; true
+      | (Cons (h1,t1), Cons (h2,t2)) -&gt; h1 = h2 &amp;&amp; bl_compare t1 t2
+      | _          -&gt; false;;
+         val bl_compare : blist -&gt; blist -&gt; bool = &lt;fun&gt;
+</pre>
+ The prefix-removal example is as follows. In words: we assert that
+ there exists a boolean list <code>x</code> such that appending it to 
+ <code>[true; true]</code> yields the list <code>t3f2</code>. We ask Hansei to find all
+ possible worlds in which the assertion holds and report the value
+ of <code>x</code> in these worlds.<pre>     reify_part None (fun() -&gt;
+      let x = a_blist () in
+      let r = append (cons true (cons true nil)) x in
+      if not (bl_compare r t3f2) then fail ();
+      list_of_blist x);;
+     
+         - : (Ptypes.prob * bool list) list = [(0.0078125, [true; false; false])]
+</pre>
+ Since the search bound was <code>None</code>, the returned single result came from
+ the exhaustive enumeration of the entire search space. The search space is
+ indeed infinite, but amenable to efficient exploration because most
+ of the possible worlds are inconsistent with the assertion and
+ could be rejected wholesale, without generating them. For example,
+ when comparing an indeterminate list to an empty list, <code>bl_compare</code>
+ returns the result after forcing a single choice. One can tell
+ if a list is empty by checking for the first <code>Cons</code> cell.
+ One does not need to know how many else elements there may be in the list.
+ In general, if the lists are not equal, it can be determined by 
+ examining their finite prefix. Furthermore, if one of <code>bl_compare</code>'s arguments
+ has a fixed length (as is the case in our example: <code>t3f2</code> is the list
+ of 5 elements), the comparison finishes after forcing finitely many choices.
+ The ability of <code>bl_compare</code> to deal with partially determined lists
+ relates it to unification: unifying <code>[X|Y]</code> with the empty
+ list fails without the need to instantiate <code>X</code> or <code>Y</code>, in effect
+ performing the comparison with the infinite set of concrete lists.<p>
+ We can likewise use <code>append</code> to check for, and remove, a  given suffix.
+ We can  also split  a given list  in all  possible ways,
+ returning its prefixes and suffixes. If the list is finite, we obtain
+ the finite number of answers, in Prolog:</p>
+<pre>     ?- append(X,Y,[t,t,t,f,f]).
+         X = [],  Y = [t, t, t, f, f] ;
+         X = [t], Y = [t, t, f, f] ;
+         X = [t, t], Y = [t, f, f] ;
+         X = [t, t, t], Y = [f, f] ;
+         X = [t, t, t, f], Y = [f] ;
+         X = [t, t, t, f, f], Y = [] ;
+         false.
+</pre>
+ and, similarly, in Hansei:<pre>     reify_part None (fun() -&gt;
+      let x = a_blist () in
+      let y = a_blist () in
+      let r = append x y in
+      if not (bl_compare r t3f2) then fail ();
+      (list_of_blist x, list_of_blist y));;
+     
+         - : (Ptypes.prob * (bool list * bool list)) list =
+     	 [(0.000244140625, ([], [true; true; true; false; false]));
+     	  (0.000244140625, ([true], [true; true; false; false]));
+     	  (0.000244140625, ([true; true], [true; false; false]));
+     	  (0.000244140625, ([true; true; true], [false; false]));
+     	  (0.000244140625, ([true; true; true; false], [false]));
+     	  (0.000244140625, ([true; true; true; false; false], []))]
+</pre>
+ The Hansei code follows the demonstrated pattern, of building
+ a probabilistic model returning a pair of two `random' lists
+ <code>x</code> and <code>y</code>, conditioned upon the asserted evidence that their 
+ concatenation is <code>t3f2</code>. In the above code, the OCaml variable <code>x</code> 
+ is used twice. Although it is bound to a generator, its two use 
+ occurrences refer to the same generated value -- thanks to <code>letlazy</code>
+ in the definition of <code>a_blist</code>.<p>
+ Our final example is <code>last</code>, relating a list to its last element. 
+ We contrast Prolog code</p>
+<pre>     last(E,L) :- append(_,[E],L).
+     
+     ?- last(E,[t,t,f]).
+     E = f ;
+</pre>
+<p>
+ to Hansei code:</p>
+<pre>     let last bl = 
+      let x = a_blist () in
+      let e = a_boolean () in
+      if not (bl_compare (append x (cons (e ()) nil)) bl) then fail ();
+      e;;
+         val last : blist -&gt; unit -&gt; bool = &lt;fun&gt;
+     
+     reify_part None (fun() -&gt; last t3f2 ());;
+         - : (Ptypes.prob * bool) list = [(0.0009765625, false)]
+</pre>
+<p>
+ There are still open questions. The following code produces the result
+ with no restrictions on the search space:</p>
+<pre>     reify_part None (fun () -&gt;
+      let x = a_blist () in
+      let y = a_blist () in
+      if not (bl_compare x t3f2) then fail ();
+      if not (bl_compare x y) then fail ();
+      list_of_blist y);;
+         - : (Ptypes.prob * bool list) list = [(2.384185791015625e-07, [true; true; true; false; false])]
+</pre>
+<p>
+ A slightly modified code, with <code>(bl_compare x y)</code> first, although
+ gives the same result, requires the restriction on the search
+ depth. The search space can no longer be efficiently enumerated.
+ Can we automatically reorder the comparison statements, to improve the
+ search? Another open problem is the `occurs check.' Its absence in Hansei
+ again necessitates the restriction on the search space.
+ None of the two open issues are fatal: restricting the search by
+ depth or by the remaining probability mass (effectively, by the
+ probability of missing a solution if one exists) is always possible
+ and even natural. It is nevertheless interesting to see if
+ the occurs check and the unification of two unbound variables
+ have a clear analogue in the variable-less case.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is December 2010.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="logic_vars.ml">logic_vars.ml</a> [13K]
+<br>
+The complete source code for the example.</dd></dl>
+<p><a name="daily-schedule">&nbsp;</a></p><h2>Solving scheduling problems</h2>
+<dl><dd>
+ Scheduling  problems are among the  clearest applications  of logic
+ programming.  It is appealing just to state constraints and ask
+ the system to find a  feasible schedule satisfying the constraints.  A
+ simple scheduling problem posed by  Mikael More is our next example of
+ using  Hansei  for  logic  programming.   We shall  indeed  state  the
+ constraints (as  the `evidence') and  ask Hansei to find  the possible
+ worlds consistent with that evidence. Here is the problem:<blockquote>For the daily schedule for Monday to Wednesday:<ul><li>One of the days I'll shop;</li>
+<li>One of the days I'll take a walk;</li>
+<li>One of the days I'll go to the barber;</li>
+<li>One of the days I'll go to the supermarket;</li>
+<li>The same day as I go to the supermarket, I'll shop;</li>
+<li>The same day as I take a walk I'll go to the barber;</li>
+<li>I'll go to the supermarket the day before the day I'll take a walk;</li>
+<li>I'll take a walk Tuesday.</li></ul>Which are all possible daily schedules, regarding those four events?</blockquote>
+ We take the phrase `One of the days I'll shop.' to mean that
+ `I shop only on one day out of the three.'
+ Otherwise, there are too many solutions: for example, I can do
+ all the activities on each day.
+ We develop our examples interactively, by submitting expressions to
+ the top-level of the OCaml interpreter after loading the Hansei library.
+ In the transcript below, the OCaml top-level responses are indented.<p>
+ The gist of the problem is selecting a subset of actions to do on one day
+ from the set of possible actions. In other words, we need to sample
+ from a powerset. Such a sampling function could have been provided
+ by Hansei. It is however easy and illustrative to define from scratch:</p>
+<pre>     open ProbM;;
+     let powerset lst = List.fold_left (fun acc e -&gt; if flip 0.5 then e::acc else acc) [] lst;;
+         val powerset : 'a list -&gt; 'a list = &lt;fun&gt;
+</pre>
+ In words: to choose a subset of the set <code>lst</code> we decide, randomly and
+ independently, for each element of <code>lst</code> whether to take it or not.
+ We use OCaml lists to represent sets. 
+ To spot-check our sampling procedure we compute the probability
+ table for all samples from <code>powerset [1;2;3]</code>: <pre>     exact_reify (fun () -&gt; powerset [1;2;3]);;
+         - : int list Ptypes.pV =
+             [(0.125, Ptypes.V [3; 2; 1]); 
+              (0.125, Ptypes.V [3; 2]);
+              (0.125, Ptypes.V [3; 1]); 
+              (0.125, Ptypes.V [3]); 
+              (0.125, Ptypes.V [2; 1]);
+              (0.125, Ptypes.V [2]);
+              (0.125, Ptypes.V [1]);
+              (0.125, Ptypes.V [])] 
+</pre>
+ Indeed all subsets are present, with the equal probabilities.<p>
+ We define another simple but helpful function, which asserts the 
+ proposition <code>x</code> in the current world:</p>
+<pre>     let mustbe x = if not x then fail ();;
+         val mustbe : bool -&gt; unit = &lt;fun&gt;
+</pre>
+<p>
+ We are ready to encode our problem. We define the datatype
+ enumerating the possible actions:</p>
+<pre>     type action = Shop | Walk | Barber | Supermarket;;
+</pre>
+ To define the model we specify the sampling procedure for the
+ actions and enumerate the constraints, following the most
+ straightforward generate-and-test approach.<pre>     let schedule_model () =
+      let ndays = 3 in
+</pre>
+ We determine the set of actions to do on day <code>d</code>.
+ The set is chosen randomly from the set of all possible actions. 
+ However, if we ask again which actions were chosen for day <code>d</code>, 
+ we should get the same answer. Thus <code>actions d</code> acts as a
+ logic variable: its value, initially indeterminate, once
+ determined, does not change. We use the <code>memo</code> facility of
+ Hansei to define such memoized stochastic functions.<pre>     let actions = memo (fun d -&gt; powerset  [Shop; Walk; Barber; Supermarket]) in
+</pre>
+ The proposition <code>action_on a d</code> states that on day <code>d</code> I do action <code>a</code>.
+ The proposition <code>only_on a d</code> asserts that I do action <code>a  </code><em>only</em> 
+ on day <code>d</code> (and not on any other day):<pre>     let action_on a d = List.mem a (actions d) in
+     let only_on a d   = [d] = List.filter (action_on a) [0;1;2] in
+</pre>
+ We now state the constraints.
+ For example, the first two lines below assert that there exists a 
+ day on which I shop. I do not shop on any other day.<pre>     let d = uniform ndays in
+     let _ = mustbe (only_on Shop d) in
+     let d = uniform ndays in
+     let _ = mustbe (only_on Walk d) in
+     let d = uniform ndays in
+     let _ = mustbe (only_on Barber d) in
+     let d = uniform ndays in
+     let _ = mustbe (only_on  Supermarket d) in
+     
+     (* The same day as I go to the supermarket, I'll shop.
+        That is, there is a day that I perform the action Shop and the action Supermarket
+     *)
+     let d = uniform ndays in
+     let _ = mustbe (action_on Supermarket d &amp;&amp; action_on Shop d) in
+     
+     let d = uniform ndays in
+     let _ = mustbe (action_on Walk d &amp;&amp; action_on Barber d) in
+     
+     (* I'll go to the supermarket the day before the day I'll take a walk. *)
+     let d = uniform ndays in
+     let _ = mustbe (action_on Walk d &amp;&amp; d &gt; 0 &amp;&amp; action_on Supermarket (d-1)) in
+     
+     (* I'll take a walk Tuesday. *)
+     let _ = mustbe (action_on Walk 1) in
+</pre>
+ Finally, we return the schedule: the array of actions for each day.
+ This is the output of the model.<pre>     Array.init ndays actions;;
+        val schedule_model : unit -&gt; action list array = &lt;fun&gt;
+</pre>
+ The model is defined. We now `solve' it, determining if
+ there exists a schedule satisfying all constraints. Hansei's reply
+ is nearly instantaneous.<pre>     exact_reify schedule_model;;
+         - : action list array Ptypes.pV =
+         [(1.11632658893461385e-07,  Ptypes.V [|[Supermarket; Shop]; [Barber; Walk]; []| ])] 
+</pre>
+ There is only one schedule satisfying the constraints:
+ on Monday I go to the supermarket and shop, on Tuesday I walk
+ and take a haircut. Hansei has also computed the `probability' of 
+ the solution, which is the the estimate of the search space.
+ Each choice in the model corresponds to a possible world; 
+ many possible worlds are
+ not consistent with the stated constraints and facts and are
+ rejected. The reported <code>1.11632658893461385e-07</code> is the weight of the
+ surviving possible world(s), the one(s) that satisfied all
+ constraints. Since all our choices were uniform,
+ the weight represents one in <code>1/1.11632658893461385e-07</code> = 8957952
+ that many worlds. Since worlds can be rejected wholesale, Hansei did not 
+ have to generate all of them. If one fact
+ in a world contradicts the evidence, we do not need to know
+ the other facts; that is, we do not need to make the choices for them.</dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is November 2010.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="daily_schedule.ml">daily_schedule.ml</a> [4K]
+<br>
+The complete source code for the example.</dd></dl>
+<p><a name="zebra">&nbsp;</a></p><h2>Zebra puzzle</h2>
+<dl><dd>
+ Solving logic puzzles is the best (detractors say, the only)
+ application of logic programming. A characteristic, old, and
+ well-known logic puzzle is `zebra', sometimes attributed to Einstein
+ or Lewis Carroll.  Zebra is another scheduling problem, asking for a
+ schedule satisfying given constraints -- in particular, the
+ `all-different' constraint.  In ordinary logic programming
+ <code>all_different</code> is a hassle to state and a chore to evaluate;
+ constraint logic programming (sub)systems (e.g.,
+ SICStus) typically rely on external constraint solvers, where
+ all-different is built-in.  Even without `all-different' the puzzle is
+ hard; the naive generate-and-test approach is too
+ slow; a bit of creativity is required.<p>
+ Hansei's formulation of the problem is straightforward and
+ declarative: the naive generate-and-test. That was the point, to see
+ how well Hansei copes without the benefit of a creative formulation or
+ fine-tuning. Hansei copes quite well. It helped that
+ deterministic parts of the puzzle more naturally express in a
+ functional language with data structures and pattern-matching
+ (Hansei's host language, OCaml) than in Prolog. We use
+ non-determinism only when we need it.  It also greatly helped that
+ the all-different constraint, or sampling all permutations, turns out
+ efficiently, lazily, implementable in Hansei.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is December 2010.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="http://en.wikipedia.org/wiki/Zebra_Puzzle">&lt; http://en.wikipedia.org/wiki/Zebra_Puzzle &gt;</a><p><a href="zebra.ml">zebra.ml</a> [6K]
+<br>
+The complete, commented source code, with every significant line annotated.
+<br>
+
+    Hansei has determined that the puzzle has only one solution,
+    whose weight is <code>5e-12</code>. The search space is large indeed.</p>
+<p><a href="Hansei.html#all-different">Lazy permutations and all-different constraint</a></p></dd></dl>
+<p><a name="parsec">&nbsp;</a></p><h2>`Reversible' parser combinators</h2>
+<dl><dd>
+Parsing is an old application of logic programming and the original
+motivation for Prolog. A grammar written in Prolog relates strings and
+their parses. It can both generate and recognize: We can obtain parses
+of a given string -- or, conversely, find all strings generated by the
+grammar or the strings with a specific parse. All this is possible in
+Hansei. Furthermore, Hansei lets us build grammars by combining
+primitive parsers using ordinary functional application and
+composition, fully employing higher-order functions, types and other
+benefits of a modern functional language.<p>
+The Hansei parser combinator library looks quite like the famous
+Parsec, by which it is inspired.  To be sure, the sort of
+non-determinism needed for Parsec is easily emulated in many
+languages -- that's why Parsec has spread so widely.  And yet Hansei
+brings something new: running Parsec parsers not only forwards,
+parsing a given stream, but also effectively 
+backwards, to generate a stream.</p>
+<p>
+As usual, Hansei parsers digest a stream of characters; the characters
+do not need to be present all in memory, but can be read on demand.
+That's why <code>stream</code> is a thunk. A parser takes a stream and
+returns the parsing result, the result of a semantic action, and
+the remainder of the stream:</p>
+<pre>     type stream_v = Eof | Cons of char * stream
+     and stream = unit -&gt; stream_v
+     
+     type 'a parser = stream -&gt; 'a * stream
+</pre>
+<p>
+The two primitive parsers are <code>pure</code></p>
+<pre>     let pure : 'a -&gt; 'a parser = fun x st -&gt; (x,st)
+</pre>
+which parses the empty
+string returning its argument as the parsing result,
+and <code>p_sat</code>:<pre>     let p_sat : (char -&gt; bool) -&gt; char parser = fun pred st -&gt;
+       match st () with
+       | Cons (c,st) when pred c -&gt; (c,st)
+       | _                       -&gt; fail ()
+</pre>
+that checks that the current element of the stream
+satisfies a given predicate -- and if it does not, reports
+failure using Hansei's <code>fail</code>. Other parsers are written in terms 
+of the above, for example, the parser of a character<pre>     let p_char : char -&gt; char parser = fun c -&gt; p_sat (fun x -&gt; x = c)
+</pre>
+<p>
+Combinators combine parsers and their semantic actions and
+express the rules of the grammar:</p>
+<pre>     val (&lt;*&gt;)   : ('a -&gt; 'b) parser -&gt; 'a parser -&gt; 'b parser
+     val (&lt;$&gt;)   : ('a -&gt; 'b) -&gt; 'a parser -&gt; 'b parser 
+     val ( *&gt; )  : 'a parser -&gt; 'b parser -&gt; 'b parser
+     val ( &lt;* )  : 'a parser -&gt; 'b parser -&gt; 'a parser
+     
+     val p_fix   : ('a parser -&gt; 'a parser) -&gt; 'a parser
+     val many    : 'a parser -&gt; 'a list parser
+</pre>
+<p>
+For example, <code>(&lt;*&gt;)</code> combines parsers sequentially. The parsers  <code>(&lt;$&gt;)</code>, <code>( *&gt; )</code>, <code>( &lt;* )</code> are the variations with respect to semantic
+actions; their types show what they do. Alternative rules in a grammar
+are expressed with the alternation combinators</p>
+<pre>     let (&lt;|&gt;) : 'a parser -&gt; 'a parser -&gt; 'a parser = fun p1 p2 st -&gt;
+       uniformly [|p1;p2| ] st
+     let alt : 'a parser array -&gt; 'a parser = fun pa st -&gt;
+       uniformly pa st
+</pre>
+which rely on the Hansei operator for non-deterministic choice, of a parser
+from a given set.<p>
+Here is the first example: recognizing palindromes. Since we
+build a recognizer, the semantic actions do nothing, returning unit.
+The grammar reads quite like BNF: A palindrome over
+the two-character alphabet is either the empty string, a single
+character, or a palindrome flanked on both sides with the same
+character:</p>
+<pre>     let pali = p_fix (fun pali -&gt;
+       alt [| empty;
+              (fun _ -&gt; ()) &lt;$&gt; p_char 'a';
+              (fun _ -&gt; ()) &lt;$&gt; p_char 'b';
+              p_char 'a' *&gt; pali &lt;* p_char 'a';
+              p_char 'b' *&gt; pali &lt;* p_char 'b' | ]
+         )
+</pre>
+<p>
+To parse a string according to the grammar -- to `run the parser forwards' --
+we convert a string to a stream, apply the parser and check that the stream
+is fully consumed:</p>
+<pre>     let run_fwd : 'a parser -&gt; string -&gt; 'a Ptypes.pV = fun p s -&gt;
+       exact_reify (fun () -&gt;
+         let (v,s) = p (stream_of_string s) in
+         if s () &lt;&gt; Eof then fail (); v)
+</pre>
+We could just as well parse a file rather than an in-memory
+string. Evaluating <code>run_fwd pali &quot;abaaba&quot;</code> shows that &quot;abaaba&quot; is a 
+palindrome.<p>
+More interestingly, the very same parser can be run effectively
+backwards, telling us all the strings it parses.</p>
+<pre>     let run_bwd : int option -&gt; 'a parser -&gt; (unit -&gt; stream) -&gt; ('a * string) Ptypes.pV 
+         = fun n p stm -&gt; Inference.explore n (reify0 (fun () -&gt;
+             let st = stm () in
+             let (v,st') = p st in
+             if st' () &lt;&gt; Eof then fail (); 
+             (v,string_of_stream st)))
+</pre>
+Since the set of such strings can be infinite, we have to bound the search,
+specifying the inference depth limit as the first argument of <code>run_bwd</code>
+(<code>None</code> means no limit). For example, to see a few palindromes, we evaluate:<pre>     run_bwd (Some 10) pali (fun () -&gt; stream_over [|'a';'b'| ])
+</pre>
+To run a parser effectively backwards, all we need is to give the
+parser a random stream to parse.  The function <code>stream_over</code> generates <em>all</em> streams over a given alphabet -- the infinite number of them.
+The parser filters the set of streams; the surviving streams are then reported
+as parseable.<p>
+The next example finds all 5-letter palindromes. We add
+the predicate <code>stream_len st 5</code>, which fails if the stream
+does not have 5 elements:</p>
+<pre>     run_bwd None pali (fun () -&gt;
+       let st = stream_over [|'a';'b'| ] in
+       stream_len st 5; st)
+</pre>
+Although the code indeed generates all eight 5-letter palindromes
+(equally likely), it is quite puzzling. No search limit was imposed, 
+and yet the search terminated, even though <code>stream_over</code> produces the
+infinite sequence of streams.  Since <code>stream_len</code> rejects all
+streams whose length is not 5, we should get stuck generating
+longer and longer streams, and rejecting them all. But we don't.<p>
+Let's see the code for <code>stream_len</code> and recall the type of the stream:</p>
+<pre>     type stream_v = Eof | Cons of char * stream
+     and  stream   = unit -&gt; stream_v
+     
+     let rec stream_len st n = match (st (),n) with
+       | (Eof,0)                    -&gt; ()
+       | (Cons (_,t),n) when n &gt; 0  -&gt; stream_len t (n-1)
+       | _                          -&gt; fail ()
+</pre>
+<p>
+All characters of the stream indeed do not have to be in memory at
+once: they can be read on-demand, when the thunk, representing the
+stream, is forced. In <code>stream_len</code> code, this demand is expressed
+as <code>st ()</code>. Forcing the stream brings in a new character, and the
+thunk for the tail of the stream. Clearly, <code>stream_len st 5</code>
+forces no more than 6 thunks. If the 6th thunk yields a <code>Cons</code>, the
+function fails and never examines the stream any further. The rest of the
+stream is never demanded, and is never chosen.</p>
+<p>
+There remains one more mystery of <code>run_bwd</code>: in its code, shown
+earlier, the identifier <code>st</code> is used three times, as if it were the
+same sequence of characters. However, <code>st</code> is a thunk, choosing the
+sequence of characters on-demand. Forcing the thunk <code>st ()</code> in one
+place (e.g., inside <code>stream_len</code>) does not guarantee that the
+evaluation of <code>st ()</code> somewhere else would give exactly the same
+choice. Sharing a procedure for making choices does not mean that the
+choices themselves are shared. For that reason, the stream generator <code>stream_over</code> employs a trick:</p>
+<pre>     val letlazy : (unit -&gt; 'a) -&gt; (unit -&gt; 'a)
+     
+     let stream_over : char array -&gt; stream = fun ca -&gt;
+       let rec loop () =
+         if flip 0.5 then Cons (uniformly ca, letlazy loop)
+                     else Eof
+       in letlazy loop
+</pre>
+The function <code>letlazy</code>, which looks from its type as an identity
+function, takes a thunk and returns a thunk. When the result of <code>letlazy thunk</code> is repeatedly forced, it repeatedly makes the same
+choice. Such non-deterministic laziness requires first-class, or
+world-local memory -- which is what Hansei implements.  In
+functional-logic programming, this is called ``call-time choice''. In
+quantum mechanics, in is called ``wavefunction collapse''. Before we
+observe a system, for example, before we look at a flipped coin, there could
+indeed be several choices for the result.  After we looked at the
+coin, all further looks give the same value.<p>
+The source code gives another example of reversible parsing: parsing an
+arithmetic expression and computing its value. The grammar looks like the one
+shown in nearly every book on compiler construction:</p>
+<pre>     let digit = (fun c -&gt; Char.code c - Char.code '0') &lt;$&gt; p_sat (fun x -&gt; x &gt;= '0' &amp;&amp; x &lt;= '9')
+     
+     let num = (List.fold_left (fun acc d -&gt; d + acc * 10) 0) &lt;$&gt; many1 digit
+     
+     let rec expression st =
+       ( ((fun t1 op t2 -&gt; op t1 t2) &lt;$&gt; term &lt;*&gt; plus_minus &lt;*&gt; expression) 
+         &lt;|&gt; term
+       ) st
+     and term st =
+       ( ((fun t1 op t2 -&gt; op t1 t2) &lt;$&gt; factor &lt;*&gt; prod_div &lt;*&gt; term) 
+         &lt;|&gt; factor
+       ) st
+     and factor st =
+       ( (p_char '(' *&gt; expression &lt;* p_char ')')
+         &lt;|&gt; num
+       ) st
+</pre>
+The code demonstrates both the parsing of a string and obtaining all valid
+arithmetic expressions, or expressions that evaluate to 5.<p>
+The parsing combinator library demonstrated that reversible parsers are
+just as possible in Hansei as they are in Prolog. Prolog is a separate
+language whereas Hansei is just an OCaml library. The parsing combinator
+library shows off the laziness principle: delaying the choices until
+the last possible moment, hoping that the moment will never arrive. 
+We have seen how the principle has made the infinite search finite. <em>Less haste, infinitely more speed</em>.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is September 2012.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="parsec.ml">parsec.ml</a> [16K]
+<br>
+Hansei code for the combinator library and parsing and unparsing two sample grammars: palindromes and integer expressions<p><a href="#StrangeLoop">Guess Lazily! Making a program guess, and guess well</a>
+<br>
+The parsing combinator library was the main example in the talk and was discussed in detail.</p>
+<p><a href="#many">Maximal munch, committed choice and nested inference</a></p></dd></dl>
+<p><a name="many">&nbsp;</a></p><h2>Maximal munch, committed choice and nested inference</h2>
+<dl><dd>
+Kleene star is an intrinsic operator in regular expressions and is
+commonly used in EBNF and other grammar formalisms. Just as common is
+the so-called ``maximal munch'' restriction on the Kleene star,
+forcing the longest possible match. After reminding why maximal munch
+is so prevalent, we describe the grave problem it poses for parsers
+that are meant to be run both forwards and backwards -- that is, 
+to parse a given stream according to the grammar and to 
+generate grammar's language, all streams it recognizes. 
+Maximal munch cuts shorter-match
+choices and reduces non-determinism -- hence making forward runs
+faster. On the downside, when running the parser backwards the cut
+choices mean lost solutions and the (greatly) incomplete language
+generation. Hansei removes the downside. Parsers built
+with the Hansei parser combinator library support maximal munch <em>and</em>
+can be run effectively backwards to generate the complete language,
+without omissions. Surprisingly, Hansei already had the necessary features,
+in particular, the nested inference.<p>
+What is maximal munch and why it is so common that is hardly ever
+mentioned?  A programming language specification cliche defines the
+syntax of an identifier as a letter followed by a sequence of letters
+and digits, or, in the extended BNF,</p>
+<pre>     identifier ::= letter letter_or_digit*
+</pre>
+where <code>*</code>, the Kleene star, denotes zero or more repetitions of <code>letter_or_digit</code>.  Thus in a program fragment <code>var1 + var2</code>, <code>var1</code>
+and <code>var2</code> are identifiers. Why not <code>v</code>, <code>va</code>, and <code>var</code>? 
+According to the above grammar every prefix of an identifier is also
+an identifier. To avoid such conclusions and the need to complicate
+the grammar, the maximal munch rule is assumed: <code>letter_or_digit*</code>
+denotes the <em>longest sequence</em> of letters and digits. Without the
+maximal munch, we would have to write<pre>     identifier ::= letter letter_or_digit* [look-ahead: not letter_or_digit]
+</pre>
+which is not only awkward and requires the notation for look-ahead, but
+is also much less efficient. If <code>*</code> means mere zero or more
+occurrences, <code>letter_or_digit*</code> on input <code>&quot;var1 &quot;</code> will match the
+empty string, <code>&quot;a&quot;</code>, <code>&quot;ar&quot;</code> and <code>&quot;ar1&quot;</code>. Only the last match leads to
+the successful parse of the identifier, recognizing <code>var1</code>. Maximal
+munch cuts the irrelevant choices. It has proved so useful that it is
+rarely explicitly stated when describing grammars.<p>
+Maximal munch however all but destroys the reversible parsing, the
+ability to run the parser forward (as a parser or recognizer) and
+backward (as a language generator). We illustrate the problem in
+Prolog.  A recognizer in Prolog is a relation between two streams
+(lists of characters) <code>S</code> and <code>Srem</code> such that <code>Srem</code> is the suffix of <code>S</code>. 
+In a functional language, we would say that a recognizer recognizers the
+prefix in <code>S</code>, returning the remaining stream as <code>Srem</code>. 
+Here is the recognizer for the character <code>'a'</code>:</p>
+<pre>     charA([a|Srem],Srem).
+</pre>
+The Kleene-star combinator (typically called <code>many</code>) takes as an argument
+a recognizer and repeats it zero or more times. Without the maximal munch,
+it looks as follows:<pre>     many0(P,S,S).
+     many0(P,S,Rest) :- call(P,S,Srem), many0(P,Srem,Rest).
+</pre>
+Thus <code>many0(charA,S,R)</code> will recognize or generate the prefix of <code>S</code>
+with zero or more <code>'a'</code> characters. Thanks to the first clause,  <code>many0(P,S,R)</code> always recognizes the empty string. Here is how 
+we recognize <code>a*</code> in the sample input stream <code>[a,a,b]</code>:<pre>     ?- many0(charA,[a,a,b],R).
+     R = [a, a, b] ;
+     R = [a, b] ;
+     R = [b]
+</pre>
+ and generate the language of <code>a*</code>:<pre>     ?- many0(charA,S,[]).
+     S = [] ;
+     S = [a] ;
+     S = [a, a] ;
+     S = [a, a, a] ;
+     S = [a, a, a, a] ; ... 
+</pre>
+<p>
+To implement the maximal munch, <code>many</code> should call the argument parser
+for as long as it succeeds. We need a way to tell if the parser
+fails or succeeds. To branch on success or failure of a goal, Prolog
+offers soft-cut. Recall, soft-cut <code>P *-&gt; Q; R</code> is equivalent to the conjunction <code>P, Q</code> if <code>P</code> succeeds at least once. Soft-cut <em>commits</em> to that choice
+and totally discards <code>R</code> in that case. <code>R</code> is evaluated only when <code>P</code> 
+fails from the outset. Soft-cut lets us write <code>many</code> with maximal munch:</p>
+<pre>     many(P,S,Rest) :- call(P,S,Srem) *-&gt; many(P,Srem,Rest) ; S = Rest.
+</pre>
+Now the the empty string is recognized (i.e., <code>S = Rest</code>) <em>only</em> 
+if the parser <code>P</code> fails. Recognizing <code>a*</code> in the sample input<pre>     ?- many(charA,[a,a,b],R).
+     R = [b].
+</pre>
+<p>
+ becomes quite more efficient. There is only one choice, for
+ the longest sequence of <code>a</code>s. However, attempting to generate
+ the language <code>a*</code>:</p>
+<pre>     ?- many(charA,S,[]).
+      &lt;loops&gt;
+</pre>
+leads to an infinite loop. The argument recognizer, <code>charA</code>, when asked to
+generate, always succeeds. Therefore, the recursion in <code>many</code> never
+terminates. When running backwards, the recognizer tries
+to generate, disregarding all other choices, 
+the longest string of <code>a</code>s -- the infinite string. Although the empty
+string is part of the language <code>a*</code>, we fail to generate it.<p>
+The appearance of the soft-cut in the definition of <code>many</code> should
+have already raised the alarm. After all, soft-cut embodies
+negation, which is required to detect
+failure and proceed. In fact, negation can be expressed via
+soft-cut: <code>not(P) :- P *-&gt; fail; true.</code> </p>
+<p>
+The Hansei parser combinator library supports <code>many</code>, which, unlike
+the one in Prolog, no longer forces the trade-off between efficient
+parsing and generation. Hansei's <code>many</code> obeys maximal munch <em>and</em>
+generates the complete language, with no omissions. Hansei lets us
+have it both ways. Before describing the implementation, we show a few
+representative examples.</p>
+<table rules="cols" frame="box" align="center"><colgroup align="left" span="2">
+<colgroup align="center" span="2">
+<tr><th>   </th>
+<th>Parser</th>
+<th>  Stream  </th>
+<th> Result </th></tr>
+<tr><td>1&nbsp;</td>
+<td><code>many (p_char 'a')</code></td>
+<td><code>aaaa</code></td>
+<td>&nbsp;uniquely&nbsp;</td></tr>
+<tr><td>2</td>
+<td><code>many (p_char 'a') &lt;*&gt; p_char 'b'</code></td>
+<td><code>b</code></td>
+<td>uniquely</td></tr>
+<tr><td>3</td>
+<td><code>many (p_char 'a') &lt;* p_char 'a'</code></td>
+<td><code>aaa</code></td>
+<td>NO parse</td></tr>
+<tr><td>4</td>
+<td><code>many (p_char 'a') &lt;*&gt; many (p_char 'a'))</code></td>
+<td><code>aaa</code></td>
+<td>uniquely</td></tr>
+<tr><td>5</td>
+<td><code>many ((p_char 'a') &lt;|&gt; (p_char 'b'))</code></td>
+<td><code>ababb</code></td>
+<td>uniquely</td></tr>
+<tr><td>6</td>
+<td><code>many ((many1 (p_char 'a')) &lt;|&gt; (many1 (p_char 'b')))</code></td>
+<td><code>aaabab</code></td>
+<td>uniquely</td></tr>
+<tr><td>7</td>
+<td><code>many ((p_char 'a' &lt;* p_char 'a') &lt;|&gt; p_char 'a') &lt;* p_char 'a'</code></td>
+<td><code>aaa</code></td>
+<td>NO parse</td></tr>
+<tr><td>8</td>
+<td><code>many (p_char 'a')</code></td>
+<td>&nbsp;random stream&nbsp;</td>
+<td><code>&quot;&quot;</code> <code>&quot;a&quot;</code> <code>&quot;aa&quot;</code> ...</td></tr></table>
+Examples 5-7 show the argument parsers with choices, even
+overlapping choices as in Example 7. The combinator <code>many</code> (actually, <code>many1</code> defined as <code>many1 p = p &lt;* many p</code>) may nest.
+In Example 3, <code>a*a</code> does not recognize <code>&quot;aaa&quot;</code> since the <code>a*</code>
+munches the entire stream leaving nothing for the parser of the final <code>a</code>. This is the expected behavior under maximal munch. Example 7
+shows no parse for the same reason. Incidentally, the example demonstrates
+that under maximal munch,<pre>     NOT (many (p1 &lt;|&gt; p2) &gt;= many p1 &lt;|&gt; many p2)
+</pre>
+where <code>&gt;=</code> is to be understood as language inclusion. This inequality
+does hold for <code>many</code> without maximal munch (think of  <code>(a+b)^n &gt;= a^n + b^n</code> for non-negative <code>a</code>, <code>b</code> and <code>n</code>). Finally in the last
+example we generate the complete language for <code>a*</code>,
+including the empty string. That is, <code>many p</code> has the property<pre>     many p (s1 | s2) = many p s1 | many p s2
+</pre>where <code>|</code> means non-deterministic choice.<p>
+To implement the maximal munch in Hansei we need something like soft-cut,
+the ability to detect a failure and proceed. Hansei has exactly
+the right tools: <code>reify0</code> and <code>reflect</code>:</p>
+<pre>     type 'a vc = V of 'a                          (* leaf *)
+                | C of (unit -&gt; 'a pV)             (* unexpanded branch *)
+     and  'a pV = (prob * 'a vc) list
+     
+     val reify0 : (unit -&gt; 'a) -&gt; 'a pV
+     val reflect : 'a pV -&gt; 'a
+</pre>
+<p>
+The primitive <code>reify0</code> converts a probabilistic computation
+to a lazy tree of choices <code>'a pV</code>, whose nodes contain found solutions <code>V of 'a</code> or not-yet-explored branches. The primitive <code>reflect</code>, the inverse
+of <code>reify0</code>, turns a tree of choices into a probabilistic program that
+will make those choices. The primitive <code>reify0</code> is fundamental in Hansei:
+probabilistic inference is implemented by first reifying a program
+(the generative model) to the tree of choices and then exploring the 
+tree in various ways.
+For instance, the full tree traversal corresponds to exact inference.</p>
+<p>
+Soft-cut can also be implemented as a choice-tree traversal, <code>first_success</code>
+below, which explores the branches looking for the first <code>V</code> leaf.
+It returns the tree resulting from the exploration, which could be
+empty if no <code>V</code> leaf was ever found. Soft-cut then is simply</p>
+<pre>     val first_success : 'a pV -&gt; 'a pV
+     
+     let soft_cut : (unit -&gt; 'a) -&gt; ('a -&gt; 'w) -&gt; (unit -&gt; 'w) -&gt; 'w =
+       fun p q r -&gt;
+         match first_success (reify0 p) with
+         | [] -&gt; r ()
+         | t  -&gt; q (reflect t)
+</pre>
+We write <code>many</code> in terms of the soft-cut as we did in Prolog:<pre>     let many : 'a parser -&gt; 'a list parser = fun p -&gt;
+       let rec self st =
+         soft_cut (fun () -&gt; p st)           (* check parser's success  *)
+                  (fun (v,st) -&gt;             (* continue parsing with p *)
+                    let (vs,st) = self st in
+                    (v::vs,st))
+                  (fun () -&gt; ([],st))        (* total failure of the parser *)
+       in self
+</pre>
+<p>
+The second question is avoiding losing solutions when running the parser
+``backwards''. Unlike Prolog, Hansei parsers are functions rather than
+relations. They take a stream, attempt to recognize its prefix and return
+the rest of the stream on success. They cannot be run backwards. However,
+we achieve the same result -- generating the set of parseable streams --
+by generating all streams, feeding them to the parser and returning
+the streams that parsed completely. Since the number of possible
+streams is generally infinite, we have to generate them lazily,
+on demand. To ensure completeness -- to avoid losing any solutions --
+the parsers should have the property</p>
+<pre>     many p (s1 | s2) = many p s1 | many p s2
+</pre>
+Surprisingly, <code>many p</code> already satisfies it. The trick is laziness in the stream
+and Hansei's support of nested inference. The primitive <code>reify0</code>
+may appear in probabilistic programs -- in other words, a probabilistic
+model may itself perform inference, over an inner model. In order
+for this to work correctly, we had to ensure that<pre>     let x = letlazy (s1 | s2) in reify0(fun () -&gt; model x) 
+     ===
+     let x = letlazy s1 in reify0(fun () -&gt; model x) |
+     let x = letlazy s2 in reify0(fun () -&gt; model x)
+</pre>
+ where <code>x</code> is demanded in model. That is, <code>reify0</code> should reify only the 
+ choices made by the inner program, and let the outer choices take
+ effect. The stream generator has to be lazy, so it has the form <code>letlazy (s1 | s2)</code>&nbsp; . Comparing the nested
+ inference property with the code for <code>many</code> reveals that
+ the key property of <code>many p (s1 | s2)</code> is satisfied
+ without us needing to do anything. Our <code>many</code> has exactly the 
+ right semantics.<p>
+In conclusion, standard logic programming all too often forces us to
+choose between efficiency and expressiveness, on one hand, and
+completeness on the other hand. Negation and committed choice make
+logic programs easier to write and, in some modes, faster to run.
+Alas, some other modes (informally, running `backwards') become
+unusable or impossible. Kleene star is a perfect example of the
+trade-off: maximal munch simplifies the grammar and makes parsing
+efficient, but destroys the ability to generate grammar's
+language. Functional logic programming systems can remove the
+trade-off. Properly implemented encapsulated search (nested inference,
+in Hansei) lets us distinguish the choices of the parser from the
+choices of the stream and cut only the former. Perhaps surprisingly
+this distinction just falls out of the need for non-deterministic
+stream to be lazy.  Thus Kleene star with maximal munch lets
+us parse and generate the complete language.  In Hansei, we can have
+it both ways.</p></dd>
+<dt><strong>Version</strong></dt>
+<dd>The current version is October 2012.</dd>
+<dt><strong>References</strong></dt>
+<dd><a href="parsec.ml">parsec.ml</a> [16K]
+<br>
+
+    Hansei code for the combinator library. The code contains several
+    unit tests for <code>many</code>. In addition, the arithmetic expression grammar
+    relies on <code>many</code> to parse integer literals.<p><a href="#parsec">`Reversible' parser combinators</a></p>
+<p><a href="../Computation/monads.html#LogicT"><code>LogicT - backtracking monad transformer with fair operations and pruning</code></a>
+<br>
+Extensive discussion of committed choice</p></dd></dl>
+<br>
+<div><hr></div><h3>Last updated September 11, 2014</h3>
+This site's top page is <a href="http://okmij.org/ftp/"><strong>http://okmij.org/ftp/</strong></a><div><p><cite>oleg-at-okmij.org</cite>
+<br>
+Your comments, problem reports, questions are very welcome!</p></div>
+<p><font size="-2">Converted from HSXML by HSXML-&gt;HTML</font></p></body></html>

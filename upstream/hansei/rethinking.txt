@@ -1,0 +1,1055 @@
+
+=== page 1 ===
+日本ソフトウェア科学会第31回大会(2014年度)講演論文集
+Prolog再考: 急がないで推測
+オレッグ・キセリョーヴ　亀山幸義∗†
+古典Prologは、項代数、非決定性、単一化, 反例探索、論理と制御の分離という最も基本的な概念を簡潔にまとめ
+ている素敵な言語である。プログラムが双方向に動くのは不思議だ。しかし、現実のPrologプログラムが持つ問
+題-カットの多用、算術, FFI, committed choice, 頻繁な発散など-が古典Prologの利点を打消してしまう。
+古典Prologは、魅力的な問題だ。古典Prologの勉強をして、その問題から教訓を学ぶ必要がある。その教訓とし
+て、非決定性は基本的だが、標準の実行モードになるべきではない、そして、遅延推測を使わないと性能が悪すぎ
+る、ということがあげられる。
+古典Prologの利点は、普通の正格な関数型言語で実装できる。本研究では、遅延推測をOCamlライブラリとして実
+現し、そのライブラリを使ってPrologの典型的な例を記述する。加えて、双方向に動く型推論、committed choice
+(maximal munch)を使って双方向に動くparser combinators を記述する。これらは古典Prologで表現できない。これ
+らの実装から、論理変数の独特な性質、エルブラン領域の列挙の最適化の立場から見た単一化、WAMへのコンパ
+イルなどが理解できる。
+Classical Prolog is an elegant language that concisely represents the fundamental concepts of term algebra, non-
+determinism, uniﬁcation, counter-example driven search, and the separation of logic and control. The ability to run
+a program forwards and backwards is uncanny. However, real Prolog programs are replete with cuts, FFI calls,
+committed choice and unexpected divergence – deﬁling the Classical purity.
+Classical Prolog is an enchanting misconception. It ought to be studied, for its ideas and lessons. One lesson is that
+guessing – non-determinism – is fundamental, but should not be the default mode of execution. One should guess,
+but guess lazily.
+The strong points of Prolog can be brought into an ordinary functional programming language.
+Using OCaml
+as a representative, we implement lazy guessing as a library, with which we reproduce classical Prolog examples.
+Furthermore, we demonstrate parser combinators that use committed choice (maximal munch) and can still be run
+forwards and backwards. They cannot be expressed in Classical Prolog. Logic variables, uniﬁcation, and its WAM
+compilation strategy naturally emerge as a “mere optimization” of the Herbrand universe enumeration.
+1
+Introduction
+Classical Prolog [2, 13] – the archetype and the
+eponym of logic programming – is a fascinating
+language, especially for natural language processing
+[1, 10] and knowledge representation, planning and
+reasoning [3, 8]. It is greatly appealing to declara-
+∗Rethinking Prolog
+†Oleg Kiselyov, Yukiyoshi Kameyama, Tsukuba
+tively state the properties of a problem and let the
+system ﬁnd the solution. Most intriguing is the abil-
+ity to run programs ‘forwards’ and ‘backwards’. We
+recall these irresistible features in §2.1.
+The concise and declarative formulation of prob-
+lems is the gift of non-determinism and the reason
+for its invention [11].
+Classical Prolog makes non-
+determinism the default computational mode. Taken
+to such extreme, non-determinism turns from virtue
+
+=== page 2 ===
+into vice. Quite many computations and models are
+mostly deterministic.
+Implementing them in Pro-
+log with any acceptable performance requires the
+extensive use of problematic features such as cut.
+Purity is also compromised when interfacing with
+mainstream language libraries, which are determin-
+istic and cannot run backwards. Divergence is the
+constant threat, forcing the Prolog programmers to
+forsake the declarative speciﬁcation and program di-
+rectly against the search strategy. All in all, Classical
+Prolog is the exquisite square peg in the world with
+mostly round holes.
+The case in point is the ubiquitous committed
+choice [9], which is necessary to express the pervasive
+‘maximal munch’ parsing convention (§5) as well as
+the ‘don’t care non-determinism’. For these reasons,
+committed choice is natively supported in Prolog, as
+the ‘soft-cut’. However, Prolog programs with com-
+mitted choice can no longer be run backwards: see
+§5.1.
+The history of Prolog [13], designed on the founda-
+tion of non-determinism and resolution, is adapting,
+restricting or overcoming these ideas to make the lan-
+guage general-purpose. An alternative is to start with
+a mature general-purpose, deterministic program-
+ming language, with a proven record of solving real-
+world problems – and add non-determinism. Is this
+a good alternative? We explore this question in §3.
+We use Hansei – a probabilistic programming system
+implemented as a library in OCaml [6, 7] – to solve a
+number of classic logic programming problems, from
+zebra to scheduling, to parser combinators, to re-
+versible type checking. The complete code accompa-
+nying the paper is available at http://okmij.org/
+ftp/kakuritu/logic-programming.html.
+Many mature functional languages easily let non-
+determinism in, thanks to the features like Mon-
+adPlus in Haskell or delimited control libraries in
+Scala, OCaml or Scheme. Alas, the cheaply added
+non-determinism has a ridiculously poor performance
+even on toy problems. Making non-determinism us-
+able requires non-trivial insight:
+lazy sharing, see
+§3.2.
+As a larger case study, §5.2 presents a parser com-
+binator library to build maximal-munch parsers that
+are reversible: a parser may run forwards to parse a
+given string, and backwards to generate all parseable
+strings, the language of its grammar. Such reversible
+parser combinators with the maximal munch cannot
+be idiomatically implemented in Classical Prolog.
+Our argument is the argument for functional logic
+programming [5] – however, realized not as a stan-
+dalone language such as Curry but as a library in
+the ordinary programming language. We stress that
+we do not advocate the embedding of Prolog in a
+general-purpose language.
+Many such embeddings
+have been done (in Scheme, Haskell, Scala, etc), all
+sharing the drawbacks of Classical Prolog. Rather,
+we advocate transcending Prolog: taking its best fea-
+tures – separation of the model speciﬁcation from the
+search and non-determinism – and bringing them into
+the conventional functional-programming language.
+Such bottom-up approach is not only practical but
+also theoretically revealing. We see in §6 how logic
+variables and uniﬁcation naturally emerge as a “mere
+optimization” of non-deterministic search.
+2
+Fascination and Disappoint-
+ment of Classical Prolog
+In this section we recall how Classical Prolog contin-
+ues to hold our fascination. We also recall the dis-
+appointments and eventual realization that Classical
+Prolog is in reality not a general-purpose program-
+ming language. This realization drives us to intro-
+duce the best Prolog features in the general purpose,
+functional languages, in §3.
+2.1
+The Append example
+All the best features of Prolog can be illustrated in
+only two lines of code: the append relation:
+append([], L,L).
+append([H|T],L,[ H|R]) :−append(T,L,R).
+The three-place predicate append establishes the re-
+lation between three lists l1, l2 and l3 such that l1
+is a preﬁx and l2 is the corresponding suﬃx of l3.
+The two lines declare that the empty list is a pre-
+ﬁx of any list, a list is a suﬃx of itself, and a list
+preﬁx is the sequence of its initial elements. When
+
+=== page 3 ===
+we ask a Prolog system if there is a list X such
+that append([t,t,t],[f,f],X) holds, Prolog answers ‘Yes’.
+Furthermore, it gives us that list X – as if append were
+a function to concatenate two lists.
+?−append([t,t, t],[ f, f], X).
+X = [t, t, t, f, f].
+Prolog’s append is however is not just a function: it
+is a relation. We may specify any two lists and query
+for the other one that makes the relation hold. For
+example, let us check if a given list has a given preﬁx,
+and if so, remove it (that is, obtain the corresponding
+suﬃx).
+?−append([t,t], X,[t, t, t, f, f]).
+X = [t, f, f].
+Likewise, we can check for, and remove, a given suf-
+ﬁx. If the list concatenation was like running append
+forwards, preﬁx removal is like running it backwards.
+There are more ways to run append; for example:
+ﬁnd all lists R with the given preﬁx [t,t,t] and an
+arbitrary suﬃx X.
+?−append([t,t, t], X,R).
+R = [t, t, t| X].
+The answer is given on one line, which, however,
+compactly represents an inﬁnite number of solutions.
+Hence a question in Prolog may have more than one
+answer. We get the ﬁrst hint of non-determinism.
+If we ask for all lists with the [f,f] suﬃx, Prolog lists
+the solutions, as an inﬁnite stream. Non-determinism
+becomes clear.
+?−append( ,[f, f], R).
+R = [f, f] ;
+R = [ G328, f, f] ;
+R = [ G328, G334, f, f] ;
+R = [ G328, G334, G340, f, f].
+...
+Append can also split a given list in all possible
+ways, returning its preﬁxes and suﬃxes. If the list is
+ﬁnite, we obtain the ﬁnite number of answers.
+?−append(X,Y,[t,t,t, f, f]).
+X = [],
+Y = [t, t, t, f, f] ;
+X = [t], Y = [t, t, f, f] ;
+X = [t, t], Y = [t, f, f] ;
+X = [t, t, t], Y = [f, f] ;
+X = [t, t, t, f], Y = [f] ;
+X = [t, t, t, f, f], Y = [] ;
+false . % no more answers
+2.2
+Disappointments
+The append relation is the best illustration of Pro-
+log – of its fascination, and, as we see in this section,
+of some of its disappointments. Recall our example
+of ﬁnding all lists R with the given preﬁx [t,t,t].
+?−append([t,t, t], X,R).
+R = [t, t, t| X].
+The given answer compactly represents the inﬁnite
+set of lists. Only some of them are boolean lists, that
+is, made of elements t and f. We cannot enforce the
+type of the list elements through a static type system:
+Classical Prolog is untyped. One may think the lack
+of a type system is a minor drawback. The easy-to-
+write speciﬁcation for boolean lists:
+bool(t). bool(f).
+boollist ([]).
+boollist ([ H|T]) :−bool(H), boollist (T).
+lets us declare that the lists R and X in the original
+example are in fact boolean:
+?−append([t,t, t], X,R), boollist (X), boollist (R).
+X = [],
+R = [t, t, t] ;
+X = [t],
+R = [t, t, t, t] ;
+X = [t, t],
+R = [t, t, t, t, t] ;
+X = [t, t, t], R = [t, t, t, t, t, t] ;
+...
+The result is disappointing. First, boolean lists with
+the given preﬁx are no longer compactly represented.
+More worrisome, Prolog is stuck on t. For example,
+[t,t,t,f] is also a boolean list with the preﬁx [t,t,t],
+but we do not see it among the answers. The built-in
+search strategy of Prolog is incomplete. If we change
+the order of the predicates in the conjunction
+?−boollist (X), boollist (R), append([t, t, t], X,R).
+we ﬁnd to our dismay that Prolog loops after giving
+the ﬁrst solution.
+Therefore, Classical Prolog pro-
+grams are not as declarative as one may think: the
+
+=== page 4 ===
+order of predicates and clauses matters a great deal.
+One must be very familiar with the evaluation strat-
+egy to write programs that produce any result, let
+alone produce the result fast.
+There are more problems, such as numerical cal-
+culations or interfacing with foreign functions. They
+can be dealt with various success in modern Prolog
+systems, via mode inference, tabing and constraint-
+solving systems – which take us beyond Classical Pro-
+log.
+The biggest problem is non-determinism as the de-
+fault. Many real-life problems are mostly determin-
+istic, or involve long segments of deterministic com-
+putations (e.g., number crunching). Encoding such
+problems eﬃciently in Prolog is very diﬃcult, often
+requiring ‘cut’ and other impure features, which de-
+stroy the reversibility and do not play well with con-
+straint solving.
+§4 gives one example, of the need
+for restricting non-determinism and the problem it
+causes for Prolog.
+When a problem suits Prolog, the answer is breath-
+takingly elegant. But most of the time it is not.
+3
+An alternative to Prolog
+As an alternative to Classical Prolog we add non-
+determinism to an ordinary language, where deter-
+minism is default.
+An example is a library called
+Hansei1,
+which
+adds
+weighted
+non-determinism
+(probabilities) to the ordinary OCaml. (We will ig-
+nore the probabilities in this paper.) The techniques
+illustrated in this section are not limited to Hansei
+or OCaml.
+One such technique is lazy generation,
+assuming the role of logic variables.
+The primitives of the library, see Figure 1, are dist,
+to non-deterministically choose an element from a
+list, and fail. There is also a strange sounding func-
+tion reify0 that turns a program into a tree of choices
+αpV, letting us program our own search strategies.
+The library has many convenient functions written
+in terms of the primitives, such as ﬂip, ﬂipping a
+coin, and the uniform selection; exact reify exhaus-
+tively searches through all the choices and produces
+the ﬂattened choice tree, or the probability table.
+1http://okmij.org/ftp/kakuritu/
+Basic functions
+type prob = ﬂoat
+val dist
+: (prob ∗α) list
+→α
+val fail
+: unit →α
+val reify0
+: (unit →α) →α pV
+val letlazy
+: (unit →α) →(unit →α)
+Convenient derived functions
+val ﬂip
+: prob →bool
+val uniformly
+: α array →α
+...
+val exact reify
+: (unit →α) →α pV
+val reify part
+: int option →(unit →α) →
+(prob ∗α) list
+...
+Figure 1: Hansei interface
+Hansei (and similar libraries for Scala or Haskell)
+show that just adding non-determinism to an estab-
+lished language is straightforward. With little eﬀort
+we can already write Prolog-like programs, and we do
+in §3.1. We also see that the cheap non-determinism
+is cheap indeed: it performs poorly and is prone to
+divergence. §3.2 presents a smart alternative. Our
+running example is writing the classic append rela-
+tion of Prolog in Hansei.
+3.1
+Cheap non-determinism
+At ﬁrst blush, there is little to do. OCaml already has
+a built-in operation @ to concatenate two lists. Ex-
+tending this function to a relation is also straightfor-
+ward, thanks to non-determinism. We demonstrate
+on the example of running append backwards: un-
+concatenating a given list and producing all its pos-
+sible preﬁxes and the corresponding suﬃxes.
+The
+task thus is to represent the following Prolog code in
+OCaml
+?−append(X,Y,[t,t,t, f, f]).
+The key idea is that running backwards is tanta-
+mount to generate-and-test:
+in our case, generat-
+ing candidate preﬁxes and suﬃxes and then testing
+if they make up the given list.
+We merely need a
+generator of lists, all boolean lists in our example.
+
+=== page 5 ===
+let rec a list
+() =
+if ﬂip
+0.5 then []
+else ﬂip
+0.5 :: a list
+()
+Declaratively, a boolean list is either [] or a boolean
+list with either true or false at the head. In Hansei
+terms, the thunk a list is a probabilistic model, which
+we then have to run. Running the model determines
+the set of possible worlds consistent with the proba-
+bilistic model: the “model” of the model. The set of
+outputs in these worlds is the set of answers. Hansei
+oﬀers a number of ways to run models and obtain the
+answers and their weights. We will be using iterative
+deepening, reify part, a version of exact reify whose
+ﬁrst argument is the depth search bound (inﬁnite, if
+None). For example, we test a list by generating a
+few sample boolean lists:
+reify part
+(Some 3) a list
+⇝[(0.5,
+[]);
+(0.125, [ false ]);
+(0.125, [ true])]
+Everything is set to implement our idea of running
+@ backwards, to unconcatenate the sample list t3f2
+obtaining all its preﬁxes and the corresponding suf-
+ﬁxes.
+let t3f2 = [true; true; true; false ; false ]
+reify part
+(Some 25) (fun() →
+let x = a list
+() in
+let y = a list
+() in
+let r = x @ y in
+if not (r = t3f2) then fail
+();
+(x, y))
+⇝
+[(0.0002, ([],
+[ true; true; true; false ; false ]));
+(0.0002, ([ true], [ true; true; false ; false ]));
+(0.0002, ([ true; true], [ true; false ; false ]));
+(0.0002, ([ true; true; true], [ false ; false ]));
+(0.0002, ([ true; true; true; false ], [ false ]));
+(0.0002, ([ true; true; true; false ; false ], []))]
+It really works as intended, although it takes about
+2 seconds even for such a trivial example. Alas, if
+we increase the search bound (the ﬁrst argument of
+reify part) to 35, the program practically diverges. It
+is not diﬃcult to see why: a list really generates all
+possible boolean lists; only very few of them add up
+to t3f2; the others will have to be rejected. The prob-
+lem with cheap non-determinism is generating vastly
+too many candidate solutions, almost all of which are
+rejected.
+3.2
+Smart non-determinism
+To use non-determinism eﬀectively requires sophisti-
+cation: to avoid generating and considering clearly
+failing solutions. The key idea is laziness – delaying
+the choices till the last possible moment.
+Looking
+back at Prolog gives us a hint. OCaml lists are fully
+determined: [true; false] is the list of the deﬁnite size
+with deﬁnite elements.
+Prolog lets us write partly
+determined lists, such as [t|X]; we know the head of
+the list but do not yet know what follows. Compar-
+ing this list with others, such as [t,f|Y], increases our
+knowledge. Some other comparisons, e.g., with [f|Z],
+clearly fail; they fail regardless of what X or Z really
+are, so we do not even have to generate them.
+To follow the Prolog’s hint, we deﬁne partly de-
+termined lists in OCaml: boolean lists with a non-
+deterministic spine.
+type bl = Nil | Cons of bool ∗blist
+and blist = unit →bl
+We introduce nil and cons as easy-to-use constructors
+of lists and a function to convert blists into ordinary
+OCaml lists to show them. Sample lists t3 and f2 will
+be used in the examples.
+let nil
+: blist
+= fun () →Nil
+let cons : bool →blist
+→blist
+=
+fun h t () →Cons (h,t)
+val list of blist
+: blist
+→bool list
+let t3 = cons true (cons true (cons true nil ))
+let f2 = cons false (cons false nil )
+The append is deﬁned as an ordinary recursive
+function, which pattern-matches on the list.
+let rec append l1 l2 =
+match l1 () with
+| Nil
+→l2
+| Cons (h,t) →cons h (fun () →
+append t l2 ())
+Here is an example of its use:
+
+=== page 6 ===
+reify part
+None (fun () →
+list of blist
+(append t3 f2))
+⇝[(1.,
+[ true; true; true; false ; false ])]
+giving the expected result. We have deﬁned append as
+a function, and can indeed run it as the concatenation
+function, ‘forwards’.
+Prolog also lets us concatenate lists that are par-
+tially or wholly unknown, represented by logic vari-
+ables. For example, append([t,t,t],X,R) will enumer-
+ate all lists with [t,t,t] as the preﬁx, see §2.1. If we are
+interested in only boolean lists, we had to complicate
+the Prolog code
+append([t, t, t], X,R), boollist (X), boollist (R).
+and faced the problem of incomplete search: Prolog
+could not produce any lists that included f. In Han-
+sei, the role of logic variable as the representation for
+some boolean list is played by a generator:
+let rec a blist
+() : blist
+=
+letlazy
+(fun () →
+uniformly [| Nil ;
+Cons(ﬂip 0.5, a blist
+()) |])
+We need the magical function letlazy, which at ﬁrst
+blush looks like the identity function. It is another
+primitive of Hansei, taking a thunk and returning a
+thunk. When we force the resulting thunk, we force
+the original one, and remember the result. All fur-
+ther forcing return the same result.
+In functional
+logic programming, this is called “call-time choice”.
+In quantum mechanics, it is called “wave-function
+collapse”. Before we observe a system, for example,
+a still spinning coin, there could indeed be several
+choices for the result. After we observed the system,
+all further observations give the same result. Like the
+quantum-mechanical entanglement, letlazy is a way to
+share the non-deterministic state.
+Passing a blist as the second argument of append,
+reify part
+(Some 3) (fun() →
+let x = a blist
+() in
+list of blist
+(append t3 x))
+⇝
+[(0.5,
+[ true; true; true]);
+(0.125, [ true; true; true; false ]);
+(0.125, [ true; true; true; true])]
+lets us see, within the given search bound, all boolean
+lists whose ﬁrst three elements are true. Unlike the
+Prolog code, we are no longer stuck generating lists
+whose all elements are true.
+The moment of truth is running append backwards.
+We have already explained the key idea of generate-
+and-test in §3.1. The code in that section is trivial
+to adapt to partially determined lists blist; we only
+need the comparison function on blists:
+let rec bl compare l1 l2 =
+match (l1 (), l2 ()) with
+| (Nil , Nil ) →true
+| (Cons (h1,t1), Cons (h2,t2)) →
+h1 = h2 && bl compare t1 t2
+|
+→false
+Applying the generate-and-test idea to reverse the
+append2:
+reify part
+None (fun() →
+let l = append t3 f2 in
+let x = a blist
+() in
+let y = a blist
+() in
+let r = append x y in
+if not (bl compare r l ) then fail
+();
+(list of blist
+x, list of blist
+y)
+gives the same, expected result as in §3.1, but with
+a surprise. First, the result is produced 1000 times
+faster. Second, the program terminates with the ex-
+pected six answers even though we imposed no search
+bound: the ﬁrst argument of reify part is None. Al-
+though x and y in the code will generate any boolean
+list, thanks to laziness, the search space is eﬀectively
+ﬁnite, and quite small. Thus the real speed-up due
+to laziness is inﬁnite.
+The letlazy operation in the deﬁnition of a blist is
+crucial:
+let rec a blist
+() =
+letlazy
+(fun () →
+uniformly [| Nil ;
+Cons(ﬂip 0.5, a blist
+()) |])
+The operation uniformly guesses at the top construc-
+tor of the list: Nil or Cons; letlazy delays the guess,
+2See the accompanying code for the examples of running
+append in other modes.
+
+=== page 7 ===
+letting the program proceed until the result of the
+guess is truly needed. Hopefully the program rarely
+gets to that point because the search encountered a
+contradiction at some other place.
+Laziness
+in
+non-deterministic
+computations
+is
+hence indispensable. Non-deterministic laziness how-
+ever is diﬀerent from the familiar facility to delay the
+computation and memoize its result, such as OCaml’s
+lazy, Scheme’s delay or Haskell’s lazy evaluation. We
+may think of a non-deterministic choice, ﬂipping a
+coin, as splitting the current world.
+In one world,
+the coin came up ‘head’, in the other it came ‘tail’.
+If we are to cache the result, we should use diﬀerent
+memo tables for diﬀerent worlds, because diﬀerent
+worlds have diﬀerent choices. Ordinary lazy evalua-
+tion is implemented by mutation of the ordinary, or
+global, or shared memory – shared across all possible
+worlds. Non-deterministic laziness needs world-local
+memory [4]3.
+4
+Parsing
+with
+committed
+choice
+Kleene star is an intrinsic operator in regular ex-
+pressions and is commonly used in EBNF and other
+grammar formalisms.
+Just as common is the so-
+called “maximal munch” restriction on the Kleene
+star, forcing the longest possible match.
+After re-
+minding why maximal munch is so prevalent, we de-
+scribe the grave problem it poses for parsers that are
+meant to be run both forwards and backwards – that
+is, to parse a given stream according to the grammar
+and to generate all parseable streams, the grammar’s
+language.
+Maximal munch cuts shorter-match choices and re-
+duces non-determinism – hence making forward runs
+faster. On the downside, when running the parser
+backwards the cut choices mean lost solutions and
+the (greatly) incomplete language generation. Hansei
+removes the downside. Parsers built with the Hansei
+parser combinator library support maximal munch
+and can be run eﬀectively backwards to generate the
+3World-local memory is also necessary for uniﬁcation and
+general constraint accumulation and solving.
+complete language, without omissions. Surprisingly,
+Hansei already had the necessary features, in partic-
+ular, the nested inference.
+5
+Maximal munch rule
+The maximal munch convention is so common in
+parsing that it is hardly ever mentioned.
+For ex-
+ample, a programming language speciﬁcation cliche
+deﬁnes the syntax of an identiﬁer as a letter followed
+by a sequence of letters and digits, or, in the extended
+BNF,
+identiﬁer
+:: = letter letter or digit ∗
+where ∗, the Kleene star, denotes zero or more repe-
+titions of letter or digit. In the string ”var1 + var2”
+we commonly take var1 and var2 to be identiﬁers.
+However, according to the above grammar every pre-
+ﬁx of an identiﬁer is also an identiﬁer. Therefore, we
+should regard v, va and var as identiﬁers as well. To
+avoid such conclusions and the need to complicate
+the grammar, the maximal munch rule is assumed:
+letter or digit∗denotes the longest sequence of letters
+and digits. Without the maximal munch, we would
+have to write
+identiﬁer
+:: = letter letter or digit ∗
+[ look−ahead: not letter or digit
+]
+It is not only awkward, requiring the notation for
+look-ahead, but also much less eﬃcient. If ∗means
+zero or more occurrences, letter or digit∗on input
+”var1 ” will match the empty string, ”a”, ”ar” and
+”ar1”. Only the last match leads to the successful
+parse of the identiﬁer, recognizing var1.
+Maximal
+munch cuts the irrelevant choices. It has proved so
+useful that it is rarely explicitly stated when describ-
+ing grammars.
+5.1
+Maximal munch in Prolog:
+Re-
+versibility lost
+Maximal munch however destroys the reversible pars-
+ing, the ability to run the parser forward (as a parser
+or recognizer) and backward (as a language genera-
+tor).
+We illustrate the problem in Prolog.
+A rec-
+ognizer in Prolog is a relation between two streams
+
+=== page 8 ===
+(lists of characters) S and Srem such that Srem is the
+suﬃx of S. In a functional language, we would say
+that a recognizer recognizes the preﬁx in S, returning
+the remaining stream as Srem. Here is the recognizer
+for the character ’a’:
+charA([a|Srem],Srem).
+The
+Kleene-star
+combinator
+(typically
+called
+many) takes as an argument a recognizer and repeats
+it zero or more times. Without the maximal munch,
+it looks as follows:
+many0(P,S,S).
+many0(P,S,Rest) :−
+call (P,S,Srem), many0(P,Srem,Rest).
+where
+P
+is
+an
+arbitrary
+parser.
+Thus
+many0(charA,S,R) will recognize or generate the
+preﬁx of S with zero or more ’a’ characters.
+(Re-
+call that call is the standard Prolog predicate to
+call a goal indirectly: call(charA,S,R) is equivalent
+to the charA(S,R).)
+Thanks to the ﬁrst clause,
+many0(P,S,R) always recognizes the empty string.
+Here is how we recognize a∗in the sample input
+stream [a,a,b]:
+?−many0(charA,[a,a,b],R).
+R = [a, a, b] ;
+R = [a, b] ;
+R = [b]
+and generate the language of a∗:
+?−many0(charA,S,[]).
+S = [] ;
+S = [a] ;
+S = [a, a] ;
+S = [a, a, a] ; ...
+To implement the maximal munch, many should
+call the argument parser as long as it succeeds. To
+tell if the parser fails or succeeds we turn to soft-
+cut. Recall, soft-cut P ∗→Q; R is equivalent to the
+conjunction P, Q if P succeeds at least once. Soft-cut
+commits to that choice and totally discards R in that
+case. R is evaluated only when P fails from the outset.
+Soft-cut lets us write many with maximal munch:
+many(P,S,Rest) :−
+call (P,S,Srem) ∗→many(P,Srem,Rest) ;
+S = Rest.
+Now
+the
+the
+empty
+string
+is
+recognized
+(i.e.,
+S = Rest) only if the parser P fails. Recognizing a∗
+in the sample input
+?−many(charA,[a,a,b],R).
+R = [b].
+becomes quite more eﬃcient.
+There is only one
+choice, for the longest sequence of as. However, at-
+tempting to generate the language a∗:
+?−many(charA,S,[]).
+<loops>
+leads to an inﬁnite loop. The argument recognizer,
+charA, when asked to generate, always succeeds.
+Therefore, the recursion in many never terminates.
+When running backwards, the recognizer tries to gen-
+erate the longest string of as – the inﬁnite string. Al-
+though the empty string belongs to the language a∗,
+we fail to generate it.
+5.2
+Maximal munch in Hansei:
+Re-
+versibility regained
+The Hansei parser combinator library, Figure 3, sup-
+ports many, which, unlike the one in Prolog, no longer
+forces the trade-oﬀbetween eﬃcient parsing and gen-
+eration.
+Hansei’s many obeys maximal munch and
+generates the complete language, with no omissions.
+Hansei lets us have it both ways. Before describing
+the implementation, we show a few representative ex-
+amples, Figure 2.
+Examples 5-7 show the argument parsers with
+choices, even overlapping choices as in Example 7.
+The combinator many (actually, many1 deﬁned as
+many1 p = p <∗many p) may nest.
+In Example 3,
+a∗a does not recognize ”aaa” since the a∗munches
+the entire stream leaving nothing for the parser of
+the ﬁnal a. This is the expected behavior under max-
+imal munch. Example 7 shows no parse for the same
+reason. Finally in the last example we generate the
+complete language for a∗, including the empty string.
+To implement the maximal munch in Hansei we
+need something like soft-cut, the ability to detect
+a failure and proceed. Hansei has exactly the right
+tools: reify0 and reﬂect:
+
+=== page 9 ===
+Parser
+Stream
+Result
+1
+many (p char ’a’)
+”aaaa”
+unique
+2
+many (p char ’a’) <∗> p char ’b’
+”b”
+unique
+3
+many (p char ’a’) <∗p char ’a’
+”aaa”
+no parse
+4
+many (p char ’a’) <∗> many (p char ’a’))
+”aaa”
+unique
+5
+many ((p char ’a’) <|> (p char ’b’))
+”ababb”
+unique
+6
+many ((many1 (p char ’a’)) <|>
+(many1
+(p char ’b’)))
+”aaabab”
+unique
+7
+many ((p char ’a’ <∗p char ’a’) <|> p char ’a’)
+<∗p char ’a’
+”aaa”
+no parse
+8
+many (p char ’a’)
+random
+””, ”a”, ”aa”, . . .
+Figure 2: Examples of maximal munch parsing
+A parser takes a stream and returns the parsing result,
+the result of a semantic action, and the remainder of the
+stream:
+type stream v = Eof | Cons of char ∗stream
+and stream = unit →stream v
+type α parser = stream →α ∗stream
+Primitive parser
+val let p char : char →char parser
+checks the current element of the stream is the given char-
+acter, returning it.
+Parsing combinators
+val (<∗> ) : (α →β) parser →α parser →β parser
+val ( <∗) : α parser →β parser →α parser
+let (<|> ) : αparser →α parser →α parser =
+fun p1 p2 st →uniformly [| p1;p2|] st
+combine parsers and their semantic actions and express
+the rules of the grammar: (<∗> ) combines parsers sequen-
+tially and (<|> ) expresses the alternation. The combina-
+tor ( <∗) is the specializations of (<∗> ).
+Figure 3: Hansei parser combinator library
+type α vc = V of α
+| C of (unit →α pV)
+and α pV = (prob ∗α vc) list
+val reify0
+: (unit →α) →α pV
+val reﬂect
+: α pV →α
+The primitive reify0 converts a probabilistic com-
+putation to a lazy tree of choices αpV,
+whose
+nodes contain found solutions V x or not-yet-explored
+branches. The primitive reﬂect, the inverse of reify0,
+turns a tree of choices into a probabilistic program
+that will make those choices.
+The primitive reify0
+is fundamental in Hansei: probabilistic inference is
+implemented by ﬁrst reifying a program (the genera-
+tive model) to the tree of choices and then exploring
+the tree in various ways. For instance, the full tree
+traversal corresponds to exact inference.
+Soft-cut can also be implemented as a choice-
+tree traversal, ﬁrst success below, which explores the
+branches looking for the ﬁrst V leaf. It returns the
+tree resulting from the exploration, which could be
+empty if no V leaf was ever found. Soft-cut then is
+simply
+val ﬁrst success
+: α pV →α pV
+let soft cut
+:
+(unit →α) →(α →ω) →(unit →ω) →ω =
+fun p q r →
+match ﬁrst success
+(reify0
+p) with
+| [] →r ()
+| t
+→q (reﬂect
+t)
+
+=== page 10 ===
+We write many in terms of the soft-cut as we did in
+Prolog:
+let many : α parser →α list
+parser = fun p →
+let rec self
+st =
+soft cut
+(* check if p succeeded *)
+(fun () →p st )
+(* continue with p *)
+(fun (v, st ) →
+let (vs, st ) = self st in
+(v:: vs, st ))
+(fun () →([], st ))
+(* if p failed *)
+in self
+The second question is avoiding losing solutions
+when running the parser “backwards”. Unlike Pro-
+log, Hansei parsers are functions rather than rela-
+tions. They take a stream, attempt to recognize its
+preﬁx and return the rest of the stream on success.
+They cannot be run backwards. However, we achieve
+the same result – producing the set of parseable
+streams – by generating all streams, feeding them
+to the parser and returning the streams that parsed
+completely. Since the number of possible streams is
+generally inﬁnite, we have to generate them lazily, on
+demand. To ensure completeness – to avoid losing
+any solutions – the parsers should have the property
+many p (s1 ⊕s2) = many p s1 ⊕many p s2
+where ⊕stands for non-deterministic choice. Sur-
+prisingly, many p already satisﬁes it.
+The trick is
+laziness in the stream and Hansei’s support of nested
+inference. The primitive reify0 may appear in prob-
+abilistic programs – in other words, a probabilistic
+model may itself perform inference, over an inner
+model. In order for this to work correctly, we had
+to ensure that
+let x = letlazy (s1 ⊕s2) in
+reify0
+(fun () →model x)
+≡
+let x = letlazy s1 in reify0 (fun () →model x)
+⊕
+let x = letlazy s2 in reify0 (fun () →model x)
+where x is demanded in model.
+That is, reify0
+should reify only the choices made by the inner pro-
+gram, and let the outer choices take eﬀect.
+The
+stream generator has to be lazy, so it has the form
+letlazy
+(s1 ⊕s2). Comparing the nested inference
+property with the code for many reveals that the key
+property of many p (s1 ⊕s2) is satisﬁed without us
+needing to do anything. Our many has exactly the
+right semantics.
+6
+Conclusions
+Classical logic programming all too often forces us to
+choose between eﬃciency and expressiveness, on one
+hand, and completeness on the other hand. Nega-
+tion and committed choice make logic programs eas-
+ier to write and, in some modes, faster to run. Alas,
+some other modes (informally, running ‘backwards’)
+become unusable or impossible. Kleene star is a good
+example of the trade-oﬀ: maximal munch simpliﬁes
+the grammar and makes parsing eﬃcient, but de-
+stroys the ability to generate grammar’s language.
+Functional logic programming systems can remove
+the trade-oﬀ.
+Properly implemented encapsulated
+search (nested inference, in Hansei) lets us distin-
+guish the choices of the parser from the choices of
+the stream and cut only the former.
+Perhaps sur-
+prisingly this distinction just falls out of the need
+for non-deterministic stream to be lazy. Thus Kleene
+star with maximal munch lets us parse and generate
+the complete language.
+In Hansei, we can have it
+both ways.
+We have gone back to Herbrand: we build the Her-
+brand universe (the set of all ground terms) and ex-
+plore it to ﬁnd a model of a program. We build the
+universe by modeling ‘logic variables’ as generators
+for their domains. Since the Herbrand universe for
+most logic programs is inﬁnite, non-strict evaluation
+is the necessity.
+Furthermore, since logic variables
+may occur several times, we must be able to corre-
+late the generators.
+Finally, we need a systematic
+way of exploring the search space, without getting
+stuck in one inﬁnite sub-region. Hansei, among other
+similar systems, satisﬁes all these requirements.
+Logic variables and uniﬁcation have been intro-
+duced by Robinson as a way to ‘lift’ ground reso-
+lution proofs of Herbrand, to avoid generating the
+vast number of ground terms [12]. Logic variables ef-
+
+=== page 11 ===
+fectively delay the generation of ground terms to the
+last possible moment and to the least extent. Doing
+computations only as far as needed is also the goal
+of lazy evaluation. It appears that lazy evaluation
+can make up for logic variables, rendering Herbrand’s
+original approach practical. It remains a fascinating
+task to be able to systematically derive a uniﬁcation
+procedure.
+Acknowledgement
+We thank Tom Schrijvers for
+helpful comments and discussions.
+References
+[1] P. Blackburn, J. Bos, and K. Stiegnitz. Learn
+Prolog Now!
+College Publications, London,
+2006. ISBN 1904987176.
+[2] W. F. Clocksin and C. S. Mellish. Programming
+in Prolog. Springer, 5 edition, 2003.
+[3] Committee for Development and Promotion of
+Basic Computer Technology.
+Fifth generation
+computer systems project ﬁnal evaluation re-
+port. ICOT Journal, (40):3–24, 1994.
+[4] S. Fischer, O. Kiselyov, and C.-c. Shan. Purely
+functional lazy nondeterministic programming.
+Journal of Functional Programming, 21(4–5):
+413–465, 2011.
+[5] M. Hanus.
+Multi-paradigm declarative lan-
+guages. In Proceedings of the International Con-
+ference on Logic Programming (ICLP 2007),
+number 4670 in LNCS, pages 45–75. Springer,
+2007.
+[6] O. Kiselyov and C.-c. Shan.
+Embedded prob-
+abilistic programming.
+In W. M. Taha, ed-
+itor, Proceedings of the Working Conference
+on Domain-Speciﬁc Languages, number 5658
+in LNCS, pages 360–384. Springer, 15–17 July
+2009. ISBN 3-642-03033-5.
+[7] O. Kiselyov and C.-c. Shan. Monolingual prob-
+abilistic programming using generalized corou-
+tines.
+In Proceedings of the 25th Conference
+on Uncertainty in Artiﬁcial Intelligence, pages
+285–292, Corvallis, Oregon, 19–21 June 2009.
+AUAI Press. URL http://uai.sis.pitt.edu/
+displayArticleDetails.jsp?mmnu=1&smnu=
+2&article_id=1601&proceeding_id=25.
+[8] T. Moto-oka, editor. Fifth Generation Computer
+Systems. North-Holland, New York, 1982.
+[9] L. Naish. Pruning in logic programming. Techni-
+cal Report 95/16, Department of Computer Sci-
+ence, University of Melbourne, Melbourne, Aus-
+tralia, June 1995. URL http://www.cs.mu.oz.
+au/~lee/papers/prune/.
+[10] F. C. N. Pereira and S. N. Shieber.
+Prolog
+and Natural-Language Analysis. Center for the
+Study of Language and Information, Stanford,
+California, 1987.
+[11] M. O. Rabin and D. Scott.
+Finite automata
+and their decision problems.
+IBM Journal of
+Research and Development, 3:114–125, 1959.
+[12] J. A. Robinson.
+Computational logic: Memo-
+ries of the past and challenges for the future.
+In Proceedings of the First International Con-
+ference on Computational Logic, number 1861
+in LNAI, pages 1–24, 2000.
+[13] P. V. Roy.
+1983-1993:
+The wonder years
+of sequential prolog implementation.
+Techni-
+cal Report 36, Paris DEC Research Labora-
+tory, Dec. 1993. URL http://www.hpl.hp.com/
+techreports/Compaq-DEC/PRL-RR-36.pdf.

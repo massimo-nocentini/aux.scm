@@ -1,0 +1,880 @@
+
+=== page 1 ===
+Non-deterministic choice in a conventional
+programming language
+Enough for logic programming?
+http://okmij.org/ftp/kakuritu/logic-programming.html
+National Institute of Informatics, Japan
+December 18, 2012
+
+=== page 2 ===
+2
+Outline
+▶Introduction
+Prolog
+Hansei
+Reversible parsers, Zebra
+Type inference
+Conclusions
+
+=== page 3 ===
+Logic programming is a fascinating approach, especially for AI and
+natural language processing. It is greatly appealing to declaratively
+state the properties of the problem and let the system ﬁnd the
+solution. Most intriguing is the ability to run programs ‘forwards’ and
+‘backwards’.
+However, the built-in search methods of logic programming systems
+don’t ﬁt all problems and hardly if at all customizable. Mainly, quite
+many computations and models are mostly deterministic.
+Implementing them in a logic programming language is signiﬁcantly
+ineﬃcient and requires extensive use of problematic features such as
+cut. Another problem is interfacing logic programs with mainstream
+language libraries: if mode analysis is not available (as is often the
+case), one has to live with run-time instantiatedness errors.
+An alternative to logic programming, where non-determinism is
+default, is a deterministic programming system (such as Scheme,
+OCaml, Scala or Haskell – or even C) with (probabilistic)
+non-determinism as an option. Is this a good alternative? We explore
+this question. We will use Hansei – a probabilistic programming
+system implemented as a library in OCaml – to solve a number of
+classic logic programming problems, from zebra to scheduling, to
+parser combinators, to reversible type checking.
+
+=== page 4 ===
+3
+Outline
+Introduction
+▶Prolog
+Hansei
+Reversible parsers, Zebra
+Type inference
+Conclusions
+
+=== page 5 ===
+4
+Pure Prolog
+append([], L,L).
+append([H| T],L,[H| R]) :−append(T,L,R).
+First-order theory of append
+
+=== page 6 ===
+Since the talk is about alternatives to Prolog, we ought to recall the
+golden standard: Prolog. All the best features of Prolog can be
+illustrated in only two lines of code: the append relation.
+The two lines of code on the slide deﬁne the ﬁrst-order theory for
+append:
+• the 3-place predicate append,
+• an axiom: forall L. append([],L,L) holds.
+• a rule: forall H T L L2. whenever append(T,L,L2) holds,
+append([H|T],L,[H|L2]) also holds. That is, we can add an
+element to T and L2.
+
+=== page 7 ===
+4
+Pure Prolog
+append([], L,L).
+append([H| T],L,[H| R]) :−append(T,L,R).
+?−append([t,t, t],[ f, f], X).
+X = [t, t, t, f, f].
+append as a concatenation function
+
+=== page 8 ===
+Is there a list X such that append([t,t,t],[f,f],X) holds? Prolog answers
+Yes, and, furthermore, gives us that list X. As if append were a
+function to concatenate two lists.
+
+=== page 9 ===
+4
+Pure Prolog
+append([], L,L).
+append([H| T],L,[H| R]) :−append(T,L,R).
+?−append([t,t], X,[t, t, t, f, f]).
+X = [t, f, f].
+concatenating backwards
+
+=== page 10 ===
+Prolog’s append is so elegant because it deﬁnes a relation among
+three lists. We specify any two lists and query for the other one that
+makes the relation hold. For example, let’s check if a given list has a
+given preﬁx, and if so, remove it. Likewise, we can check for, and
+remove, a given suﬃx.
+If list concatenation was like running forwards, preﬁx removal is like
+running append backwards.
+
+=== page 11 ===
+4
+Pure Prolog
+append([], L,L).
+append([H| T],L,[H| R]) :−append(T,L,R).
+?−append([t,t, t], X,R).
+R = [t, t, t| X].
+concatenating in another way
+
+=== page 12 ===
+There are more ways to run append; for example: ﬁnd all lists R with
+a given preﬁx [t,t,t] and an arbitrary suﬃx X. The answer is given on
+one line, which, however, compactly represents an inﬁnite number of
+solutions. Hence a question in Prolog may have more than one
+answer. We get the ﬁrst hint of non-determinism.
+The compact representation is less wonderful than it looks. For
+example, Prolog cannot compactly represent all boolean lists with a
+given preﬁx.
+
+=== page 13 ===
+4
+Pure Prolog
+append([], L,L).
+append([H| T],L,[H| R]) :−append(T,L,R).
+?−append(X,[f,f], R).
+R = [f, f] ;
+R = [ G328, f, f] ;
+R = [ G328, G334, f, f] ;
+R = [ G328, G334, G340, f, f].
+and un-concatenating
+
+=== page 14 ===
+If we ask for all lists with the [f,f] suﬃx, Prolog lists the solutions, as
+an inﬁnite stream. Non-determinism becomes clear.
+
+=== page 15 ===
+4
+Pure Prolog
+append([], L,L).
+append([H| T],L,[H| R]) :−append(T,L,R).
+?−append(X,Y,[t,t,t, f, f]).
+X = [],
+Y = [t, t, t, f, f] ;
+X = [t], Y = [t, t, f, f] ;
+X = [t, t], Y = [t, f, f] ;
+X = [t, t, t], Y = [f, f] ;
+X = [t, t, t, f], Y = [f] ;
+X = [t, t, t, f, f], Y = [] ;
+false .
+another un-concatenation: splitting
+
+=== page 16 ===
+Append can also split a given list in all possible ways, returning its
+preﬁxes and suﬃxes. If the list is ﬁnite, we obtain the ﬁnite number
+of answers.
+
+=== page 17 ===
+5
+FFI
+lenf ([],0).
+lenf ([ | T],N) :−lenf (T,N1), N is N1 + 1.
+
+=== page 18 ===
+Append is truly the best illustrative example of Prolog, showing oﬀ
+building and unifying terms. Once we venture beyond the term
+algebra, things easily turn awry. Arithmetic in Prolog is already
+“outside” and has to be accessed using a sort of an FFI. Alas, most of
+such ‘foreign’ libraries are deterministic, functional rather than
+relational.
+As an example, let’s deﬁne lenf that relates a list and its length, an
+integer.
+
+=== page 19 ===
+5
+FFI
+lenf ([],0).
+lenf ([ | T],N) :−lenf (T,N1), N is N1 + 1.
+?−lenf([1,2,3], N).
+N = 3.
+
+=== page 20 ===
+We easily ﬁnd the length of a given list.
+
+=== page 21 ===
+5
+FFI
+lenf ([],0).
+lenf ([ | T],N) :−lenf (T,N1), N is N1 + 1.
+?−lenf(X,3).
+X = [ G280, G283, G286] ;
+<divergence>
+
+=== page 22 ===
+We can also ﬁx the length (for example, 3) and ask for all lists of that
+length. After printing the ﬁrst solution, Prolog indicates that there
+may be more. If we want to see them, Prolog goes into an inﬁnite
+loop. The reader is encouraged to ﬁnd out the cause of the divergence.
+
+=== page 23 ===
+5
+FFI
+lenf ([],0).
+lenf ([ | T],N) :−lenf (T,N1), N is N1 + 1.
+?−lenf([1,2],1).
+false .
+
+=== page 24 ===
+Here we test if a given list has a given size.
+
+=== page 25 ===
+5
+FFI
+lenf ([],0).
+lenf ([ | T],N) :−lenf (T,N1), N is N1 + 1.
+?−lenf([1,2 | X],1).
+<divergence>
+
+=== page 26 ===
+Yet if we change the example slightly (asking if a list with the preﬁx
+[1,2] has the length 1) we get no answer. The interpreter loops. Why?
+Here’s a hint: a common problem is conjoining a generator that keeps
+generating with a test that keeps rejecting.
+
+=== page 27 ===
+5
+FFI
+lenf ([],0).
+lenf ([ | T],N) :−lenf (T,N1), N is N1 + 1.
+lenf1 ([],0).
+lenf1 ([ | T],N) :−N is N1 + 1, lenf1 (T,N1).
+?−lenf1([1,2,3], N).
+ERROR: user://4:78:
+is /2: Arguments are not suﬃciently
+instantiated
+
+=== page 28 ===
+Perhaps moving the test before the generator would help? (Prolog, or
+the SLD resolution, evaluates goals in a conjunction strictly
+left-to-right.) The divergence is certainly cured, replaced by an error.
+The error tells us that the built-in arithmetic of Prolog is not
+relational. We cannot run addition ‘backwards’.
+
+=== page 29 ===
+5
+FFI
+lenf ([],0).
+lenf ([ | T],N) :−lenf (T,N1), N is N1 + 1.
+lenf1 ([],0).
+lenf1 ([ | T],N) :−N is N1 + 1, lenf1 (T,N1).
+?−lenf1([1,2,3], N).
+ERROR: user://4:78:
+is /2: Arguments are not suﬃciently
+instantiated
+Arithmetic can be relational
+▶Constraint solving
+▶Arithmetic in pure Prolog (FLOPS 2008)
+
+=== page 30 ===
+To be sure, arithmetic can be relational. Many Prolog systems, for
+example, SWI Prolog, have arithmetic constraint solvers. Relational
+arithmetic can also be implemented in Pure Prolog, see our FLOPS
+2008 paper.
+
+=== page 31 ===
+6
+Pure Prolog: Summary
+⃝Declarative: ﬁnd a solution by stating a problem
+⃝Relational: running forwards and backwards
+⧸
+⧹Non-determinism is default,
+determinism is diﬃcult and impure
+⧸
+⧹Untyped
+⧸
+⧹Search is too rigid, divergence is too common
+⧸
+⧹FFI breaks purity, causes instantiatedness errors
+
+=== page 32 ===
+Let’s review the ﬁrst part of the talk, good and bad features of
+Prolog. To emphasize, we are talking about the pure Prolog. There
+are various ways of getting around: for example, some Prolog systems
+have good mode analysis (e.g., Mercury) – but many do not. There
+are typed Prolog-like systems: Mercury and lambda-Prolog. But they
+are, unfortunately, much less popular.
+The ﬁrst drawback – non-determinism as the default – is most
+problematic. Many real-life problems are mostly deterministic, or
+involve long segments of deterministic computations (e.g., number
+crunching). Encoding such problems eﬃciently in Prolog is very
+diﬃcult, often requiring ‘cut’ and other impure features.
+When a problem suits Prolog, the answer is breathtakingly elegant.
+But most of the time it is not.
+
+=== page 33 ===
+7
+Outline
+Introduction
+Prolog
+▶Hansei
+Reversible parsers, Zebra
+Type inference
+Conclusions
+
+=== page 34 ===
+Are there alternatives? Let’s try adding non-determinism to an
+ordinary language, where determinism is default.
+
+=== page 35 ===
+8
+Hansei
+http://okmij.org/ftp/kakuritu/
+Basic functions
+val dist
+: (prob ∗α) list
+→α
+val fail
+: unit →α
+val reify0
+: (unit →α) →α pV
+Convenient derived functions
+val ﬂip
+: prob →bool
+val uniformly
+: α array →α
+...
+val exact reify
+: (unit →α) →α pV
+val reify part
+: int option →(unit →α) →(Ptypes.prob ∗α) list
+...
+
+=== page 36 ===
+An example is a library called Hansei, which adds weighted
+non-determinism (probabilities) to the ordinary OCaml. We will hush
+the probabilities in this talk.
+The primitives of the library are dist, to non-deterministically choose
+an element from a list, and fail. There is also a strange sounding
+function reify0 that turns a program into a tree of choices, letting us
+program our own search strategies. The library has lots of convenient
+functions written in terms of primitives, such as ﬂip, the uniform
+selection, and the exhaustive search through all the choices, which
+produces the ﬂattened choice tree, or the probability table. The
+function reify part is a version of exact reify. The ﬁrst argument is the
+depth search bound (inﬁnite, if None).
+
+=== page 37 ===
+9
+Append in Hansei
+type bl = Nil | Cons of bool ∗blist
+and blist = unit →bl
+let nil
+: blist
+= fun () →Nil
+let cons : bool →blist
+→blist
+= fun h t () →Cons (h,t)
+val list of blist
+: blist
+→bool list
+let t3 = cons true (cons true (cons true nil ))
+let f2 = cons false (cons false
+nil )
+let rec append l1 l2 =
+match l1 () with
+| Nil
+→l2
+| Cons (h,t) →cons h (fun () →append t l2 ())
+
+=== page 38 ===
+Recall, the append relation is the best illustration of Prolog. Let’s see
+if we can represent it in Hansei. We ﬁrst deﬁne boolean lists with a
+non-deterministic spine. Elements could (and should be) be
+non-deterministic too. We introduce nil and cons as easy-to-use
+constructors of lists, and a function to convert blists into ordinary
+OCaml lists so we can show them. Sample lists t3 and f2 will be used
+in the examples. The append is deﬁned as an ordinary recursive
+function pattern-matching on the list.
+
+=== page 39 ===
+9
+Append in Hansei
+type bl = Nil | Cons of bool ∗blist
+and blist = unit →bl
+let rec append l1 l2 =
+match l1 () with
+| Nil
+→l2
+| Cons (h,t) →cons h (fun () →append t l2 ())
+append t3 f2;;
+−: blist
+= <fun>
+
+=== page 40 ===
+Executing the append by itself does not give an informative answer.
+Recall that we use the Hansei library to build a probabilistic model,
+which we then have to run. Running the model determines the set of
+possible worlds consistent with the probabilistic model: the model of
+the model. The set of model outputs in these worlds is the set of
+answers. Hansei oﬀers a number of ways to run models and obtain the
+answers and their weights. We will be using iterative deepening:
+reify part. The ﬁrst argument is the depth search bound (inﬁnite, if
+None).
+
+=== page 41 ===
+9
+Append in Hansei
+type bl = Nil | Cons of bool ∗blist
+and blist = unit →bl
+let rec append l1 l2 =
+match l1 () with
+| Nil
+→l2
+| Cons (h,t) →cons h (fun () →append t l2 ())
+reify part
+None (fun () →
+list of blist
+(append t3 f2))
+[(1.,
+[ true; true; true; false ; false ])]
+
+=== page 42 ===
+Running the append model gives the expected result. We have
+deﬁned append as a function, and can indeed run it as the
+concatenation function, ‘forwards’.
+
+=== page 43 ===
+10
+Logic variables?
+Prolog
+?−bool(X) , append([X],[ f, f], R).
+X = t ,
+R = [ t , f, f] ;
+X = f ,
+R = [ f , f, f].
+Hansei
+reify part
+None (fun () →
+let l = fun () →Cons ( ﬂip
+0.5 , nil ) in
+list of blist
+l , list of blist
+(append l f2))
+[(0.25,
+([ false
+], [ false
+; false ; false ]));
+(0.25, ([ false
+], [ true ; false ; false ]));
+(0.25, ([ true], [ false ; false ; false ]));
+(0.25, ([ true], [ true; false ; false ]))]
+
+=== page 44 ===
+Prolog could run append forwards in several ways, for example, to
+determine lists with [f,f] as the suﬃx and a one-element preﬁx. The
+slide shows the Prolog code and the corresponding Hansei code. In
+Hansei, a boolean X is modeled as a non-deterministic boolean flip
+0.5. But something is wrong with the Hansei code!
+
+=== page 45 ===
+11
+Logic variables
+val letlazy
+: (unit →α) →(unit →α)
+reify part
+None (fun () →
+let l = letlazy
+(fun () →Cons (ﬂip
+0.5, nil )) in
+list of blist
+l , list of blist
+(append l f2))
+[(0.5,
+([ false
+], [ false
+; false ; false ]));
+(0.5, ([ true ], [ true ; false ; false ]))]
+▶call-time choice
+▶wave-function collapse
+
+=== page 46 ===
+We need the magical function letlazy, which at ﬁrst blush looks like an
+identity function. It is another primitive of Hansei. It takes a thunk
+and returns a thunk. When we force that thunk, we force the original
+one, and remember the result. All further forcing return the same
+result. In functional-logic programming, this is called “call-time
+choice”. In quantum mechanics, in is called “wavefunction collapse”.
+Before we observe a system, for example, a still spinning coin, there
+could indeed be several choices for the result. After we observed the
+system, all further observations give the same result.
+Now the code gives the expected answer.
+
+=== page 47 ===
+12
+Logic variables: memoized generators
+?−append([t,t, t], X,R), boollist (X), boollist (R).
+
+=== page 48 ===
+Let’s recall another Prolog example, enumerating all boolean lists
+with [t,t,t] as the preﬁx. Unlike earlier Prolog code, we now make sure
+the lists are really boolean, whose elements are only t or f.
+
+=== page 49 ===
+12
+Logic variables: memoized generators
+?−append([t,t, t], X,R), boollist (X), boollist (R).
+X = [],
+R = [t, t, t] ;
+X = [t],
+R = [t, t, t, t] ;
+X = [t, t],
+R = [t, t, t, t, t] ;
+X = [t, t, t],
+R = [t, t, t, t, t, t] ;
+X = [t, t, t, t],
+R = [t, t, t, t, t, t, t] ;
+X = [t, t, t, t, t],
+R = [t, t, t, t, t, t, t, t]
+...
+Where is [t, t, t, f]?
+
+=== page 50 ===
+Prolog indeed gives an inﬁnite stream of answers. However, it does
+seem to be stuck on t. For example, [t,t,t,f] is also a list with [t,t,t] as
+the preﬁx, but we won’t see it. The built-in search strategy of Prolog
+is incomplete.
+
+=== page 51 ===
+12
+Logic variables: memoized generators
+let rec a blist
+() =
+letlazy
+(fun () →
+dist [(0.5,
+Nil );
+(0.5, Cons(ﬂip 0.5, a blist
+()))])
+?−append([t,t, t], X,R), boollist (X), boollist (R).
+reify part
+(Some 3) (fun() →
+let x = a blist
+() in
+list of blist
+(append t3 x))
+[(0.5,
+[ true; true; true]);
+(0.125, [ true; true; true;
+false
+]);
+(0.125, [ true; true; true; true])]
+
+=== page 52 ===
+Here is the same example in Hansei. We deﬁne a generator for blists
+(with letlazy) and use it as a logic variable X. We are no longer stuck
+on generating all true lists.
+
+=== page 53 ===
+13
+List comparison
+let rec bl compare l1 l2 =
+match (l1 (), l2 ()) with
+| (Nil , Nil ) →true
+| (Cons (h1,t1), Cons (h2,t2)) →h1 = h2 && bl compare t1 t2
+|
+→false
+
+=== page 54 ===
+Prolog can also run append backwards. Can Hansei? Let’s ﬁrst deﬁne
+the comparison function on blist, in the straightforward way.
+
+=== page 55 ===
+14
+Un-appending
+?−append([t,t, t],[ f, f], L), append([t, t], X,L).
+reify part
+None (fun() →
+let l = append t3 f2 in
+let x = a blist
+() in
+let r = append (cons true (cons true nil )) x
+in
+if
+not (bl compare r l )
+then fail
+();
+list of blist
+x)
+[(0.0078125, [ true; false ; false ])]
+Running backwards ≡generate-and-test
+How come it terminated?
+
+=== page 56 ===
+The principle for running a function backwards is generate-and-test.
+We generate all possible lists x, prepend [true,true] and check the
+result matches l. We eﬀectively un-concatenate l.
+In Prolog, conjoining a generator for an inﬁnite stream with a test
+often leads to divergence. The generator keeps producing and the test
+keeps rejecting. How come Hansei code terminated, with no upper
+bound on the search depth? Hansei search space is ﬁnite?
+
+=== page 57 ===
+15
+Splitting a list
+?−append(X,Y,[t,t,t, f, f]).
+reify part
+None (fun() →
+let l = append t3 f2 in
+let x = a blist
+() in
+let y = a blist
+() in
+let r = append x y in
+if not (bl compare r l ) then fail
+();
+(list of blist
+x, list of blist
+y)
+[(0.000244140625, ([],
+[ true; true; true; false ; false ]));
+(0.000244140625, ([true], [ true; true; false ; false ]));
+(0.000244140625, ([true; true], [ true; false ; false ]));
+(0.000244140625, ([true; true; true], [ false ; false ]));
+(0.000244140625, ([true; true; true; false ], [ false ]));
+(0.000244140625, ([true; true; true; false ; false ], []))]
+How come it terminated?
+
+=== page 58 ===
+Our last Prolog example demonstrated how the append relation splits
+the list, in all possible ways. The top of the slide recalls that Prolog
+code. Underneath is Hansei code.
+
+=== page 59 ===
+16
+Laziness principle
+▶How to guess
+▶How to go proceed as if we guessed
+▶Delay the actual guess till the latest possible moment
+hoping that moment never arrives
+
+=== page 60 ===
+Let me stress the point of the talk: how to write program that guess,
+how to guess intelligently, how to proceed as if we guessed (and delay
+the actual guess until more information becomes available, counting
+that if some other guesses are wrong, the delayed guess is not worth
+making).
+
+=== page 61 ===
+17
+Not that laziness
+▶Not lazy of OCaml
+▶Not delay of Scheme
+▶Not laziness of Haskell
+That laziness mutates global (shared) memory
+▶mutation aﬀects all possible worlds
+▶letlazy memoizes diﬀerent results in diﬀerent possible worlds
+▶letlazy needs world-local memory
+▶remember fork () and Unix processes?
+Non-deterministic laziness needs ﬁrst-class memory
+
+=== page 62 ===
+We have seen the crucial role of laziness, to delay the computation and
+memoize its result. OCaml has a facility to delay a computation and
+memoize the result – called lazy. Scheme has delay. In Haskell (GHC),
+lazy evaluation is pervasive. None of them do what we want. They
+are all implemented via mutation of the ordinary, or global, or shared
+memory – shared across all possible worlds, resulting from a choice.
+It is useful to think of a non-deterministic choice, ﬂipping a coin, as
+splitting the current world. In one world, the coin came up ‘head’, in
+the other it came ‘tail’. If we are to memoize, cache the result, we
+should use diﬀerent memo tables for diﬀerent worlds, because
+diﬀerent worlds have diﬀerent choices.
+In short, non-deterministic laziness needs ﬁrst-class memory – which
+is what Hansei implements.
+
+=== page 63 ===
+18
+Outline
+Introduction
+Prolog
+Hansei
+▶Reversible parsers, Zebra
+Type inference
+Conclusions
+
+=== page 64 ===
+I have many more examples of classical logic programming puzzles
+written in Hansei – for example, the zebra puzzle. I have non-classical
+examples – reversible parser combinators. Please ask me.
+
+=== page 65 ===
+19
+Outline
+Introduction
+Prolog
+Hansei
+Reversible parsers, Zebra
+▶Type inference
+Conclusions
+
+=== page 66 ===
+As a ﬁnal example, I’ll show invertible type-checking.
+
+=== page 67 ===
+20
+Type inference: terms
+Simply typed λ-calculus with integer literals
+type varname = string
+type term v =
+| I of int | V of varname
+| L of varname ∗term | A of term ∗term
+and term = unit →term v
+let (%) e1 e2 = fun() →A (e1,e2)
+let lam v t
+= fun() →L (v, t) and num x = fun() →I x
+let a term () : term =
+let var () = ”x” ˆ string of int
+(geometric 0.1) in
+let rec loop () =
+dist [(0.1,
+fun () →I 1);
+(0.1, fun () →V (var ()));
+(0.4, fun () →L (var (), letlazy
+loop));
+(0.4, fun () →A (letlazy
+loop, letlazy
+loop))] ()
+in letlazy
+loop
+
+=== page 68 ===
+Our language is simply-typed lambda-calculus with integer literals.
+The slide shows the syntax of terms (literals, variables, abstraction
+and application), and sugar functions for building terms conveniently.
+Next we deﬁne a generator for terms. The sequence of terms is
+inﬁnite – as is the sequence of variable names.
+
+=== page 69 ===
+21
+Type inference: types
+type base t = Int
+type tp v = B of base t | Arr of tp ∗tp
+and tp
+= tp v option →tp v
+let int : tp = tp pure (B Int)
+let arr : tp →tp →tp = fun t1 t2 →tp pure (Arr (t1, t2))
+let a tp : tp =
+let a baset () = Int in
+let rec loop = function
+| None →dist [ (0.5, B (a baset ()));
+(0.5, Arr (tp memo loop, tp memo loop))]
+| Some tv →tv
+in loop
+
+=== page 70 ===
+Types are base types (Int) and arrow types. We show the sugar
+functions and the generator.
+
+=== page 71 ===
+22
+Type inference: forwards and backwards
+let rec typeof : gamma →term →tp = fun gamma exp →
+match exp () with
+| I
+→int
+| V name →begin try List . assoc name gamma
+with Not found →fail
+()
+end
+| L (v, body) →
+let targ = new tvar() in
+let tbody = typeof ((v, targ) :: gamma) body in
+arr targ tbody
+| A (e1,e2) →
+let tres = new tvar() in
+tp same (typeof gamma e1) (arr (typeof gamma e2) tres);
+tres
+A type for a term, terms for a type, or all well-typed terms
+This is OCaml, not Prolog or Curry!
+
+=== page 72 ===
+The type-inference code ﬁts on a single slide. The code looks quite
+like the familiar typing rules. We can either obtain the type for a
+term, or generate all terms for a given type or all well-typed terms.
+[show demo live]
+
+=== page 73 ===
+23
+Outline
+Introduction
+Prolog
+Hansei
+Reversible parsers, Zebra
+Type inference
+▶Conclusions
+
+=== page 74 ===
+24
+Hansei: Summary
+⃝Declarative: ﬁnd a solution by stating a problem
+⃝Fake Relational: running forwards and backwards
+⃝Determinism is default,
+non-determinism is rather easy
+⃝Typed
+⃝Search is programmable
+⃝FFI is native
+
+=== page 75 ===
+25
+Conclusions
+Do guess
+. . . but not a moment too soon
+▶Guess
+▶Delay a guess until the last moment
+▶Fail sooner
+▶Test-and-generate (rather than generate-and-test)
+Logic programming in your language
+▶Standard logic programming – in the standard OCaml
+▶Rather than implementing Prolog or Curry in OCaml
+▶Calling any OCaml function, with no FFI
+
+=== page 76 ===
+The principles naturally lead to the constraint (logic) programming.
+We have seen the standard logic programming examples in the
+completely standard OCaml. We did not implement Prolog, Kanren,
+Curry in OCaml. Rather, we used OCaml directly, as it is. In
+particular, we call any OCaml function from any OCaml library
+directly, and can be called by it. You can probably do the similar
+non-deterministic programming in your language.
+
+=== page 77 ===
+26
+A historical note
+“One can see now how this talk in 1957 must have motivated
+Gilmore, Davis and Putnam to write their Herbrand-based
+proof procedure programs. Their papers ... were based
+fundamentally on the idea of systematically enumerating the
+Herbrand Universe of a proposed theorem – namely, the
+(usually inﬁnite) set of all terms constructible from the function
+symbols and individual constants which (after its
+Skolemization) the proposed theorem contained. This technique
+is actually the computational version of Herbrand’s so-called
+Property B method. ... These ﬁrst implementations of the
+Herbrand FOL proof procedure thus revealed the importance of
+trying to do better than merely hoping for the best as the
+exhaustive enumeration for only ground on, or than guessing
+the instantiations that might be the crucial ones in terminating
+the process. In fact, Herbrand himself had already in 1930
+shown how to avoid this enumerative procedure, in what he
+called the Property A method. The key to Herbrand’s Property
+A method is the idea of uniﬁcation.
+
+=== page 78 ===
+27
+A historical note (cont)
+Herbrand’s writing style in his doctoral thesis was not, to put it
+mildly, always clear. As a consequence, his exposition of the
+Property A method is hard to follow, and is in fact easily
+overlooked. At any rate, it seems to have attracted no attention
+except in retrospect, after the independent discovery of
+uniﬁcation by Prawitz thirty years later....
+Once I had managed to recast the uniﬁcation algorithm into a
+suitable form, I found a way to combine the Cut Rule with
+uniﬁcation so as to produce a rule of inference of a new
+machine-oriented kind. It was machine-oriented because in
+order to obtain the much greater deductive power than had
+hitherto been the norm, it required much more computational
+eﬀort to apply it than traditional human-oriented rules typically
+required. In writing this work up for publication, when I needed
+to think of a name for my new rule, I decided to call it
+”resolution”, but at this distance in time I have forgotten why.
+This was in 1963.”
+John Alan Robinson: “Computational Logic: Memories of the
+
+=== page 79 ===
+And of course the resolution is the foundation of Prolog. What I want
+to emphasize is that the uniﬁcation was invented to cope with a large
+or inﬁnite search space. It is an optimization. But so is laziness...
