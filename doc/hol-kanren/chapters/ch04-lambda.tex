@@ -198,7 +198,7 @@ the logic. Second, \emph{no specification can determine the name of a bound vari
 name can always be changed by α-conversion without changing the term. \Cref{ch:lambdatree} builds
 λ-tree syntax on this second fact.
 
-\begin{example}[Four equal terms {\book{101}}]\label{ex:lambda-four}
+\begin{example}[Four equal terms {\book{101}}]\label{ex:lambda-four}\leavevmode
 \begin{lprolog}
 x\y\ f (g x) y
 X\Y\ f (g X) Y
@@ -281,20 +281,22 @@ Then the closed λ-normal forms of type $(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}
 the \emph{Church numerals} $\ulcorner n\urcorner=\lambda f\,\lambda x\,(f^n\,x)$ \book{102}. Arithmetic
 is then definable \book{103}:
 \[
-  \mathit{succ}=\lambda n\,\lambda f\,\lambda x\,f\,(n\,f\,x),\quad
-  \mathit{add}=\lambda n\,\lambda m\,\lambda f\,\lambda x\,n\,f\,(m\,f\,x),\quad
+\begin{gathered}
+  \mathit{succ}=\lambda n\,\lambda f\,\lambda x\,f\,(n\,f\,x),\\
+  \mathit{add}=\lambda n\,\lambda m\,\lambda f\,\lambda x\,n\,f\,(m\,f\,x),\\
   \mathit{mul}=\lambda n\,\lambda m\,\lambda f\,\lambda x\,n\,(m\,f)\,x .
+\end{gathered}
 \]
-λProlog prints λ-normal forms, so it can run these functions (footnote: the ambient signature has the
-sort \lp{i}) \book{103}:
+λProlog prints λ-normal forms, so it can run these functions\sidenote{The ambient signature has the
+sort \lp{i}.} \book{103}:
 \begin{lprolog}
 ?- N = ((n\m\f\x\ n (m f) x) ((f:i -> i)\x\ f (f x)) (f\x\ f (f x))).
 N = f\x\ f (f (f (f x)))
 ?-
 \end{lprolog}
 The book adds that the functions definable this way are \enquote{limited to the polynomial ones}
-\book{103}. (The phrasing is informal. The precise class, a result outside the book due to
-Schwichtenberg and Statman, is the \emph{extended} polynomials, which also allow a test for zero.)
+\book{103}.\sidenote{The phrasing is informal. The precise class, a result outside the book due to
+Schwichtenberg and Statman, is the \emph{extended} polynomials, which also allow a test for zero.}
 
 \paragraph{Blow-up.} Define the \emph{size} of a term as its number of applications. Normalising can
 increase the size enormously. The book's series \book{104} is
@@ -414,7 +416,7 @@ What \scm{=°} cannot do is β: binding a logic variable that sits in head posit
 some walk-and-normalise step has to be added (\cref{def:module-hnf}).
 \end{kanren}
 
-\paragraph{Why logic programs do not explode.} The book gives three reasons \book{104--105}. (1)
+\paragraph{Why logic programs do not explode.} The book gives three reasons\linebreak\book{104--105}. (1)
 Integers and data structures are built-in or made from non-logical constructors, not Church-encoded.
 (2) Bound variables usually have primitive (order-0) types. If every bound variable in a term has a
 primitive type and $s,t$ are λ-normal, then $\subst{s}{t}{x}$ is λ-normal: it may contain many copies of
@@ -594,9 +596,11 @@ formula with $y:=c$ and $x:=(s\,c)$.
 Applied repeatedly, raising moves every existential to the left of the universals before it. As a rule,
 for a block of universals:
 \[
-  \forall y_1{:}\sigma_1\dots\forall y_k{:}\sigma_k\;\exists x{:}\tau\;G
-  \;\rightsquigarrow\;
+\begin{aligned}
+  &\forall y_1{:}\sigma_1\dots\forall y_k{:}\sigma_k\;\exists x{:}\tau\;G\\
+  \rightsquigarrow\;&
   \exists h{:}\sigma_1\to\dots\to\sigma_k\to\tau\;\forall y_1\dots\forall y_k\;\subst{G}{(h\,y_1\dots y_k)}{x}.
+\end{aligned}
 \]
 The \enquote{cost} is that the type of the existential is \emph{raised} by the types of the universals it
 crosses \book{108}.
@@ -692,9 +696,9 @@ $f:\typ{i}\to\typ{i}$ has the most general unifier $\{\langle X,f\,(f\,Z)\rangle
 in the sense of the book's Section~1.5 (\cref{ch:intro}). The formula, however, is provable only if some closed term of type
 $\typ{i}$ exists \book{109}.
 
-\begin{definition}[Legitimate substitution, unifier, solution {\book{109}}]\label{def:lambda-solution}
+\begin{definition}[Legitimate substitution, unifier, solution {\book{109}}]\label{def:lambda-solution}\hfill\break
 Consider the ∀∃∀ problem
-$\forall u_1\dots\forall u_p\,\exists x_1\dots\exists x_n\,\forall w_1\dots\forall w_q\,[t_1=s_1\wedge\dots\wedge t_m=s_m]$
+\[\forall u_1\dots\forall u_p\,\exists x_1\dots\exists x_n\,\forall w_1\dots\forall w_q\,[t_1=s_1\wedge\dots\wedge t_m=s_m]\]
 and let $\theta$ be a substitution for $x_1,\dots,x_n$.
 \begin{itemize}[nosep]
 \item $\theta$ is \emph{legitimate} if no $w_j$ occurs free in any $\theta(x_i)$.
@@ -740,7 +744,7 @@ which higher-order unification differs from the first-order kind.
 Let $g:\typ{i}\to\typ{i}\to\typ{i}$ be a constructor of $\typ{i}$.
 \begin{itemize}
 \item $\forall a\,\exists F\,[(F\,a)=(g\,a\,a)]$ has \textbf{four} solutions:
-      $F\in\{\lambda x\,g\,a\,a,\ \lambda x\,g\,x\,a,\ \lambda x\,g\,a\,x,\ \lambda x\,g\,x\,x\}$.
+      $F\in\{\lambda x\,g\,a\,a,\allowbreak\ \lambda x\,g\,x\,a,\allowbreak\ \lambda x\,g\,a\,x,\allowbreak\ \lambda x\,g\,x\,x\}$.
 \item $\exists F\,\forall a\,[(F\,a)=(g\,a\,a)]$ has the \textbf{unique} solution $F=\lambda a\,g\,a\,a$.
 \end{itemize}
 \emph{Walk-through.} $F:\typ{i}\to\typ{i}$ is closed, so $F=\lambda x\,b$ with $b$ built from $g$, $x$ and
@@ -916,7 +920,8 @@ logic variables and $c,d$ constants, none of the following has a unifier:
   \{(\lambda x\,(x\,(F\,x)))=(\lambda x\,(c\,(G\,x)))\}\\
   \{(\lambda x\,\lambda y\,(x\,(F\,x\,y)))=(\lambda x\,\lambda y\,(y\,(G\,x\,y)))\}
 \end{gather*}
-The first one, written precisely, is $\forall c\,\forall d\,\exists F\,\exists G\,[\lambda x\,(d\,(c\,(F\,x)))=\lambda x\,(c\,(d\,(G\,x)))]$.
+The first one, written precisely, is
+\[\forall c\,\forall d\,\exists F\,\exists G\,[\lambda x\,(d\,(c\,(F\,x)))=\lambda x\,(c\,(d\,(G\,x)))].\]
 Note that in the second and third problems one of the heads is a \emph{bound} variable, which counts as
 rigid.
 
@@ -1001,8 +1006,11 @@ Encode a word $r=r_1\cdots r_m$ as $\hat r=\lambda w\,(r_1\,(\cdots(r_m\,w)\cdot
 with $G:(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$. For the lists $\mathrm{uv},\mathrm{u}$ and
 $\mathrm{u},\mathrm{vu}$ \book{114}:
 \[
+\begin{aligned}
   \exists F\,\exists G\,\forall u\,\forall v\,
-  [\,(F\,(\lambda w\,u\,(v\,w))\,u)=(F\,u\,(\lambda w\,v\,(u\,w)))\;\wedge\;(F\,u\,u)=\lambda w\,(u\,(G\,u\,w))\,],
+  [\,&(F\,(\lambda w\,u\,(v\,w))\,u)=(F\,u\,(\lambda w\,v\,(u\,w)))\\
+  {}\wedge{}&(F\,u\,u)=\lambda w\,(u\,(G\,u\,w))\,],
+\end{aligned}
 \]
 where $F$ has the second-order type $(\typ{i}\to\typ{i})\to(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$.
 
@@ -1075,7 +1083,7 @@ exactly the Church numerals $\ulcorner n\urcorner$, and give every existential t
       $t=\ulcorner n\times m\urcorner$.
 \end{enumerate}
 
-\begin{remark}[An erratum in the addition gadget]
+\begin{remark}[An erratum in the addition gadget]\emergencystretch=1.5em
 The book prints the left side of item 2 as $\lambda f\,\lambda x\,(N\,f)\,(M\,f)\,x$ \book{115}. This parses
 as $((N\,f)\,(M\,f))\,x$, which is ill-typed, since $N\,f:\typ{i}\to\typ{i}$ is applied to
 $M\,f:\typ{i}\to\typ{i}$. The intended term is the addition combinator of \cref{sec:lambda-church},

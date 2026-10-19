@@ -31,8 +31,8 @@ with what real systems do: universe levels instead of raising, and delayed non-p
 (\cref{sec:hounif-pragmatics}). If you only need the implementer's digest, read
 \cref{def:hounif-elim,thm:hounif-mgu} and \cref{sec:hounif-nipkow,sec:hounif-pragmatics}.
 
-\paragraph{Conventions.} As in the book's Chapter~8, uppercase $F,G,H,U,V,W,X,Y$ are \emph{existentially}
-quantified variables (logic variables), and lowercase $a,b,c,d,f,g,u,w,x,y,z$ are \emph{universally}
+\paragraph{Conventions.} As in the book's Chapter~8, uppercase $F,G,H,\allowbreak U,V,W,\allowbreak X,Y$ are \emph{existentially}
+quantified variables (logic variables), and lowercase $a,b,c,d,\allowbreak f,g,u,\allowbreak w,x,y,z$ are \emph{universally}
 quantified ones (signature constants or eigenvariables). $\bar x$ abbreviates $x_1\dots x_n$, and $(F\,\bar x)$
 is $(F\,x_1\dots x_n)$.
 
@@ -56,8 +56,8 @@ quantifier in goals; a $\lambda$Prolog with \lp{pi} sees it all the time.
 
 \Cref{ch:lambda} distinguished a unifier from a \emph{solution}, which in addition uses only closed terms and
 therefore \enquote{embodies an actual proof of the quantified formula}; following common practice the book's
-Chapter~8 limits itself to unifiers \book{211}. (The difference matters with empty types; see the last pitfall of
-\cref{sec:hounif-dynamic}.)
+Chapter~8 limits itself to unifiers \book{211}.\sidenote{The difference matters with empty types; see the last pitfall of
+\cref{sec:hounif-dynamic}.}
 
 \subsection{The normal form assumed by the algorithms}
 
@@ -108,10 +108,11 @@ are accordingly rigid-rigid, rigid-flexible, flexible-rigid or flexible-flexible
 flexible-flexible if all its equations are.
 \end{definition}
 
+{\emergencystretch=2em
 The key fact about a rigid term is that \enquote{its head is unaffected by any substitutions that might be made
 for existentially quantified variables} \book{214}. A flexible head, on the other hand, can be replaced by any
 term, including one that throws away or reorders the head's arguments. This asymmetry drives every rule
-below.
+below.\par}
 
 \begin{kanren}[first-order unification is the degenerate case]
 In \micro{} every Scheme atom, pair, vector or record constructor plays the role of an outer
@@ -135,9 +136,11 @@ miniKanren's \enquote{one substitution per answer} work. At higher order this br
 \begin{example}[No mgu {\book{213}}]\label{ex:hounif-nomgu}
 Let $a:i$, $g:i\to i\to i$, $F:i\to i$ and consider $\forall a\,\forall g\,\exists F\,[(F\,a)=(g\,a\,a)]$. It has
 exactly four unifiers,
+\begin{fullwidth}
 \[
   F:=\lambda x\,(g\,x\,x),\qquad F:=\lambda x\,(g\,a\,x),\qquad F:=\lambda x\,(g\,x\,a),\qquad F:=\lambda x\,(g\,a\,a),
 \]
+\end{fullwidth}
 because each occurrence of $a$ on the right can come either from the argument of $F$ or from the constant
 itself. All four are closed, so none is an instance of another: \emph{there is no mgu}.
 \end{example}
@@ -195,9 +198,11 @@ as flexible-rigid ones.
 \subsection{Imitation and projection}
 
 Take a flexible-rigid equation
+\begin{fullwidth}
 \[
   (F\,t_1\dots t_n)=(c\,s_1\dots s_m),\qquad F:\tau_1\to\dots\to\tau_n\to\beta,\quad c:\sigma_1\to\dots\to\sigma_m\to\beta,
 \]
+\end{fullwidth}
 with $\beta$ primitive. \enquote{This equation can be proved only by making the head of the left term identical
 to $c$} \book{215}, and there are only two ways to do that: the term substituted for $F$ has head $c$ itself, or it
 uses one of $F$'s arguments as head.
@@ -232,6 +237,7 @@ type and the arity of $\tau_i$, and imitation needs the arity $m$ of $c$ and its
 \emph{Huet's procedure cannot run without types}. Pattern unification can (\cref{sec:hounif-algo}).
 \end{pitfall}
 
+\pagebreak
 \subsection{A complete run, and the matching tree}
 
 \begin{tutorial}[Huet's procedure on \texttt{(F a) = (g a a)}]
@@ -256,9 +262,9 @@ left-to-right depth-first walk of \cref{fig:hounif-tree}.
 \centering
 \begin{tikzpicture}[
   level distance=17mm,
-  level 1/.style={sibling distance=78mm},
-  level 2/.style={sibling distance=44mm},
-  level 3/.style={sibling distance=22mm},
+  level 1/.style={sibling distance=66mm},
+  level 2/.style={sibling distance=40mm},
+  level 3/.style={sibling distance=20mm},
   every node/.style={font=\small},
   lab/.style={font=\scriptsize,inner sep=1.5pt,fill=white}]
 \node {$\{(F\,a)=(g\,a\,a)\}$}
@@ -321,16 +327,17 @@ prefix to the canonical constant term of its type. For a problem with only flexi
 canonical substitution is a unifier.
 \end{proposition}
 
+{\emergencystretch=2em
 The reason is simple: under it both sides of every equation become $H^\beta$. For \cref{ex:hounif-residue}, with
-$W$ the variable chosen for $i$, the canonical substitution is $\{\langle H,\lambda x\,W\rangle,\langle Y,\lambda x\,W\rangle\}$
+$W$ the variable chosen for $i$, the canonical substitution is $\{\langle H,\lambda x\,W\rangle,\allowbreak\langle Y,\lambda x\,W\rangle\}$
 \book{217}. Hence: \enquote{The reduction of a unification problem to a flexible-flexible form thus constitutes
 success from the perspective of determining unifiability. The process of carrying out such a reduction is known
 as \emph{pre-unification}, and the substitution that leads to the corresponding success is called a
-\emph{pre-unifier}} \book{218}.
+\emph{pre-unifier}} \book{218}.\par}
 
 \subsection{Non-termination}
 
-\begin{example}[An infinite branch with infinitely many answers {\book{218}}]\label{ex:hounif-loop}
+\begin{example}[{\spaceskip=.58\fontdimen2\font\relax An infinite branch with infinitely many answers {\book{218}}}]\label{ex:hounif-loop}
 Let $x:i$ and $g,F:i\to i$: $\forall g\,\exists F\,\forall x\,[(F\,(g\,x))=(g\,(F\,x))]$. The single projection
 $F:=\lambda x\,x$ solves it. The imitation $F:=\lambda x\,(g\,(H\,x))$ followed by simplification gives
 $\forall g\,\exists H\,\forall x\,[(H\,(g\,x))=(g\,(H\,x))]$: the same problem with $H$ in place of $F$. Repeating
@@ -397,11 +404,14 @@ $\forall f\,\exists X\,[X=(f\,X)]$ & yes & $n=0$ \\
 \end{table}
 
 \begin{example}[Discharging a constant {\cite[p.~4--5]{Miller1991}}]\label{ex:hounif-discharge}
+\emergencystretch=2em
 Miller motivates the fragment with \lp{append}. With the program
+\begin{fullwidth}
 \[
   \forall x\,\forall l\,\forall k\,\forall m\,(\mathit{append}\ l\ k\ m\imp\mathit{append}\ (\mathit{cons}\ x\ l)\ k\ (\mathit{cons}\ x\ m)),
   \qquad\forall k\,(\mathit{append}\ \mathit{nil}\ k\ k),
 \]
+\end{fullwidth}
 try to find $X$ such that $\forall y\,(\mathit{append}\ (\mathit{cons}\ a\ (\mathit{cons}\ b\ \mathit{nil}))\ y\ X)$ is
 provable. The $\forall y$ introduces a new constant $k$, and two backchaining steps succeed only if
 $X$ is instantiated with $(\mathit{cons}\ a\ (\mathit{cons}\ b\ k))$, which is impossible because $X$ was chosen
@@ -410,8 +420,10 @@ choice of the constant used to instantiate $\forall y$}. Now ask instead for
 $\forall y\,(\mathit{append}\ (\mathit{cons}\ a\ (\mathit{cons}\ b\ \mathit{nil}))\ y\ (H\,y))$. The same steps
 produce the pattern equation
 \[(H\,k)=(\mathit{cons}\ a\ (\mathit{cons}\ b\ k)).\]
-Two $\lambda$-terms for $H$ make it true, $\lambda w\,(\mathit{cons}\ a\ (\mathit{cons}\ b\ k))$ and
-$\lambda w\,(\mathit{cons}\ a\ (\mathit{cons}\ b\ w))$, but \enquote{since $H$ cannot contain $k$ free, only the second
+Two $\lambda$-terms for $H$ make it true,
+\[\lambda w\,(\mathit{cons}\ a\ (\mathit{cons}\ b\ k))\quad\text{and}\quad
+\lambda w\,(\mathit{cons}\ a\ (\mathit{cons}\ b\ w)),\]
+but \enquote{since $H$ cannot contain $k$ free, only the second
 of these possible substitutions will succeed}. Miller calls this \emph{discharging} the constant $k$ from the
 term: $H$ is the computed answer with the choice of eigenvariable abstracted away. In terms of Huet's procedure: imitation of
 $\mathit{cons}$, $a$, $\mathit{cons}$, $b$ is forced, and at the leaf $k$ only the projection is legal, because
@@ -419,6 +431,7 @@ imitating $k$ would violate the scope condition. The pattern algorithm below doe
 \end{example}
 
 \begin{definition}[$\beta_0$ {\book{206}}]
+\emergencystretch=2em
 $\beta_0$-conversion is the special case $(\lambda x\,s)\,x=s$ of $\beta$; with $\alpha$ it is equivalent to
 $(\lambda y\,s)\,x=s[x/y]$, provided $x$ is not free in $\lambda y\,s$.
 \end{definition}
@@ -454,11 +467,12 @@ equation fails. \enquote{The preceding observations can be built into the substi
 make it entirely deterministic} \book{221}.
 \end{proof}
 
+{\emergencystretch=2em
 Moreover the class is preserved: the substitutions considered have the form
 \[\lambda x_1\dots\lambda x_n\,(@\,(H_1\,x_1\dots x_n)\cdots(H_k\,x_1\dots x_n))\]
 with $@$ either $c$ or some $x_i$ and the
 $H_j$ quantified where $F$ was; substituted into $(F\,c_1\dots c_n)$ and $\beta_0$-reduced, it yields again
-patterns $(H_j\,c_1\dots c_n)$ \book{221}.
+patterns $(H_j\,c_1\dots c_n)$ \book{221}.\par}
 
 \subsection{Flexible-flexible pattern equations have mgus}\label{sec:hounif-ff}
 
@@ -501,13 +515,14 @@ variables~\cite[Prop.~9.2]{Miller1991}.
 
 \subsection{Termination needs the occurs-check}
 
+{\emergencystretch=2em
 The procedure so far may still loop, even on first-order problems. For $\forall f\,\exists X\,[X=(f\,X)]$ the only
 useful substitution is the imitation $X:=(f\,H)$, which produces $\forall f\,\exists H\,[H=(f\,H)]$, \enquote{identical
 to the one with which we started} \book{222}. In $\Llam$ such behaviour arises only when the flexible head
 occurs in the rigid side; so \enquote{we can ensure termination for the unification procedure by adding an
 \enquote{occurs-check} to the substitution-generation step} \book{223}. Note that in $\Llam$ every occurrence of $F$ in
 the rigid side is fatal: since pattern arguments are variables, there is no flexible occurrence that a later
-substitution could erase.
+substitution could erase.\par}
 
 % ============================================================================================
 \section{The pattern unification algorithm}\label{sec:hounif-algo}
@@ -618,8 +633,8 @@ occurrences~\cite[Thm.~7.1, p.~18]{Miller1991}. Intuitively, \rulename{Elim} and
 \rulename{FlexFlex} each remove one existential for good (a pruned $G$ is traded for one $G'$; $F$ and $G$ are
 traded for one $H$); the same-head case trades $F$ for one $H$, so the number of existentials stays put, but the
 equation disappears (both sides become $H\,\bar e$); and the other rules shrink the problem. The
-occurs-check is what prevents the $X=(f\,X)$ loop. Qian later showed the problem can be solved in linear
-time~\cite{Qian1996}.
+occurs-check is what prevents the $X=(f\,X)$ loop.\sidenote{Qian later showed the problem can be solved in linear
+time~\cite{Qian1996}.}
 
 Two remarks complete the picture. First, \enquote{types have no bearing on the shapes of unifiers}: the
 algorithm \enquote{makes no use at all of type information in determining unifying substitutions}, though types are
@@ -679,6 +694,7 @@ chosen before $w$ and does not receive it, so it cannot produce it.
 \end{example}
 
 \begin{example}[Discharging, by elimination]
+\emergencystretch=6em
 For \cref{ex:hounif-discharge}, $(H\,k)=(\mathit{cons}\ a\ (\mathit{cons}\ b\ k))$ with $\bar c=(k)$: the walk keeps the
 signature constants $\mathit{cons}$, $a$, $b$ (imitation), meets $k\in\bar c$ and maps it to $H$'s bound variable
 (projection), finds no flexible subterm to prune and no occurrence of $H$, and returns
@@ -697,6 +713,7 @@ see \cref{ch:design}.
 \end{kanren}
 
 \begin{example}[Flexible-flexible, different heads]\label{ex:hounif-ffdiff}
+\emergencystretch=6em
 For \cref{ex:hounif-ch4}, $\exists G\,\exists H\,\forall x\,\forall y\,[(G\,x)=(H\,y)]$: here $\bar c=(x)$ and
 $\bar d=(y)$ have nothing in common, $\ell=0$, and \cref{prop:hounif-ff} gives
 \[\{\langle G,\lambda x\,T\rangle,\ \langle H,\lambda y\,T\rangle\},\]
@@ -726,13 +743,13 @@ binds $F:=\lambda z\,(g\,z)$, which is $\eta$-equal to $g$. Without \rulename{Et
 would be a spurious clash.
 \end{example}
 
-\begin{table}[t]
+\begin{table*}[t]
 \centering\footnotesize
-\caption{A test battery. The Huet column describes the pre-unification procedure exactly as the book presents it
+\caption[][1.5\baselineskip]{A test battery. The Huet column describes the pre-unification procedure exactly as the book presents it
 in its \S8.2: it stops at flexible-flexible equations, and it has no occurs-check, since that is added only for
 $\Llam$ \book{223}. The pattern column assumes the delaying discipline of \cref{sec:hounif-dynamic}.}
 \label{tab:hounif-battery}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.29\textwidth}l>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.33\textwidth}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.29\linewidth}l>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.33\linewidth}@{}}
 \toprule
 problem (matrix) & $\Llam$? & pattern unification & Huet pre-unification \\
 \midrule
@@ -747,7 +764,7 @@ $(F\,x\,x)=x$ & no & delay & 2 answers \\
 $(F\,x\,y)=(F\,y\,x)$ & yes & $F:=\lambda x\lambda y\,H$ & already flex-flex; residue kept \\
 \bottomrule
 \end{tabular}
-\end{table}
+\end{table*}
 
 % ============================================================================================
 \section{Nipkow's de Bruijn algorithm}\label{sec:hounif-nipkow}
@@ -767,7 +784,7 @@ values bound to the \texttt{V}s are closed terms, and \enquote{fresh eigenvariab
 
 \paragraph{The algorithm} in pseudo-code; $S$ is a triangular substitution, i.e.\ an association list that is
 walked rather than applied.
-\begin{Verbatim}[fontsize=\footnotesize]
+\begin{Verbatim}[fontsize=\footnotesize,xrightmargin=-\overhang]
 devar(S, s):                          ; β0 by renaming
   if s = (V F) b1..bk and S binds F to λ^k.body
   then devar(S, body with each bound index renamed to the matching b)  else s
@@ -799,9 +816,9 @@ Compare it with the rules of \cref{sec:hounif-algo}.
   \item \textbf{Inversion first, pruning second.} \texttt{flexrigid} binds $F$ to $\lambda^{|\bar y|}.u$ \emph{before}
     pruning, so $u$ may still contain markers \texttt{•} inside the arguments of other flexible terms. That is
     harmless: \texttt{proj} then binds each such $G$ to a term that drops those positions, and since $S$ is
-    triangular, every later \texttt{devar} through $F$ also goes through $G$ and never sees a marker.
-    (Nipkow's ML encodes the marker as the index \texttt{B(\textasciitilde 10000)}, which shifting keeps
-    negative.)
+    triangular, every later \texttt{devar} through $F$ also goes through $G$ and never sees a marker.%
+    \sidenote{Nipkow's ML encodes the marker as the index \texttt{B(\textasciitilde 10000)}, which shifting keeps
+    negative.}
   \item \textbf{One walk.} Imitation is the copying of \texttt{C} heads, projection the renaming of loose
     indices, the scope check the \texttt{•} in rigid position, and pruning the \texttt{V} case: this is the
     book's \enquote{variable elimination}. Inner binders need no set $L$: below \texttt{A}, indices that refer to
@@ -1073,11 +1090,12 @@ termination and mgus (p.~10), and their Figure~2 gives the single-traversal \tex
 computes the binding, the pruning and the raising together (p.~11). The algorithm is used in Bedwyr, Abella and
 Teyjus~2 \book{228}.
 
+\begingroup\emergencystretch=2em
 \paragraph{Variable elimination with levels.} Combining the two, \cref{def:hounif-elim} generalises to tagged
 variables. This is our reconstruction, checked by hand on \cref{ex:hounif-8h,ex:hounif-8k}; Nadathur and Linnell's
 Figure~2 is the authoritative version. Write $l(\cdot)$ for levels, with signature constants at the lowest level.
 To eliminate $F$ in $(F\,\bar c)=t$, where pattern means that the $c_i$ are distinct universals with
-$l(c_i)>l(F)$:
+$l(c_i)>l(F)$:\par\endgroup
 \begin{itemize}
   \item a universal $u$ in rigid position is kept if $u\in\bar c\cup L$ or $l(u)\le l(F)$ (since $F$ may mention it
     directly), and fails otherwise;
@@ -1117,8 +1135,9 @@ How these requirements are met is the subject of \cref{ch:design}.
 
 \subsection{Dynamic \texorpdfstring{$\Llam$}{Lλ}: delay what is not a pattern}\label{sec:hounif-dynamic}
 
+{\emergencystretch=2em
 A static $\Llam$ restriction \enquote{can rule out some useful programming idioms} \book{225}, the standard one
-being substitution by meta-level $\beta$-reduction:
+being substitution by meta-level $\beta$-reduction:\par}
 \begin{lprolog}
 type   subst   (tm -> tm) -> tm -> tm -> o.
 subst R N (R N).
@@ -1133,7 +1152,7 @@ respect the $\Llam$ condition. In this case, we might defer further consideratio
 that substitutions resulting from solving other parts of the problem have altered its status} \book{226}.
 
 The literature agrees on this design.
-\begin{itemize}
+\begin{itemize}\emergencystretch=2em
   \item Dowek, Hardin, Kirchner and Pfenning~\cite{DowekHardinKirchnerPfenning1996}, \S5.4 (p.~13): equations outside
     the pattern fragment \enquote{should be postponed as constraints in the hope that they will be instantiated
     further}, which \enquote{avoids all branching during constraint simplification}. Their motivation is
@@ -1176,13 +1195,13 @@ inside the negation (equivalently, universally outside it), which a store of pla
 % ============================================================================================
 \section{Summary}\label{sec:hounif-summary}
 
-\begin{itemize}
+\begin{itemize}\emergencystretch=2em
   \item A unification problem is a quantified formula; its prefix decides who may depend on whom. The book
     normalises to a $\forall\exists\forall$ prefix by raising, to $\beta$-normal terms, to equal binders by $\eta$, and turns
     top binders into inner universals \book{212}.
   \item General higher-order unification has no mgus, may need infinite complete sets of unifiers, and is
     undecidable \book{213--214}.
-  \item Huet's procedure: \rulename{Dec}/\rulename{Clash} on rigid-rigid pairs, imitation (scope-sensitive) or
+  \item Huet's procedure: \rulename{Dec}/\allowbreak\rulename{Clash} on rigid-rigid pairs, imitation (scope-sensitive) or
     projection (type-sensitive) on flexible-rigid ones, success when only flexible-flexible equations remain
     (pre-unification; the canonical substitution unifies them). Its matching tree is complete but may have infinite
     branches, with or without answers \book{214--220}.

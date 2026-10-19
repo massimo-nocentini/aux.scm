@@ -1,4 +1,4 @@
-\chapter{Hereditary Harrop formulas: implication and universal goals}\label{ch:hh}
+\chapter[Hereditary Harrop formulas: implication and universal goals]{Hereditary Harrop formulas:\\ implication and universal goals}\label{ch:hh}
 
 % local notation: a focused (backchaining) sequent  Σ; P --D--> A
 \newcommand{\hhfoc}[4]{#1;#2\xrightarrow{\,#3\,}#4}
@@ -88,7 +88,7 @@ Equivalently: $C$ is positive in $B$ if it lies to the left of an even number of
 odd.
 \end{definition}
 
-\begin{proposition}[\book{76}]\label{prop:hh-polarity}
+\begin{proposition}[\book{76}]\label{prop:hh-polarity}\emergencystretch=3em
 Positive subformulas of goals are goals and negative subformulas of goals are clauses; dually, positive
 subformulas of clauses are clauses and negative ones are goals. A \fohc{} goal has no negative
 subformulas. A hereditary Harrop formula is exactly a formula in which no positive subformula occurrence
@@ -125,20 +125,21 @@ In \fohc{} goals have clausal order~0 and clauses order 0 or~1; in \fohh{} both 
 Reading $\imp$ as the type arrow $\to$, the definition is the same as that of the order of a type
 (\cref{ch:intro}); the book stresses that this is ``not accidental'' and will exploit it in its
 Section~7.6 \book{77}. Worked values: \lp{q :- (q => q)}, that is $(q\imp q)\imp q$,
-has order~2; the $\cst{sterile}$ clause above has order~2; the clause of \cref{fig:hh-rev3} below has
+has order~2; the $\cst{sterile}$ clause above has order~2; the clause of \cref{fig:hh-rev4} below has
 order~3.
 
 %=====================================================================================================
 \section{Operational semantics: AUGMENT and GENERIC}\label{sec:hh-rules}
 
+{\emergencystretch=3em
 Nothing new has to be invented. The framework of \cref{ch:horn} already contains the rules for
 implications and universal quantifiers at the top of goals: ``These are to be treated by the AUGMENT and
 GENERIC reduction rules'' \book{77}. Atomic goals are still solved by backchaining, which is possible
 because $D$-formulas have the same shape as in \fohc{}, modulo the richer goals. For reference,
 \cref{fig:hh-rules} collects the rules: the right-introduction rules for goals and the backchaining rules
-for a clause $D$ ``in focus'', written $\hhfoc{\Sig}{\Prog}{D}{A}$.
+for a clause $D$ ``in focus'', written $\hhfoc{\Sig}{\Prog}{D}{A}$.\par}
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \small
 \begin{mathpar}
 \inferrule*[right=$\top$R]{ }{\seq{\Sig}{\Prog}{\top}}
@@ -163,11 +164,12 @@ for a clause $D$ ``in focus'', written $\hhfoc{\Sig}{\Prog}{D}{A}$.
 \and
 \inferrule*[right=$\forall$L]{\hhfoc{\Sig}{\Prog}{D[t/x]}{A} \\ \Sig;\emptyset\vdash_f t:\tau}{\hhfoc{\Sig}{\Prog}{\forall_\tau x\,D}{A}}
 \end{mathpar}
-\caption{The rules of O-proofs: right rules (book Figure 2.2) and backchaining rules (book Figure 2.3).
+\vspace{50pt}% room for the caption, raised into the margin beside this space (tufte smashes a figure* caption)
+\caption[][-66pt]{The rules of O-proofs: right rules (book Figure 2.2) and backchaining rules (book Figure 2.3).
 In \fohc{} the two rules of the second row are never used. With logic variables, $\exists$R and
 $\forall$L introduce a new variable $X$ instead of guessing $t$, and initial unifies.}
 \label{fig:hh-rules}
-\end{figure}
+\end{figure*}
 
 \begin{definition}[O-proof \book{77}]\label{def:hh-oproof}
 An \emph{O-proof} in \fohh{} is a derivation built with the typing rules for first-order terms and the
@@ -645,10 +647,10 @@ implication goal can assume a clause that mentions a logic variable created by a
 the head of the clause being used; logic variables then ``may appear eventually in program clauses''
 \book{86}. We met this in the Dana query. Here it becomes a technique.
 
-\Cref{fig:hh-rev3} defines \lp{reverse} through an accumulator predicate \lp{rev} whose clauses exist only
+\Cref{fig:hh-rev4} defines \lp{reverse} through an accumulator predicate \lp{rev} whose clauses exist only
 while a \lp{reverse} goal is being solved.
 
-\begin{figure}[t]
+\begin{figure}[b]
 \begin{lprolog}
 type reverse    list A -> list A -> o.
 type rev        list A -> list A -> list A -> o.
@@ -668,7 +670,6 @@ reverse L K :-
 \end{lprolog}
 \caption{Two implementations of reverse with locally assumed clauses: with a three-place auxiliary
 predicate (top, book Figure 3.3) and with a two-place one (bottom, book Figure 3.4), printed p.\,87.}
-\label{fig:hh-rev3}
 \label{fig:hh-rev4}
 \end{figure}
 
@@ -769,9 +770,10 @@ Classically, however \book{89},
 B_1\vee(B_2\imp B_3)\ \equiv\ B_1\vee\neg B_2\vee B_3\ \equiv\ (B_2\imp B_1)\vee B_3\ \equiv\ B_2\imp(B_1\vee B_3),
 \]
 so $p\vee(p\imp q)\equiv p\imp(p\vee q)$, which is clearly provable. Classical logic lets the scope of an
-implication be ``extruded'' over a disjunction (the term comes from the π-calculus, \book{95}), and so
+implication be ``extruded'' over a disjunction,\sidenote{The term comes from the π-calculus, \book{95}.} and so
 ``the interpretation we desire for implication as a scoping mechanism is not valid in classical logic''
 \book{89}. Three more classically valid goals without O-proofs \book{89}:
+\begin{fullwidth}
 \[
 (r\,a\wedge r\,b\imp q)\imp\exists x\,(r\,x\imp q)
 \qquad\qquad
@@ -779,6 +781,7 @@ implication be ``extruded'' over a disjunction (the term comes from the π-calcu
 \qquad\qquad
 \exists x\,\forall y\,(p\,x\imp p\,y)
 \]
+\end{fullwidth}
 The middle one is Peirce's formula. ``It is clear from all these examples that classical logic cannot
 provide the declarative semantics of λProlog'' \book{89}.
 
@@ -889,12 +892,14 @@ worlds (the open-world assumption) \book{94}.
 \section{Notable subsets of fohh}\label{sec:hh-subsets}
 
 Can the grammar be simplified without losing expressiveness? The book gives two restrictions \book{91--92}:
+\begin{fullwidth}
 \begin{align}
 G &::= \top \mid A \mid G\wedge G \mid G\vee G \mid \exists x\,G \mid D\imp G \mid \forall x\,G
 \qquad D ::= A \mid G\imp D \mid D\wedge D \mid \forall x\,D \tag{3.1}\\
 D &::= A \mid G\imp A \mid D\wedge D \mid \forall x\,D \tag{3.2}\\
 D &::= A \mid D\imp D \mid D\wedge D \mid \forall x\,D \tag{3.3}
 \end{align}
+\end{fullwidth}
 
 \paragraph{Atomic heads, (3.2).} Clauses of (3.1) can be preprocessed, ``without changing their essential
 operational interpretation'', into clauses whose top-level implications have atomic conclusions
@@ -950,22 +955,24 @@ We can now say precisely what is missing from \micro{} (\cref{ch:micro}). A \mic
 relations are Scheme procedures, so \emph{the program is the fixed Scheme environment}: exactly the
 \fohc{} situation this chapter started from.
 
+\begin{fullwidth}
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{@{}lX@{}}
 \toprule
 \fohh & \micro{} today\\
 \midrule
-$\top$, $G\wedge G$, $G\vee G$ & \scm{✓°}, \scm{and°}, \scm{or°}/\scm{cond°} (fair interleaving)\\
-$\exists x\,G$ ($\exists$R with a logic variable) & \scm{fresh°}\\
-$\forall x\,D$ in a clause ($\forall$L) & \scm{fresh°} in a relation body\\
+$\top$, $G\wedge G$, $G\vee G$ & \leavevmode\scm{✓°}, \scm{and°}, \scm{or°}/\scm{cond°} (fair interleaving)\\
+$\exists x\,G$ ($\exists$R with a logic variable) & \leavevmode\scm{fresh°}\\
+$\forall x\,D$ in a clause ($\forall$L) & \leavevmode\scm{fresh°} in a relation body\\
 decide and $\wedge$L over the clauses of a predicate & the \scm{cond°} of a \scm{define-relation}\\
-initial, by unification & \scm{=°} against the head\\
+initial, by unification & \leavevmode\scm{=°} against the head\\
 $D\imp G$ (\textsc{augment}) & missing: the program is not part of the state\\
 $\forall x\,G$ (\textsc{generic}) & missing: no scoped constants, no scope check\\
 \bottomrule
 \end{tabularx}
 \end{center}
+\end{fullwidth}
 
 \subsection{The program context belongs to the search state}\label{sec:hh-kanren-context}
 
@@ -983,11 +990,12 @@ returns a modified program to its caller. In a miniKanren this translates into f
   \item \emph{Free logic variables of an assumed clause are shared}, not renamed
         (\cref{sec:hh-link}).
 \end{enumerate}
+{\emergencystretch=3em
 Requirements 2 and 3 are what make a host-language \emph{dynamic binding} (\texttt{parameterize},
 \texttt{fluid-let}, or a global variable set and restored) tempting, and wrong. A \micro{} goal does almost
 nothing when applied to a state: \scm{fresh°} and \scm{define-relation} wrap the real work in a promise
 (\scm{δ}), which is forced later by whoever consumes the stream, after the dynamic extent of the binding
-has ended. The following file puts a ``current program'' in a parameter and tries it three ways.
+has ended. The following file puts a ``current program'' in a parameter and tries it three ways.\par}
 \begin{scheme}[fontsize=\footnotesize]
 (import scheme (chicken base) (only (scheme base) make-parameter parameterize)
         (aux base) (aux stream) (aux kanren micro))
@@ -1020,9 +1028,9 @@ Run 1 binds the parameter around the \emph{application} of the goal to the state
 \emph{construction} of the goal. Both lose the hypothesis: \scm{(hyp° q)} returns a promise, and the
 program is read only when the promise is forced, outside \texttt{parameterize}. Only run 3, which forces the
 \emph{entire} search inside the binding, works, and it is useless for scoping, since the ``scope'' is then the
-whole query. The parameter-based \texttt{assume} in the code accompanying λKanren 2020 loses hypotheses in
+whole query.\sidenote[][-2.5\baselineskip]{The parameter-based \texttt{assume} in the code accompanying λKanren 2020 loses hypotheses in
 the same way for relation calls nested in delayed bodies; the paper also describes a state-threaded design
-without the problem \cite{MaLuFriedman2020}. Hence: \emph{hypotheses must live in the search state} (or be
+without the problem \cite{MaLuFriedman2020}.} Hence: \emph{hypotheses must live in the search state} (or be
 passed as an explicit argument, as in \cref{sec:hh-interp}), never in host dynamic state; see
 \cref{ch:design}.
 
@@ -1253,7 +1261,7 @@ odd answers: it changes the logic.
 %=====================================================================================================
 \section{Summary}\label{sec:hh-summary}
 
-\begin{itemize}
+\begin{itemize}\emergencystretch=3em
   \item \fohh{} extends \fohc{} with $D\imp G$ and $\forall x\,G$ in goals; the clause grammar is unchanged,
         and the two grammars swap roles across $\imp$. Hereditary Harrop formulas are those with no positive
         $\vee$ or $\exists$ (\cref{def:hh-grammar,prop:hh-polarity}).

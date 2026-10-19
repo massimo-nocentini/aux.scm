@@ -1,7 +1,7 @@
 # Higher-order logic programming for `(aux kanren micro)`
 
-`hol-kanren.pdf` (438 pages) is a reading of Miller & Nadathur, *Programming with Higher-Order Logic*
-(CUP 2012), and of the higher-order miniKanren literature, Ma & Friedman's λKanren paper (miniKanren 2021)
+`hol-kanren.pdf` (411 pages, typeset with the `tufte-book` class) is a reading of Miller & Nadathur,
+*Programming with Higher-Order Logic* (CUP 2012), and of the higher-order miniKanren literature, Ma & Friedman's λKanren paper (miniKanren 2021)
 in particular. It ends with a proposal for `(aux kanren lambda)`, a module that brings λProlog's logic
 into `(aux kanren micro)`: ∀ and ⊃ goals, λ-tree syntax and higher-order pattern unification.
 
@@ -14,10 +14,14 @@ Section 1.4 gives three reading paths. The fast path covers the minimum needed t
 
 ## Rebuilding the PDF
 
-It needs XeLaTeX with the Libertinus fonts and DejaVu Sans Mono. Either of these works:
+It needs XeLaTeX, the `tufte-latex` classes, the Libertinus fonts and DejaVu Sans Mono. Either of these works:
 
-    tectonic hol-kanren.tex
+    tectonic --keep-intermediates hol-kanren.tex    # run it twice
     latexmk -xelatex hol-kanren.tex
+
+Tectonic needs two runs with `--keep-intermediates`: the second reads the `.aux` and `.toc` of the first, and
+only then do the page breaks settle. A few figure and table captions sit in the margin at hand-tuned offsets
+(`\vspace` plus a raised `\caption`), so check them if the text around them changes.
 
 The sources are `hol-kanren.tex`, `preamble.tex`, `bibliography.tex` and `chapters/*.tex`.
 

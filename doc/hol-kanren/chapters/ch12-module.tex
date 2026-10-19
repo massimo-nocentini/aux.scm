@@ -23,14 +23,15 @@ read λ-terms (\cref{sec:module-stores}), how answers are printed (\cref{sec:mod
 reference, the exported API (\cref{sec:module-api}). The curated book examples are the subject of
 \cref{ch:examples}; the known limits, the costs and the merge plan are in \cref{ch:roadmap}.
 
+{\emergencystretch=2em
 The module is 1255 lines, 885 of them neither blank nor comment. In the repository it lives, with its
-tests and examples, under \texttt{doc/hol-kanren/prototype/}, and after merging as
-\texttt{src/aux.kanren.lambda.scm}, with the suites \texttt{src/test/microkanren-lambda.scm} (83 cases, 320
-assertions) and \texttt{src/test/microkanren-lambda-limits.scm} (6 cases). Every Scheme snippet below was run
+tests and examples, under \texttt{doc/\allowbreak hol-kanren/\allowbreak prototype/}, and after merging as
+\texttt{src/\allowbreak aux.kanren.lambda.scm}, with the suites \texttt{src/\allowbreak test/\allowbreak microkanren-lambda.scm} (83 cases, 320
+assertions) and \texttt{src/\allowbreak test/\allowbreak microkanren-lambda-limits.scm} (6 cases). Every Scheme snippet below was run
 against the module and micro with the protocol applied; its output is pasted verbatim under it. Before
 the imports below work, the edited micro must be built: \cref{sec:roadmap-run} shows how, without
 installing anything, and \cref{sec:roadmap-merge} how to merge it. The snippets
-import
+import\par}
 \begin{scheme}
 (import scheme (chicken base) (chicken pretty-print)
         (chicken condition) (chicken memory representation)
@@ -376,7 +377,7 @@ variable with no arguments, a case that micro's first-order unifier meets first,
 eager scope check, \textbf{Check}, enters; \rulename{FF-one} orients a flexible–flexible pair as
 \rulename{swap} orients a flexible–rigid one.
 
-\begin{figure}[!htb]
+\begin{figure*}[!t]
 \begin{mathpar}
 \inferrule{X \doteq t}{X := t\ \ \text{(micro, occurs check)}\quad\textbf{Check}(X := t)}\;\rulename{Var}
 \and
@@ -402,7 +403,7 @@ $\infty$. In \rulename{FF-same} and \rulename{FR}, $\bar x$ are new binders, one
 replaces each $a_i$ in $t$ by the bound variable of $x_i$. Variable elimination, Elim, is
 \cref{def:module-elim}; \textbf{Check} is \cref{def:module-check}. Each rule may also answer $\bot$ or suspend,
 as its side conditions say.}\label{fig:module-rules}
-\end{figure}
+\end{figure*}
 
 The side conditions, in the order the code tests them (\scm{μkanren-λ-unify} and the functions it calls):
 \begin{description}[style=nextline,leftmargin=5.6em]
@@ -554,11 +555,12 @@ back is what Teyjus does with a binding whose check depends on a non-pattern. It
 After every \scm{=°}, no binding $X := t$ in the substitution has an eigenvariable of level $>\ell(X)$ in the
 value of $t$.
 \end{proposition}
+{\emergencystretch=2em
 \noindent\emph{Argument.} Every binding made by micro goes through \textbf{Check} unless the fast paths of
 \cref{sec:module-fast} prove it unnecessary; \textbf{Check} either fails, or rewrites the variables of $t$ so
 that it holds, or unbinds $X$. The bindings that \textbf{Check} itself makes are lowerings and prunings,
 which by construction respect the levels. The remaining gap is host code (\scm{project°} and \scm{set!}),
-discussed in \cref{ch:roadmap}. \hfill\qedsymbol
+discussed in \cref{ch:roadmap}. \hfill\qedsymbol\par}
 
 \subsection{Fast paths}\label{sec:module-fast}
 
@@ -657,6 +659,7 @@ here prints the depth, the levels of the given variables and $E$:
 \end{scheme}
 
 \begin{example}[Warm-up: flexible–rigid, and \rulename{ξ}]\label{ex:module-warmup}
+\emergencystretch=2em
 Two equations that touch no pruning or lowering: $\exists q\,\forall x\,\forall y.\ q\,x\,y = g\,y\,x$, and
 $\exists q.\ \lambda x.\,(g\ x) = \lambda y.\,(g\ (q\,y))$, where both $(g\ \dots)$ are Scheme lists.
 \begin{scheme}
@@ -791,7 +794,7 @@ With $G := \lambda a.\,k$ the retry binds $q := k$, a plain term, and the residu
 every order of the goals.
 \end{example}
 
-\begin{example}[Occurs and scope failures, and a soft occurrence]\label{ex:module-occurs}
+\begin{example}[Occurs and scope failures, and a soft occurrence]\label{ex:module-occurs}\leavevmode
 \begin{scheme}
 (°->list #f (fresh° (q) (=° q `(f ,q))))                              ; X = f X
 (°->list #f (fresh° (q) (∀° (w x y) (=° (@ q x y) `(g ,(@ q y w))))))  ; 8.I
@@ -833,7 +836,7 @@ In the first order, \textbf{Check} of $q := G\,(\lambda w.k)$ at level 0 finds $
 lowered; but its argument is an abstraction that $G$ may apply to $x$ and so drop $G$'s own $x$. Lowering $G$
 would not be strict, so case (6c) suspends. Then $G := \lambda y.\,y\,x$ wakes the equation, β gives
 $(\lambda w.k)\,x = k$, and $q := k$. In the other order β happens at once. A version that lowered $G$ here
-lost the answer in the first order (third adversarial review).
+lost the answer in the first order.\sidenote{Third adversarial review.}
 \end{example}
 
 % ------------------------------------------------------------------------------------------------
@@ -964,7 +967,7 @@ must never show an eigenvariable free. \scm{μkanren-discharge} closes them, bac
 The constraints that cannot be closed by an abstraction (a type on $F\,x$; an absento whose datum is $c$ on a
 term that may still hold $c$) keep $c$ and print under a \scm{∀} (\cref{sec:module-reify}).
 
-\begin{example}[Discharge: raising, closing, retrying]\label{ex:module-discharge}
+\begin{example}[Discharge: raising, closing, retrying]\label{ex:module-discharge}\leavevmode
 \begin{scheme}
 (define ((probe label . vars) s)   ; prints values and the levels of unbound variables
   (display label) (display ": depth ") (display (μkanren-λ-depth s))
@@ -1084,7 +1087,7 @@ the clauses for 3 and 2, in this order, and the call disjoins $q=3$, $q=2$ and t
 
 \subsection{Clause syntax}
 
-\begin{longtable}{@{}p{0.36\textwidth}p{0.58\textwidth}@{}}
+\begin{longtable}{@{}p{0.36\fullwidthlen}p{0.58\fullwidthlen}@{}}
 \toprule
 clause $D$ & meaning and expansion \\
 \midrule
@@ -1118,6 +1121,7 @@ With the shared $y$, the first use binds $y:=1$ and the second use cannot match 
 own $z$, each use gets a new $z$.
 
 \begin{example}[Levels reach into clauses {\cite[p.\,16]{NadathurJayaramanKwon1995}}]\label{ex:module-njk}
+\emergencystretch=2em
 With the program $\forall z\,(q\,z \imp p\,(d\,z))$, the goal $\exists x\,\forall y\,(q\,y \imp p\,x)$ must fail
 and $\forall y\,\exists x\,(q\,y \imp p\,x)$ must succeed (\cref{ex:rules-scope}):
 \begin{scheme}
@@ -1143,7 +1147,7 @@ rules at once:
 typeof (app M N) A :- typeof M (arr B A), typeof N B.
 typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.
 \end{lprolog}
-In the module's syntax (\texttt{test/programs.scm} of \texttt{doc/hol-kanren/prototype/}):
+In the module's syntax ({\small\texttt{test/programs.scm}} of {\small\texttt{doc/hol-kanren/prototype/}}):
 \begin{scheme}
 (define-dynamic-relation (typeof° m t)
   (cond°
@@ -1310,7 +1314,7 @@ after: N ((generic (_0) (_1))), D (), E ()
 ((λ (α) (begin (deny (equal? α (cons (ƛ (z) z) '())))) α))
 \end{answers}
 To keep first-order search cheap, the hook looks at no more than 64 nodes of the new bindings to decide whether
-they may hold a λ-term; past that bound it walks D and A instead (\cref{ch:roadmap} has the measurements).
+they may hold a λ-term; past that bound it walks D and A instead.\sidenote{\Cref{ch:roadmap} has the measurements.}
 
 \paragraph{Subsumption by A.} A trial that binds a variable typed in A to a rigid λ-term or an eigenvariable
 of which the type's predicate is false has no solution; \scm{symbol°} and \scm{number°} hold of neither. So the disequality is dropped, as micro
@@ -1455,8 +1459,9 @@ of the rebuilding code (\scm{cons}, \scm{quote}, \scm{vector}, \scm{make-record-
 for the list \scm{(α x)}.
 
 \paragraph{Residual forms.} The constraints of the λ layer print as Scheme forms that can be evaluated:
-\begin{center}\small
-\begin{tabular}{@{}p{0.36\textwidth}p{0.58\textwidth}@{}}
+\begin{fullwidth}
+\medskip\small\centering
+\begin{tabular}{@{}p{0.36\linewidth}p{0.58\linewidth}@{}}
 \toprule
 constraint & form in the answer \\
 \midrule
@@ -1467,8 +1472,8 @@ disequality whose trial binds (N) & \texttt{(begin (deny (equal? α t)))}, with 
 disequality whose trial only suspends (N) & \texttt{(begin (deny (≐ u v)))} \\
 any of them still holding an eigenvariable & wrapped in \texttt{(∀ (x) form)} \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{tabular}\par\bigskip
+\end{fullwidth}
 \scm{≐} is exported: it decides αβη-equality of closed terms by unifying them in the empty state, so the forms
 evaluate. Through the \texttt{terms} hook, the variables of residual equations are reified \emph{after} those of
 the answer, so they are named \texttt{α}, \texttt{β}, \dots{} rather than \texttt{\_2}
@@ -1515,7 +1520,7 @@ A related trap is Scheme's own: \scm{(ƛ (quote) 'a)} shadows \scm{quote} while 
 % ------------------------------------------------------------------------------------------------
 \section{API reference}\label{sec:module-api}
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.42\textwidth}>{\raggedright\arraybackslash}p{0.54\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.40\fullwidthlen}>{\raggedright\arraybackslash}p{0.56\fullwidthlen}@{}}
 \toprule
 name & meaning \\
 \midrule
@@ -1561,9 +1566,9 @@ name & meaning \\
 % ------------------------------------------------------------------------------------------------
 \section{Summary}\label{sec:module-summary}
 
-\begin{itemize}
-  \item \textbf{Terms.} Four records, locally nameless: \texttt{μkanren-lam} (interned hint, body),
-    \texttt{μkanren-app}, \texttt{μkanren-eigen} (name, level, uninterned id), \texttt{μkanren-bvar}. \scm{ƛ} uses
+\begin{itemize}\emergencystretch=2em
+  \item \textbf{Terms.} Four records, locally nameless: \texttt{μkanren-\allowbreak lam} (interned hint, body),
+    \texttt{μkanren-\allowbreak app}, \texttt{μkanren-\allowbreak eigen} (name, level, uninterned id), \texttt{μkanren-\allowbreak bvar}. \scm{ƛ} uses
     Scheme binders and builds η-short; \scm{@} β-reduces at once. Terms built alike are \scm{equal?}; α-equality is
     \scm{μkanren-α=?} and \scm{≐}. Lists remain data: \scm{(@ 'g 'a)} is not \scm{'(g a)}.
   \item \textbf{State.} One immutable record in micro's slot \texttt{X}: depth, top, the levels $L$/$L_n$ (an

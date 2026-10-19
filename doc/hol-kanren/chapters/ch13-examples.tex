@@ -20,23 +20,24 @@ where the answers differ.
 \section{How to read the examples}\label{sec:examples-howto}
 
 Every example has four parts.
+\begingroup\emergencystretch=2em
 \begin{enumerate}
-  \item The \textbf{λProlog original}, copied from the book, with its printed page \book{n}.
+  \item The \textbf{λProlog original}, copied from the book, with its printed page
+    \book{n}.\sidenote{The \enquote{p.N} in the labels of \texttt{examples.scm} are PDF pages; the prose uses printed pages
+(see \cref{sec:intro-conventions}).}
   \item The \textbf{Scheme version}, copied verbatim from the curated script \texttt{examples.scm}, or
     from the programs it includes, \texttt{test/programs.scm}. In the repository both live under
-    \texttt{doc/hol-kanren/prototype/}. After the merge, the programs move with the test suite to
-    \texttt{src/test/} (\cref{sec:roadmap-merge}).
+    \texttt{doc/hol-kanren/prototype/}.\sidenote{After the merge, the programs move with the test suite to
+    \texttt{src/test/} (\cref{sec:roadmap-merge}).}
   \item The \textbf{answers}, pasted verbatim from \texttt{examples.out}, the actual output of the
     script. A few examples that the script does not contain were run separately with the same imports;
     each of them says so.
   \item A \textbf{walk-through}: the rules of \cref{ch:module} that fire, the state changes they make,
     and how the order of the answers compares with λProlog.
 \end{enumerate}
+\endgroup
 
-The \enquote{p.N} in the labels of \texttt{examples.scm} are PDF pages; the prose uses printed pages
-(see \cref{sec:intro-conventions}).
-
-
+\pagebreak
 \subsection{The dictionary}
 
 The header of \texttt{examples.scm} gives the translation that every example uses:
@@ -101,7 +102,7 @@ $\ell(y)=1$: the list $(x)$ is a pattern for $q$ but not for $y$, and $y$ may be
 may not.
 
 \begingroup\small
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.17\textwidth}>{\raggedright\arraybackslash}p{0.27\textwidth}>{\raggedright\arraybackslash}p{0.5\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.17\fullwidthlen}>{\raggedright\arraybackslash}p{0.27\fullwidthlen}>{\raggedright\arraybackslash}p{0.5\fullwidthlen}@{}}
 \toprule
 rule & fires on & effect \\
 \midrule\endhead
@@ -1370,6 +1371,7 @@ the paper's page; \enquote{Example 1--3} are the paper's own numbered examples o
 
 \subsection{Where the answers agree}
 
+\enlargethispage{2\baselineskip}
 The paper's E2 (p.\,2) and E12 (p.\,7):
 \begin{answers}
 > (run 1 X
@@ -1526,7 +1528,7 @@ projection. The design options are compared in
 One row per example: the book's page, the place in Part~I where the example was introduced, and how
 the module's answers compare with λProlog's. \enquote{Same} means the same answers in the same order.
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.18\textwidth}>{\raggedright\arraybackslash}p{0.19\textwidth}>{\raggedright\arraybackslash}p{0.22\textwidth}>{\raggedright\arraybackslash}p{0.3\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.18\fullwidthlen}>{\raggedright\arraybackslash}p{0.19\fullwidthlen}>{\raggedright\arraybackslash}p{0.22\fullwidthlen}>{\raggedright\arraybackslash}p{0.3\fullwidthlen}@{}}
 \toprule
 example & book & Part I & order of the answers against λProlog \\
 \midrule\endhead

@@ -117,7 +117,7 @@ A state is a record of six fields (\texttt{:69}):
 \end{scheme}
 \end{definition}
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.14\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}>{\raggedright\arraybackslash}p{0.42\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.14\fullwidthlen}>{\raggedright\arraybackslash}p{0.36\fullwidthlen}>{\raggedright\arraybackslash}p{0.42\fullwidthlen}@{}}
 \toprule
 field & content & written by / read by \\
 \midrule\endhead
@@ -485,7 +485,7 @@ symbol.
 
 \subsection{T: absento}
 
-\scm{(absent° datum term)} (\texttt{:617–624}; note the argument order) states that \emph{datum}, which
+\leavevmode\scm{(absent° datum term)} (\texttt{:617–624}; note the argument order) states that \emph{datum}, which
 may be any Scheme value, atomic or compound, does not occur in \emph{term}. The store holds
 \scm{(term . tag)} pairs where the tag is an ad-hoc tag whose name is the datum itself. The term is a
 variable, or a compound that could still become the datum (it is then ``watched whole'' and
@@ -544,11 +544,12 @@ After a unification that binds something, the stores are re-verified in a hard-w
 D (touched prefixes only) $\to$ A (in full) $\to$ D subsumed by A $\to$ T (in full) $\to$ D subsumed
 by T $\to$ absentos of typed variables turned into D,
 \end{center}
+\begingroup\emergencystretch=1.5em
 through \scm{μkanren-verify-D/post} (\texttt{:450–453}), \scm{μkanren-verify-A/post}
-(\texttt{:424–429}), \scm{μkanren-verify-T/post} (\texttt{:373}) and \scm{μkanren-subsume-T}
+(\texttt{:424–\allowbreak 429}), \scm{μkanren-verify-T/post} (\texttt{:373}) and \scm{μkanren-subsume-T}
 (\texttt{:352–356}), which rebuilds the state with the new D, A and T. Only D is incremental; A and T
 are re-verified in full after every binding \scm{=°}. The whole chain is skipped only when nothing was
-bound (\cref{prop:micro-eq}).
+bound (\cref{prop:micro-eq}).\par\endgroup
 
 \begin{kanren}[A new store has nowhere to plug in]
 There is no list of verifiers to which a new store could append itself: the chain is a fixed sequence
@@ -671,7 +672,7 @@ suites pin the raw answers, \emph{including their order}. A new goal that adds o
 
 \subsection{Soft cut, bounded runs, escape to Scheme}
 
-\scm{(if° g? gt gf)} (\texttt{:596–603}) is LogicT's \texttt{ifte}, i.e.\ miniKanren's \texttt{conda}
+\leavevmode\scm{(if° g? gt gf)} (\texttt{:596–603}) is LogicT's \texttt{ifte}, i.e.\ miniKanren's \texttt{conda}
 for one clause: if \scm{g?} has at least one answer, \emph{all} its answers are continued with
 \scm{gt}; otherwise \scm{gf} runs on the original state. \scm{(take° n g)} (\texttt{:605}) keeps the first
 $n$ answers of \scm{g} (all of them if $n<0$); \scm{(take° 1 g)} is \texttt{once}. With \scm{gt} $=$ \scm{✗°}
@@ -769,13 +770,13 @@ which, applied to values for the free variables, re-checks the constraints with 
 \item render with \scm{μkanren-form} (\texttt{:243–249}), sorting everything lexicographically.
 \end{enumerate}
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.3\textwidth}>{\raggedright\arraybackslash}p{0.62\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.3\fullwidthlen}>{\raggedright\arraybackslash}p{0.62\fullwidthlen}@{}}
 \toprule
 store & form in the answer \\
 \midrule\endhead
-D, prefix of one pair & \scm{(begin (deny (equal? α <repr>)))} \\
-D, prefix of $n$ pairs & \scm{(begin (deny (and (equal? α ...) (equal? β ...))))} \\
-A, grouped by tag & \scm{(assert (every (μ v (symbol? v)) (list α γ)))} \\
+D, prefix of one pair & \scm{(begin (deny (equal? α <repr>)))} \\*
+D, prefix of $n$ pairs & \scm{(begin (deny (and (equal? α ...) (equal? β ...))))} \\*
+A, grouped by tag & \scm{(assert (every (μ v (symbol? v)) (list α γ)))} \\*
 T & \scm{(assert (absent? '<datum> <repr>))} \\
 \bottomrule
 \end{longtable}
@@ -879,7 +880,7 @@ They are the precedent for goals that run a sub-search to completion, the mechan
 \Cref{tab:micro-open} sorts the engine's parts by whether an importing module can use or extend them
 without editing \texttt{aux.kanren.micro.scm}.
 
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.47\textwidth}>{\raggedright\arraybackslash}p{0.47\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.47\fullwidthlen}>{\raggedright\arraybackslash}p{0.47\fullwidthlen}@{}}
 \caption{The inventory of \micro{} for an extension.}\label{tab:micro-open}\\
 \toprule
 \textbf{open} (usable from outside) & \textbf{closed} (needs an edit of micro) \\
@@ -1085,7 +1086,7 @@ variable of index $< n$, i.e.\ older than the eigenvariable, is deep-walked and 
 
 Why is checking at the end of the body enough for soundness? After the scope closes, \scm{c} is
 lexically unreachable and, by the check, no term reachable from an older variable contains it, so no
-later goal can bring it back. (This argument is informal; the prototype was tested, not proved.) What
+later goal can bring it back.\sidenote{This argument is informal; the prototype was tested, not proved.} What
 is lost is \emph{early pruning}: a bad binding is detected only when the body has produced an answer,
 at a cost of $O(n\cdot|\text{term}|)$ per answer. Eager checking needs the scope test at the binding
 site (closed), or a post-unification hook with a level map, or a module-level \scm{=°} that shadows

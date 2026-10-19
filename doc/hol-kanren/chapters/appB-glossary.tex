@@ -541,7 +541,7 @@ Several terms below are overloaded across the sources. Keep the distinctions in 
 \item[Negation-as-failure] \lp{not G} succeeds if and only if \lp{G} finitely fails. It is non-logical and unsound
   on non-ground goals. In \micro{} it is written \texttt{(if° (take° 1 g) ✗° ✓°)}. Without the \texttt{take° 1},
   it diverges whenever the search for further answers of \texttt{g} does not terminate, even if \texttt{g} has a
-  single answer (\cref{sec:glossary-bridge} runs an example). $\rightarrow$ \cref{ch:hoprog,ch:apps}; \book{137},
+  single answer.\sidenote{\Cref{sec:glossary-bridge} runs an example.} $\rightarrow$ \cref{ch:hoprog,ch:apps}; \book{137},
   \book{269}.
 \item[Negation normal form, prenex normal form] NNF has no implications and applies negation only to atoms. A
   prenex form has all its quantifiers in front. $\rightarrow$ \cref{ch:lambdatree}; \book{195}.
@@ -661,7 +661,7 @@ Several terms below are overloaded across the sources. Keep the distinctions in 
 \item[Static closure] $\langle\phi;t\rangle$ (Ma--Friedman): a term paired with the scope, the list of binder names
   around it, manipulated by $\mathrm{ext}$ and $\mathrm{db}$. The authors call the paper \enquote{a preview} and
   leave soundness and completeness to future work~\cite{MaFriedman2021}. $\rightarrow$ \cref{ch:lkanren}.
-\item[Stream (\texttt{§})] In \aux{}, a stream is \texttt{'()}, a mature pair \texttt{(state . §)}, or an immature
+\item[Stream (\texttt{§})] In \aux{}, a stream is \texttt{'()}, a mature pair \texttt{(state\hbox{ }.\hbox{ }§)}, or an immature
   promise. $\rightarrow$ \cref{ch:micro}.
 \item[Subject reduction] Evaluation preserves types. $\rightarrow$ \cref{ch:lambdatree}; \book{191}.
 \item[Substitution (\micro{})] The store \texttt{S}: a triangular substitution kept in a skew-binary random-access
@@ -747,28 +747,29 @@ Several terms below are overloaded across the sources. Keep the distinctions in 
 \Cref{tab:glossary-bridge} lines up the names that the three communities use for the same concept. Read it
 across a row: a cell left empty means the concept has no counterpart in that column today.
 
-\begin{table}[ht]
-\centering\small
-\caption{The same concepts under three names, and in the proposed module. The empty cells of the third
+\begin{table*}[ht]
+\small
+% the margin caption below a full-width table is smashed: reserve its height under the table and raise it there
+\caption[][-43pt]{The same concepts under three names, and in the proposed module. The empty cells of the third
 column are what \texttt{(aux kanren lambda)} supplies (\cref{ch:module}).}
 \label{tab:glossary-bridge}
-\begin{tabularx}{\textwidth}{@{}>{\raggedright}X>{\raggedright}X>{\raggedright}X>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright}X>{\raggedright}X>{\raggedright}X>{\raggedright\arraybackslash}X@{}}
 \toprule
 Book (λProlog) & miniKanren literature & \micro{} today & \texttt{(aux kanren lambda)} \\
 \midrule
-logic variable, $\exists$ in goals (\texttt{sigma}) & \texttt{fresh} & \texttt{fresh°} & \texttt{fresh°}, with a level \\
-backchaining on a clause & calling a relation & a \texttt{define-relation} call & also a \texttt{define-dynamic-relation} call \\
-$\vee$ in goals (\texttt{;}) & \texttt{conde} & \texttt{or°}, \texttt{cond°} & unchanged \\
-first-order unification with occurs check & \texttt{==} & \texttt{=°} & \texttt{=°}, through the \texttt{unify} and \texttt{post} hooks \\
-\texttt{not}, \texttt{if} (via \texttt{!}) & \texttt{conda}, \texttt{condu} & \texttt{if°}, \texttt{take°} & unchanged \\
-\rulename{augment}, \texttt{D => G} & \texttt{assume} (λKanren) & --- & \texttt{⊃°}, \texttt{define-dynamic-relation} \\
-\rulename{generic}, \texttt{pi x\textbackslash{} G}, eigenvariable & \texttt{all} (λKanren), \texttt{eigen} & --- & \texttt{∀°}, with universe levels \\
-$\lambda$-terms, \texttt{x\textbackslash{} t} & \texttt{tie}/\texttt{app} (λKanren), \texttt{tie} on noms (αKanren) & first-order encodings only (e.g.\ records with de Bruijn indices) & \texttt{ƛ}, \texttt{@} \\
-pattern unification, raising, pruning & λKanren 2020 unifier; static closures (2021) & --- & the \texttt{unify} and \texttt{post} hooks with levels; non-patterns delayed in E \\
+logic variable, $\exists$ in goals (\texttt{sigma}) & \texttt{fresh} & \texttt{fresh°} & \texttt{fresh°}, with a level \\\addlinespace[3pt]
+backchaining on a clause & calling a relation & a \texttt{define-relation} call & also a \texttt{define-dynamic-relation} call \\\addlinespace[3pt]
+$\vee$ in goals (\texttt{;}) & \texttt{conde} & \texttt{or°}, \texttt{cond°} & unchanged \\\addlinespace[3pt]
+first-order unification with occurs check & \texttt{==} & \texttt{=°} & \texttt{=°}, through the \texttt{unify} and \texttt{post} hooks \\\addlinespace[3pt]
+\texttt{not}, \texttt{if} (via \texttt{!}) & \texttt{conda}, \texttt{condu} & \texttt{if°}, \texttt{take°} & unchanged \\\addlinespace[3pt]
+\rulename{augment}, \texttt{D => G} & \texttt{assume} (λKanren) & --- & \texttt{⊃°}, \texttt{define-dynamic-relation} \\\addlinespace[3pt]
+\rulename{generic}, \texttt{pi x\textbackslash{} G}, eigenvariable & \texttt{all} (λKanren), \texttt{eigen} & --- & \texttt{∀°}, with universe levels \\\addlinespace[3pt]
+$\lambda$-terms, \texttt{x\textbackslash{} t} & \texttt{tie}/\texttt{app} (λKanren), \texttt{tie} on noms (αKanren) & first-order encodings only (e.g.\ records with de Bruijn indices) & \texttt{ƛ}, \texttt{@} \\\addlinespace[3pt]
+pattern unification, raising, pruning & λKanren 2020 unifier; static closures (2021) & --- & the \texttt{unify} and \texttt{post} hooks with levels; non-patterns delayed in E \\\addlinespace[3pt]
 answer substitution & reified answer & \texttt{μkanren-project}, \texttt{°->list} & \texttt{°->list/datum}, \texttt{°->pretty} \\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par\vspace{58pt}
+\end{table*}
 
 \begin{kanren}[what the glossary says about the missing pieces]
 The empty cells of \cref{tab:glossary-bridge} are the λProlog features that \micro{} lacks: a dynamic clause

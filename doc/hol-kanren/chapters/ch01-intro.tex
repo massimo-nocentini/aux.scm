@@ -20,10 +20,10 @@ document is for (\cref{sec:intro-goal}), runs one example through the whole stor
 
 \paragraph{The goal.} The goal is to bring three ideas of λProlog into \micro:
 \begin{enumerate}[nosep]
-  \item \textbf{hereditary Harrop goals}, that is the universal goal $\forall x\,G$ (\lp{pi x\ G}, proved
+  \item \emergencystretch=2em \textbf{hereditary Harrop goals}, that is the universal goal $\forall x\,G$ (\lp{pi x\ G}, proved
         with a new scoped constant) and the hypothetical goal $D\imp G$ (\lp{D => G}, proved with the
         program temporarily extended by the clause $D$);
-  \item \textbf{λ-tree syntax}: object-level binders represented by meta-level λ-abstractions, so that
+  \item \textbf{λ-tree syntax}: object-level binders represented by meta-level λ-ab\-strac\-tions, so that
         α-equivalence is built in and object-level substitution is meta-level β-reduction;
   \item \textbf{higher-order pattern unification} ($\Llam$): unification of λ-terms restricted to the
         fragment where it is decidable and has most general unifiers, with the other equations delayed.
@@ -44,7 +44,7 @@ Teyjus~\cite{NadathurLinnell2005} and ELPI~\cite{DunchevEtAl2015}.
 
 \paragraph{The outcome.} Part~III is a proposal in two pieces.
 \begin{itemize}[nosep]
-  \item A \textbf{generic extension protocol} in \micro{} (\texttt{micro.diff}, $+235/{-}41$ lines,
+  \item \emergencystretch=2em A \textbf{generic extension protocol} in \micro{} (\texttt{micro.diff}, $+235/{-}41$ lines,
         comments included; 214 of the added lines are not blank). The state gains one slot that \micro{} never reads, and a registry of hooks opens the
         points that are closed today: the unifier's structural clause, the occurs check, the step after each
         \scm{=°}, the disequality, type and absento stores, and reification. Nothing in the edit mentions λ,
@@ -61,7 +61,7 @@ reviews, on engineering, on fidelity to the book and on pedagogy. The hook desig
 the three, became the base, and about twenty grafts proposed from the other two were each adopted or
 explicitly declined. Three adversarial review rounds
 then attacked the result and sent thirteen, eight and twelve reports. All were real. Every defect but
-one was fixed and pinned by a regression case (a cost reported by the third round among them); the
+one was fixed and pinned by a regression case\sidenote{A cost reported by the third round among them.}; the
 exception, the cost of the scope check on first-order search once a \scm{∀°} has run, reported by the
 second round, is measured and documented as a limitation. The final suite has
 83 cases with 320 hand-written assertions, plus 6 cases that pin the known limits, and \micro's own 125
@@ -245,10 +245,9 @@ closed over $x$ when it leaves the scope of the \scm{∀°}. A later binding dec
 
 None of the above runs on today's \micro. \Cref{tab:intro-concepts} lists what the example needed, where
 the book explains it, and where this document builds it.
-\begin{table}[h]
-\centering\small
-\caption{The running example, concept by concept.}\label{tab:intro-concepts}
-\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.5cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4.3cm}@{}}
+\begin{table*}[h]
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{4.4cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4.3cm}@{}}
 \toprule
 concept & in the example & theory \,/\, in the module\\
 \midrule
@@ -262,7 +261,8 @@ dynamic $\Llam$, residuals & \texttt{F x x = x} waits & \cref{ch:hounif} \,/\, \
 interleaving search & typing backwards terminates & \cref{ch:horn} \,/\, \cref{ch:micro}\\
 \bottomrule
 \end{tabularx}
-\end{table}
+\caption{The running example, concept by concept.}\label{tab:intro-concepts}
+\end{table*}
 
 The state of \micro{} has a fixed set of fields, and its unifier, walks and reifier are closed
 (\cref{sec:micro-ext}). The proposal opens them once, generically, and puts everything λ-specific in a
@@ -326,17 +326,17 @@ conversion by α, β and η as the equality of the logic, normal forms, unificat
 raising, and why higher-order unification is undecidable (Post's correspondence problem, Hilbert's tenth
 problem).
 
-\paragraph{\Cref{ch:hoprog}, Higher-order programming.} Chapters~5--6: rigid and flexible atoms, the
+\paragraph{\Cref{ch:hoprog}, Higher-order programming.} {\emergencystretch=2em Chapters~5--6: rigid and flexible atoms, the
 languages \hohc{} and \hohh{}, predicate variables (\lp{mappred}, folds, continuation passing),
 function variables solved by unification (functional difference lists), and modules as logic. It sorts
 the book's programs into those that run on today's \micro{} (they only \emph{call} a predicate) and those
-that need λ-terms (they look \emph{inside} one).
+that need λ-terms (they look \emph{inside} one).\par}
 
-\paragraph{\Cref{ch:lambdatree}, λ-tree syntax.} Chapter~7, the chapter that motivates the proposal:
+\paragraph{\Cref{ch:lambdatree}, λ-tree syntax.} {\emergencystretch=2em Chapter~7, the chapter that motivates the proposal:
 object-level binders as meta-level abstractions, substitution as β, the \emph{mobility} of binders
 (term-level λ, then \lp{pi}, then an eigenvariable), and the book's programs over λ-terms and formulas:
 evaluators, type inference, de~Bruijn translation, normal forms, prenex forms, copy clauses, and
-substitution run backwards. It ends with the $\Llam$ subset.
+substitution run backwards. It ends with the $\Llam$ subset.\par}
 
 \paragraph{\Cref{ch:hounif}, Unification of λ-terms and higher-order patterns.} Chapter~8: Huet's procedure
 and its matching trees, the pattern fragment, the pattern unification algorithm as one walk of variable
@@ -360,11 +360,11 @@ deliberately does not choose.
 
 \subsection*{Part III: the proposal}
 
-\paragraph{\Cref{ch:micro}, Anatomy of \micro.} The engine as it is today, at commit \texttt{f53bdcb}: terms
+\paragraph{\Cref{ch:micro}, Anatomy of \micro.} {\emergencystretch=2em The engine as it is today, at commit \texttt{f53bdcb}: terms
 and variables, the six-field state, the walk, unification, the stores D (disequalities), A (type tags) and T
 (absento), the interleaving search, reification and aggregation. It closes with what is open to extension and
 what is closed, and with three tricks that need no edit (including working AUGMENT and GENERIC prototypes)
-together with their limits.
+together with their limits.\par}
 
 \paragraph{\Cref{ch:design}: requirements, design space, protocol.} The nine acceptance items A1--A9
 collected from Parts~I and~II (the scope of $\forall$ at every binding, AUGMENT with the book's clause
@@ -391,13 +391,13 @@ palindromes with functional difference lists; Fischer's CPS transformation; and 
 the book's Chapter~8 one by one. It also runs Ma and Friedman's queries and explains each difference, and
 closes with a table of all the examples.
 
-\paragraph{\Cref{ch:roadmap}: tests, limitations, performance, merge plan.} How the proposal is tested
+\paragraph{\Cref{ch:roadmap}: tests, limitations, performance, merge plan.} {\emergencystretch=2em How the proposal is tested
 (three layers of tests, and \micro's suites run twice); nine documented limitations and deviations from
 λProlog, each pinned by a test (among them: only dynamic relations take hypotheses, terms are untyped,
 non-patterns are suspended and never enumerated, answers come in \micro's interleaving order); the
 performance measurements; a merge in three stages (first the protocol, then the module and its suites,
 then the show extension); six later work items; and nine questions only the maintainer of \aux{} can
-answer.
+answer.\par}
 
 \subsection*{Appendices}
 
@@ -415,37 +415,37 @@ bridge between their names for the same idea.
 The chapters are written to be read in order, but they need not be. \Cref{tab:intro-paths} summarizes the
 three paths below; page counts are approximate.
 
-\paragraph{The fast path.} The minimum to understand the proposal, about 50 pages before
+\paragraph{The fast path.} The minimum to understand the proposal, about 45 pages before
 \cref{ch:design,ch:module}:
 \begin{enumerate}[nosep]
-  \item \cref{sec:intro-brief} of this chapter (5 pages);
+  \item \cref{sec:intro-brief} of this chapter (4 pages);
   \item the two rules, the scope condition, and how quantification links goals and clauses:
-        \cref{sec:hh-rules,sec:hh-scope,sec:hh-link} (6 pages);
+        \cref{sec:hh-rules,sec:hh-scope,sec:hh-link} (5 pages);
   \item λ-tree syntax:
         \cref{sec:lambdatree-encoding,sec:lambdatree-beta,sec:lambdatree-mobility,sec:lambdatree-typeof}
-        (11 pages);
+        (9 pages);
   \item what rigid and flexible terms and the normal form of a unification problem are:
         \cref{sec:hounif-intro,sec:hounif-problems} (the introduction says enough about imitation and
         projection to skip \cref{sec:hounif-huet}); then patterns, their unification, the worked traces
         and what real systems do: \cref{sec:hounif-llambda,sec:hounif-algo,sec:hounif-traces,sec:hounif-pragmatics}
-        (14 pages in all);
+        (13 pages in all);
   \item the options: \cref{sec:lkanren-compare,sec:lkanren-summary} (3 pages; the summary defines each
         term the comparison uses);
   \item the engine's state, its constraint stores and its extension points:
-        \cref{sec:micro-state,sec:micro-stores,sec:micro-ext} (9 pages; skip \cref{sec:micro-stores} if you
+        \cref{sec:micro-state,sec:micro-stores,sec:micro-ext} (8 pages; skip \cref{sec:micro-stores} if you
         know micro's D/A/T chain);
   \item then \cref{ch:design,ch:module} (about 60 pages), the limitations in \cref{sec:roadmap-limits},
-        and the staged merge in \cref{sec:roadmap-merge} (3 pages), which says how to build and load
+        and the staged merge in \cref{sec:roadmap-merge} (2 pages), which says how to build and load
         the edited micro.
 \end{enumerate}
 
-\paragraph{The λProlog path.} Part~I alone, \cref{ch:horn} to \cref{ch:apps}, about 200 pages, is a
+\paragraph{The λProlog path.} Part~I alone, \cref{ch:horn} to \cref{ch:apps}, about 185 pages, is a
 self-contained reading of the book. The \emph{Kanren angle} boxes can be skipped. \Cref{app:rules} serves as
 a reference card along the way.
 
 \paragraph{The implementer path.} For whoever will merge or extend the code:
 \cref{ch:hounif} (the algorithm), \cref{ch:micro} (the engine), \cref{ch:design} (the protocol),
-\cref{ch:module} (the module), and \cref{ch:roadmap} (tests, costs, merge plan), about 130 pages, with
+\cref{ch:module} (the module), and \cref{ch:roadmap} (tests, costs, merge plan), about 120 pages, with
 \cref{sec:rules-pattern,sec:rules-levels} at hand. \Cref{ch:examples} then serves as a set of worked tests.
 
 \begin{table}[htb]
@@ -458,18 +458,18 @@ chapter & pages & fast & λProlog & implementer\\
 \midrule
 \cref{ch:intro}, Introduction & 12 & $\circ$ & $\bullet$ & $\bullet$\\
 \cref{ch:horn}, proof search & 28 & & $\bullet$ & \\
-\cref{ch:hh}, hereditary Harrop & 26 & $\circ$ & $\bullet$ & \\
+\cref{ch:hh}, hereditary Harrop & 24 & $\circ$ & $\bullet$ & \\
 \cref{ch:lambda}, λ-terms & 22 & & $\bullet$ & \\
-\cref{ch:hoprog}, higher-order programming & 33 & & $\bullet$ & \\
-\cref{ch:lambdatree}, λ-tree syntax & 34 & $\circ$ & $\bullet$ & \\
-\cref{ch:hounif}, pattern unification & 26 & $\circ$ & $\bullet$ & $\bullet$\\
-\cref{ch:apps}, applications & 31 & & $\bullet$ & \\
-\cref{ch:lkanren}, the literature & 32 & $\circ$ & & \\
-\cref{ch:micro}, the engine & 24 & $\circ$ & & $\bullet$\\
-\cref{ch:design}, design and protocol & 28 & $\bullet$ & & $\bullet$\\
-\cref{ch:module}, the module & 34 & $\bullet$ & & $\bullet$\\
-\cref{ch:examples}, the examples & 35 & & & $\bullet$\\
-\cref{ch:roadmap}, status and roadmap & 19 & $\circ$ & & $\bullet$\\
+\cref{ch:hoprog}, higher-order programming & 30 & & $\bullet$ & \\
+\cref{ch:lambdatree}, λ-tree syntax & 30 & $\circ$ & $\bullet$ & \\
+\cref{ch:hounif}, pattern unification & 24 & $\circ$ & $\bullet$ & $\bullet$\\
+\cref{ch:apps}, applications & 28 & & $\bullet$ & \\
+\cref{ch:lkanren}, the literature & 30 & $\circ$ & & \\
+\cref{ch:micro}, the engine & 22 & $\circ$ & & $\bullet$\\
+\cref{ch:design}, design and protocol & 26 & $\bullet$ & & $\bullet$\\
+\cref{ch:module}, the module & 32 & $\bullet$ & & $\bullet$\\
+\cref{ch:examples}, the examples & 28 & & & $\bullet$\\
+\cref{ch:roadmap}, status and roadmap & 18 & $\circ$ & & $\bullet$\\
 \cref{app:rules}, reference card & 12 & & $\circ$ & $\circ$\\
 \bottomrule
 \end{tabular}
@@ -522,15 +522,15 @@ in $t$, and $\doteq$ is an equation to be solved. $\ell(X)$ and $\ell(c)$ are th
 $x$, $y$). Rules of proof search are set in small capitals (\rulename{generic}, \rulename{augment},
 \rulename{backchain}).
 
-\paragraph{Where the outputs come from.} Snippets in Parts~I and~II, and in \cref{ch:micro}, run on today's
-\micro, at commit \texttt{f53bdcb} of the \texttt{aux-lambdakanren} branch, unless a box says otherwise; some
+\paragraph{Where the outputs come from.} {\emergencystretch=2em Snippets in Parts~I and~II, and in \cref{ch:micro}, run on today's
+\micro, at commit \texttt{f53bdcb} of the \texttt{aux-\allowbreak lambdakanren} branch, unless a box says otherwise; some
 define a small throwaway interpreter first (\cref{sec:hh-interp}). The outputs of the proposal, in this
 chapter and from \cref{ch:design} on, come from the prototype as described in Part~III: \micro{} with the
 protocol applied (\texttt{micro.diff}), the show module with \texttt{show.diff}, and
-\texttt{(aux kanren lambda)}, all in \texttt{doc/hol-kanren/prototype/}. Every snippet was run by
+\texttt{(aux kanren lambda)}, all in \texttt{doc/\allowbreak hol-kanren/\allowbreak prototype/}. Every snippet was run by
 \texttt{csi} from CHICKEN~6.0.1pre1 (rev \texttt{55615603}), as installed; the
-benchmarks were compiled with \mbox{\texttt{csc -O2 -d1}}. The document was typeset with XeLaTeX, through Tectonic
-0.17.0, in Libertinus and DejaVu Sans Mono.
+benchmarks were compiled with \mbox{\texttt{csc -O2 -d1}}.\marginnote{The document was typeset with XeLaTeX, through Tectonic
+0.17.0, in Libertinus and DejaVu Sans Mono.}\par}
 
 % ==================================================================================================
 \section{Summary}\label{sec:intro-summary}
@@ -547,7 +547,7 @@ benchmarks were compiled with \mbox{\texttt{csc -O2 -d1}}. The document was type
         disappears with the answer.
   \item Run backwards, the same program needs $R\,c\doteq c$: a pattern, solved by $R:=\abs{x}{x}$, while
         $R\doteq c$ fails the scope check. Non-patterns wait and are reported as residual equations.
-  \item Three reading paths: a fast path of about 50 pages before the design and the module, the λProlog
+  \item Three reading paths: a fast path of about 45 pages before the design and the module, the λProlog
         path (Part~I), and the implementer path.
   \item Answers are actual outputs; \book{n} is a printed page; the prototype's comments use PDF pages
         (printed $+16$).

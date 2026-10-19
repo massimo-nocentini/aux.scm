@@ -73,8 +73,8 @@ the thesis (p.\,1):
 \begin{quote}
 \enquote{λKanren, adapted from λProlog, extends miniKanren with higher-order logic programming.
 The existing higher-order unification algorithms, however, are neither sound nor complete w.r.t.\ an
-“intuitive” understanding of α-equivalence. This paper shows these gaps and proposes a new method to
-handle α-equivalence in higher-order unification.}
+“intuitive” understanding of α-equi\-va\-lence. This paper shows these gaps and proposes a new method to
+handle α-equi\-va\-lence in higher-order unification.}
 \end{quote}
 It opens provocatively: \enquote{Is there a world where true is equal to false? Indeed, there is, if
 higher-order unification and miniKanren meet each other} (p.\,1).
@@ -317,7 +317,7 @@ outer-binder.} Naive reification, which writes each level back as the name of it
 
 \noindent \enquote{which claims that the λ-encoded false is true!} With Church booleans
 $\cst{true}=\abs{t}{\abs{f}{t}}$ and $\cst{false}=\abs{t}{\abs{f}{f}}$, the left-hand side
-$\abs{a}{\abs{a}{a}}$ is α-equivalent to $\cst{false}$, because the occurrence $a$ refers to the inner
+$\abs{a}{\abs{a}{a}}$ is α-equi\-va\-lent to $\cst{false}$, because the occurrence $a$ refers to the inner
 binder. The right-hand side is $\cst{true}$.
 
 The paper argues that binder-merging goes wrong \enquote{even without lifting the scope
@@ -342,7 +342,7 @@ read}.
 \subsection{Static closures}\label{sec:lkanren-static}
 
 \enquote{We propose a simple and efficient alternative, static closures. Static closures are
-integrated into the unification process and they decide α-equivalence while correctly handling name
+integrated into the unification process and they decide α-equi\-va\-lence while correctly handling name
 shadowing. We obtain a new algorithm by extending traditional pattern unification with static
 closures} (p.\,5). No efficiency evidence or complexity bound is given.
 
@@ -393,7 +393,8 @@ the level is available. The notes make this precise. Write $\phi=a_0,\dots,a_{n-
 \]
 \[
   \mathrm{db}(\phi,a)=\begin{cases}\lkJust\;\max\{\ell : a_\ell=a\} & a\in\phi\\ \lkNothing & a\notin\phi\end{cases}
-  \qquad
+\]
+\[
   \mathrm{db}(\phi,\ell)=\begin{cases}\lkJust\;\ell & \ell\in\mathrm{avail}(\phi)\\ \lkNothing&\text{otherwise}\end{cases}
 \]
 In words: a level is \emph{available} if its binder's name is not rebound further in. The
@@ -473,6 +474,7 @@ $\theta(X)$ at an occurrence $\lkclo{\phi}{X}$:
 \paragraph{Rules.} The judgement is $\theta;C\vdash t\lkq u\Rightarrow\theta';C'$. Terms are walked
 first, i.e.\ a bound closure is replaced by its instance. Any pair of head constructors not listed
 fails.
+\begin{fullwidth}
 \begin{mathpar}
 \inferrule{ }{\theta;C\vdash \ell\lkq\ell \Rightarrow \theta;C}\;\rulename{Lvl}
 \and
@@ -492,6 +494,7 @@ fails.
 \inferrule{X,Y\notin\mathrm{dom}\,\theta \\ (X,\phi)\neq(Y,\psi)}
           {\theta;C\vdash\lkclo{\phi}{X}\lkq\lkclo{\psi}{Y}\Rightarrow\theta;C\cup\{\lkclo{\phi}{X}\lkq\lkclo{\psi}{Y}\}}\;\rulename{Postpone}
 \end{mathpar}
+\end{fullwidth}
 In \rulename{Graft}, $t$ is not an unbound closure. $FV(t)$ is the set of unification variables of
 $t$ (the occurs check). $FL_{<|\phi|}(t)$ is the set of levels below $|\phi|$ that occur in $t$: those
 that point into the scope $\phi$ rather than to a nameless binder inside $t$. The availability premise
@@ -556,10 +559,10 @@ contrasts Horn clauses with hereditary Harrop formulas. In the figure the shared
 $D::=G\imp D\mid D\wedge D\mid\forall x\,D$ and $G::=G\wedge G\mid G\vee G\mid\exists x\,G$, and the
 HH-only rows are $D\imp G$ and $\forall x\,G$ for goals. The atoms $A$ and $\top$ are missing from the
 figure. With them it is exactly the book's grammar (3.1) \book{91}:
-\[
-  G ::= \top \mid A \mid G\wedge G \mid G\vee G \mid \exists x\,G \mid D\imp G \mid \forall x\,G\qquad
+\begin{gather*}
+  G ::= \top \mid A \mid G\wedge G \mid G\vee G \mid \exists x\,G \mid D\imp G \mid \forall x\,G\\
   D ::= A \mid G\imp D \mid D\wedge D \mid \forall x\,D .
-\]
+\end{gather*}
 The four code boxes are these (all solid, p.\,6--7):
 
 \begin{scheme}
@@ -603,11 +606,11 @@ The paper attacks pattern unification. The fair comparison also includes nominal
 analysis. In the λProlog column, $X$ (and $Y$) are quantified outside the λ, as in the paper's
 queries.
 
-\begin{table}[ht]
-\centering\small
-\caption{The paper's examples under three semantics (our analysis, after \cite{MaFriedman2021}).}
+\begin{table*}[ht]
+\small
+\caption[][-20pt]{The paper's examples under three semantics (our analysis, after \cite{MaFriedman2021}).}
 \label{tab:lkanren-three}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
 \toprule
 problem & λProlog (patterns) & αKanren (nominal) & static closures\\
 \midrule
@@ -619,8 +622,9 @@ $\abs{x}{\abs{y}{x\,y}}\lkq\abs{a}{\abs{a}{a\,a}}$ & \lkno{} & \lkno{} & \lkno{}
 $\abs{a}{\abs{b}{X}}\lkq\abs{c}{\abs{d}{Y}}$ & \lkyes{} $X=Y$ (neither may depend on $a,b,c,d$) &
   $X=(a\,c)(b\,d)\cdot Y$ with $a\#Y$, $b\#Y$ & postponed\\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par
+\vspace{30pt}% room for the caption, which tufte puts below the table in the margin column
+\end{table*}
 
 \begin{tutorial}[what λProlog offers the novice instead: make the dependency explicit]
 The paper calls the failure of $\abs{a}{X}\lkq\abs{b}{b}$ counter-intuitive. Miller's 1991 paper
@@ -780,7 +784,7 @@ paper claims \enquote{about 40 lines} added to μKanren (p.\,7); the repository'
 has 648 lines.
 
 \paragraph{Terms and state.} The terms are
-$\mathit{Term}::=\mathit{Constant}\mid\mathit{Var}\mid\mathsf{App}(\mathit{rator},\mathit{rand})\mid
+$\mathit{Term}::=\mathit{Constant}\mid\mathit{Var}\mid\mathsf{App}(\mathit{rator},\allowbreak\mathit{rand})\mid
 \mathsf{Tie}(\mathit{var},\mathit{body})\mid(\mathit{Term}\,.\,\mathit{Term})$. Pairs stay a separate
 first-order constructor. The state is the list \texttt{(qs es σ name->idx)}. Here \texttt{qs} is an
 \textbf{explicit quantifier prefix} of \texttt{(∃ x)} and \texttt{(∀ x)} entries, appended at the end
@@ -848,8 +852,8 @@ is introduced after $q$.
 \emph{before}, must see it. In a shallow embedding, relation definitions live in the host language's
 lexical scope, so \texttt{pl-major} cannot see the new clause. The paper describes a
 \textbf{dynamic-scope layer}: a map \texttt{name->idx} threaded through the query, a global
-\texttt{idx->def}, and calls that go through both. (Our notes write \scm{(== q class)}; the extracted
-text has a quote, \texttt{'q}, which could not produce \texttt{B523}.) Concretely, before the query
+\texttt{idx->def}, and calls that go through both.\sidenote{Our notes write \scm{(== q class)}; the extracted
+text has a quote, \texttt{'q}, which could not produce \texttt{B523}.} Concretely, before the query
 \texttt{name->idx} is \texttt{((pl-major . 2) (taken . 1))}; \texttt{assume-rel} pushes a new index, so
 inside it the map is \texttt{((taken . 3) (pl-major . 2) (taken . 1))}, and the newer pair shadows the
 older one when \texttt{pl-major} calls \texttt{taken} (p.\,5).
@@ -989,6 +993,7 @@ a \emph{swapping}, which is always safe because it is a bijection, and require t
 already free in $t_2$.
 
 \begin{definition}[Nominal unification {\cite[p.\,9]{Urban2010}}]
+\begin{fullwidth}
 \[
   \{\langle t_1,t_2\rangle\approx^?\langle s_1,s_2\rangle,\dots\}\Rightarrow\{t_1\approx^?s_1,\ t_2\approx^?s_2,\dots\}\qquad
   \{a.t\approx^?a.s,\dots\}\Rightarrow\{t\approx^?s,\dots\}
@@ -997,6 +1002,7 @@ already free in $t_2$.
   \{a.t\approx^?b.s,\dots\}\Rightarrow\{t\approx^?(a\,b)\cdot s,\ a\#^?s,\dots\}\qquad
   \{\pi\cdot X\approx^?\pi'\cdot X,\dots\}\Rightarrow\{a\#^?X\mid a\in ds(\pi,\pi')\}\cup\{\dots\}
 \]
+\end{fullwidth}
 and $\pi\cdot X\approx^?t$, with $X$ not in $t$, gives $X:=\pi^{-1}\cdot t$. A solution is a pair
 $(\nabla,\sigma)$ with $\nabla\vdash\sigma(t_1)\approx\sigma(t_2)$. For example, $a.X\approx^?b.X$ has
 the solution $(\{a\#X,\,b\#X\},[\,])$.
@@ -1265,6 +1271,7 @@ prefixes $\forall\exists\forall\dots$ arise dynamically. The unification transit
 under binders, renaming apart), rigid-rigid, \emph{raising}, \emph{pruning}, flex-flex and flex-rigid.
 The algorithm terminates (Theorem 7.1), and when it succeeds it yields a most general unifier
 (Proposition 7.3). One of Miller's worked examples (p.\,14--15):
+\begin{fullwidth}
 \[
   Q\exists u\exists v\forall y\,[f(\abs{x}{f(u\,x\,y)})=f(\abs{w}{v\,y})]
   \xrightarrow{\text{rigid}}\abs{x}{f(u\,x\,y)}=\abs{w}{v\,y}
@@ -1274,6 +1281,7 @@ The algorithm terminates (Theorem 7.1), and when it succeeds it yields a most ge
   \xrightarrow{\text{pruning}}[u\mapsto\abs{x}{\abs{y}{u'\,y}}]
   \xrightarrow{\text{flex-rigid}}[v\mapsto\abs{y}{f(u'\,y)}].
 \]
+\end{fullwidth}
 Read the last two steps with the prefix in mind, which is now $Q\exists u\exists v\forall y\forall x$. The
 equation is flex-rigid: $v\,y$ against $f(u\,x\,y)$. The universal $x$ is quantified after $v$ and is not
 among $v$'s arguments, so $v$'s solution may not mention it. Every occurrence of $x$ sits under the
@@ -1336,7 +1344,7 @@ capture-avoiding reading, terms are \textbf{pre-cooked}:
 $F(\lambda a,n)=\lambda F(a,n+1)$, $F(a\,b,n)=F(a,n)\,F(b,n)$, $F(k,n)=1[\uparrow^{k-1}]$,
 $F(X,n)=X[\uparrow^n]$. A metavariable under $n$ binders is explicitly \emph{shifted past them}. This
 is precisely the step that makes grafting agree with substitution, and that static closures omit
-(counter-example~1). In a λσ-pattern, every $X[s]\,b_1\dots b_q$ has $s=a_1\dots a_p\cdot\uparrow^n$
+(counter-ex\-am\-ple~1). In a λσ-pattern, every $X[s]\,b_1\dots b_q$ has $s=a_1\dots a_p\cdot\uparrow^n$
 with the $a$'s and $b$'s distinct indices. Pattern substitutions are injective and have a right
 inverse, so $X[s]=b$ is solved by $X:=b[s^{-1}]$ when every index of $b$ occurs in $s$ (Prop.~8,
 inversion). Unification of λσ-patterns is decidable and unitary (Theorem~17), and \enquote{our
@@ -1441,12 +1449,15 @@ $n+1$ \dots\ and it will not be allowed to occur in instances of the variable $X
 lowering is done by pruning: the higher-level variable is bound to a fresh lower-level one.
 
 \paragraph{De Bruijn levels, not indices.} The example is $\abs{x}{(\abs{y}{\abs{z}{f\,x\,y\,z}})\,x}$:
+\begin{fullwidth}
 \begin{align*}
   \text{indices:}\quad& \lambda x.(\lambda y.\lambda z.f\,x_2\,y_1\,z_0)\,x_0\to_\beta\lambda x.\lambda z.f\,x_1\,x_1\,z_0
     && (x \text{ is renumbered}),\\
   \text{levels:}\quad& \lambda x.(\lambda y.\lambda z.f\,x_0\,y_1\,z_2)\,x_0\to_\beta\lambda x.\lambda z.f\,x_0\,x_0\,z_1
     && (x \text{ keeps its number}).
-\end{align*} Three properties follow. A variable bound in Γ keeps its name in any extension
+\end{align*}
+\end{fullwidth}
+\noindent Three properties follow. A variable bound in Γ keeps its name in any extension
 of Γ (DBL1) and in a β-reduct (DBL2), and pushing a binder into the context needs no lifting (DBL3).
 \enquote{variables already pushed in the context are treated exactly as constants, and \dots\ the two
 notions of level --- De Bruijn's and the position in the context --- coincide}. Terms are
@@ -1458,20 +1469,21 @@ Every occurrence of a unification variable $X^j$ is applied to $x_j\dots x_{j+k-
 the next $k$ context names, in order.
 \end{definition}
 
-\noindent This fragment is contained in $\Llam$ (Property 1). Head reductions of
+\noindent\begingroup\emergencystretch=1.5em This fragment is contained in $\Llam$ (Property 1). Head reductions of
 $(X^j\,x_j\dots x_{j+k-1})\sigma$ take constant time (Property 2), and so does solving
 $X^j\,x_j\dots x_{j+k-1}\equiv t$ when no occurs check is needed and the maximum level of $t$ is cached
 (Property 3). But $L^\beta_\lambda$ is \textbf{not stable under resolution} (p.\,7), so the fast path
 must fall back to general pattern unification. ELPI reports large speed-ups: typeof in 0.27\,s versus
-5.64\,s for Teyjus, reduce-cbv in 0.15\,s versus 11.11\,s.
+5.64\,s for Teyjus, reduce-cbv in 0.15\,s versus 11.11\,s.\par\endgroup
 
+\begingroup\emergencystretch=1.5em
 \paragraph{Outside the fragment,} ELPI's default is an \textbf{error}: \enquote{Unification problem
 outside the pattern fragment. \dots\ Pass -delay-problems-outside-pattern-fragment \dots\ in order to
 delay (deprecated, for Teyjus compatibility)}. Delay is offered instead through \emph{syntactic
 constraints}. \lp{declare_constraint (even X) [X]} suspends a goal on variables, and the goal is resumed
 when any of them is assigned, so \lp{declare_constraint (even X) [X], X = 1.} fails. Suspended goals keep
 their hypothetical context. The documentation's example (\texttt{ELPI.md}, \enquote{Syntactic
-constraints}):
+constraints}):\par\endgroup
 \begin{answers}
 goal> pi x\ sigma Y\ even x => declare_constraint (even Y) [Y].
 Success:
@@ -1510,13 +1522,13 @@ relation, which the depth-first interpretation cannot \cite{Miller1991}. The des
 rows summarize the analysis of \cref{sec:lkanren-mf21,sec:lkanren-assess,sec:lkanren-nominal,sec:lkanren-impl}. The table records trade-offs and does not rank the options: the choice,
 and the reasons for it, are the subject of \cref{ch:design}.
 
-\begin{table}[ht]
-\centering\footnotesize
-\caption{Design options for higher-order unification in a miniKanren. No option is
+\begin{table*}[ht]
+\footnotesize
+\caption[][-20pt]{Design options for higher-order unification in a miniKanren. No option is
 chosen here; see \cref{ch:design}.}
 \label{tab:lkanren-options}
 \renewcommand{\arraystretch}{1.25}
-\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.0cm}*{4}{>{\raggedright\arraybackslash}X}}
+\begin{tabularx}{\linewidth}{>{\raggedright\arraybackslash}p{2.0cm}*{4}{>{\raggedright\arraybackslash}X}}
 \toprule
 & \textbf{A.\ Pattern unification, de Bruijn + levels} (Miller, Nipkow, Nadathur--Linnell, ELPI)
 & \textbf{B.\ Nominal} (Urban--Pitts--Gabbay, αKanren)
@@ -1545,8 +1557,9 @@ Effort in \aux{} & medium--high: a Nipkow-size core, plus levels and a delay sto
 ch.~11 is about 300 lines; a triangular version exists & unclear & high, plus control of infinite
 branching\\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par
+\vspace{30pt}% room for the caption, which tufte puts below the table in the margin column
+\end{table*}
 
 Some combinations are possible and appear in the literature. Option D can sit on top of A as a
 separate, explicitly nondeterministic relation; the book itself presents Huet's procedure as a
@@ -1561,7 +1574,6 @@ it has a classical, extensional reading and does not implement the book's \rulen
 \rulename{augment}.
 
 % =====================================================================================================
-\clearpage
 \section{Summary}\label{sec:lkanren-summary}
 
 \begin{itemize}
@@ -1591,10 +1603,10 @@ it has a classical, extensional reading and does not implement the book's \rulen
   \item Eigenvariables in miniKanren: a fresh constant without a scope check is unsound. Hemann, Byrd
     and Friedman implement the check as an absento over the earlier variables. Disequality and
     eigen-constants conflict (Moiseenko). Jin et al.'s ∀ is extensional, not generic.
-  \item Real λProlog systems use universe indices or levels with lowering (Nadathur et al., Teyjus,
-    ELPI), pattern unification with inversion and pruning (Nipkow, Nadathur--Linnell), and delayed
+  \item\begingroup\emergencystretch=1.5em Real λProlog systems use universe indices or levels with lowering (Nadathur et al., Teyjus,
+    ELPI), pattern unification with inversion and pruning (Nipkow, Nadathur--\allowbreak Linnell), and delayed
     non-pattern equations (DHKP, Teyjus, ELPI's syntactic constraints). Teyjus adds the suspension
-    calculus; ELPI uses de Bruijn levels and the $L^\beta_\lambda$ fast path.
+    calculus; ELPI uses de Bruijn levels and the $L^\beta_\lambda$ fast path.\par\endgroup
   \item The options are pattern+levels, nominal, static closures, and Huet enumerated by the stream
     (\cref{tab:lkanren-options}). The choice is made in \cref{ch:design}.
 \end{itemize}

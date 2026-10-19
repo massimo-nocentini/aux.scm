@@ -15,7 +15,7 @@ Page references \book{n} use the printed page numbers of \cite{MillerNadathur201
 \Cref{tab:rules-syntax} maps every λProlog construct used in the document to the logical formula it denotes.
 
 {\small
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\textwidth}>{\raggedright\arraybackslash}p{0.27\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.30\fullwidthlen}>{\raggedright\arraybackslash}p{0.27\fullwidthlen}>{\raggedright\arraybackslash}p{0.36\fullwidthlen}@{}}
 \caption{λProlog syntax and logic.}\label{tab:rules-syntax}\\
 \toprule
 λProlog & logic & notes \\
@@ -45,7 +45,8 @@ Page references \book{n} use the printed page numbers of \cite{MillerNadathur201
 \end{longtable}
 }
 
-Binding strength, tightest first: application $>$ \lp{=>} $>$ \lp{&} $>$ \lp{,} $>$ \lp{;} $>$ \lp{:-} \book{35}; the scope of \lp{x\ } extends as far right as possible \book{37,97}.
+{\emergencystretch=1.5em
+Binding strength, tightest first: application $>$ \lp{=>} $>$ \lp{&} $>$ \lp{,} $>$ \lp{;} $>$ \lp{:-} \book{35}; the scope of \lp{x\ } extends as far right as possible \book{37,97}.\par}
 
 \begin{pitfall}[precedence]
 \lp{D => G1, G2} parses as \lp{(D => G1), G2}, so a hypothesis meant for a whole conjunction needs parentheses \book{35}.
@@ -56,10 +57,9 @@ Binding strength, tightest first: application $>$ \lp{=>} $>$ \lp{&} $>$ \lp{,} 
 
 The four languages share one top-level shape and differ in which connectives goals may contain and in what an atom may be (\cref{tab:rules-grammars}).
 
-\begin{center}
+\begin{table}[htbp]
 \small
-\captionof{table}{Goal formulas $G$ and program clauses $D$. $A$: atom; $A_r$: rigid atom.}\label{tab:rules-grammars}
-\begin{tabular}{@{}lll@{}}
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{0.60\textwidth}l@{}}
 \toprule
 language & grammar & source \\
 \midrule
@@ -69,11 +69,11 @@ language & grammar & source \\
       & $D ::= A \mid G\imp D \mid D\wedge D \mid \forall_\tau x\,D$ & \\[2pt]
 \hohc & as \fohc, with $A\in\mathcal H_1^\Sig$ in goals and heads $A_r\in\mathcal H_1^\Sig$ & \book{122--123} \\[2pt]
 \hohh & as \fohh, with $A\in\mathcal H_2^\Sig$ in goals and heads $A_r\in\mathcal H_2^\Sig$ & \book{124} \\[2pt]
-$\hohh^+$ & \hohh, plus atomic heads whose head is a variable bound by an & \book{125} \\
-          & \quad essentially universal quantifier that has the clause in its scope & \\
+$\hohh^+$ & \hohh, plus atomic heads whose head is a variable bound by an essentially universal quantifier that has the clause in its scope & \book{125} \\
 \bottomrule
 \end{tabular}
-\end{center}
+\caption{Goal formulas $G$ and program clauses $D$. $A$: atom; $A_r$: rigid atom.}\label{tab:rules-grammars}
+\end{table}
 
 \begin{definition}[Herbrand universes \book{122}]\label{def:rules-herbrand}
 $\mathcal H_1^\Sig$ is the set of (possibly open) λ-normal terms over $\Sig$ that contain neither $\forall$ nor $\imp$; $\mathcal H_2^\Sig$ is the set of those that do not contain $\imp$.
@@ -102,7 +102,7 @@ A goal or clause $B$ is in $\Llam$ if all quantification in $B$ is over non-pred
 A sequent $\seq{\Sig}{\Prog}{G}$ says that $G$ is provable from program $\Prog$ over signature $\Sig$; $\RLfoc{\Sig}{\Prog}{D}A$ says that $A$ is proved by backchaining on the clause $D$ \book{39,45}.
 Read bottom-up, the right rules (goal reduction) and the left rules (backchaining) are the two phases of a \emph{uniform}, i.e.\ goal-directed, proof; a logic in which such proofs are complete is an \emph{abstract logic programming language} \book{73}.
 
-\begin{center}
+\begin{figure}[htbp]
 \small
 \begin{mathpar}
 \inferrule*[right=\rulename{true}]{ }{\seq{\Sig}{\Prog}{\top}}
@@ -117,10 +117,10 @@ Read bottom-up, the right rules (goal reduction) and the left rules (backchainin
 \and
 \inferrule*[right={\rulename{generic}\ \normalfont $(c\notin\Sig)$}]{\seq{c{:}\tau,\Sig}{\Prog}{\subst{B}{c}{x}}}{\seq{\Sig}{\Prog}{\forall_\tau x\,B}}
 \end{mathpar}
-\captionof{figure}{Right rules (search semantics of the connectives) \book{39--40}. In the book they are $\top R$, $\wedge R$, $\vee R$, $\exists R$, $\imp R$, $\forall R$; $\Prog,B$ is $\Prog\cup\{B\}$.}\label{fig:rules-right}
-\end{center}
+\caption{Right rules (search semantics of the connectives) \book{39--40}. In the book they are $\top R$, $\wedge R$, $\vee R$, $\exists R$, $\imp R$, $\forall R$; $\Prog,B$ is $\Prog\cup\{B\}$.}\label{fig:rules-right}
+\end{figure}
 
-\begin{center}
+\begin{figure}[htbp]
 \small
 \begin{mathpar}
 \inferrule*[right={\rulename{decide}\ \normalfont $(D\in\Prog)$}]{\RLfoc{\Sig}{\Prog}{D}A}{\seq{\Sig}{\Prog}{A}}
@@ -137,8 +137,8 @@ Read bottom-up, the right rules (goal reduction) and the left rules (backchainin
 \\
 \text{($\theta$ maps each $x_i$ to a $\Sig$-term of type $\tau_i$, and $A=A_0\theta$)}
 \end{mathpar}
-\captionof{figure}{Backchaining (left) rules \book{45}; \rulename{backchain} is the compiled form for Prolog-shaped clauses \book{45}.}\label{fig:rules-left}
-\end{center}
+\caption{Backchaining (left) rules \book{45}; \rulename{backchain} is the compiled form for Prolog-shaped clauses \book{45}.}\label{fig:rules-left}
+\end{figure}
 
 \begin{definition}[O-proof \book{45,77}]\label{def:rules-oproof}
 A derivation built from the typing rules of terms and the rules of \cref{fig:rules-right,fig:rules-left}.
@@ -158,10 +158,9 @@ With $\langle\emptyset,D\rangle\in|\Gamma|_\Sig$ for $D\in\Gamma$, conjunctions 
 
 \paragraph{Flexible goals \book{134}.} A goal $(P\,t_1\dots t_n)$ with $P$ unbound can be (1) suspended until rigid, and if only flexible goals remain each head is bound to $\lambda x_1\dots\lambda x_n\,\top$ (complete for intuitionistic higher-order logic); (2) bound eagerly to $\lambda x_1\dots\lambda x_n\,\top$; or (3) reported as an error; (2) and (3) are incomplete, yet experience favours (3), since a flexible goal is usually a programming mistake such as a capitalised predicate name.
 
-\begin{center}
+\begin{table}[htbp]
 \small
-\captionof{table}{What O-proofs are complete for.}\label{tab:rules-completeness}
-\begin{tabular}{@{}lp{0.62\textwidth}l@{}}
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{0.62\textwidth}l@{}}
 \toprule
 language & $\seq{\Sig}{\Prog}{G}$ has an O-proof iff it is provable in & source \\
 \midrule
@@ -171,7 +170,8 @@ language & $\seq{\Sig}{\Prog}{G}$ has an O-proof iff it is provable in & source 
 \hohh & higher-order intuitionistic logic & \book{124} \\
 \bottomrule
 \end{tabular}
-\end{center}
+\caption{What O-proofs are complete for.}\label{tab:rules-completeness}
+\end{table}
 
 \begin{proposition}[flatness of \fohc\ \book{46}]\label{prop:rules-flat}
 Every sequent in an O-proof of an \fohc\ sequent $\seq{\Sig}{\Prog}{G}$ has the form $\seq{\Sig}{\Prog}{G'}$ or $\RLfoc{\Sig}{\Prog}{D}A$: signature and program never change.
@@ -187,7 +187,7 @@ Two differences matter: \scm{or°} interleaves its branches instead of following
 
 The typing judgement $\Sig;\Gamma\Vdash t:\tau$ assigns types to λ-terms; quantifiers need no rule of their own because they are constants applied to abstractions \book{98--99}.
 
-\begin{center}
+\begin{figure}[htbp]
 \small
 \begin{mathpar}
 \inferrule*[right={$(\tau\triangleleft\sigma)$}]{c:\sigma\in\Sig}{\Sig;\Gamma\Vdash c:\tau}
@@ -200,8 +200,8 @@ The typing judgement $\Sig;\Gamma\Vdash t:\tau$ assigns types to λ-terms; quant
 \and
 \inferrule*[right=$(\ddagger)$]{\Sig;\Gamma\Vdash B:\tau}{\Sig;\Gamma\Vdash C:\tau}
 \end{mathpar}
-\captionof{figure}{Typing rules \book{98}. $\tau\triangleleft\sigma$: $\tau$ is an instance of $\sigma$; ($\dagger$) $x$ not declared in $\Sig$ or $\Gamma$; ($\ddagger$) $B$ and $C$ differ only in bound-variable names.}\label{fig:rules-typing}
-\end{center}
+\caption{Typing rules \book{98}. $\tau\triangleleft\sigma$: $\tau$ is an instance of $\sigma$; ($\dagger$) $x$ not declared in $\Sig$ or $\Gamma$; ($\ddagger$) $B$ and $C$ differ only in bound-variable names.}\label{fig:rules-typing}
+\end{figure}
 
 \begin{definition}[order of a type \book{13}]\label{def:rules-order}
 $\mathrm{ord}(\tau)=0$ if $\tau$ is non-functional; $\mathrm{ord}(\tau_1\to\tau_2)=\max(\mathrm{ord}(\tau_1)+1,\mathrm{ord}(\tau_2))$.
@@ -217,10 +217,9 @@ $t$ is \emph{free for} $x$ in $s$ if no free occurrence of $x$ in $s$ is in the 
 $\subst{s}{t}{x}$ replaces the free occurrences of $x$ in $s$ by $t$, after α-renaming $s$ so that $t$ is free for $x$ (capture-avoiding substitution) \book{101}.
 \end{definition}
 
-\begin{center}
+\begin{table}[htbp]
 \small
-\captionof{table}{Rewrite rules on subterms \book{100--101}.}\label{tab:rules-conv}
-\begin{tabular}{@{}lll@{}}
+\begin{tabular}{@{}l>{\raggedright\arraybackslash}p{0.34\textwidth}>{\raggedright\arraybackslash}p{0.39\textwidth}@{}}
 \toprule
 rule & redex $\Rightarrow$ contractum & proviso \\
 \midrule
@@ -230,7 +229,8 @@ rule & redex $\Rightarrow$ contractum & proviso \\
 $\beta_0$ \book{206} & $(\abs{x}{s})\,x \Rightarrow s$; up to α: $(\abs{y}{s})\,x\Rightarrow\subst{s}{x}{y}$ & (second form) $x$ not free in $\abs{y}{s}$ \\
 \bottomrule
 \end{tabular}
-\end{center}
+\caption{Rewrite rules on subterms \book{100--101}.}\label{tab:rules-conv}
+\end{table}
 
 \begin{definition}[closures \book{100--101}]\label{def:rules-closures}
 α-conversion: reflexive, symmetric, transitive closure of α-rewriting.
@@ -265,11 +265,11 @@ A β-normal term $\lambda\bar x\,(h\,\bar t)$ in a unification problem is \emph{
 Higher-order unification problems carry a mixed quantifier prefix, which raising normalises to $\forall\exists\forall$ \book{105--108,212}.
 
 \begin{definition}[unification problem \book{105,211}]\label{def:rules-problem}
-A formula $Q_1x_1\dots Q_nx_n\,[t_1=s_1\wedge\dots\wedge t_m=s_m]$ with $Q_i\in\{\forall,\exists\}$ and $t_j,s_j$ λ-terms of the same type; the quantifiers form the \emph{prefix}, the conjunction the \emph{matrix}.
+A formula $Q_1x_1\dots\allowbreak Q_nx_n\,\allowbreak[t_1=s_1\wedge\dots\wedge t_m=s_m]$ with $Q_i\in\{\forall,\exists\}$ and $t_j,s_j$ λ-terms of the same type; the quantifiers form the \emph{prefix}, the conjunction the \emph{matrix}.
 \end{definition}
 
 \begin{definition}[unifier, solution \book{109}]\label{def:rules-solution}
-For $\forall u_1\dots\forall u_p\,\exists x_1\dots\exists x_n\,\forall w_1\dots\forall w_q\,[t_1=s_1\wedge\dots\wedge t_m=s_m]$, a substitution $\theta$ for $x_1,\dots,x_n$ is \emph{legitimate} if no $w_j$ is free in its range; a \emph{unifier} is a legitimate $\theta$ with $\theta(t_j)\eqb\theta(s_j)$ for all $j$; a \emph{solution} is a unifier whose range has free variables only among $u_1,\dots,u_p$.
+For $\forall u_1\dots\forall u_p\,\allowbreak\exists x_1\dots\exists x_n\,\allowbreak\forall w_1\dots\forall w_q\,\allowbreak[t_1=s_1\wedge\dots\wedge t_m=s_m]$, a substitution $\theta$ for $x_1,\dots,x_n$ is \emph{legitimate} if no $w_j$ is free in its range; a \emph{unifier} is a legitimate $\theta$ with $\theta(t_j)\eqb\theta(s_j)$ for all $j$; a \emph{solution} is a unifier whose range has free variables only among $u_1,\dots,u_p$.
 Only a solution guarantees provability, since types are not assumed inhabited \book{109--110}.
 \end{definition}
 
@@ -281,16 +281,18 @@ With $g:i\to i\to i$, $\forall a\,\exists F\,[(F\,a)=(g\,a\,a)]$ has the four un
 With $x:\tau$, $y:\sigma$ and $h:\sigma\to\tau$: $\forall y\,\exists x\,G$ is provable iff $\exists h\,\forall y\,\subst{G}{(h\,y)}{x}$ is provable.
 \end{proposition}
 As a rewrite on prefixes, for a block of universals:
+\begin{fullwidth}
 \[
 \forall y_1{:}\sigma_1\dots\forall y_k{:}\sigma_k\;\exists x{:}\tau\;G \;\rightsquigarrow\; \exists h{:}\sigma_1\to\dots\to\sigma_k\to\tau\;\forall y_1\dots\forall y_k\;\subst{G}{(h\,y_1\dots y_k)}{x}.
 \]
+\end{fullwidth}
 Repeated raising turns any prefix into $\forall\exists\forall$ or even $\exists\forall$ form \book{108}, and it preserves $\Llam$ \book{208}.
 Miller's transition form \cite[p.\,14--16]{Miller1991}: if $\exists v$ is to the left of $\exists u$ with universals $\bar w$ in between, replace $u$ by $(u'\,\bar w)$ and move $\exists u'$ next to $\exists v$.
 
-\paragraph{Skolemization \book{108}.} An assumption $\forall x\,\exists y\,D$ becomes $\forall x\,\subst{D}{(f\,x)}{y}$ with $f:\sigma\to\tau$ a new constant; dually a goal $\exists x\,\forall y\,G$ becomes $\forall f\,\exists x\,\subst{G}{(f\,x)}{y}$.
+\paragraph{Skolemization \book{108}.} An assumption $\forall x\,\allowbreak\exists y\,D$ becomes $\forall x\,\allowbreak\subst{D}{(f\,x)}{y}$ with $f:\sigma\to\tau$ a new constant; dually a goal $\exists x\,\allowbreak\forall y\,G$ becomes $\forall f\,\allowbreak\exists x\,\allowbreak\subst{G}{(f\,x)}{y}$.
 Skolemization moves an $\exists$ inwards and introduces a constant of raised type; raising moves a $\forall$ inwards and introduces an existential variable of raised type; relating unifiers of Skolemized problems to the original ones is problematic for higher-order variables, whereas raising is an exact equivalence \book{107--108}.
 
-\paragraph{Normal form of problems \book{212}.} Before solving, (1) the prefix is raised to $\forall\bar a\,\exists\bar X\,\forall\bar y$, with $\forall\bar a$ the signature; (2) $\theta(t)$ is defined as $((\lambda x_1\dots\lambda x_n\,t)\,t_1\dots t_n)$ for $\theta=\{\langle x_i,t_i\rangle\}$, so terms may be taken β-normal; (3) η-expansion makes the two sides of each equation have binders of the same length; (4) by $(\abs{x}{t}=\abs{x}{s})\equiv\forall x\,(t=s)$ the binders are moved into the inner $\forall$ block:
+\paragraph{Normal form of problems \book{212}.} Before solving, (1) the prefix is raised to $\forall\bar a\,\exists\bar X\,\forall\bar y$, with $\forall\bar a$ the signature; (2) $\theta(t)$ is defined as $((\lambda x_1\dots\lambda x_n\,t)\,\allowbreak t_1\dots t_n)$ for $\theta=\{\langle x_i,t_i\rangle\}$, so terms may be taken β-normal; (3) η-expansion makes the two sides of each equation have binders of the same length; (4) by $(\abs{x}{t}=\abs{x}{s})\equiv\forall x\,(t=s)$ the binders are moved into the inner $\forall$ block:
 \begin{mathpar}
 \inferrule*[right=\rulename{abs}]{\RLst{\mathcal Q}{\{\abs{x}{s}=\abs{x}{t}\}\uplus E}}{\RLst{\mathcal Q\,\forall x}{\{s=t\}\uplus E}}
 \and
@@ -303,7 +305,7 @@ Here and below a rule is read downwards as one transformation step, $\uplus$ is 
 
 Term reduction, reorientation and variable elimination with occurs check; higher-order pattern unification has the same two critical parts, simplification and variable elimination \book{224}.
 
-\begin{center}
+\begin{figure}[htbp]
 \small
 \begin{mathpar}
 \inferrule*[right=\rulename{decompose}]{E\uplus\{f\,t_1\dots t_n=f\,s_1\dots s_n\}}{E\uplus\{t_1=s_1,\dots,t_n=s_n\}}
@@ -318,8 +320,8 @@ Term reduction, reorientation and variable elimination with occurs check; higher
 \and
 \inferrule*[right={\rulename{eliminate}\ \normalfont ($x\notin\mathrm{fv}(t)$, $x\in\mathrm{fv}(E)$)}]{E\uplus\{x=t\}}{\subst{E}{t}{x}\uplus\{x=t\}}
 \end{mathpar}
-\captionof{figure}{Term reduction, reorientation and variable elimination \book{28}; the occurs check is mandatory \book{32}.}\label{fig:rules-fo}
-\end{center}
+\caption{Term reduction, reorientation and variable elimination \book{28}; the occurs check is mandatory \book{32}.}\label{fig:rules-fo}
+\end{figure}
 
 \begin{theorem}[\book{28--29}]\label{thm:rules-fo}
 Every sequence of steps (never eliminating twice on the same unchanged equation) terminates in $\bot$ or in a \emph{solved form} (each left side a variable occurring nowhere else), which is a most general unifier, unique up to renaming.
@@ -330,7 +332,7 @@ Every sequence of steps (never eliminating twice on the same unchanged equation)
 
 On a normalised problem (\cref{sec:rules-raising}) Huet's procedure simplifies rigid-rigid equations and guesses the head of a flexible term facing a rigid one \book{214--216}.
 
-\begin{center}
+\begin{figure*}[htbp]
 \small
 \begin{mathpar}
 \inferrule*[right={\rulename{simp}\ \normalfont ($c$ universal)}]{\RLst{\mathcal Q}{\{c\,s_1\dots s_n=c\,t_1\dots t_n\}\uplus E}}{\RLst{\mathcal Q}{\{s_1=t_1,\dots,s_n=t_n\}\uplus E}}
@@ -347,24 +349,24 @@ On a normalised problem (\cref{sec:rules-raising}) Huet's procedure simplifies r
 \\
 \theta=\{\langle F,\ \lambda x_1\dots\lambda x_n\,(x_i\,(H_1\,x_1\dots x_n)\cdots(H_k\,x_1\dots x_n))\rangle\},\quad \tau_i=\varphi_1\to\dots\to\varphi_k\to\beta,\quad H_j:\tau_1\to\dots\to\tau_n\to\varphi_j
 \end{mathpar}
-\captionof{figure}{Huet's transformation rules \book{214--216}, with $F:\tau_1\to\dots\to\tau_n\to\beta$, $c:\sigma_1\to\dots\to\sigma_m\to\beta$, $\beta$ primitive. \rulename{imitate} needs $F$ in the scope of $c$; \rulename{project}$_i$ needs the target of $\tau_i$ to be $\beta$; so at most $n+1$ choices exist per equation \book{216}. The rewriting format is ours, in the style of the transformation-based presentation of Huet's procedure \cite{Huet1975} mentioned on \book{227}; side conditions and substitution terms are the book's.}\label{fig:rules-huet}
-\end{center}
+\caption{Huet's transformation rules \book{214--216}, with $F:\tau_1\to\dots\to\tau_n\to\beta$, $c:\sigma_1\to\dots\to\sigma_m\to\beta$, $\beta$ primitive. \rulename{imitate} needs $F$ in the scope of $c$; \rulename{project}$_i$ needs the target of $\tau_i$ to be $\beta$; so at most $n+1$ choices exist per equation \book{216}. The rewriting format is ours, in the style of the transformation-based presentation of Huet's procedure \cite{Huet1975} mentioned on \book{227}; side conditions and substitution terms are the book's.}\label{fig:rules-huet}
+\end{figure*}
 
-\begin{definition}[pre-unification; canonical substitution \book{217--218}]\label{def:rules-preunif}
+\begin{definition}[pre-unification; canonical substitution \book{217--218}]\label{def:rules-preunif}\emergencystretch=1.5em
 Reducing a problem to one with only flexible-flexible equations is \emph{pre-unification}, and the composed substitution is a \emph{pre-unifier}.
-The \emph{canonical substitution} maps each existential of type $\tau_1\to\dots\to\tau_n\to\sigma$ ($\sigma$ primitive) to $\lambda x_1\dots\lambda x_n\,H^\sigma$, with one fixed new existential $H^\sigma$ per primitive type; on a flexible-flexible problem it is a unifier.
+The \emph{canonical substitution} maps each existential of type $\tau_1\to\dots\to\tau_n\to\sigma$ ($\sigma$ primitive) to $\lambda x_1\dots\allowbreak\lambda x_n\,H^\sigma$, with one fixed new existential $H^\sigma$ per primitive type; on a flexible-flexible problem it is a unifier.
 \end{definition}
 
-\begin{theorem}[matching trees \book{219--220}]\label{thm:rules-matching}
-In the matching tree (nodes: simplified matrices; arcs: imitation/projection substitutions for one selected flexible-rigid equation; leaves: failure, or success when only flexible-flexible equations remain), if the root problem has a unifier then a success node exists at finite depth, and that unifier is the composed pre-unifier followed by a unifier of the success node, whichever equation is selected at each node.
+\begin{theorem}[matching trees \book{219--220}]\label{thm:rules-matching}\emergencystretch=1.5em
+In the matching tree (nodes: simplified matrices; arcs: imitation\slash projection substitutions for one selected flexible-rigid equation; leaves: failure, or success when only flexible-flexible equations remain), if the root problem has a unifier then a success node exists at finite depth, and that unifier is the composed pre-unifier followed by a unifier of the success node, whichever equation is selected at each node.
 Since unifiability is undecidable, some trees have an infinite path and no success node \book{220}.
 As a test for unifiability the procedure is nonredundant \book{227}; mgus may not exist, complete sets of unifiers may be infinite, and searching for them must be redundant \book{213,226}.
 \end{theorem}
 
 \begin{example}[a matching tree \book{216--219}]\label{ex:rules-huet}
-For $\forall a\,\forall g\,\exists F\,[(F\,a)=(g\,a\,a)]$, \rulename{project}$_1$ ($F:=\abs{x}{x}$) gives $a=(g\,a\,a)$, a \rulename{clash}; \rulename{imitate} ($F:=\abs{x}{g\,(H_1\,x)\,(H_2\,x)}$) and \rulename{simp} give $\{(H_1\,a)=a,\ (H_2\,a)=a\}$, and each equation again has an imitation ($\abs{x}{a}$) and a projection ($\abs{x}{x}$), both succeeding.
+For $\forall a\,\forall g\,\exists F\,\allowbreak[(F\,a)=(g\,a\,a)]$, \rulename{project}$_1$ ($F:=\abs{x}{x}$) gives $a=(g\,a\,a)$, a \rulename{clash}; \rulename{imitate} ($F:=\abs{x}{g\,(H_1\,x)\,(H_2\,x)}$) and \rulename{simp} give $\{(H_1\,a)=a,\ (H_2\,a)=a\}$, and each equation again has an imitation ($\abs{x}{a}$) and a projection ($\abs{x}{x}$), both succeeding.
 The four leaves compose to the four unifiers of \cref{ex:rules-prefix}.
-In $\forall g\,\exists F\,\forall x\,[(F\,(g\,x))=(g\,(F\,x))]$, imitation reproduces the same problem for a new $H$, so the tree has an infinite path, alongside the unifiers $\abs{x}{x}$, $\abs{x}{g\,x}$, $\abs{x}{g\,(g\,x)}$, \dots\ \book{218}.
+In $\forall g\,\exists F\,\forall x\,\allowbreak[(F\,(g\,x))=(g\,(F\,x))]$, imitation reproduces the same problem for a new $H$, so the tree has an infinite path, alongside the unifiers $\abs{x}{x}$, $\abs{x}{g\,x}$, $\abs{x}{g\,(g\,x)}$, \dots\ \book{218}.
 \end{example}
 
 % =====================================================================================
@@ -381,8 +383,8 @@ On $\Llam$ problems the rules of \cref{fig:rules-pattern} without \rulename{dela
 Types are never consulted to build the unifier \book{224}; the untyped variant fails rigid-rigid equations of different arities \cite[§\,9.3]{Miller1991}.
 \end{theorem}
 
-\begin{figure}[tbp]
-\centering\small
+\begin{figure*}[tbp]
+\small
 \begin{mathpar}
 \inferrule*[right=\rulename{abs}]{\RLst{\mathcal Q}{\{\abs{x}{s}=\abs{x}{t}\}\uplus E}}{\RLst{\mathcal Q\,\forall x}{\{s=t\}\uplus E}}
 \and
@@ -419,16 +421,16 @@ t'=\rho(t);\ F\notin\mathrm{fv}(t');\ \text{every universal of } t' \text{ in th
 \text{(a flexible side of $s=t$ is not a pattern; the equation is resumed when substitutions change its status)}
 \end{mathpar}
 \caption{Pattern unification on $\forall\exists\forall$ problems \book{212,214,221--223}; \rulename{delay} is the dynamic-$\Llam$ extension \book{225--226}. $\mathcal Q\,\exists H$ means a new existential in the $\exists$ block; the bindings $\theta$ (and $\rho$) are composed into the answer substitution. Rule names are ours.}\label{fig:rules-pattern}
-\end{figure}
+\end{figure*}
 
 
-\begin{example}[\rulename{elim}, \rulename{occurs}, \rulename{scope} \book{223--224}]\label{ex:rules-elim}
-In $\forall f\,\forall g\,\exists U\,\exists V\,\forall w\,\forall x\,\forall y\,[(f\,(U\,x\,y))=(f\,(g\,(V\,y\,w)))]$, \rulename{rr-dec} leaves $(U\,x\,y)=(g\,(V\,y\,w))$; \rulename{elim} prunes $V:=\abs{y}{\abs{w}{V'\,y}}$ (since $w\notin\{x,y\}$) and binds $U:=\abs{x}{\abs{y}{g\,(V'\,y)}}$, a most general unifier.
+\begin{example}[\rulename{elim}, \rulename{occurs}, \rulename{scope} \book{223--224}]\label{ex:rules-elim}\emergencystretch=1.5em
+In $\forall f\,\allowbreak\forall g\,\allowbreak\exists U\,\allowbreak\exists V\,\allowbreak\forall w\,\allowbreak\forall x\,\allowbreak\forall y\,\allowbreak[(f\,(U\,x\,y))=(f\,(g\,(V\,y\,w)))]$, \rulename{rr-dec} leaves $(U\,x\,y)=(g\,(V\,y\,w))$; \rulename{elim} prunes $V:=\abs{y}{\abs{w}{V'\,y}}$ (since $w\notin\{x,y\}$) and binds $U:=\abs{x}{\abs{y}{g\,(V'\,y)}}$, a most general unifier.
 With right side $(g\,(U\,y\,w))$ instead, \rulename{occurs} fails; with $(g\,w)$, \rulename{scope} fails, because $w$ is not among the arguments of $U$ and is not inside a flexible subterm.
 \end{example}
 
 \begin{example}[\rulename{elim} with pruning \book{224--225}]
-In $\forall f\,\exists U\,\forall x\,\forall y\,\forall z\,\exists V\,[(U\,x)=(f\,V)]$, raising $V$ over $x,y,z$ gives $(U\,x)=(f\,(V'\,x\,y\,z))$; \rulename{elim} prunes $V':=\lambda x\lambda y\lambda z\,(W\,x)$ and binds $U:=\lambda x\,(f\,(W\,x))$.
+In $\forall f\,\exists U\,\allowbreak\forall x\,\forall y\,\forall z\,\allowbreak\exists V\,\allowbreak[(U\,x)=(f\,V)]$, raising $V$ over $x,y,z$ gives $(U\,x)=(f\,(V'\,x\,y\,z))$; \rulename{elim} prunes $V':=\lambda x\lambda y\lambda z\,(W\,x)$ and binds $U:=\lambda x\,(f\,(W\,x))$.
 \end{example}
 
 \paragraph{Implementations of the same rules.}
@@ -439,7 +441,7 @@ Nipkow's functional version works on de~Bruijn terms with a $\forall\exists\fora
 
 Tagging every eigenvariable and logic variable with a number replaces the explicit prefix: the tag records which constants a variable may see \cite[p.\,15--18]{NadathurJayaramanKwon1995}.
 
-\begin{center}
+\begin{figure}[htbp]
 \small
 \begin{mathpar}
 \inferrule*[right=(1)]{\langle G_1\wedge G_2,\Prog,I\rangle}{\langle G_1,\Prog,I\rangle,\ \langle G_2,\Prog,I\rangle}
@@ -456,8 +458,8 @@ Tagging every eigenvariable and logic variable with a number replaces the explic
 \and
 \inferrule*[right={(7)\ \normalfont (instance $A'$)}]{\langle A,\Prog,I\rangle}{\text{solved}}
 \end{mathpar}
-\captionof{figure}{The abstract interpreter on decorated goals $\langle G,\Prog,I\rangle$ \cite[p.\,17--18]{NadathurJayaramanKwon1995}. In (6) and (7) the clause instance is a new tagged instance relative to $I$ of a clause of $\Prog$, and $\sigma=\mathrm{mgu}(A,A')$ is applied to all remaining goals. A new tagged instance relative to $I$ gives tag 1 to untagged constants and a new variable of tag $I$ to each $\forall x$ of the clause; the original goal starts at $I=1$ with its constants and free variables tagged 1.}\label{fig:rules-ui}
-\end{center}
+\caption{The abstract interpreter on decorated goals $\langle G,\Prog,I\rangle$ \cite[p.\,17--18]{NadathurJayaramanKwon1995}. In (6) and (7) the clause instance is a new tagged instance relative to $I$ of a clause of $\Prog$, and $\sigma=\mathrm{mgu}(A,A')$ is applied to all remaining goals. A new tagged instance relative to $I$ gives tag 1 to untagged constants and a new variable of tag $I$ to each $\forall x$ of the clause; the original goal starts at $I=1$ with its constants and free variables tagged 1.}\label{fig:rules-ui}
+\end{figure}
 
 \begin{definition}[{binding condition and lowering \cite[p.\,16]{NadathurJayaramanKwon1995}}]\label{def:rules-binding}
 A logic variable $X$ of tag $i$ may be bound to $t$ only if (a) $X$ does not occur in $t$ (occurs check) and (b) no constant in $t$ has a tag greater than $i$.
@@ -476,8 +478,7 @@ With the program $\forall z\,(q(z)\imp p(d(z)))$, the goal $\exists x\,\forall y
 \paragraph{Levels for higher-order patterns \cite[p.\,8--9]{NadathurLinnell2005}.}
 Let $l(y)$ count the times an $\exists$ is immediately followed by a $\forall$ in the prefix up to and including the quantifier of $y$; then a universal $u$ is in the scope of an existential $x$ iff $l(x)<l(u)$, which makes the pattern test of \cref{def:rules-pattern} local.
 Raising of $g$ is restricted to $\bar y{\Uparrow}g=\{u\in\bar y\mid l(u)\le l(g)\}$.
-New existentials created by imitation, projection, pruning or flexible-flexible steps are quantified \enquote{at the same place} as the variable they replace \book{221--222,225}, i.e.\ they take its level, not a new one.
-The book describes the same device as lists of universals \enquote{over which it can be raised}, initial segments of the prefix, represented by numerical indices \book{225}.
+New existentials created by imitation, projection, pruning or flexible-flexible steps are quantified \enquote{at the same place} as the variable they replace \book{221--222,225}, i.e.\ they take its level, not a new one.\sidenote{The book describes the same device as lists of universals \enquote{over which it can be raised}, initial segments of the prefix, represented by numerical indices \book{225}.}
 
 \begin{remark}[higher-order binding condition; reconstruction in our notes, not in the book]\label{rem:rules-holevel}
 In \rulename{elim} for $X\,\bar c=t$ the tag test (b) applies to universals in rigid positions of $t$ not among $\bar c$ (\rulename{scope} in \cref{fig:rules-pattern}); inside the arguments of a flexible $(Y\,\bar d)$ such universals are pruned instead; and lowering a $Y$ of higher level binds $Y$ to $(Y'\,\bar a)$ with $Y'$ at the level of $X$, which is delayed raising \book{225}.

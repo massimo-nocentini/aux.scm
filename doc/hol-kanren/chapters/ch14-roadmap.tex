@@ -27,17 +27,18 @@ the two copies of micro's suites, \texttt{micro-tests/} and \texttt{micro-tests-
 examples, the benchmarks, and the scripts \texttt{build.sh} and \texttt{run-tests.sh}. After
 the merge it moves to \texttt{src/aux.kanren.lambda.scm} and \texttt{src/test/microkanren-lambda*.scm}.
 The snippets import \scm{(aux base)}, \scm{(aux stream)}, \micro, \scm{(aux kanren micro show)} and
-\scm{(aux kanren lambda)}.
-
-Page numbers \enquote{p.N} in the prototype's comments are PDF pages (see \cref{sec:intro-conventions}).
+\scm{(aux kanren lambda)}.%
+\marginnote{Page numbers \enquote{p.N} in the prototype's comments are PDF pages (see \cref{sec:intro-conventions}).}
 
 
 % ------------------------------------------------------------------------------------------------
+\pagebreak
 \section{How the proposal is tested}\label{sec:roadmap-testing}
 
 \subsection{Three layers of tests}\label{sec:roadmap-layers}
 
 The tests come in three layers, each with its own job.
+{\emergencystretch=3em
 \begin{description}
   \item[Acceptance (A1--A9).] The acceptance criteria that the three prototypes shared, these cases say what the module must
     do: the scope of \texttt{∀}, hypothetical clauses, type inference, object-level substitution, $\Llam$
@@ -53,10 +54,12 @@ The tests come in three layers, each with its own job.
     (aux kanren lambda), each pinned so that a change of behaviour is noticed.} When one of these cases
     fails, a limitation has changed, perhaps for the better, and the documentation must change with it.
 \end{description}
+}
 
-\begin{table}[h]
-\centering\small
-\caption{The two suites of the module, group by group.}\label{tab:roadmap-suites}
+\begin{table*}[h]
+\small
+% the margin caption below a full-width table is smashed: reserve its height under the table and lower it there
+\caption[][-14pt]{The two suites of the module, group by group.}\label{tab:roadmap-suites}
 \begin{tabular}{@{}llrr@{}}
 \toprule
 group & subject & cases & assertions \\
@@ -77,8 +80,8 @@ R3 & the third review round & 9 & 53 \\
    & \texttt{microkanren-lambda.scm} & 83 & 320 \\
    & \texttt{microkanren-lambda-limits.scm} & 6 & 13 \\
 \bottomrule
-\end{tabular}
-\end{table}
+\end{tabular}\par\vspace{30pt}
+\end{table*}
 
 \subsection{How a case is written}\label{sec:roadmap-case}
 
@@ -139,7 +142,7 @@ module with \texttt{csc -O2 -d1 -s -J} into a private repository, \texttt{repo/}
 shadows the installed micro. The script \texttt{run-tests.sh} then runs the two suites of the module,
 the six suites of micro twice (from \texttt{micro-tests/} and \texttt{micro-tests-with-lambda/}), and the
 curated examples, with the private repository first on the search path:
-\begin{Verbatim}
+\begin{Verbatim}[xrightmargin=-\overhang]
 cd doc/hol-kanren/prototype
 sh build.sh
 sh run-tests.sh
@@ -189,7 +192,7 @@ does not have. Some departures follow from that: they are the price of the host.
 could be revisited. \Cref{tab:roadmap-limits} lists all nine, with the case that pins each. The
 subsections take them in order.
 
-\begin{longtable}{@{}r>{\raggedright\arraybackslash}p{0.52\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}@{}}
+\begin{longtable}{@{}r>{\raggedright\arraybackslash}p{0.54\fullwidthlen}>{\raggedright\arraybackslash}p{0.37\fullwidthlen}@{}}
 \caption{The limitations, each pinned by a case.}\label{tab:roadmap-limits}\\
 \toprule
 & limitation & pinned by \\
@@ -285,12 +288,13 @@ it is empty. Roadmap item (d) would add an optional Huet search over E (\cref{se
 
 \subsection{Answer order is micro's interleaving}\label{sec:roadmap-lim-order}
 
+{\emergencystretch=3em
 λProlog searches depth-first, left to right; micro interleaves the branches of a disjunction. Where the
 book lists answers, the two orders often agree: augmentation order \book{78}, the existential
 generalisations \book{203}, the palindromes \book{142}, reverse, the course database (whose extra,
 duplicate proofs come in the interleaving's order), and the CPS term
 \book{257}. They differ on \lp{prenex}, whose five answers \book{196--197} come out as the book's first,
-third, second, fourth and fifth:
+third, second, fourth and fifth:\par}
 \begin{answers}
 ((all (ƛ (x) (all (ƛ (x1) (and (q x x) (q x x1))))))
  (all (ƛ (x) (all (ƛ (x1) (and (q x1 x1) (q x x1))))))
@@ -314,11 +318,13 @@ decides the order. Where it compares a sequence against the book, the book's ord
 λProlog has no disequality, no \emph{absento} and no type constraints. micro has all three, so the
 module had to decide what they mean when an eigenvariable is involved. For \scm{≠°} there are two
 defensible readings of $\forall x.\ q\ne x$.
+{\emergencystretch=3em
 \begin{definition}[two readings of an eigenvariable under $\ne$]\label{def:roadmap-readings}
 Under the \emph{generic} reading, an eigenvariable is the new constant $c\notin\Sig$ introduced by
 \rulename{generic} (\cref{fig:rules-right}), distinct from every term the older variables can denote. Under the \emph{extensional} reading, an eigenvariable stands for an
 arbitrary term of its universe~\cite{Moiseenko2019,JinEtAl2021}.
 \end{definition}
+}
 The generic reading is the default: it matches λProlog, where \lp{pi x\ not (q = x)} succeeds, and it
 behaves like αKanren's noms~\cite{ByrdFriedman2007}. The extensional reading is chosen by the parameter
 \scm{μkanren-λ-reading}:
@@ -501,9 +507,9 @@ the proposal walked every new binding through the substitution, and \texttt{appe
 long ground tails at every step. That walk is the factor of 1.65 to 1.76 in the middle column below. The last row is a control: its constraint goes to T,
 which this walk never concerned.
 \begin{table}[h]
-\centering\small
+\small
 \caption{One unrelated constraint before the search (\texttt{t} is not used by \texttt{append°}).}\label{tab:roadmap-perf-DA}
-\begin{tabular}{@{}lrrr@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{30mm}rrr@{}}
 \toprule
 \texttt{append°} backwards, 2000 answers, search (ms) & after & ext, before the fix & ext, now \\
 \midrule
@@ -525,9 +531,9 @@ The second review round measured first-order search that runs after some \texttt
 In \cref{tab:roadmap-perf-forall}, \texttt{pre} is \scm{(∀° (z) ✓°)}, which binds nothing and exits at
 once, and \texttt{typeof°} is one type inference of $\abs{x}{x}$ run before the search.
 \begin{table}[h]
-\centering\small
+\small
 \caption{First-order search after a \texttt{∀°} has run. A second run gave 680 / 1125 / 1154 and 1354 / 3055 ms; a third, after the third review's fixes, 663 / 1101 / 1090 and 1310 / 2918 ms.}\label{tab:roadmap-perf-forall}
-\begin{tabular}{@{}lrrr@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{30mm}rrr@{}}
 \toprule
 benchmark (ms) & no \texttt{∀°} before & \texttt{pre} before & \texttt{typeof°} before \\
 \midrule
@@ -614,9 +620,10 @@ The fixes of the review rounds cost nothing measurable here. After the second ro
 The proposal is three independent pieces of different risk. They should enter the repository in three
 stages, each reviewed and tested on its own.
 
-\begin{table}[h]
-\centering\small
-\caption{Which file goes where.}\label{tab:roadmap-files}
+\begin{table*}[h]
+\small
+% the margin caption below a full-width table is smashed: reserve its height under the table and lower it there
+\caption[][-14pt]{Which file goes where.}\label{tab:roadmap-files}
 \begin{tabular}{@{}lll@{}}
 \toprule
 stage & from \texttt{doc/hol-kanren/prototype/} & to \\
@@ -628,8 +635,8 @@ stage & from \texttt{doc/hol-kanren/prototype/} & to \\
   & one \texttt{extension} line & \texttt{src/aux.egg} \\
 3 & \texttt{show.diff} (+42/−12) & \texttt{src/aux.kanren.micro.show.scm} \\
 \bottomrule
-\end{tabular}
-\end{table}
+\end{tabular}\par\vspace{20pt}
+\end{table*}
 
 \subsection{Stage 1: the protocol}\label{sec:roadmap-stage1}
 
@@ -639,20 +646,22 @@ Both diffs were checked with \texttt{patch --dry-run} against the current \textt
 and, once the egg is rebuilt and installed, running micro's suites (without installing anything, the
 private repository of \texttt{build.sh} and \texttt{run-tests.sh}, \cref{sec:roadmap-run}, gives the
 same run):
-\begin{Verbatim}
+\begin{Verbatim}[xrightmargin=-\overhang]
 cd src
 patch aux.kanren.micro.scm < ../doc/hol-kanren/prototype/micro.diff
 make test-microkanren test-microkanren-show test-microkanren-arith test-microkanren-date
 \end{Verbatim}
+{\emergencystretch=3em
 These four targets run 112 cases. The aggregation and untagged suites have no target of their own: the
 \texttt{test} target runs them with the other four (\texttt{src/Makefile}, lines 46--51), or they run alone
 with \texttt{cd test \&\& csi -s microkanren-aggregation.scm}, and likewise for
 \texttt{microkanren-untagged.scm}. The expected result is \cref{sec:roadmap-run}'s: 125 cases, unchanged answers. The benchmark's
 \emph{after} column (\cref{tab:roadmap-perf-protocol}) is the performance criterion. The diff already
 documents each hook in micro's comments; the merge should add to them a short section on the protocol as
-a whole.
+a whole.\par}
 
 What to review, in this order:
+{\emergencystretch=3em
 \begin{enumerate}
   \item \emph{The state.} A seventh field \texttt{X}, the extensions' slot, which micro never reads. It
     is copied at micro's two positional constructions (\scm{μkanren-state-update} and \scm{freshª}),
@@ -675,23 +684,25 @@ What to review, in this order:
     decides it by unification and watches it while pending. This is a bug fix of micro, independent of λ,
     and deserves its own look.
 \end{enumerate}
+}
 
 \subsection{Stage 2: the module and its suites}\label{sec:roadmap-stage2}
 
 Besides \texttt{srfi-1} and CHICKEN's own modules, the module imports \scm{(aux base)}, \scm{(aux stream)},
 \scm{(aux fds sbral)} and \micro, and registers
 its extension when it is loaded. The egg gets one line after micro's, in the style of its neighbours:
-\begin{Verbatim}
+\begin{Verbatim}[xrightmargin=-\overhang]
   (extension aux.kanren.micro)
   (extension aux.kanren.lambda)
   (extension aux.kanren.arith)
 \end{Verbatim}
+{\emergencystretch=3em
 Other entries of \texttt{src/aux.egg} state their dependencies with \texttt{component-dependencies}. Writing
 \texttt{(component-dependencies aux.kanren.micro)} would make this one explicit too. The suite
 includes \texttt{programs.scm} from its own directory, so the file goes beside it in
 \texttt{src/test/}. The Makefile would follow its existing pattern: two lines in \texttt{test}, after
-micro's suites, and a target of its own.
-\begin{Verbatim}
+micro's suites, and a target of its own.\par}
+\begin{Verbatim}[xrightmargin=-\overhang]
 	cd test && ${CSI} -s microkanren-lambda.scm
 	cd test && ${CSI} -s microkanren-lambda-limits.scm
 \end{Verbatim}
@@ -710,7 +721,7 @@ not in the search.
 \texttt{∀} in answers, draws λ-terms in the mermaid cells view with a node per binder, and adds
 \scm{°->pretty}. It reads answer forms syntactically and does not import the module, so it is independent
 of stage 2. It is useful only with it.
-\begin{Verbatim}
+\begin{Verbatim}[xrightmargin=-\overhang]
 cd src
 patch aux.kanren.micro.show.scm < ../doc/hol-kanren/prototype/show.diff
 make test-microkanren-show

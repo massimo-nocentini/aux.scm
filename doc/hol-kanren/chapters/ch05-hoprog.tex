@@ -129,9 +129,9 @@ left of an even number of implications. All other occurrences are \emph{negative
 
 The point of the definition is an invariant: during cut-free proof search, positive occurrences stay
 positive and negative ones stay negative. Goal-directed search relies on it. In the counterexample both
-disjunctions start out positive, and instantiating $Q$ makes one of them negative. (The ban is a design
+disjunctions start out positive, and instantiating $Q$ makes one of them negative.\sidenote{The ban is a design
 choice, not the only one possible: the bibliographic notes recall Felty's result that $\imp$ may occur
-in terms if $\vee$ and $\exists$ are banned from formulas and terms instead \book{148}.)
+in terms if $\vee$ and $\exists$ are banned from formulas and terms instead \book{148}.}
 
 \subsection{Herbrand universes, hohc and hohh}\label{sec:hoprog-hohc}
 
@@ -175,7 +175,7 @@ something that could not appear as the argument of an atom or in the structure o
 implementation, $t$ is not guessed: it is a logic variable that higher-order unification later fixes in
 \rulename{initial}.
 
-\begin{theorem}[Completeness of goal-directed search for \hohc{} {\book{123--124}, \book{148}}]\label{thm:hoprog-hohc}
+\begin{theorem}[Completeness of goal-directed search for \hohc{} {\newline\book{123--124}, \book{148}}]\label{thm:hoprog-hohc}
 Derivability of goals from program clauses in this calculus coincides exactly with provability in
 classical higher-order logic. By the bibliographic notes, this holds for both the classical and the
 intuitionistic versions of Church's Simple Theory of Types, without the axioms of extensionality,
@@ -185,7 +185,7 @@ infinity and choice \cite{NadathurMiller1990}.
 Since $\forall R$ and ${\imp}R$ never fire in \hohc{}, the signature and the program stay fixed during a
 computation \book{124}.
 
-\begin{definition}[\hohh{}: higher-order hereditary Harrop formulas {\book{124}}]\label{def:hoprog-hohh}
+\begin{definition}[\hohh{}: higher-order hereditary Harrop formulas {\newline\book{124}}]\label{def:hoprog-hohh}
 Let $A$ range over atoms in $\mathcal{H}_2^\Sig$ and $A_r$ over rigid atoms in $\mathcal{H}_2^\Sig$:
 \begin{align*}
 G &::= \top \mid A \mid G\wedge G \mid G\vee G \mid \exists_\tau x\,G \mid D\imp G \mid \forall_\tau x\,G\\
@@ -322,7 +322,7 @@ type male, female    name -> o.
 age bob 23 & age sue 24 & age ned 23.
 male bob & female sue & male ned.
 \end{lprolog}
-\begin{example}[Queries over the database {\book{126--127}}]\label{ex:hoprog-mappred}
+\begin{example}[Queries over the database {\book{126--127}}]\label{ex:hoprog-mappred}\leavevmode
 \begin{lprolog}
 ?- mappred age (ned::bob::sue::nil) L.
 L = (23::23::24::nil)
@@ -365,6 +365,7 @@ no
 A = 23
 \end{lprolog}
 
+\enlargethispage{\baselineskip}
 \begin{pitfall}[A logic variable inside a \texorpdfstring{$\lambda$}{lambda} is shared, not abstracted]
 In \lp{x\ age x A}, the variable \lp{A} lies \emph{outside} the abstraction: the same \lp{A} is used by
 every instance of the body. The last two queries therefore ask for a \emph{common} age. Compare
@@ -582,7 +583,7 @@ composition.
 
 \subsection{Memoisation with hidden, growing predicates}
 
-\begin{example}[Memoised Fibonacci in \hohh$^+$ {\book{132}}]\label{ex:hoprog-fib}
+\begin{example}[Memoised Fibonacci in \hohh$^+$ {\book{132}}]\label{ex:hoprog-fib}\leavevmode
 \begin{lprolog}
 type fib_memo   int -> ((int -> int -> o) -> o) -> o.
 fib_memo N G :-
@@ -626,13 +627,14 @@ possible \book{134}:
 \item \textbf{Eagerly} bind the head to the universally true relation.
 \item Issue a \textbf{run-time error}.
 \end{enumerate}
+\begingroup\emergencystretch=1.5em % layout only: lets this paragraph spread its slack over several lines
 The first option is complete with respect to provability in intuitionistic higher-order logic. The other
 two are incomplete. Yet experience with λProlog implementations says the third is the most useful while
 developing code: a flexible goal met by depth-first search is usually a bug, for example a predicate
 constant mistyped with a capital letter \book{134}. Option~1 is the same idea that unification-based
 interpreters apply to flexible-flexible unification problems: the completeness results ``provide the
 foundations for a unification-based interpreter \ldots\ that explicitly delays the consideration of
-flexible-flexible unification problems as well as flexible goals'' \book{148}.
+flexible-flexible unification problems as well as flexible goals'' \book{148}.\par\endgroup
 
 A predicate variable becomes meaningful when the program first \emph{constrains} it to a structured space
 of candidates \book{133}:
@@ -748,7 +750,7 @@ rv nil L & (pi X\ pi N\ pi M\ rv (X::M) N :- rv M (X::N))
   \lp{L} and \lp{K} swapped. \qed
 \end{enumerate}
 Intuitively, the trace of \lp{rv} on \lp{(a::b::c::nil)} is a table with rows
-\lp{(a::b::c::nil) nil}, \lp{(b::c::nil) (a::nil)}, \lp{(c::nil) (b::a::nil)}, \lp{nil (c::b::a::nil)}.
+\lp{(a::b::c::}\allowbreak\lp{nil) nil}, \lp{(b::c::nil) (a::nil)}, \lp{(c::nil) (b::a::nil)}, \lp{nil (c::b::a::nil)}.
 Swapping the columns and reading the rows in reverse order gives a valid trace for the reverse of
 \lp{(c::b::a::nil)} \book{135}.
 
@@ -811,7 +813,7 @@ clauses for it. Those are the two state extensions of the kanren box in \cref{se
 % ======================================================================================================
 \section{Conditional and negation-as-failure}\label{sec:hoprog-naf}
 
-With the cut \lp{!}, the book defines a conditional and negation-as-failure \book{137}:
+With the cut \lp{!}, the book defines a conditional and negation-as-failure\newline\book{137}:
 \begin{lprolog}
 type if   o -> o -> o -> o.
 if P Q R :- P, !, Q.
@@ -894,7 +896,7 @@ backtrack. Weakness can also show up as failure: \lp{?- mapfun F (a::b::nil) (c:
 \lp{no}. Simply typed $\lambda$-terms cannot do case analysis on constants, so no term maps
 \lp{a} to \lp{c} and \lp{b} to \lp{d} (\cref{ch:lambda}) \book{139--140}.
 
-\paragraph{\texttt{reducefun}.} Here \lp{+} is only a term constructor, with no arithmetic \book{140}:
+\paragraph{\texttt{reducefun}.} Here \lp{+} is only a term constructor, with no arithmetic\newline\book{140}:
 \begin{lprolog}
 ?- reducefun (x\y\ x + y) (3::4::8::nil) 6 R.
 R = 3 + (4 + (8 + 6));
@@ -963,7 +965,7 @@ A first-order difference list \lp{(dl L K)}, with \lp{K} a suffix of \lp{L}, den
 \lp{K}. For instance, both of the terms
 \lp{(dl (1::2::3::4::5::nil) (4::5::nil))} and \lp{(dl (1::2::3::L) L)}
 denote the list \lp{(1::2::3::nil)}, and with the second form concatenation needs no recursion. A \emph{functional}
-difference list (due to Brisset and Ridoux \cite{BrissetRidoux1991}) represents the list as a function
+difference list\sidenote{Due to Brisset and Ridoux \cite{BrissetRidoux1991}.} represents the list as a function
 from its tail to the whole list \book{140--142}. The book's Figure~5.11 collects the labels of a
 binary tree into a list in two ways, with ordinary and with functional difference lists. Here are the
 declarations and the functional version:
@@ -1119,7 +1121,7 @@ Most higher-order idioms of Scheme or ML carry over to logic programming easily 
 \lp{sublist}, folds). The book argues that the logic programming notion is stronger in two ways
 \book{146--147}:
 \begin{enumerate}
-\item predicate variables are only one kind of functional variable. Non-predicate function variables
+\item predicate variables are only one kind of functional variable. Non-\linebreak{}predicate function variables
   give new kinds of computation (\cref{sec:hoprog-functions}), developed in \cref{ch:lambdatree} for
   syntax with binders;
 \item predicate expressions can be \emph{compared}, intensionally:
@@ -1266,12 +1268,12 @@ name at incompatible types. The name \lp{q}, on the other hand, is exported by b
 
 \subsection{The logical reading: \texorpdfstring{$\exists$}{exists} over clauses, \texorpdfstring{$\imp$}{implication} for queries}\label{sec:hoprog-eformulas}
 
-Two equivalences, valid in most logics, motivate the construction \book{160}:
-\[
+Two equivalences, valid in most logics, motivate the construction\newline\book{160}:
+\begin{gather*}
 \exists y\,\forall x\,(D(x)\imp G(y)) \equiv \exists y\,((\exists x\,D(x))\imp G(y))
-\qquad
+\\
 \exists x\,(D_1(x)\wedge D_2) \equiv (\exists x\,D_1(x))\wedge D_2
-\]
+\end{gather*}
 (when $x$ is not free in $G(y)$, respectively in $D_2$). The first says that a universal in a goal makes
 $x$ \emph{local to the clause} $D(x)$. The second lets the scope of such an $\exists$ be narrowed to part of
 a large conjunction.
@@ -1518,10 +1520,9 @@ a symbol at run time, because that reintroduces exactly the Prolog \texttt{call/
 
 \Cref{tab:hoprog-free} collects the kanren boxes of this chapter.
 
-\begin{table}[ht]
-\centering\small
-\caption{Book features versus a miniKanren whose relations are Scheme procedures.}\label{tab:hoprog-free}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.40\textwidth}>{\raggedright\arraybackslash}p{0.17\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}@{}}
+\begin{table*}[ht]
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.40\fullwidthlen}>{\raggedright\arraybackslash}p{0.17\fullwidthlen}>{\raggedright\arraybackslash}p{0.36\fullwidthlen}@{}}
 \toprule
 Feature & With closures & What is needed beyond closures\\
 \midrule
@@ -1541,8 +1542,9 @@ extensible predicates across modules & no & open clause sets, linking\\
 \texttt{eq\_pred}, reasoning by substitution & no & predicates and clauses as $\lambda$-terms\\
 \texttt{mapfun}/\texttt{reducefun} backwards, \texttt{extract\_a}, \texttt{palindrome}, fdl destructuring & no & $\lambda$-terms, $\beta\eta$-normalisation, higher-order unification\\
 \bottomrule
-\end{tabular}
-\end{table}
+\end{tabular}\par\vspace{14pt}% room for the margin caption, which tufte smashes below a full-width float
+\caption{Book features versus a miniKanren whose relations are Scheme procedures.}\label{tab:hoprog-free}
+\end{table*}
 
 The dividing line is simple. Whatever only \emph{calls} a predicate or a function is free, because a
 Scheme procedure can be called. Whatever must \emph{look inside} one (unify it, print it, compare it,
@@ -1572,7 +1574,7 @@ classification.
   prefer structural recursion and the right quantifier order.
 \item Unlike functions in functional programs, predicate expressions can be compared
   intensionally, with \lp{eq_pred}.
-\item Modules are logic: conjunction composes code, $\exists$ over clauses hides names, and a query
+\item Modules are logic: conjunction composes code, $\exists$ over clauses hides\linebreak{} names, and a query
   against a module is $\exists x\,(\hoprogT{M}\imp G)$. Hidden constants may be used but not exposed, and
   predicate names resolve statically.
 \item In a Scheme-hosted miniKanren, calling is free and looking inside is not; $\forall$ and $\imp$ in

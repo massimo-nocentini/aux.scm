@@ -96,10 +96,10 @@ many arguments as their arity \book{12--13}.
 Every type can be written uniquely as $\tau=\tau_1\to\cdots\to\tau_n\to\tau_0$ with $\tau_0$ not an arrow.
 $\tau_0$ is the \emph{target type} and $\tau_1,\dots,\tau_n$ are the \emph{argument types}; $\tau$ is
 \emph{functional} when $n\ge1$. The \emph{order} of a type is
-\[
-  \operatorname{ord}(\tau)=0 \text{ if $\tau$ is not functional},\qquad
+\begin{gather*}
+  \operatorname{ord}(\tau)=0 \text{ if $\tau$ is not functional},\\
   \operatorname{ord}(\tau_1\to\tau_2)=\max(\operatorname{ord}(\tau_1)+1,\ \operatorname{ord}(\tau_2)).
-\]
+\end{gather*}
 \end{definition}
 The order counts how deeply the arrow is nested \emph{to the left}. For example \lp{int} and
 \lp{list (int -> int)} have order~0 (the order does not look inside constructor arguments),
@@ -295,8 +295,8 @@ For instance the problem $\{(X\mathbin{:\!:}L)=(Y\mathbin{:\!:}Z\mathbin{:\!:}\c
 which differ by the renaming $X\leftrightarrow Y$, and infinitely many less general ground unifiers \book{27--28}.
 
 \paragraph{The transformation system.} The book gives three transformations, \emph{term reduction},
-\emph{reorientation} and \emph{variable elimination} \book{28}. We split them into six rules
-(this split is ours, the content is the book's). $E\uplus\{\dots\}$ is multiset union, $\bot$ is a problem
+\emph{reorientation} and \emph{variable elimination} \book{28}. We split them into six
+rules.\sidenote{This split is ours, the content is the book's.} $E\uplus\{\dots\}$ is multiset union, $\bot$ is a problem
 with no unifier, $\mathcal V$ the set of variables, and $f^\sigma$ means an occurrence of $f$ at type $\sigma$.
 \begin{mathpar}
   \inferrule{E\uplus\{f^{\sigma}\,t_1\ldots t_n = f^{\sigma}\,s_1\ldots s_n\}}{E\uplus\{t_1=s_1,\ldots,t_n=s_n\}}\;\rulename{Decompose}
@@ -428,6 +428,8 @@ type memb    A -> list A -> o.
 type append  list A -> list A -> list A -> o.
 \end{lprolog}
 The logical constants and their λProlog spellings are \book{35}:
+\par\medskip
+\begin{fullwidth}
 \begin{center}
 \begin{tabular}{@{}lllll@{}}
 \toprule
@@ -444,6 +446,9 @@ $\exists_\tau x\,F$ & \texttt{sigma x\textbackslash\ F} & & binder & \\
 \bottomrule
 \end{tabular}
 \end{center}
+\end{fullwidth}
+\medskip
+{\emergencystretch=1.5em
 The two spellings of $\wedge$ and of $\imp$ are a stylistic convention \book{47--48}; breaking it does not
 affect well-formedness. All these operators bind less tightly than application \book{35}, and \lp{&}
 binds more tightly than \lp{:-} \book{48}, so \lp{A & B :- G} reads as $G\imp(A\wedge B)$. Only the
@@ -461,7 +466,7 @@ of the quantifiers (Figure~2.1, \book{38}) extend those of terms:
 \end{mathpar}
 with the proviso, for the first two, that $x$ is not typed by $\Sig$ or $\Gamma$; the third rule renames
 bound variables so that the proviso can be met. A \emph{first-order $\Sig$-formula} is an $F$ with
-$\Sig;\emptyset\Vdash_f F:\typ{o}$; such formulas are closed \book{38}.
+$\Sig;\emptyset\Vdash_f F:\typ{o}$; such formulas are closed \book{38}.\par}
 
 \section{The search semantics of goals}\label{sec:horn-search}
 
@@ -480,7 +485,7 @@ Read as steps of an interpreter:
   \item[true] $\seq{\Sig}{\Prog}{\top}$ is provable at once.
 \end{description}
 \end{definition}
-None of these looks at $\Prog$. Read downwards, they are the \emph{right-introduction rules} of a sequent
+None of these looks at $\Prog$. Read downwards, they are the \emph{right-intro\-duction rules} of a sequent
 calculus, the book's Figure~2.2 \book{40}:
 \begin{mathpar}
   \inferrule{ }{\seq{\Sig}{\Prog}{\top}}\;\top R
@@ -670,9 +675,9 @@ premise and keeps backchaining on the conjunction, $\wedge L$ chooses the right 
 \lp{ident C E} aside, $\wedge L$ chooses $D_{\cst{and}}$, and \rulename{initial} unifies it with the goal.
 The two goals set aside are exactly the body of the second clause of Form~1. The book claims that the
 forms are equivalent in derivable goals and in observable behaviour, and that a smart implementation
-preprocesses Form~3 into Form~1 \book{49}. (Figure~2.3 does not say in which order the two premises of
-${\imp}L$ are explored; for the behaviour to match Form~1, whose body is \lp{ident B D, ident C E}, the
-outer premise must be solved first. This remark is ours.) (As printed, \lp{ident} has no base case,
+preprocesses Form~3 into Form~1 \book{49}.\sidenote{Figure~2.3 does not say in which order the two
+premises of ${\imp}L$ are explored; for the behaviour to match Form~1, whose body is
+\lp{ident B D, ident C E}, the outer premise must be solved first. This remark is ours.} (As printed, \lp{ident} has no base case,
 so it proves no closed goal; the example is about clause structure only.)
 
 \paragraph{The read--prove--print loop.} Programs live in modules (\cref{sec:hoprog-modules}). Teyjus compiles a
@@ -1016,17 +1021,15 @@ This licenses three equivalent presentations of \fohc{} clauses \book{63--64}: t
 \cref{def:horn-fohc}; the common Prolog one, $F ::= A\mid F\wedge F$, $D ::= A\mid F\imp A\mid\forall_\tau
 x\,D$; and a compact one, $D ::= A\mid A\imp D\mid\forall_\tau x\,D$. A clause of one presentation is
 equivalent to a set of clauses of another through equivalences such as
-\[
+\begin{gather*}
 \forall x\,(B_1\wedge B_2)\equiv(\forall x\,B_1)\wedge(\forall x\,B_2),\qquad
-B_1\imp(B_2\imp B_3)\equiv(B_1\wedge B_2)\imp B_3,
-\]
-\[
-(B_1\vee B_2)\imp B_3\equiv(B_1\imp B_3)\wedge(B_2\imp B_3),\qquad
+B_1\imp(B_2\imp B_3)\equiv(B_1\wedge B_2)\imp B_3,\\
+(B_1\vee B_2)\imp B_3\equiv(B_1\imp B_3)\wedge(B_2\imp B_3),\\
 B_1\imp\forall x\,B_2\equiv\forall x\,(B_1\imp B_2)\ (x\notin\operatorname{fv}(B_1)),
-\]
+\end{gather*}
 together with distributivity of $\wedge$ and $\vee$ and the others listed on \book{64}.
 
-\begin{example}[Size and behaviour {\book{64--66}}]\label{ex:horn-size}
+\begin{example}[Size and behaviour {\book{64--66}}]\label{ex:horn-size}\emergencystretch=1.5em
 In the common presentation, $((p\vee r)\wedge(q\vee t))\imp s$ must become four clauses
 \[
 (p\wedge q)\imp s,\quad (r\wedge q)\imp s,\quad (p\wedge t)\imp s,\quad (r\wedge t)\imp s,
@@ -1130,7 +1133,8 @@ work item (\cref{sec:roadmap-later-types}).
 \section{From fohc to \texorpdfstring{\texttt{(aux kanren micro)}}{(aux kanren micro)}}\label{sec:horn-micro}
 
 We can now state precisely how \fohc{} maps onto \micro{} (described in \cref{ch:micro}):
-
+\par\medskip
+\begin{fullwidth}
 \begin{center}
 \small
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}p{0.33\linewidth}>{\raggedright\arraybackslash}p{0.33\linewidth}@{}}
@@ -1155,6 +1159,8 @@ ${\imp}R$ (\rulename{augment}), $\forall R$ (\rulename{generic}) & absent & not 
 \bottomrule
 \end{tabular}
 \end{center}
+\end{fullwidth}
+\medskip
 
 So pure miniKanren \emph{is} \fohc, with two caveats. First, the shape of a relation (one disjunction of
 existentially quantified equations per predicate) is the precompiled form of \book{61--62}, and the

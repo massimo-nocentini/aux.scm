@@ -20,7 +20,7 @@ angle} boxes, record what each concept asks of \micro.
 \section{The problem: syntax with binders}\label{sec:lambdatree-problem}
 
 Many symbolic objects contain binders \book{175}--\book{176}: the $x$ in $\int f(x)\,dx$, in
-$\frac{d}{dx}$ and in $\sum_{x=1}^{100}$; quantifiers; $\lambda$-abstractions; local declarations and formal
+$d/dx$ and in $\sum_{x=1}^{100}$; quantifiers; $\lambda$-abstractions; local declarations and formal
 parameters in programming languages; type quantifiers of polymorphic types; name restriction in the
 $\pi$-calculus. Programs that handle such objects (differentiators, compilers, interpreters, theorem
 provers, type checkers) all need the same three notions \book{176}:
@@ -87,10 +87,11 @@ type all, some  (term -> form) -> form.
 all x\ (p x) ==> (p (f x))          % ∀x (p(x) ⊃ p(f(x)))
 some Z\ (p Z) && (p (f Z))          % ∃Z (p(Z) ∧ p(f(Z)))
 \end{lprolog}
+{\emergencystretch=3em
 The book states the principle behind this as follows: \enquote{the mechanism that we have described divides
 the encoding of the object logic quantifiers into two parts: a second order constant that identifies the
 quantifier and an abstraction that captures its binding effect} \book{178}. For instance
-$\forall x\,\forall y\,(q(x,y)\imp\exists z\,(p(z)\wedge q(z,y)))$ is encoded as
+$\forall x\,\forall y\,(q(x,y)\imp\exists z\,(p(z)\wedge q(z,y)))$ is encoded as\par}
 \begin{lprolog}
 all x\ all y\ (q x y) ==> some z\ p z && q z y.
 \end{lprolog}
@@ -99,6 +100,7 @@ where \lp{\} extends as far to the right as possible and \lp{&&} (priority 5) bi
 
 \begin{definition}[The encoding of formulas]\label{def:lambdatree-encoding}
 For first-order terms and formulas over the signature above, define $\ulcorner\cdot\urcorner$ by
+\begin{fullwidth}
 \[
 \begin{aligned}
 \ulcorner x\urcorner &= x, &
@@ -109,6 +111,7 @@ For first-order terms and formulas over the signature above, define $\ulcorner\c
 & & \ulcorner\exists x.\,B\urcorner &= \cst{some}\,(\abs{x}{\ulcorner B\urcorner}).
 \end{aligned}
 \]
+\end{fullwidth}
 \end{definition}
 
 The book does not state $\ulcorner\cdot\urcorner$ as a definition or prove anything about it; this formal
@@ -188,8 +191,8 @@ it with $f(a)$ we simply apply the abstraction to \lp{(f a)} \book{180}--\book{1
 \begin{lprolog}
 (x\ p x ==> some y\ q x y) (f a)
 \end{lprolog}
-which $\beta$-converts to \lp{p (f a) ==> some y\ q (f a) y}. (The book prints \lp{p (h a)} here, a typo;
-the page image confirms it, and it must be \lp{p (f a)}.) Note what was \emph{not} needed: no renaming of
+which $\beta$-converts to \lp{p (f a) ==> some y\ q (f a) y}.\sidenote{The book prints \lp{p (h a)} here, a typo;
+the page image confirms it, and it must be \lp{p (f a)}.} Note what was \emph{not} needed: no renaming of
 the inner \lp{y}, no check that \lp{(f a)} has no free \lp{y}. Capture avoidance is the meta-level's job.
 
 The predicate \lp{list_instan} relates a list of $n\ge 0$ terms and a formula with at least $n$ outer
@@ -258,7 +261,8 @@ is \lp{all x\ all y\ (adj x y) ==> (path x y)}: the \lp{(all D1)} clause applies
 
 \subsection{Evaluators for the untyped \texorpdfstring{$\lambda$}{λ}-calculus}
 
-Call-by-name and call-by-value evaluation are four clauses (Figure~7.3, \book{182}):
+{\emergencystretch=3em
+Call-by-name and call-by-value evaluation are four clauses (Figure~7.3, \book{182}):\par}
 \begin{lprolog}
 type cbn, cbv  tm -> tm -> o.
 cbn (abs R) (abs R).
@@ -266,8 +270,8 @@ cbn (app M N) V :- cbn M (abs R), cbn (R N) V.
 cbv (abs R) (abs R).
 cbv (app M N) V :- cbv M (abs R), cbv N U, cbv (R U) V.
 \end{lprolog}
-\lp{(R N)} is the object-level $\beta$-contraction, done by the meta-level $\beta$. (The text on \book{182}
-says \enquote{the term U such that eval N U is provable}; \lp{eval} is a loose name for \lp{cbv}.) The behaviour
+\lp{(R N)} is the object-level $\beta$-contraction, done by the meta-level $\beta$.\sidenote{The text on \book{182}
+says \enquote{the term U such that eval N U is provable}; \lp{eval} is a loose name for \lp{cbv}.} The behaviour
 is the expected one \book{183}. $\Omega=(\lambda x\,(x\,x))(\lambda x\,(x\,x))$ has no value under either
 evaluator: the search for a derivation is infinite. On $(\lambda x\,\lambda w\,w)\,\Omega$, call-by-name
 terminates and call-by-value loops:
@@ -349,6 +353,7 @@ So how does a program recurse into the body of a binder? The book's answer \book
 \enquote{during proof search, a term-level binding (i.e., a $\lambda$-abstraction) can be converted into a
 formula-level binding (i.e., a quantifier), which then can be converted into a proof-level binding (i.e., an
 eigenvariable).}
+\begin{fullwidth}
 \[
 \underbrace{\abs{y}{t}}_{\text{term level}}
 \;\rightsquigarrow\;
@@ -358,6 +363,7 @@ eigenvariable).}
 \;\rightsquigarrow\;
 \underbrace{P\,(\subst{t}{c}{y})\ \text{ with } c \text{ fresh}}_{\text{proof level}}
 \]
+\end{fullwidth}
 
 \subsection{The proof-search rules behind mobility}
 
@@ -492,6 +498,7 @@ variable and every $t_i$ is $\beta$-normal. The inner part $v\,t_1\ldots t_m$ is
 \emph{$\beta$-body-normal}.
 \end{definition}
 
+{\emergencystretch=3em
 The definition becomes three inference rules and three clauses \book{186}:
 \begin{mathpar}
 \inferrule{\forall x.\ \mathrm{bbnorm}(x)\imp\mathrm{bnorm}(M\,x)}{\mathrm{bnorm}(\cst{abs}\,M)}
@@ -499,7 +506,7 @@ The definition becomes three inference rules and three clauses \book{186}:
 \inferrule{\mathrm{bbnorm}(H)}{\mathrm{bnorm}(H)}
 \and
 \inferrule{\mathrm{bbnorm}(M) \\ \mathrm{bnorm}(N)}{\mathrm{bbnorm}(\cst{app}\,M\,N)}
-\end{mathpar}
+\end{mathpar}}
 \begin{lprolog}
 type bnorm, bbnorm  tm -> o.
 
@@ -533,8 +540,8 @@ rules the redex out.
 
 A pleasant consequence is a substitution lemma that costs nothing.
 
-\begin{theorem}[Substitution lemma \enquote{for free}, \book{186}]\label{thm:lambdatree-bnorm-subst}
-Let $\Gamma=\{\cst{bbnorm}\,c_1,\ldots,\cst{bbnorm}\,c_n\}$, $n\ge0$, with the $c_i$ eigenvariables. If
+\begin{theorem}[Substitution lemma \enquote{for free}, \book{186}]\label{thm:lambdatree-bnorm-subst}\emergencystretch=3em
+Let $\Gamma=\{\cst{bbnorm}\,c_1,\allowbreak\ldots,\allowbreak\cst{bbnorm}\,c_n\}$, $n\ge0$, with the $c_i$ eigenvariables. If
 \lp{(bnorm (abs R))} and \lp{(bbnorm S)} are both derivable from the program above together with $\Gamma$, then
 \lp{(bnorm (R S))} is derivable too. In object-level terms: if $\lambda x\,t$ is $\beta$-normal and $s$ is
 $\beta$-body-normal, then $\subst{t}{s}{x}$ is $\beta$-normal.
@@ -743,8 +750,9 @@ finite.
 
 \subsection{Type inference}\label{sec:lambdatree-typeof}
 
+{\emergencystretch=3em
 The book's type inference for the untyped calculus (\book{190}--\book{191}) is the best-known
-instance of the idiom:
+instance of the idiom:\par}
 \begin{lprolog}
 kind ty type.
 type arr     ty -> ty -> ty.
@@ -798,7 +806,7 @@ yes
 Ty = i
 \end{lprolog}
 
-\begin{theorem}[Subject reduction for call-by-name, \book{191}--\book{192}]\label{thm:lambdatree-subject}
+\begin{theorem}[Subject reduction for call-by-name, \book{191}--\book{192}]\label{thm:lambdatree-subject}\emergencystretch=3em
 If \lp{(cbn P V)} and \lp{(typeof P A)} are derivable, then \lp{(typeof V A)} is derivable.
 \end{theorem}
 \begin{proof}[Proof (book's argument)]
@@ -1044,16 +1052,17 @@ clause, \lp{nnf (neg (B ==> C)) (D && E) :- nnf B D, nnf (neg C) E.}
 
 \subsection{Prenex normal form}\label{sec:lambdatree-prenex}
 
+{\emergencystretch=3em
 For formulas in NNF, the prenex transformation uses the equivalences \book{196}
 \[
 (\forall x\,B_1x)\wedge(\forall x\,B_2x)\equiv\forall x\,(B_1x\wedge B_2x),\qquad
 (\exists x\,B_1x)\vee(\exists x\,B_2x)\equiv\exists x\,(B_1x\vee B_2x),
-\]
+\]}%
 and, for $Q\in\{\forall,\exists\}$ and $\circ\in\{\wedge,\vee\}$,
 $B_1\circ(Q x\,B_2x)\equiv Qx\,(B_1\circ B_2x)$ and $(Qx\,B_2x)\circ B_1\equiv Qx\,(B_2x\circ B_1)$. The usual
 side condition, $x$ not free in $B_1$, is not written anywhere in the program, because it is automatic: in the
-clauses below \lp{B} and \lp{C} are clause variables quantified outside the \lp{pi x\}. (The restriction to NNF
-input \enquote{is not necessary and is used only to shorten the specification}, \book{196}.) Figure~7.8
+clauses below \lp{B} and \lp{C} are clause variables quantified outside the \lp{pi x\}.\sidenote{The restriction to NNF
+input \enquote{is not necessary and is used only to shorten the specification}, \book{196}.} Figure~7.8
 (\book{197}):
 \begin{lprolog}
 type prenex, merge  form -> form -> o.
@@ -1094,7 +1103,8 @@ has only
 \begin{lprolog}
 all x\ all y\ ((p x) && (q x y) && (p (f x))) !! (p a).
 \end{lprolog}
-In general, though, \lp{prenex} is a relation, not a function \book{196}--\book{197}:
+{\emergencystretch=3em
+In general, though, \lp{prenex} is a relation, not a function \book{196}--\book{197}:\par}
 \begin{lprolog}
 ?- prenex ((all x\ q x x) && (all z\ all y\ q z y)) P.
 \end{lprolog}
@@ -1151,12 +1161,13 @@ fohhD (G ==> D) :- fohhG G, fohhD D.
 fohhD (all D) :- pi x\ fohhD (D x).
 \end{lprolog}
 Here the book remarks on the \lp{pi x\} without \lp{=>}, a deviation from the idiom \book{198}. The
-eigenvariables are object terms and \lp{atom} does not inspect terms, so no assumptions are needed. (The same
-silent deviation occurs in \lp{red1}, \lp{nnf} and \lp{prenex}.) The book also notes a free substitution theorem:
+eigenvariables are object terms and \lp{atom} does not inspect terms, so no assumptions are needed.\sidenote{The same
+silent deviation occurs in \lp{red1}, \lp{nnf} and \lp{prenex}.} The book also notes a free substitution theorem:
 \enquote{If $\forall x\,D$ is a first-order Horn clause and t is a term, then $D[t/x]$ is a first-order Horn
 clause} \book{198}. It is the analogue of \cref{thm:lambdatree-bnorm-subst} and is proved the same way.
 
-Two clauses extend the interpreter of Figure~7.1 from \fohc{} to \fohh{} \book{198}:
+{\emergencystretch=3em
+Two clauses extend the interpreter of Figure~7.1 from \fohc{} to \fohh{} \book{198}:\par}
 \begin{lprolog}
 interp D (D1 ==> G) :- interp (D1 && D) G.
 interp D (all G) :- pi x\ interp D (G x).
@@ -1287,7 +1298,8 @@ For $\cst{all}:(\cst{term}\to\cst{form})\to\cst{form}$:
 \begin{aligned}
 &[\![\cst{all},\cst{all}:(\cst{term}\to\cst{form})\to\cst{form}]\!]^{-}\\
 &\quad= \forall x\forall y\,\big([\![x,y:\cst{term}\to\cst{form}]\!]^{+}\imp[\![\cst{all}\,x,\cst{all}\,y:\cst{form}]\!]^{-}\big)\\
-&\quad= \forall x\forall y\,\big((\forall z\,[\![z,z:\cst{term}]\!]^{-}\imp[\![x\,z,\ y\,z:\cst{form}]\!]^{+})\imp[\![\cst{all}\,x,\cst{all}\,y:\cst{form}]\!]^{-}\big)\\
+&\quad= \forall x\forall y\,\big((\forall z\,[\![z,z:\cst{term}]\!]^{-}\imp[\![x\,z,\ y\,z:\cst{form}]\!]^{+})\\
+&\qquad\qquad\imp[\![\cst{all}\,x,\cst{all}\,y:\cst{form}]\!]^{-}\big)\\
 &\quad= \forall x\forall y\,\big(\forall z\,(\cst{copyterm}\ z\ z\imp\cst{copyform}\ (x\,z)\ (y\,z))\\
 &\qquad\qquad\imp\cst{copyform}\ (\cst{all}\,x)\ (\cst{all}\,y)\big).
 \end{aligned}
@@ -1302,10 +1314,11 @@ derivable if and only if \lp{B} and \lp{C} are equal formulas. Hence, if \lp{(su
 \lp{S} is equal to \lp{(M T)}.
 \end{proposition}
 
+{\emergencystretch=3em
 Two remarks from \book{202}. First, these programs are \emph{signature-dependent}: the object signature is
 reflected into clauses, whereas the one-line $\beta$ version is not. Second, lowering is general. Each primitive
 type maps to its own predicate, the relation need not be binary, and the \lp{term} predicate of
-\cref{sec:lambdatree-term} is the arity-one lowering for the signature \lp{abs}, \lp{app}.
+\cref{sec:lambdatree-term} is the arity-one lowering for the signature \lp{abs}, \lp{app}.\par}
 
 Substitution can also be defined by direct recursion on the abstraction, with no copy predicate (Figure~7.12,
 \book{203}):
@@ -1401,12 +1414,13 @@ because it has infinitely many candidates and no finite failure.
 
 \section{The \texorpdfstring{$\lambda$}{λ}-tree approach to abstract syntax}\label{sec:lambdatree-hoas}
 
+{\emergencystretch=1em
 Concrete syntax (strings, whitespace, parentheses, infix operators, comments) is for humans. Parsing produces
 \emph{abstract syntax}, a tree \book{203}. For binders there are several choices \book{204}: keep explicit names;
 or map object binding to the meta-language's binding, which is called \emph{higher-order abstract syntax}
 (HOAS) \cite{PfenningElliott1988}. The term covers \enquote{a range of encoding techniques}, and the book
-distinguishes two of them sharply.
-\begin{itemize}[nosep]
+distinguishes two of them sharply.\par}
+\begin{itemize}[nosep]\emergencystretch=1em
   \item In functional programming, and in constructive type theories that compute by evaluation, meta-level
         abstraction builds \emph{rich function spaces}. \enquote{Because of the richness of these spaces, it is not
         possible to compare function-valued expressions for equality in any simple way}. If quantified formulas
@@ -1441,6 +1455,7 @@ For a miniKanren programmer, the options can be compared directly. The first col
 programming as in $\alpha$Kanren \cite{ByrdFriedman2007,Byrd2009}, based on nominal unification
 \cite{UrbanPittsGabbay2004}. The third is $\lambda$-tree syntax.
 \begin{center}
+\begin{fullwidth}\centering
 \small
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.23\linewidth}@{}}
 \toprule
@@ -1453,6 +1468,7 @@ building an abstraction by unification & impossible & yes & yes (pattern unifica
 \enquote{$x$ not free in $M$} & not expressible & freshness constraint $a\,\#\,M$ & scoping of variables \\
 \bottomrule
 \end{tabular}
+\end{fullwidth}
 \end{center}
 The same notes (\book{209}--\book{210}) name nominal logic as the alternative approach: it is
 first-order, with name-swapping and freshness, and binding is derived from these primitives. Porting the book's
@@ -1466,7 +1482,7 @@ central to it} \book{205}. Can $\beta$ be weakened further? The book recalls the
 names are a fiction ($\alpha$), and binders are mobile, from term level to formula level to proof level. It then
 identifies the variables that carry mobility.
 
-\begin{definition}[Essentially universal and essentially existential occurrences, \book{205}]\label{def:lambdatree-essential}
+\begin{definition}[Essentially universal and essentially existential occurrences, \book{205}]\label{def:lambdatree-essential}\emergencystretch=3em
 In a goal formula $G$, a bound variable occurrence is \emph{essentially universal} if it is bound by a positive
 $\forall$, a negative $\exists$, or a term-level $\lambda$. It is \emph{essentially existential} otherwise, that is,
 if it is bound by a negative $\forall$ or a positive $\exists$. In a program clause the classification is dual: an
@@ -1513,8 +1529,9 @@ Figures 7.7 through 7.12 belong to $L_\lambda$}, and exactly one clause of Figur
 programs of the chapter are outside $\Llam$, although the book singles out only \lp{redex}. The table summarises the
 situation; the classification of the rows other than \lp{redex} and Figures~7.7--7.12 is ours.
 \begin{center}
+\begin{fullwidth}\centering
 \small
-\begin{tabular}{@{}p{0.47\linewidth}p{0.45\linewidth}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.47\linewidth}>{\raggedright\arraybackslash}p{0.45\linewidth}@{}}
 \toprule
 in $\Llam$ (applications are \texttt{(M x)} with \texttt{x} \texttt{pi}-bound) & outside $\Llam$ \\
 \midrule
@@ -1526,6 +1543,7 @@ in $\Llam$ (applications are \texttt{(M x)} with \texttt{x} \texttt{pi}-bound) &
 \texttt{subst R N (R N)}; \texttt{repeat} and \texttt{foreach} (they quantify over predicates) \\
 \bottomrule
 \end{tabular}
+\end{fullwidth}
 \end{center}
 In every non-$\Llam$ clause of the chapter, the abstraction is applied to an argument of \emph{base} type
 (\lp{term} or \lp{tm}). Instantiating \lp{R : tm -> tm} with \lp{N : tm} therefore never creates a new redex. It is
@@ -1564,8 +1582,8 @@ twice, and it has two incomparable most general unifiers. A unifier for a miniKa
 such non-pattern equations: reject them, or postpone them until they become patterns.
 \end{pitfall}
 
-Finally, raising (\cref{ch:lambda}), the transformation of $\forall y\,\exists x\,G$ into
-$\exists h\,\forall y\,\subst{G}{(h\,y)}{x}$ that implementations use to simplify quantifier alternation,
+Finally, raising (\cref{ch:lambda}), the transformation of $\forall y\,\allowbreak\exists x\,G$ into
+$\exists h\,\allowbreak\forall y\,\subst{G}{(h\,y)}{x}$ that implementations use to simplify quantifier alternation,
 \enquote{preserves the class of $L_\lambda$ formulas} \book{208}: $(h\,y)$ is a pattern.
 
 \begin{kanren}[A requirements checklist for \micro]
@@ -1573,7 +1591,7 @@ Gathering the boxes of this chapter, a miniKanren that runs the book's programs 
 justified by a program above. The design that provides them is in \cref{ch:design,ch:module}.
 \begin{center}
 \small
-\begin{tabular}{@{}p{0.34\linewidth}p{0.58\linewidth}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.34\linewidth}>{\raggedright\arraybackslash}p{0.58\linewidth}@{}}
 \toprule
 requirement & needed by \\
 \midrule

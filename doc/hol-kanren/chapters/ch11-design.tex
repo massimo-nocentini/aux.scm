@@ -25,6 +25,7 @@ This chapter turns that observation into a design. It proceeds in four steps.
   seventh state field, the registry, every hook with its contract and call site, the two new primitives,
   the one generic change to \scm{absent°}, and the two invariants a client must keep.
 \end{enumerate}
+{\emergencystretch=3em
 The chapter closes with what the edit costs a first-order program (\cref{sec:design-cost}) and with
 the history of the review rounds that hardened the proposal (\cref{sec:design-reviews}).
 The λ layer that sits on the protocol, \scm{(aux kanren lambda)}, with its unifier, its \scm{∀°} and
@@ -34,7 +35,7 @@ proposal lives under \texttt{doc/hol-kanren/prototype/} (the module, \texttt{mic
 \texttt{show.diff}, the design notes \texttt{DESIGN.md}, the tests, the examples, the benchmarks and the
 scripts that build and run them, \cref{sec:roadmap-run}). After merging, the module and its suites
 become \texttt{src/}\allowbreak\texttt{aux.kanren.lambda.scm} and
-\texttt{src/}\allowbreak\texttt{test/}\allowbreak\texttt{microkanren-lambda*.scm}.
+\texttt{src/}\allowbreak\texttt{test/}\allowbreak\texttt{microkanren-lambda*.scm}.\par}
 
 Every Scheme snippet of this chapter with an answer was run against the proposal (the edited micro and
 \scm{(aux kanren lambda)}) unless it says otherwise, and its output is pasted verbatim. Snippets of the
@@ -197,7 +198,7 @@ X = 1
 ;; clause order under augmentation (p.94)
 ((3 2 1) (2 3 1))
 \end{answers}
-(The label's \enquote{p.94} is the PDF page, \book{78}; see \cref{sec:intro-conventions}.) Each clause answers without
+\marginnote{The label's \enquote{p.94} is the PDF page, \book{78}; see \cref{sec:intro-conventions}.} Each clause answers without
 suspending, so the flat disjunction returns its disjuncts in order, and the order is the book's. Point
 (c) is the subtle one: in \lp{pi z\ (q z => p (d z))} the variable \lp{z} is the clause's own, while a
 free \lp{Y} in an assumed \lp{p Y} is the goal's. \Cref{sec:hh-kanren-context} explains why $\Gamma$ must
@@ -470,7 +471,7 @@ R, R2, R3 & regressions of the three review rounds (\cref{sec:design-reviews}) &
 \Cref{sec:lkanren-compare} put four candidate meanings of \scm{=°} on λ-terms side by side, without
 choosing (\cref{tab:lkanren-options}). In one paragraph each:
 
-\begin{description}
+\begin{description}\emergencystretch=3em
 \item[A.] \textbf{Pattern unification with de Bruijn terms and levels}, after Miller, Nipkow, and
   Nadathur and Linnell~\cite{Miller1991,Nipkow1993,NadathurLinnell2005}; what Teyjus~2 and
   ELPI~\cite{DunchevEtAl2015} run. Decidable and unitary on $\Llam$; non-patterns are delayed.
@@ -485,7 +486,7 @@ choosing (\cref{tab:lkanren-options}). In one paragraph each:
 
 \noindent The proposal retains A, for three reasons.
 
-\begin{enumerate}
+\begin{enumerate}\emergencystretch=3em
 \item \textbf{λProlog's semantics.} The requirements are the book's. Option A is what the book's own
   implementations run, and with delayed non-patterns its behaviour on the book's examples is the book's
   (A5). Option C gives different answers on A6's equations by design; option B answers a different
@@ -524,12 +525,12 @@ with pruning and lowering, a store of suspended equations). They differ in archi
 \Cref{tab:design-prototypes} compares them at a glance; the subsections describe each one, its strengths,
 and the concrete defects the three reviews found.
 
-\begin{table}[ht]
-\centering\footnotesize
-\caption{The three prototypes.}
+\begin{table*}[ht]
+\footnotesize
+\caption[][-6pt]{The three prototypes.}
 \label{tab:design-prototypes}
 \renewcommand{\arraystretch}{1.2}
-\begin{tabularx}{\textwidth}{@{}p{2.3cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\linewidth}{@{}p{2.3cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
 \toprule
 & \textbf{d1, layered} & \textbf{d2, hooks} & \textbf{d3, native}\\
 \midrule
@@ -540,8 +541,8 @@ runner & its own, \texttt{λrun} & micro's \texttt{°->list} & micro's \texttt{�
 suite & 29 cases, 137 assertions, hand-written & 42 cases, 102 assertions, hand-written & 14 cases, 116 assertions, a generated snapshot\\
 rank & last for all three reviews & first for two reviews & first for the pedagogy review\\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par\vspace{16pt}% room for the margin caption, which tufte smashes below a full-width float
+\end{table*}
 
 \subsection{d1: a layer with no edit to micro}\label{sec:design-d1}
 
@@ -597,12 +598,12 @@ correctly; and the edit cost at most 2.8\% on micro's benchmarks.
 \paragraph{Defects.} The reviews found seven, listed in \cref{tab:design-d2}. None is a soundness
 defect; most are imprecisions of the stores on λ-terms and one is a cost.
 
-\begin{table}[ht]
-\centering\footnotesize
-\caption{The defects of d2 found by the reviews, and their fixes (design notes, §10.2).}
+\begin{table*}[ht]
+\footnotesize
+\caption[][-18pt]{The defects of d2 found by the reviews, and their fixes (design notes, §10.2).}
 \label{tab:design-d2}
 \renewcommand{\arraystretch}{1.2}
-\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
 \toprule
 & defect & fix in the proposal\\
 \midrule
@@ -614,8 +615,8 @@ D5 & registering the extension slowed ≠°-heavy first-order code by 45--50\% &
 D6 & goal suffix on term constructors, levels hidden in property lists, λ-terms not \texttt{equal?} & \texttt{ƛ}, \texttt{@}; plain records thanks to \texttt{parts}, \texttt{value}, \texttt{atom?}; interned hints\\
 D7 & \texttt{symbol°}/\texttt{number°} failed eagerly on flexible terms; \texttt{⊃°} on a static relation silently ignored & the \texttt{tag} hook; an error for non-dynamic relations\\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par\vspace{28pt}% room for the margin caption, which tufte smashes below a full-width float
+\end{table*}
 
 One more defect turned up while grafting: $F=\abs{x}{G\,(F\,x)}$, reached through η-short construction,
 failed micro's occurs check before any hook could see it. That is why the final protocol has an
@@ -673,12 +674,12 @@ choice of d2 as the base rests on four facts.
 The reviews also recommended about twenty grafts from d1 and d3. Each was either done or explicitly
 declined; \cref{tab:design-grafts} lists the main ones.
 
-\begin{table}[ht]
-\centering\footnotesize
-\caption{Grafts recommended by the reviews (a selection from the design notes, §10.3).}
+\begin{table*}[ht]
+\footnotesize
+\caption[][-30pt]{Grafts recommended by the reviews (a selection from the design notes, §10.3).}
 \label{tab:design-grafts}
 \renewcommand{\arraystretch}{1.2}
-\begin{tabularx}{\textwidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4.6cm}@{}}
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{6.2cm}@{}}
 \toprule
 from & graft & status\\
 \midrule
@@ -695,8 +696,8 @@ d1 & a data runner, an αKanren-style view & done (\texttt{°->list/datum}, \tex
 d1 & a limits table, each row pinned by a case & done\\
 d1 & truly nameless λ-records, \texttt{equal?} modulo α & partly: interned hints; α-variants with different hints are not \texttt{equal?}\\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par\vspace{40pt}% room for the margin caption, which tufte smashes below a full-width float
+\end{table*}
 
 The two declined grafts share a reason. Both would put knowledge of levels into micro's core: the
 var--var clause of the unifier, its hottest path after pair--pair, and the variable constructor
@@ -768,11 +769,12 @@ pair--pair clause of the unifier). The registry is global rather than per state 
 starts from \scm{μkanren-state-empty}: a per-state hook list would have to be carried by every initial
 state.
 
+{\emergencystretch=3em
 The protocol's whole exported surface is small: \scm{μkanren-state-X} (and the \texttt{X:} keyword of
 \scm{μkanren-state-with}), \scm{make-μkanren-extension}, \scm{μkanren-extension?},
 \scm{μkanren-extension-name}, \scm{μkanren-extension-register!}, and the two primitives
 \scm{μkanren-post-unify} and \scm{μkanren-state-forget} of \cref{sec:design-forget}. The hook
-accessors and the dispatchers (\scm{μkanren-extension/term} and its siblings) stay internal to micro.
+accessors and the dispatchers (\scm{μkanren-extension/term} and its siblings) stay internal to micro.\par}
 
 The λ layer registers itself once, at load time:
 \begin{scheme}
@@ -793,10 +795,9 @@ each answering a defect or a graft of the reviews (\texttt{atom?} the first-orde
 \texttt{environment} live ground answers, the others the defects of \cref{tab:design-d2} and the
 occurs failure found while grafting). The last column says which closed point of
 \cref{tab:micro-open} each hook opens. Then a paragraph per hook gives its contract and its call site.
-\newpage
-\begin{longtable}{@{}>{\raggedright\arraybackslash}p{2.0cm}>{\raggedright\arraybackslash}p{5.5cm}>{\raggedright\arraybackslash}p{3.3cm}>{\raggedright\arraybackslash}p{2.5cm}@{}}
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.135\fullwidthlen}>{\raggedright\arraybackslash}p{0.372\fullwidthlen}>{\raggedright\arraybackslash}p{0.223\fullwidthlen}>{\raggedright\arraybackslash}p{0.169\fullwidthlen}@{}}
 \caption{The hooks of an extension. $u,v$: walked terms; $s$: a state; \emph{as}: the bindings made so
-far, as \texttt{(α . t)} pairs; $\to$ gives the result, \textbar\ separates alternatives.}\label{tab:design-hooks}\\
+far, as \texttt{(α\hbox{ }.\hbox{ }t)} pairs; $\to$ gives the result, \textbar\ separates alternatives.}\label{tab:design-hooks}\\
 \toprule
 hook & arguments $\to$ result; contract & called by & opens\\
 \midrule\endfirsthead
@@ -1108,12 +1109,12 @@ S no longer holds. The λ layer's \scm{μkanren-enforce} does both, through \scm
 \Cref{tab:design-map} reads the protocol against \cref{tab:micro-open}: for each closed point of
 \micro, what the edit opens and what it leaves closed on purpose.
 
-\begin{table}[ht]
-\centering\footnotesize
-\caption{Closed points of \micro{} and the hooks that open them.}
+\begin{table*}[ht]
+\footnotesize
+\caption[][-18pt]{Closed points of \micro{} and the hooks that open them.}
 \label{tab:design-map}
 \renewcommand{\arraystretch}{1.2}
-\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{3.8cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{3.6cm}@{}}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{4.4cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4.2cm}@{}}
 \toprule
 closed point (\cref{tab:micro-open}) & opened by & still closed\\
 \midrule
@@ -1126,8 +1127,8 @@ reification (D/A/T only) & \texttt{value}, \texttt{repr}, \texttt{terms}, \textt
 \midrule
 (listed as open: \texttt{≠°}, \texttt{absent°} and types work on any record, slot by slot) & \texttt{diseq}, \texttt{parts}, \texttt{tag} & ---\\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par\vspace{28pt}% room for the margin caption, which tufte smashes below a full-width float
+\end{table*}
 
 The three needs listed at the end of \cref{ch:micro} correspond to three rows: \enquote{a named place in
 the state} is \texttt{X}, \enquote{a call after every binding} is \texttt{post}, and \enquote{a say in
@@ -1241,12 +1242,12 @@ round attacked the proposal itself with hand-written probes and with randomly ge
 with their conjunctions in both orders. Every report was first reproduced, then fixed, a code fix
 with a regression case (in round 3 each new case was checked to fail on the proposal before the fix).
 
-\begin{table}[ht]
-\centering\footnotesize
-\caption{The three adversarial review rounds (design notes, §10.4--10.6).}
+\begin{table*}[ht]
+\footnotesize
+\caption[][-18pt]{The three adversarial review rounds (design notes, §10.4--10.6).}
 \label{tab:design-reviews}
 \renewcommand{\arraystretch}{1.2}
-\begin{tabularx}{\textwidth}{@{}lrr>{\raggedright\arraybackslash}X@{}}
+\begin{tabularx}{\linewidth}{@{}lrr>{\raggedright\arraybackslash}X@{}}
 \toprule
 round & reports & regression cases & typical defects\\
 \midrule
@@ -1254,8 +1255,8 @@ round & reports & regression cases & typical defects\\
 2 & 8 & 6 (31 assertions) & raising at ∀ exit not closing every constraint; η-redexes created by later bindings; occurs failure on non-rigid arguments; the extensional reading absorbed by T; first-order cost after a \texttt{∀°}\\
 3 & 12 & 9 (53 assertions) & non-patterns with functional arguments; disequalities over unreachable arguments; \emph{absento} of an eigenvariable under a type; user types on λ-terms; η-short occurs check; a datum reducing to an atom; two types on one flexible term; first-order cost with D or A non-empty; λ-terms in the show module's cells view\\
 \bottomrule
-\end{tabularx}
-\end{table}
+\end{tabularx}\par\vspace{28pt}% room for the margin caption, which tufte smashes below a full-width float
+\end{table*}
 
 All 33 reports were real. In round 1 the twelve code defects were fixed, each pinned by a case, and one
 documentation error was corrected. In round 2 two reports were one defect; six were fixed with
@@ -1269,7 +1270,7 @@ where it is described (\cref{ch:module}).
 % ================================================================================================
 \section{Summary}\label{sec:design-summary}
 
-\begin{itemize}
+\begin{itemize}\emergencystretch=3em
 \item The requirements are nine acceptance items: the scope of ∀ under Nadathur, Jayaraman and Kwon's
   binding conditions, for \emph{every} binding (A1); \rulename{augment} with the book's clause order and variable
   sharing (A2); type inference as the test of ∀ and ⊃ together (A3); λ-tree syntax with α, β and η (A4);

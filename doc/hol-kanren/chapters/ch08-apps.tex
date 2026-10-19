@@ -50,6 +50,7 @@ infixr ==> 3.
 The book's starting point is the following calculus \book{230}. (In the printed figure the axiom for
 $\top$ is mislabelled $\bot L$.)
 
+\begin{fullwidth}
 \begin{mathpar}
 \inferrule{ }{\Gamma, A\longrightarrow A}\;\rulename{init}\ (A\text{ atomic})
 \and \inferrule{ }{\Gamma,\bot\longrightarrow G}\;\bot L
@@ -61,9 +62,10 @@ $\top$ is mislabelled $\bot L$.)
 \and \inferrule{\Gamma,A\imp B\longrightarrow A \\ \Gamma,B\longrightarrow G}{\Gamma,A\imp B\longrightarrow G}\;\imp L
 \and \inferrule{\Gamma,A\longrightarrow B}{\Gamma\longrightarrow A\imp B}\;\imp R
 \end{mathpar}
+\end{fullwidth}
 
 \paragraph{Why the direct translation loops.}
-Each rule, read from conclusion to premises, removes a connective, except $\imp L$, whose left premise
+{\emergencystretch=2em Each rule, read from conclusion to premises, removes a connective, except $\imp L$, whose left premise
 still contains the principal formula $A\imp B$. The instance
 \[
   \inferrule{p\imp q\longrightarrow q \\ q\longrightarrow q}{p\imp q\longrightarrow q}\;\imp L
@@ -71,12 +73,13 @@ still contains the principal formula $A\imp B$. The instance
 has a left premise identical to its conclusion. A depth-first interpreter that tries this premise first
 recurses forever. The book: ``Depth-first search usually steers the interpreter into endless loops when
 trying to work backwards from a given sequent'' \book{230}. Soundness of such direct translations is
-easy. Completeness of their \emph{execution} is not.
+easy. Completeness of their \emph{execution} is not.\par}
 
 \paragraph{The cure: a better calculus, not a better interpreter.}
 Replace $\imp L$ by six rules that look at the shape of the antecedent~\cite{Dyckhoff1992,Hudelmaier1992}
 (\book{231}). (The text says ``four rules''. The figure shows six.)
 
+\begin{fullwidth}
 \begin{mathpar}
 \inferrule{\Gamma,A,B\longrightarrow G}{\Gamma,A,A\imp B\longrightarrow G}\;{\imp}L_1\ (A\text{ atomic})
 \and \inferrule{\Gamma,C\imp D\imp B\longrightarrow G}{\Gamma,(C\land D)\imp B\longrightarrow G}\;{\imp}L_2
@@ -85,6 +88,7 @@ Replace $\imp L$ by six rules that look at the shape of the antecedent~\cite{Dyc
 \and \inferrule{\Gamma\longrightarrow G}{\Gamma,\bot\imp B\longrightarrow G}\;{\imp}L_5
 \and \inferrule{\Gamma,B\longrightarrow G}{\Gamma,\top\imp B\longrightarrow G}\;{\imp}L_6
 \end{mathpar}
+\end{fullwidth}
 
 \begin{theorem}[Hudelmaier, Dyckhoff; \book{230--231}]\label{thm:apps-dyckhoff}
 The calculus obtained by replacing $\imp L$ with ${\imp}L_1$--${\imp}L_6$ is sound and complete for this
@@ -338,7 +342,7 @@ outer \lp{imp_e (q (f y)) ...} concludes $q(f(f\,y))$. Note that the instantiati
 \lp{x\ (q x) ==> (q (f x))} are spelled out inside both \lp{all_e} nodes: this is the information an
 elimination rule stores so that checking stays syntax-directed.
 
-\paragraph{2. Inference.} With the formula unknown, the checker computes it \book{235}:
+\paragraph{2. Inference.} {\emergencystretch=2em With the formula unknown, the checker computes it \book{235}:\par}
 \begin{lprolog}
 ?- (imp_i w\ (and_i (and_e2 a w) (and_e1 b w))) # R.
 R = a && b ==> b && a.
@@ -357,7 +361,7 @@ A = w\ p w ==> p (f w)
 A' = w\ p w ==> p (f w)
 B = all (w\ p w ==> p (f w)) ==> all (w\ p w ==> p (f (f w)))
 \end{lprolog}
-(The printed answer says \lp{p} where the query says \lp{q}. Read \lp{q}.) The two unknowns are found in
+\marginnote{The printed answer says \lp{p} where the query says \lp{q}. Read \lp{q}.}The two unknowns are found in
 different ways. \lp{A} is found by a pattern equation: \lp{(all_e y A P) # (q y ==> q (f y))} yields
 \lp{A y = q y ==> q (f y)} with \lp{y} a \lp{pi}-constant, which is in $\Llam$ and has the unique solution
 $\abs{w}{q\,w\imp q\,(f\,w)}$. \lp{A'} appears in \lp{A' (f y) = ...}, which is \emph{not} a pattern. It is
@@ -402,6 +406,7 @@ Here $\Sigma$ holds the eigenvariables, $\mathcal{L}$ is a \emph{set} of literal
 of formulas still to be introduced, and $\Phi$ is a \emph{list} of existential formulas. The rules are (with
 $A$ atomic, $t$ a $\Sigma$-term, $y\notin\Sigma$):
 
+\begin{fullwidth}
 \begin{mathpar}
 \inferrule{\Sigma : A,\mathcal{L};\ \Gamma;\ \Phi}{\Sigma : \mathcal{L};\ A,\Gamma;\ \Phi}\;\rulename{lit}
 \and \inferrule{\Sigma : \neg A,\mathcal{L};\ \Gamma;\ \Phi}{\Sigma : \mathcal{L};\ \neg A,\Gamma;\ \Phi}\;\rulename{lit}
@@ -413,6 +418,7 @@ $A$ atomic, $t$ a $\Sigma$-term, $y\notin\Sigma$):
 \and \inferrule{ }{\Sigma : A,\neg A,\mathcal{L};\ \cdot;\ \Phi}\;\rulename{init}
 \and \inferrule{\Sigma : \mathcal{L};\ B[t/x];\ \Phi,\exists x\,B}{\Sigma : \mathcal{L};\ \cdot;\ \exists x\,B,\Phi}\;\exists R
 \end{mathpar}
+\end{fullwidth}
 
 \noindent The calculus is a systematic tableau in the sense of Smullyan~\cite{Smullyan1968}. A non-empty
 $\Gamma$ determines the rule completely. When $\Gamma$ is empty, the only choices are \rulename{init} versus
@@ -757,10 +763,12 @@ Chapter 10 of the book turns to programming-language semantics. The object langu
 untyped call-by-value $\lambda$-calculus with a conditional, a fixed point, booleans, integers and lists
 \book{248}:
 
+\begin{fullwidth}
 \[
   M ::= x\mid \lambda x.M\mid M\,N\mid \mathsf{cond}\,M\,N\,P\mid \mathsf{fix}\,x.M\mid \mathsf{cns}\,M\,N
         \mid \mathsf{i}\,n\mid \mathsf{tt}\mid\mathsf{ff}\mid\mathsf{null}\mid \mathsf{cons}\mid\mathsf{car}\mid\ldots
 \]
+\end{fullwidth}
 \begin{lprolog}
 type abs    (tm -> tm) -> tm.          % function abstraction
 type @      tm -> tm -> tm.            % application
@@ -1146,12 +1154,14 @@ input \lp{dn x y}. A \emph{bound} action is the partial application \lp{up x} or
 as result. \lp{onep P A P'} has a bound action and an \emph{abstracted} continuation of type
 \lp{name -> proc}. The book's rules with binding side conditions are \book{264--265}:
 
+\begin{fullwidth}
 \begin{mathpar}
 \inferrule{P\xrightarrow{\alpha}P'}{(y)P\xrightarrow{\alpha}(y)P'}\;\rulename{res}\ (y\notin n(\alpha))
 \and \inferrule{ }{x(z).P\xrightarrow{x(w)}P\{w/z\}}\;\rulename{input}\ (w\notin fn((z)P))
 \and \inferrule{P\xrightarrow{\bar x y}P'}{(y)P\xrightarrow{\bar x(w)}P'\{w/y\}}\;\rulename{open}\ (y\neq x,\ w\notin fn((y)P'))
 \and \inferrule{P\xrightarrow{\bar x(w)}P' \\ Q\xrightarrow{x(w)}Q'}{P\mid Q\xrightarrow{\tau}(w)(P'\mid Q')}\;\rulename{close}
 \end{mathpar}
+\end{fullwidth}
 
 \noindent Together with the binder-free rules (prefixes, match, sum, par, and the communication rule com),
 they become \book{264}:
@@ -1437,8 +1447,8 @@ no
 \noindent For \lp{(app (abs w\ w) (abs w\ w))} the complete trace is
 \lp{tr tau (tr tau (tr tau (tr (dn b T1) (tr (dn b T2) (tr (up T1 T2) empty)))))}: three silent steps
 ``corresponding to reduction of the term $(\lambda x\,x)(\lambda x\,x)$ to $\lambda x\,x$'', then the trace of the
-identity \book{275}. (The printed process term for this query shadows a name and swaps the two \lp{par}
-components, but the trace is unaffected.)
+identity \book{275}.\sidenote{The printed process term for this query shadows a name and swaps the two \lp{par}
+components, but the trace is unaffected.}
 
 \begin{remark}[$\Llam$ and $\pi$I; \book{275}]
 ``Almost all the one-step transition rules \ldots are in the $\Llam$ fragment''. The exceptions are the last
@@ -1473,7 +1483,7 @@ for the definitions-and-$\nabla$ reading. See \cref{ch:design} for which of thes
 % =====================================================================================================
 \section{Summary}\label{sec:apps-summary}
 
-\begin{itemize}[nosep]
+\begin{itemize}[nosep]\emergencystretch=2em
   \item \textbf{One recipe for three domains.} A judgment becomes a predicate. Object binders become meta
         $\lambda$s. Going under a binder means \lp{pi} plus a hypothetical fact. Freshness and non-capture
         side conditions are then discharged by quantifier nesting.
@@ -1481,7 +1491,7 @@ for the definitions-and-$\nabla$ reading. See \cref{ch:design} for which of thes
         loop (${\imp}L$, \lp{#} as a prover). A better calculus (Dyckhoff's) gives a decision procedure.
         Programmable control (tactics and tacticals) moves the strategy into the program.
   \item \textbf{Logic variables as delayed choices.} Witnesses of $\exists R$, \lp{all_l} and
-        \lp{path_rec_tac}, and received names in traces, are chosen by unification at the leaves. The unifier
+        \Verb[breaklines=true,breakafter=_,fontsize=\small,formatcom=\color{Plum!70!black}]{path_rec_tac}, and received names in traces, are chosen by unification at the leaves. The unifier
         must respect eigenvariable scope.
   \item \textbf{Cut and \texttt{if} are dangerous with logic variables and eigenvariables.} They can lose
         completeness (the CL counterexample) or break soundness theorems (\lp{mixeval}).
@@ -1492,9 +1502,10 @@ for the definitions-and-$\nabla$ reading. See \cref{ch:design} for which of thes
         termination.
 \end{itemize}
 
-\noindent The requirements, application by application (``atomic'' means every assumed clause is an atomic
-fact, so an explicit context could replace \lp{=>}):
+{\emergencystretch=2em\noindent The requirements, application by application (``atomic'' means every assumed clause is an atomic
+fact, so an explicit context could replace \lp{=>}):\par}
 
+\begin{fullwidth}
 \begin{center}
 \small
 \begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.1cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
@@ -1512,3 +1523,4 @@ $\pi$ transitions, traces & \emph{res}/\emph{open}/\emph{close}, scope check vit
 \bottomrule
 \end{tabularx}
 \end{center}
+\end{fullwidth}
