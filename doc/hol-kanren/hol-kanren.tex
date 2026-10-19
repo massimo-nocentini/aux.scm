@@ -1,0 +1,60 @@
+% hol-kanren.tex — main file; compile with XeLaTeX (tectonic --keep-logs hol-kanren.tex).
+\documentclass[11pt,a4paper,oneside,bibliography=totoc,numbers=noendperiod,captions=tableheading]{scrreprt}
+\input{preamble}
+
+\title{Higher-Order Logic Programming\\ for \mbox{\texttt{(aux kanren micro)}}}
+\subtitle{A reading of Miller \& Nadathur's \enquote{Programming with Higher-Order Logic} and of λKanren,
+  with a proposal for \texttt{(aux kanren lambda)}}
+\author{Prepared for Massimo Nocentini, with Claude (Anthropic)}
+\date{October 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\noindent \texttt{(aux kanren micro)} is a small, fast miniKanren whose terms are first-order Scheme data and
+whose goals are first-order Horn clauses. λProlog, the language of Miller and Nadathur's
+\emph{Programming with Higher-Order Logic}, runs a much larger logic: goals may say \enquote{for every new
+name $x$} and \enquote{assuming $D$}, terms may contain λ-binders, and unification works modulo α, β
+and η, so that programs over syntax with binders need no code for renaming, fresh names or
+capture-avoiding substitution. This document asks what it would take to give \texttt{(aux kanren micro)}
+the same power. Part~I summarizes the book chapter by chapter, with its core examples; Part~II surveys
+the miniKanren literature on these features, centered on Ma and Friedman's higher-order unification
+algorithm for λKanren; Part~III describes the engine as it is today and proposes a concrete answer: a
+generic extension protocol for the engine and a client module, \texttt{(aux kanren lambda)}, providing
+λ-terms, the goals $\forall$ and $\supset$, and higher-order pattern unification with universe levels and
+delayed non-patterns, prototyped, tested and benchmarked.
+\end{abstract}
+
+\tableofcontents
+
+\input{chapters/ch01-intro}
+
+\part{The book: Programming with Higher-Order Logic}
+\input{chapters/ch02-horn}
+\input{chapters/ch03-hh}
+\input{chapters/ch04-lambda}
+\input{chapters/ch05-hoprog}
+\input{chapters/ch06-lambdatree}
+\input{chapters/ch07-hounif}
+\input{chapters/ch08-apps}
+
+\part{Higher-order miniKanren}
+\input{chapters/ch09-lkanren}
+
+\part{A proposal for \texorpdfstring{\texttt{(aux kanren micro)}}{(aux kanren micro)}}
+\input{chapters/ch10-micro}
+\input{chapters/ch11-design}
+\input{chapters/ch12-module}
+\input{chapters/ch13-examples}
+\input{chapters/ch14-roadmap}
+
+\appendix
+\addpart{Appendices}
+\input{chapters/appA-rules}
+\input{chapters/appB-glossary}
+
+\input{bibliography}
+
+\end{document}

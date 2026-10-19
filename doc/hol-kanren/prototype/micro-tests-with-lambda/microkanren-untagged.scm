@@ -1,0 +1,272 @@
+
+(import scheme (chicken base) (chicken memory representation) srfi-1
+  (aux base) (aux unittest) (aux kanren micro) (aux kanren lambda))
+
+(define-suite microkanren-untagged-suite
+
+  ((test-λ-calculus-interpreter _)
+
+    (define (lookup x env)
+      (match/non-overlapping env
+        (() (error 'lookup "unbound variable" x))
+        ((((,y . ,v) . ,rest) ⊣ (equal? x y)) v)
+        ((((,y . ,v) . ,rest) ⊣ (not (equal? x y))) (lookup x rest))))
+
+    (define (not-in-env? x env)
+      (match/non-overlapping env
+        (() #t)
+        ((((,y . ,v) . ,rest) ⊣ (equal? x y)) #f)
+        ((((,y . ,v) . ,rest) ⊣ (not (equal? x y))) (not-in-env? x rest))))
+
+    (define rator?
+      (let1 (op-names '(lambda quote list))
+        (λ (x env)
+          (not (and (symbol? x) (memq x op-names) (not-in-env? x env))))))
+
+    (define (eval-exp exp env)
+      (match/non-overlapping exp
+        (((,rator ,rand) ⊣ (rator? rator env))  (let ((proc (eval-exp rator env))
+                                                      (arg (eval-exp rand env)))
+                                                  (match/non-overlapping proc
+                                                    ((closure ,x ,body ,env2) (eval-exp body `((,x . ,arg) . ,env2))))))
+        (((λ (,x) ,body) ⊣ (and (symbol? x) (not-in-env? 'λ env))) `(closure ,x ,body ,env))
+        (((quote ,v) ⊣ (not-in-env? 'quote env)) v)
+        (((list . ,a*) ⊣ (not-in-env? 'list env)) (map (λ (e) (eval-exp e env)) a*))
+        ((,x ⊣ (symbol? x)) (lookup x env))))
+
+    (define-syntax-rule (eval/env0 body) (eval-exp (quote body) (interaction-environment/symbols '())))
+
+    (⊦ equal? `(closure z z ()) (eval/env0 (((λ (x) (λ (y) x)) (λ (z) z)) (λ (a) a))))
+    (⊦ equal? `(closure y x ((x . (closure z z ())))) (eval/env0 ((λ (x) (λ (y) x)) (λ (z) z))))
+    (⊦ equal? `(closure y y ()) (eval/env0 ((λ (x) x) (λ (y) y))))
+    (⊦ equal? `(closure y y ()) (eval/env0 ((quote (closure x x ())) (λ (y) y))))
+
+  )
+
+  ((test/eval-exp° _)
+
+    (define (proper-list° exp env val)
+      (cond°
+        ((=° '() exp) (=° '() val))
+        ((fresh° (a d v-a v-d)
+          (=° `(,a . ,d) exp)
+          (=° `(,v-a . ,v-d) val)
+          (eval-exp° a env v-a)
+          (proper-list° d env v-d)))))
+
+    (define (not-in-env° x env)
+      (cond°
+        ((=° '() env))
+        ((fresh° (y v rest)
+          (=° `((,y . ,v) . ,rest) env)
+          (≠° y x)
+          (not-in-env° x rest)))))
+
+    (define (lookup° x env t)
+      (fresh° (y v rest)
+        (=° `((,y . ,v) . ,rest) env)
+        (cond°
+          ((=° y x) (=° v t))
+          ((≠° y x) (lookup° x rest t)))))
+
+    (define (eval-exp° exp env val)
+      (cond°
+        ((fresh° (v) 
+          (=° `(quote ,v) exp) 
+          (not-in-env° 'quote env) 
+          (absent° 'closure v) 
+          (=° v val)))
+        ((fresh° (a*)
+          (=° `(list . ,a*) exp)
+          (not-in-env° 'list env)
+          (absent° 'closure a*)
+          (proper-list° a* env val)))
+        ((symbol° exp) (lookup° exp env val))
+        ((fresh° (rator rand x body envˆ a)
+            (=° `(,rator ,rand) exp)
+            (eval-exp° rator env `(closure ,x ,body ,envˆ))
+            (eval-exp° rand env a)
+            (eval-exp° body `((,x . ,a) . ,envˆ) val)))
+        ((fresh° (x body)
+          (=° `(λ (,x) ,body) exp)
+          (symbol° x)
+          (not-in-env° 'λ env)
+          (=° `(closure ,x ,body ,env) val)))))
+  
+    (⊦= '(bar) (°->list #t (fresh° (q) (lookup° 'y (list (cons 'x  'foo) (cons 'y  'bar)) q))))
+    (⊦= '() (°->list #t (fresh° (q) (lookup° 'w (list (cons 'x 'foo) (cons 'y 'bar)) q))))
+
+    (let* ((Q (car (°->list #f (take° 1 (fresh° (q) (eval-exp° q '() q))))))
+           (λQ (eval Q))
+           (quine (λQ 'α)))
+      (⊦= 
+       '(λ (α)
+            (begin (deny (equal? α 'closure)))
+            (begin (deny (equal? α 'list)))
+            (begin (deny (equal? α 'quote)))
+            (assert (every (μ v (symbol? v)) (list α)))
+            (cons (cons 'λ
+                        (cons (cons α '())
+                              (cons (cons 'list
+                                          (cons α
+                                                (cons (cons 'list
+                                                            (cons (cons 'quote (cons 'quote '()))
+                                                                  (cons α '())))
+                                                      '())))
+                                    '())))
+                  (cons (cons 'quote
+                              (cons (cons 'λ
+                                          (cons (cons α '())
+                                                (cons (cons 'list
+                                                            (cons α
+                                                                  (cons (cons 'list
+                                                                              (cons (cons 'quote (cons 'quote '()))
+                                                                                    (cons α '())))
+                                                                        '())))
+                                                      '())))
+                                    '()))
+                        '())))
+                Q)
+      (⊦= '((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α))))) quine)
+      (⊦= quine (eval quine)))
+
+    (⊦= 
+     '((λ (α)
+          (assert (absent? 'closure α))
+          (cons (cons 'quote (cons α '())) (cons '→ (cons α '()))))
+      (λ () (cons (cons 'list '()) (cons '→ (cons '() '()))))
+      (λ (α β)
+          (assert (every (μ v (symbol? v)) (list α)))
+          (cons (cons 'λ (cons (cons α '()) (cons β '())))
+                (cons '→
+                      (cons (cons 'closure (cons α (cons β (cons '() '()))))
+                            '()))))
+      (λ (α)
+          (assert (absent? 'closure α))
+          (cons (cons 'list (cons (cons 'quote (cons α '())) '()))
+                (cons '→ (cons (cons α '()) '()))))
+      (λ ()
+          (cons (cons 'list (cons (cons 'list '()) '()))
+                (cons '→ (cons (cons '() '()) '()))))
+      (λ (α β)
+          (assert (absent? 'closure α))
+          (assert (absent? 'closure β))
+          (cons (cons 'list
+                      (cons (cons 'quote (cons α '()))
+                            (cons (cons 'quote (cons β '())) '())))
+                (cons '→ (cons (cons α (cons β '())) '())))))
+      (°->list #f (take° 6 (fresh° (q e v) (eval-exp° e '() v) (=° `(,e → ,v) q)))))
+  
+  )
+
+  ((test/symbol° _)
+    (⊦= '((λ (α) (assert (every (μ v (symbol? v)) (list α))) α)) (°->list #f (fresh° (s) (symbol° s))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (s r) (symbol° r))))
+  )
+  
+  ((test/≠° _)
+    (⊦= '() (°->list #f (fresh° (s) (≠° (+ 2 3) 5))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (s) (≠° (* 2 3) 5))))
+    (⊦= '((λ (α) (begin (deny (equal? α 5))) (begin (deny (equal? α 6))) α)) (°->list #f (fresh° (q x) (≠° 5 q) (=° x q) (≠° 6 x))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q y z) (≠° (cons y z) q))))
+    (⊦= '((λ (α β γ) (begin (deny (equal? α (cons β γ)))) (cons α (cons β (cons γ '()))))) (°->list #f (fresh° (q x y z) (≠° (cons y z) x) (=° (list x y z) q))))
+    (⊦= '((λ (α) (begin (deny (equal? α 6))) (cons (cons 5 α) (cons 5 (cons α (quote ())))))) (°->list #f (fresh° (q x y z) (=° (cons y z) x) (≠° (cons 5 6) x) (=° 5 y) (=° (list x y z) q))))
+    (⊦= '((λ (α) (cons (cons 6 α) (cons 6 (cons α (quote ())))))) (°->list #f (fresh° (q x y z) (=° (cons y z) x) (≠° (cons 5 6) x) (=° 6 y) (=° (list x y z) q))))
+    (⊦= '((λ (α β γ) (begin (deny (equal? α 5))) (begin (deny (equal? α 6))) (begin (deny (and (equal? β 2) (equal? γ 1)))) (cons α (cons β (cons γ (quote ())))))) (°->list #f (fresh° (q x y z) (≠° 5 x) (≠° 6 x) (≠° (list y 1) (list 2 z)) (=° (list x y z) q))))
+    (⊦= '((λ (α) (begin (deny (equal? α 1))) α)) (°->list #f (fresh° (s) (≠° s 1))))
+    (⊦= '() (°->list #f (fresh° (s) (≠° s 1) (=° s 1))))
+    (⊦= '((λ (α) (begin (deny (equal? α (cons 'a (cons 'b '()))))) α)) (°->list #f (fresh° (s) (≠° s '(a b)))))
+    (⊦= '((λ (α β) (begin (deny (and (equal? α 1) (equal? β 2)))) (cons α (cons β (quote ())))))
+        (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° q (list p r)))))
+    (⊦= '((λ (α) (begin (deny (equal? α 2))) (cons 1 (cons α (quote ())))))
+        (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° q (list p r)))))
+    (⊦= '() (°->list #f (fresh° (q p r) (≠° (list p r) '(1 2)) (=° p 1) (=° r 2) (=° q (list p r)))))
+  )
+
+  ((test/rember°/naive _)
+
+    (define-relation (rember° x ls out)
+      (cond° 
+        ((=° '() ls) (=° '() out))
+        ((fresh° (a d) (=° `(,a . ,d) ls) (=° a x) (=° d out)))
+        ((fresh° (a d res)
+                (=° `(,a . ,d) ls)
+                (=° `(,a . ,res) out)
+                (rember° x d res)))))
+
+    (⊦= '((a c b d)) (μkanren-run (q 1 #t) (rember° 'b '(a b c b d) q)))
+    (⊦= '((a b c)) (μkanren-run (q 1 #t) (rember° 'd '(a b c) q)))
+    (⊦= '((a c b d) (a b c d) (a b c b d)) (μkanren-run (q -1 #t) (rember° 'b '(a b c b d) q)))
+    (⊦= '(α) (μkanren-run (q -1 #t) (rember° 'b '(b) '(b))))
+  )
+
+  ((test/rember°/fixed _)
+
+    (define-relation (rember° x ls out)
+      (cond° 
+        ((=° '() ls) (=° '() out))
+        ((fresh° (a d) (=° `(,a . ,d) ls) (=° a x) (=° d out)))
+        ((fresh° (a d res)
+                (=° `(,a . ,d) ls)
+                (≠° a x)
+                (=° `(,a . ,res) out)
+                (rember° x d res)))))
+
+    (⊦= '((a c b d)) (μkanren-run (q -1 #t) (rember° 'b '(a b c b d) q)))
+    (⊦= '() (μkanren-run (q -1 #t) (rember° 'b '(b) '(b))))
+    (⊦= '(  (λ () (cons (quote a) (cons (cons (quote b) (cons (quote c) (quote ()))) (quote ()))))
+            (λ () (cons (quote b) (cons (cons (quote a) (cons (quote c) (quote ()))) (quote ())))) 
+            (λ () (cons (quote c) (cons (cons (quote a) (cons (quote b) (quote ()))) (quote ())))) 
+            (λ (α) (begin (deny (equal? α (quote a)))) (begin (deny (equal? α (quote b)))) (begin (deny (equal? α (quote c)))) (cons α (cons (cons (quote a) (cons (quote b) (cons (quote c) (quote ())))) (quote ()))))) 
+      (°->list #f (fresh° (q x out) (rember° x '(a b c) out) (=° (list x out) q))))
+  )
+
+  ((test/absent° _)
+    (⊦= '((λ (α β) (assert (absent? (quote panda) α)) (assert (absent? (quote panda) β)) (cons (quote jackal) (cons (cons α (cons (quote leopard) (cons β (quote ())))) (quote ())))))
+        (°->list #f (fresh° (q x y) (=° `(jackal (,y leopard ,x)) q) (absent° 'panda q))))
+    
+  )
+
+)
+
+(unittest/✓ microkanren-untagged-suite)
+
+#|
+(define Q '(λ (α) (begin (deny (equal? α (quote closure)))) (begin (deny (equal? α (quote list)))) (begin (deny (equal? α (quote quote)))) (assert (every (μ v (symbol? v)) (list α))) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (cons (cons (quote quote) (cons (cons (quote λ) (cons (cons α (quote ())) (cons (cons (quote list) (cons α (cons (cons (quote list) (cons (cons (quote quote) (cons (quote quote) (quote ()))) (cons α (quote ())))) (quote ())))) (quote ())))) (quote ()))) (quote ())))))
+(equal? ((eval Q ) 'α) Q)
+
+(pp Q)
+
+(define Q
+(λ (α)
+    (begin (deny (equal? α 'closure)))
+    (begin (deny (equal? α 'list)))
+    (begin (deny (equal? α 'quote)))
+    (assert (every (μ v (symbol? v)) (list α)))
+    (cons (cons 'λ
+                (cons (cons α '())
+                      (cons (cons 'list
+                                  (cons α
+                                        (cons (cons 'list
+                                                    (cons (cons 'quote (cons 'quote '()))
+                                                          (cons α '())))
+                                              '())))
+                            '())))
+          (cons (cons 'quote
+                      (cons (cons 'λ
+                                  (cons (cons α '())
+                                        (cons (cons 'list
+                                                    (cons α
+                                                          (cons (cons 'list
+                                                                      (cons (cons 'quote (cons 'quote '()))
+                                                                            (cons α '())))
+                                                                '())))
+                                              '())))
+                            '()))
+                '())))
+)
+
+(Q 'α) -> ((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α)))))
+       -> ((λ (α) (list α (list (quote quote) α))) (quote (λ (α) (list α (list (quote quote) α)))))
+
+|#

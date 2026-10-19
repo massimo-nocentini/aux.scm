@@ -1,0 +1,66 @@
+--- round 1
+before
+backwards-2000 full 	2000	6145.0 ms
+backwards-2000 search	2000	676.0 ms
+open-1000 search    	1000	1360.0 ms
+perm6 ≠° full       	720	186.0 ms
+after
+backwards-2000 full 	2000	6231.0 ms
+backwards-2000 search	2000	703.0 ms
+open-1000 search    	1000	1391.0 ms
+perm6 ≠° full       	720	188.0 ms
+ext
+backwards-2000 full 	2000	6056.0 ms
+backwards-2000 search	2000	662.0 ms
+open-1000 search    	1000	1312.0 ms
+perm6 ≠° full       	720	288.0 ms
+--- round 2
+before
+backwards-2000 full 	2000	6258.0 ms
+backwards-2000 search	2000	690.0 ms
+open-1000 search    	1000	1326.0 ms
+perm6 ≠° full       	720	188.0 ms
+after
+backwards-2000 full 	2000	6094.0 ms
+backwards-2000 search	2000	691.0 ms
+open-1000 search    	1000	1371.0 ms
+perm6 ≠° full       	720	182.0 ms
+ext
+backwards-2000 full 	2000	6147.0 ms
+backwards-2000 search	2000	673.0 ms
+open-1000 search    	1000	1393.0 ms
+perm6 ≠° full       	720	302.0 ms
+--- λ workloads
+typeof church 400      	1	260.0 ms
+copy church 400        	1	259.0 ms
+typeof nest 150        	1	1322.0 ms
+copy nest 150          	1	1768.0 ms
+typeof backwards 30    	30	11.0 ms
+F x1..x50 = g x50..x1  	1	2.0 ms
+--- third review: bench-A (r3-2-perf-A-D-nonempty)
+after
+backwards plain      	2000	688.0 ms
+backwards + symbol° t	2000	697.0 ms
+backwards + ≠° t 1   	2000	679.0 ms
+backwards + absent° t	2000	686.0 ms
+ext
+backwards plain      	2000	695.0 ms
+backwards + symbol° t	2000	710.0 ms
+backwards + ≠° t 1   	2000	688.0 ms
+backwards + absent° t	2000	684.0 ms
+after
+backwards plain      	2000	678.0 ms
+backwards + symbol° t	2000	688.0 ms
+backwards + ≠° t 1   	2000	669.0 ms
+backwards + absent° t	2000	653.0 ms
+ext
+backwards plain      	2000	667.0 ms
+backwards + symbol° t	2000	679.0 ms
+backwards + ≠° t 1   	2000	669.0 ms
+backwards + absent° t	2000	694.0 ms
+--- third review: after a ∀°
+backwards-2000 search            	2000	694.0 ms
+backwards-2000 search, ∀° before 	2000	1146.0 ms
+backwards-2000 search, typeof° before	2000	1125.0 ms
+open-1000 search                 	1000	1309.0 ms
+open-1000 search, ∀° before      	1000	3018.0 ms

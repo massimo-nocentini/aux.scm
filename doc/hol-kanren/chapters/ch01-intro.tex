@@ -1,0 +1,554 @@
+\chapter{Introduction}\label{ch:intro}
+
+\micro{} is a small, fast miniKanren. Its terms are first-order Scheme data, its unifier is first-order
+unification with an occurs check, and its goals are conjunctions, disjunctions and existentials. In
+logical terms it runs first-order Horn clauses (\cref{sec:horn-micro}). λProlog, the language of Miller and
+Nadathur's \emph{Programming with Higher-Order Logic}~\cite{MillerNadathur2012}, runs a much larger logic.
+Goals may say \enquote{for every new name $x$} and \enquote{assuming $D$}, terms may contain λ-binders, and
+unification works modulo α, β and η. With these three features, programs over syntax with binders (type
+checkers, evaluators, provers, program transformations) contain no code for renaming, fresh names or
+capture-avoiding substitution, because the logic does that work.
+
+This document asks what it would take to give \micro{} the same power, and it ends with a concrete answer:
+a module, \texttt{(aux kanren lambda)}, prototyped, tested and benchmarked. This chapter says what the
+document is for (\cref{sec:intro-goal}), runs one example through the whole story
+(\cref{sec:intro-brief}), maps the chapters (\cref{sec:intro-map}), proposes three ways to read them
+(\cref{sec:intro-paths}), and fixes the conventions (\cref{sec:intro-conventions}).
+
+% ==================================================================================================
+\section{What this document is for}\label{sec:intro-goal}
+
+\paragraph{The goal.} The goal is to bring three ideas of λProlog into \micro:
+\begin{enumerate}[nosep]
+  \item \textbf{hereditary Harrop goals}, that is the universal goal $\forall x\,G$ (\lp{pi x\ G}, proved
+        with a new scoped constant) and the hypothetical goal $D\imp G$ (\lp{D => G}, proved with the
+        program temporarily extended by the clause $D$);
+  \item \textbf{λ-tree syntax}: object-level binders represented by meta-level λ-abstractions, so that
+        α-equivalence is built in and object-level substitution is meta-level β-reduction;
+  \item \textbf{higher-order pattern unification} ($\Llam$): unification of λ-terms restricted to the
+        fragment where it is decidable and has most general unifiers, with the other equations delayed.
+\end{enumerate}
+\noindent The three are not independent. \lp{pi} is what lets a program walk under a λ-binder, and
+pattern unification is what lets it build a λ-term back. The book's programs use all three together.
+
+\paragraph{The sources.} There are two. The first is the book itself, which Part~I summarizes chapter by
+chapter, with its core examples run on \micro{} wherever that is possible today. The second is the
+miniKanren literature on these features, which Part~II surveys. Its center is
+Ma and Friedman's \emph{A New Higher-order Unification Algorithm for λKanren}~\cite{MaFriedman2021}, read
+together with its predecessor λKanren~\cite{MaLuFriedman2020}, nominal unification and
+αKanren~\cite{UrbanPittsGabbay2004,ByrdFriedman2007}, the eigenvariable and negation
+work~\cite{HemannByrdFriedman2013,Moiseenko2019,JinEtAl2021}, and the techniques of real λProlog systems:
+universe levels~\cite{NadathurJayaramanKwon1995}, Miller's and Nipkow's pattern
+unification~\cite{Miller1991,Nipkow1993}, delayed equations~\cite{DowekHardinKirchnerPfenning1996},
+Teyjus~\cite{NadathurLinnell2005} and ELPI~\cite{DunchevEtAl2015}.
+
+\paragraph{The outcome.} Part~III is a proposal in two pieces.
+\begin{itemize}[nosep]
+  \item A \textbf{generic extension protocol} in \micro{} (\texttt{micro.diff}, $+235/{-}41$ lines,
+        comments included; 214 of the added lines are not blank). The state gains one slot that \micro{} never reads, and a registry of hooks opens the
+        points that are closed today: the unifier's structural clause, the occurs check, the step after each
+        \scm{=°}, the disequality, type and absento stores, and reification. Nothing in the edit mentions λ,
+        levels or clauses.
+  \item A \textbf{client module}, \texttt{(aux kanren lambda)}, 1255 lines, which registers one extension.
+        It provides λ-terms (\scm{ƛ}, \scm{@}), the goals \scm{∀°} and \scm{⊃°} with
+        \scm{define-dynamic-relation}, and $\Llam$ unification with universe levels and delayed
+        non-patterns. Through the hooks it also makes \micro's own \scm{≠°}, \scm{absent°},
+        \scm{symbol°} and \scm{number°} λ-aware; it exports no second version of them.
+\end{itemize}
+\noindent The design was not chosen on paper. Three prototypes were built: one that leaves \micro{}
+untouched, one with a hook protocol, one with λ-terms native in the core. They were compared by three
+reviews, on engineering, on fidelity to the book and on pedagogy. The hook design, ranked first by two of
+the three, became the base, and about twenty grafts proposed from the other two were each adopted or
+explicitly declined. Three adversarial review rounds
+then attacked the result and sent thirteen, eight and twelve reports. All were real. Every defect but
+one was fixed and pinned by a regression case (a cost reported by the third round among them); the
+exception, the cost of the scope check on first-order search once a \scm{∀°} has run, reported by the
+second round, is measured and documented as a limitation. The final suite has
+83 cases with 320 hand-written assertions, plus 6 cases that pin the known limits, and \micro's own 125
+cases pass unchanged, with and without the module loaded: 339 cases, no failures. The protocol costs about
+1\% on first-order search when no extension is loaded. All of this lives in
+\texttt{doc/hol-kanren/prototype/}, and after merging it would be \texttt{src/aux.kanren.lambda.scm} and
+\texttt{src/test/microkanren-lambda*.scm}.
+
+% ==================================================================================================
+\section{The whole story in brief}\label{sec:intro-brief}
+
+This section follows one program from the book through the whole document: type inference for the untyped
+λ-calculus \book{190--191}. It is two clauses of λProlog, and it uses every feature at once.
+
+\subsection{The program, twice}
+
+Object-level λ-terms are built with two constructors, \lp{app} for application and \lp{abs} for
+abstraction. \lp{abs} takes a \emph{meta-level} abstraction: the identity is \lp{abs x\ x}. Types are
+built with \lp{arr}. The relation \lp{typeof M T} says that term \lp{M} has type \lp{T}:
+\begin{lprolog}
+typeof (app M N) A :- typeof M (arr B A), typeof N B.
+typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.
+\end{lprolog}
+The second clause reads: \enquote{to type \lp{abs M}, take a new constant \lp{x}, assume that \lp{x} has
+type \lp{A}, and type the body \lp{(M x)} with \lp{B}}. There is no clause for variables and no context
+argument. The hypothesis \lp{typeof x A} \emph{is} the context, and it disappears when the proof of the
+body is over. In the proposed module the same program reads:
+\begin{scheme}
+(define-dynamic-relation (typeof° m t)
+  (cond°
+    ((fresh° (M N B) (=° m `(app ,M ,N)) (typeof° M `(arr ,B ,t)) (typeof° N B)))
+    ((fresh° (R A B) (=° m `(abs ,R)) (=° t `(arr ,A ,B))
+       (∀° (x) (⊃° ((typeof° x A)) (typeof° (@ R x) B)))))))
+\end{scheme}
+\noindent The dictionary is short. \lp{pi x\ G} is \scm{(∀° (x) G)}, \lp{D => G} is \scm{(⊃° (D) G)}, the
+application \lp{(M x)} of a logic variable is \scm{(@ R x)}, and \lp{x\ t} is \scm{(ƛ (x) t)}. The relation
+is made by \scm{define-dynamic-relation} instead of \scm{define-relation} because it receives hypotheses.
+The first-order structure (\scm{abs}, \scm{app}, \scm{arr}) stays ordinary Scheme data, as everywhere in
+\micro.
+
+\subsection{Running it forwards}
+
+The book types the identity and fails on self-application \book{191}:
+\begin{lprolog}
+?- typeof (abs x\x) Ty.          Ty = arr T1 T1
+?- typeof (abs x\ app x x) Ty.   no
+\end{lprolog}
+The module gives the same answers. \scm{°->list/datum} lists the answers as plain data, and \scm{α} is a
+variable that the answer leaves unbound:
+\begin{scheme}
+(°->list/datum (fresh° (q) (typeof° `(abs ,(ƛ (x) x)) q)))
+(°->list/datum (fresh° (q) (typeof° `(abs ,(ƛ (x) `(app ,x ,x))) q)))
+\end{scheme}
+\begin{answers}
+((arr α α))
+()
+\end{answers}
+
+Two rules of the book's proof search are at work, GENERIC for $\forall$ and AUGMENT for $\imp$
+(\cref{sec:hh-rules}). In the sequent $\seq{\Sig}{\Prog}{G}$, $\Sig$ is the signature, the constants in
+scope, and $\Prog$ is the program:
+\begin{mathpar}
+\inferrule*[right=\rulename{generic}]{\seq{\Sig\cup\{c\}}{\Prog}{\subst{G}{c}{x}}}{\seq{\Sig}{\Prog}{\forall x\,G}}
+\quad (c\notin\Sig)
+\and
+\inferrule*[right=\rulename{augment}]{\seq{\Sig}{\Prog\cup\{D\}}{G}}{\seq{\Sig}{\Prog}{D\imp G}}
+\end{mathpar}
+Read bottom-up, GENERIC proves a universal goal by inventing a constant, and AUGMENT proves an implication
+by assuming its antecedent. Both changes are local: they hold for the proof of the premise only.
+
+\begin{tutorial}[What happens to the state while \texttt{typeof°} types λx.x]
+Write $d$ for the current \emph{depth}, the number of enclosing \scm{∀°}, and $\Gamma$ for the assumed
+clauses. Both live in the search state, in the slot that the protocol adds; the substitution is
+\micro's, as before. Each row of the table below is one step towards the first answer, and two of them
+carry the ideas. At step~5, $R$ is already bound to $\abs{x}{x}$, so \texttt{(@ R c)} reduces by β to $c$
+itself: object-level substitution is meta-level β. At step~6 the dynamic relation tries its hypotheses
+first, most recent first, and then its two static clauses, which both fail on $c$, since an
+eigenvariable is neither an \texttt{app} nor an \texttt{abs}. The hypothesis \texttt{typeof° c A}
+mentions the variable $A$ of the enclosing clause, and $A$ is \emph{shared}, not renamed. That is how
+typing the body tells the outer goal what $A$ is (\cref{sec:hh-link}).
+\begin{center}\small
+\begin{tabular}{@{}r>{\raggedright\arraybackslash}p{5.6cm}cl@{}}
+\toprule
+& goal & $d$ & effect \\
+\midrule
+1 & \texttt{typeof° (abs (ƛ (x) x)) q} & 0 & the \texttt{app} clause fails; the \texttt{abs} clause applies\\
+2 & \texttt{(abs R) = (abs (ƛ (x) x))} & 0 & first-order: $R := \abs{x}{x}$, \texttt{q := (arr A B)}\\
+3 & \texttt{∀° (x)} & 1 & a new eigenvariable $c$, of level 1\\
+4 & \texttt{⊃° ((typeof° c A))} & 1 & $\Gamma = \{\texttt{typeof° c A}\}$\\
+5 & \texttt{typeof° (@ R c) B} & 1 & \texttt{(@ R c)} head-normalizes by β to $c$\\
+6 & backchain on the hypothesis & 1 & \texttt{typeof° c A = typeof° c B}: $A$, $B$ unified\\
+7 & answer leaves \texttt{⊃°} and \texttt{∀°} & 0 & $\Gamma=\emptyset$; \texttt{q = (arr A A)}, printed \texttt{(arr α α)}\\
+\bottomrule
+\end{tabular}
+\end{center}
+Self-application fails at the same step. For \texttt{(abs (ƛ (x) (app x x)))}, the body needs
+$\texttt{typeof° c (arr B$'$ B)}$ and $\texttt{typeof° c B$'$}$, so the hypothesis forces
+$A = \texttt{(arr B$'$ B)}$ and $A = B'$: first-order unification fails on its occurs check, as in the book.
+\end{tutorial}
+\noindent The book explains this program in \cref{sec:lambdatree-typeof}; \cref{sec:module-typeof} traces
+it again at the level of the module's state, and \cref{sec:examples-typeof} runs it on the book's whole
+session, the combinator S included.
+
+\subsection{Running it backwards}
+
+Ask instead for terms of type $i\to i$. λProlog's depth-first search loops on this query, because it tries
+the \lp{app} clause first and descends forever. The interleaving search of \micro{} does not:
+\begin{scheme}
+(°->list/datum (take° 3 (fresh° (q) (typeof° q '(arr i i)))))
+\end{scheme}
+\begin{answers}
+((abs (ƛ (x) x))
+ (abs (ƛ (x) (app (abs (ƛ (x1) x1)) x)))
+ (abs (ƛ (x) (app (abs (ƛ (x1) x)) x))))
+\end{answers}
+\noindent The second answer is $\lambda x.\,(\lambda x_1.x_1)\,x$. The printer renames the inner binder
+to \texttt{x1}, apart from the outer one. The first answer is the instructive one. Now $R$ is unknown when
+step~5 is reached, so backchaining on the hypothesis must solve the equation $R\,c \doteq c$, where $R$ was
+created outside the \scm{∀°} and $c$ inside it. That is a \emph{higher-order} unification problem, and it
+is one of the easy ones.
+
+\begin{definition}[Levels and patterns]\label{def:intro-levels}
+Every logic variable $X$ has a \emph{level} $\ell(X)$, the depth at which it was created. Every
+eigenvariable $c$ has the level $\ell(c)$ of the \scm{∀°} that made it, one more than the depth outside.
+\begin{enumerate}[nosep]
+  \item \emph{Scope check.} A binding $X := t$, made by any \scm{=°}, is accepted only if every
+        eigenvariable $c$ in $t$ has $\ell(c)\le\ell(X)$. Each unbound variable $Y$ of $t$ with
+        $\ell(Y)>\ell(X)$ is then \emph{lowered}: replaced by a new variable of level $\ell(X)$ or, when
+        $Y$ occurs applied, \emph{pruned} of the arguments that $X$ may not see.
+  \item \emph{Pattern.} An application $F\,a_1\dots a_n$ of an unbound variable $F$ is a \emph{pattern}
+        when its arguments, after head normalization, are distinct eigenvariables, each with
+        $\ell(a_i)>\ell(F)$.
+\end{enumerate}
+The full rule, including the cases that must wait for a later binding, is in \cref{sec:module-unif}.
+\end{definition}
+\noindent The first condition is the \emph{scope check}. It is the operational content of the order of
+quantifiers in $\exists R\,\forall c$: $R$ was chosen before $c$ existed, so its value cannot mention $c$
+(\cref{sec:hh-scope,sec:lambda-unifprob}). Levels replace the book's explicit quantifier prefix, as Teyjus
+does~\cite{NadathurJayaramanKwon1995}. The second condition defines Miller's fragment $\Llam$, in which
+unification is decidable and has most general unifiers~\cite{Miller1991} (\cref{sec:hounif-llambda}).
+
+\begin{example}[Scope and patterns]\label{ex:intro-scope}
+Here $\ell(R)=0$ and $\ell(c)=1$. The equation $R\doteq c$ violates the scope check and fails. The equation
+$R\,c\doteq c$ is a pattern: abstracting $c$ out of the right-hand side gives the most general unifier
+$R := \abs{x}{x}$. In the module, with \scm{q} in the role of $R$:
+\begin{scheme}
+(°->list #f (fresh° (q) (∀° (x) (=° q x))))
+(°->list/datum (fresh° (q) (∀° (x) (=° (@ q x) x))))
+\end{scheme}
+\begin{answers}
+()
+((ƛ (x) x))
+\end{answers}
+The first is the book's \lp{sigma x\ pi y\ x = y}, which is not provable \book{85}: no single term
+equals every new constant.
+\end{example}
+
+The other two answers of the backwards run come from the \lp{app} clause under the binder: the body
+\scm{(@ R c)} must unify with \scm{(app M N)}, where $M$ and $N$ were created inside the \scm{∀°}, at level~1.
+Variable elimination (\cref{sec:hounif-algo}) builds $R := \abs{y}{\texttt{(app (M$'$ y) (N$'$ y))}}$ and
+\emph{lowers} $M$ and $N$ to new variables $M'$, $N'$ of level~0, applied to $c$: $M := M'\,c$,
+$N := N'\,c$. Scheme code built none of these λ-terms; unification did.
+
+\paragraph{When an equation is not a pattern.} Some equations have no most general unifier. The book's
+$\forall x.\,F\,x\,x\doteq x$ \book{208} has two incomparable solutions, $\abs{a}{\abs{b}{a}}$ and
+$\abs{a}{\abs{b}{b}}$, and $F\,x\,x$ is not a pattern, since its arguments repeat. The module does what
+Teyjus does, \enquote{dynamic $\Llam$} (\cref{sec:hounif-dynamic}): it suspends the equation, retries
+it after every later binding, which may have turned it into a pattern, and reports it in the answer if it
+is still there at the end. Under \scm{°->pretty}, which prints constraints in the style of αKanren, the residual equation is
+closed over $x$ when it leaves the scope of the \scm{∀°}. A later binding decides it:
+\begin{scheme}
+(°->pretty (fresh° (q) (∀° (x) (=° (@ q x x) x))))
+(°->list/datum (fresh° (q) (∀° (x) (=° (@ q x x) x)) (=° q (ƛ (a b) b))))
+\end{scheme}
+\begin{answers}
+((α : (= (ƛ (x) (@ α x x)) (ƛ (x) x))))
+((ƛ (a b) b))
+\end{answers}
+
+\subsection{What the engine had to learn}
+
+None of the above runs on today's \micro. \Cref{tab:intro-concepts} lists what the example needed, where
+the book explains it, and where this document builds it.
+\begin{table}[h]
+\centering\small
+\caption{The running example, concept by concept.}\label{tab:intro-concepts}
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.5cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}p{4.3cm}@{}}
+\toprule
+concept & in the example & theory \,/\, in the module\\
+\midrule
+λ-tree syntax, α-equivalence & \texttt{(abs (ƛ (x) x))}, binders printed apart & \cref{ch:lambdatree} \,/\, \cref{ch:module}\\
+β-reduction, application & \texttt{(@ R x)} is \texttt{x} once \texttt{R := (ƛ (x) x)} & \cref{ch:lambda} \,/\, \cref{ch:module}\\
+GENERIC, eigenvariables & \texttt{(∀° (x) …)} & \cref{ch:hh} \,/\, \cref{ch:design,ch:module}\\
+AUGMENT, dynamic relations & \texttt{(⊃° ((typeof° x A)) …)} & \cref{ch:hh} \,/\, \cref{ch:module}\\
+scope check and levels & \texttt{R = x} fails & \cref{ch:hh,ch:hounif} \,/\, \cref{ch:module}\\
+pattern unification & \texttt{R x = x} gives \texttt{R := λx.x} & \cref{ch:hounif} \,/\, \cref{ch:module}\\
+dynamic $\Llam$, residuals & \texttt{F x x = x} waits & \cref{ch:hounif} \,/\, \cref{ch:module}\\
+interleaving search & typing backwards terminates & \cref{ch:horn} \,/\, \cref{ch:micro}\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The state of \micro{} has a fixed set of fields, and its unifier, walks and reifier are closed
+(\cref{sec:micro-ext}). The proposal opens them once, generically, and puts everything λ-specific in a
+client module. In the state's new slot the module keeps the depth, the level of each variable, the
+assumed clauses $\Gamma$, the suspended constraints (equations, and types or absentos on flexible
+terms), and the disequalities that involve λ-terms or eigenvariables. Through the hooks it receives every
+unification problem that contains one of its terms, it checks the scope of the bindings that \scm{=°}
+makes, and it takes part in printing. Because the hooks sit inside \micro's own \scm{=°}, every relation
+built on \scm{=°}, such as \micro's \scm{cons°} or the user's own, respects the scope of \scm{∀°} with no
+change. A prototype that wrapped \micro{} from the outside instead let eigenvariables escape through exactly
+such relations (\cref{ch:design}).
+
+\begin{kanren}[Why not just use Scheme closures?]
+A Scheme procedure can stand for a binder as long as it is only \emph{called}: \lp{mappred} and continuation
+passing work on today's \micro{} (\cref{sec:hoprog-free}). The backwards run above needs more: unification
+must look \emph{inside} the abstraction, compare it modulo α, and build one. A closure can do none of these,
+so \scm{ƛ} builds a data structure, a locally nameless term whose binders are de Bruijn
+indices~\cite{deBruijn1972,Chargueraud2012}, which prints with the user's names.
+\end{kanren}
+
+\begin{pitfall}[Hypotheses need a dynamic relation]
+In λProlog every predicate can receive clauses through \lp{=>}. In the module only a relation made by
+\scm{define-dynamic-relation} can, because a relation made by \scm{define-relation} is a closed Scheme
+procedure. Assuming a clause for it is an error, not a silent no-op:
+\begin{scheme}
+(define-relation (static° x) (=° x 1))
+(define-dynamic-relation (dynamic° x) (=° x 1))
+(°->list/datum (fresh° (q) (⊃° ((static° 2)) (static° q))))   ; an error
+(°->list/datum (fresh° (q) (⊃° ((dynamic° 2)) (dynamic° q))))
+\end{scheme}
+\begin{answers}
+Error: (⊃°) not a dynamic relation, see define-dynamic-relation: #<procedure (static° x)>
+(2 1)
+\end{answers}
+\noindent The first line is what \texttt{csi} prints for the error, which stops the script; the last
+query was run on its own. In the second answer the hypothesis comes first, then the
+static clause, as in the book \book{78}.
+\end{pitfall}
+
+% ==================================================================================================
+\section{Map of the document}\label{sec:intro-map}
+
+The document has three parts and two appendices. Part~I follows the book, Part~II the literature, and
+Part~III builds the proposal.
+
+\subsection*{Part I: the book}
+
+\paragraph{\Cref{ch:horn}, Logic programming as proof search.} The book's Introduction and Chapters~1--2:
+typed first-order terms, first-order unification, the search semantics of goals, and backchaining on Horn
+clauses (\fohc). It establishes that pure miniKanren \emph{is} \fohc{} without types and with an interleaving
+search, and it shows where the interleaving finds answers that depth-first search misses.
+
+\paragraph{\Cref{ch:hh}, Hereditary Harrop formulas.} Chapter~3 of the book: AUGMENT and GENERIC, hypothetical
+reasoning on a course database, scoped constants, why $\exists\forall$ and $\forall\exists$
+differ, and how assumed clauses share variables with their context. The logic is intuitionistic, indeed
+minimal, not classical. Its last section lists what $\forall$ and $\imp$ ask of a miniKanren: the program
+context must live in the search state, and scoped constants need a scope check.
+
+\paragraph{\Cref{ch:lambda}, Typed λ-terms and unification problems.} Chapter~4: simply typed λ-terms,
+conversion by α, β and η as the equality of the logic, normal forms, unification problems as quantified formulas,
+raising, and why higher-order unification is undecidable (Post's correspondence problem, Hilbert's tenth
+problem).
+
+\paragraph{\Cref{ch:hoprog}, Higher-order programming.} Chapters~5--6: rigid and flexible atoms, the
+languages \hohc{} and \hohh{}, predicate variables (\lp{mappred}, folds, continuation passing),
+function variables solved by unification (functional difference lists), and modules as logic. It sorts
+the book's programs into those that run on today's \micro{} (they only \emph{call} a predicate) and those
+that need λ-terms (they look \emph{inside} one).
+
+\paragraph{\Cref{ch:lambdatree}, λ-tree syntax.} Chapter~7, the chapter that motivates the proposal:
+object-level binders as meta-level abstractions, substitution as β, the \emph{mobility} of binders
+(term-level λ, then \lp{pi}, then an eigenvariable), and the book's programs over λ-terms and formulas:
+evaluators, type inference, de~Bruijn translation, normal forms, prenex forms, copy clauses, and
+substitution run backwards. It ends with the $\Llam$ subset.
+
+\paragraph{\Cref{ch:hounif}, Unification of λ-terms and higher-order patterns.} Chapter~8: Huet's procedure
+and its matching trees, the pattern fragment, the pattern unification algorithm as one walk of variable
+elimination (inversion, pruning, occurs and scope checks), traces of the book's examples, Nipkow's
+de~Bruijn algorithm with a running Scheme transliteration, and the pragmatics of real systems: universe
+levels in place of raising, and delayed non-patterns.
+
+\paragraph{\Cref{ch:apps}, Applications.} Chapters~9--11: provers for intuitionistic and classical logic,
+natural deduction with proof terms, tactics, typing and evaluation of functional programs, partial
+evaluation, CPS conversion, and the π-calculus. For each application it records which of $\forall$, $\imp$
+and λ-term unification it needs, and which parts run on \micro{} today.
+
+\subsection*{Part II: the literature}
+
+\paragraph{\Cref{ch:lkanren}, Higher-order miniKanren.} Ma and Friedman 2021 in full: grafting versus
+substitution, binder merging and its \enquote{true = false} hazard, static closures, and a critical assessment
+with three counter-examples. Then λKanren 2020, nominal unification and αKanren, eigenvariables and negation
+inside miniKanren, and the implementation techniques of Miller, Nipkow, Dowek et al., Nadathur et al.,
+Teyjus, ELPI and Makam. It ends with a comparison of the design options (\cref{sec:lkanren-compare}) and
+deliberately does not choose.
+
+\subsection*{Part III: the proposal}
+
+\paragraph{\Cref{ch:micro}, Anatomy of \micro.} The engine as it is today, at commit \texttt{f53bdcb}: terms
+and variables, the six-field state, the walk, unification, the stores D (disequalities), A (type tags) and T
+(absento), the interleaving search, reification and aggregation. It closes with what is open to extension and
+what is closed, and with three tricks that need no edit (including working AUGMENT and GENERIC prototypes)
+together with their limits.
+
+\paragraph{\Cref{ch:design}: requirements, design space, protocol.} The nine acceptance items A1--A9
+collected from Parts~I and~II (the scope of $\forall$ at every binding, AUGMENT with the book's clause
+order, type inference, λ-tree syntax, $\Llam$ with delay, λProlog's answers where Ma and Friedman differ,
+the book's programs, \micro's stores on λ-terms, and \micro's own suites unchanged). Then the design space,
+the four meanings of \scm{=°} on λ-terms left open by \cref{sec:lkanren-compare}, of which pattern
+unification with levels is retained; the three prototypes (a layer on top of \micro, hooks in \micro, a
+native engine) and the three reviews that ranked them; and the extension protocol that came out of it:
+the state's seventh field, the registry, the thirteen hooks with their contracts and call sites, the
+invariants every client must keep, and its cost. It ends with the history of the adversarial review rounds.
+
+\paragraph{\Cref{ch:module}: the module.} \texttt{(aux kanren lambda)} in detail: locally nameless terms
+built by \scm{ƛ} and \scm{@}; the extension's state (depth, levels, $\Gamma$, suspended constraints,
+λ-disequalities), copied and never mutated; the unification rules with variable elimination, the eager
+scope check, the fast paths and the wake-up loop, with worked traces; \scm{∀°} and \scm{⊃°}, including
+the discharge of constraints at the exit of a scope and backchaining in \scm{define-dynamic-relation};
+disequality, absento and types on λ-terms; reification; and the API reference.
+
+\paragraph{\Cref{ch:examples}: the book's examples in the module.} The core programs of Part~I, each beside its
+λProlog original and with its actual output: α, β and shadowing; the scope of eigenvariables; the course
+database, jars and bugs, and reverse with assumed clauses; type inference; call-by-name evaluation, copy and
+substitution, existential generalization; de~Bruijn translation and prenex forms; \lp{mappred} and
+palindromes with functional difference lists; Fischer's CPS transformation; and the unification examples of
+the book's Chapter~8 one by one. It also runs Ma and Friedman's queries and explains each difference, and
+closes with a table of all the examples.
+
+\paragraph{\Cref{ch:roadmap}: tests, limitations, performance, merge plan.} How the proposal is tested
+(three layers of tests, and \micro's suites run twice); nine documented limitations and deviations from
+λProlog, each pinned by a test (among them: only dynamic relations take hypotheses, terms are untyped,
+non-patterns are suspended and never enumerated, answers come in \micro's interleaving order); the
+performance measurements; a merge in three stages (first the protocol, then the module and its suites,
+then the show extension); six later work items; and nine questions only the maintainer of \aux{} can
+answer.
+
+\subsection*{Appendices}
+
+\paragraph{\Cref{app:rules}, Reference card.} The formal rules on a few pages: λProlog syntax and its
+logical reading, the goal and clause grammars, uniform proofs, typing, λ-conversion, raising, first-order
+unification, Huet's procedure, pattern unification and universe levels, each with its page in the book.
+
+\paragraph{\Cref{app:glossary}, Glossary.} The vocabulary of the three communities (proof theory,
+unification, miniKanren) in one alphabetical list, with pointers to the chapters and to the book, and a
+bridge between their names for the same idea.
+
+% ==================================================================================================
+\section{Reading paths}\label{sec:intro-paths}
+
+The chapters are written to be read in order, but they need not be. \Cref{tab:intro-paths} summarizes the
+three paths below; page counts are approximate.
+
+\paragraph{The fast path.} The minimum to understand the proposal, about 50 pages before
+\cref{ch:design,ch:module}:
+\begin{enumerate}[nosep]
+  \item \cref{sec:intro-brief} of this chapter (5 pages);
+  \item the two rules, the scope condition, and how quantification links goals and clauses:
+        \cref{sec:hh-rules,sec:hh-scope,sec:hh-link} (6 pages);
+  \item λ-tree syntax:
+        \cref{sec:lambdatree-encoding,sec:lambdatree-beta,sec:lambdatree-mobility,sec:lambdatree-typeof}
+        (11 pages);
+  \item what rigid and flexible terms and the normal form of a unification problem are:
+        \cref{sec:hounif-intro,sec:hounif-problems} (the introduction says enough about imitation and
+        projection to skip \cref{sec:hounif-huet}); then patterns, their unification, the worked traces
+        and what real systems do: \cref{sec:hounif-llambda,sec:hounif-algo,sec:hounif-traces,sec:hounif-pragmatics}
+        (14 pages in all);
+  \item the options: \cref{sec:lkanren-compare,sec:lkanren-summary} (3 pages; the summary defines each
+        term the comparison uses);
+  \item the engine's state, its constraint stores and its extension points:
+        \cref{sec:micro-state,sec:micro-stores,sec:micro-ext} (9 pages; skip \cref{sec:micro-stores} if you
+        know micro's D/A/T chain);
+  \item then \cref{ch:design,ch:module} (about 60 pages), the limitations in \cref{sec:roadmap-limits},
+        and the staged merge in \cref{sec:roadmap-merge} (3 pages), which says how to build and load
+        the edited micro.
+\end{enumerate}
+
+\paragraph{The λProlog path.} Part~I alone, \cref{ch:horn} to \cref{ch:apps}, about 200 pages, is a
+self-contained reading of the book. The \emph{Kanren angle} boxes can be skipped. \Cref{app:rules} serves as
+a reference card along the way.
+
+\paragraph{The implementer path.} For whoever will merge or extend the code:
+\cref{ch:hounif} (the algorithm), \cref{ch:micro} (the engine), \cref{ch:design} (the protocol),
+\cref{ch:module} (the module), and \cref{ch:roadmap} (tests, costs, merge plan), about 130 pages, with
+\cref{sec:rules-pattern,sec:rules-levels} at hand. \Cref{ch:examples} then serves as a set of worked tests.
+
+\begin{table}[htb]
+\centering\small
+\caption{Three reading paths. A filled bullet means read in full, a hollow one read the sections named in
+the text. Pages are those of this document.}\label{tab:intro-paths}
+\begin{tabular}{@{}lrccc@{}}
+\toprule
+chapter & pages & fast & λProlog & implementer\\
+\midrule
+\cref{ch:intro}, Introduction & 12 & $\circ$ & $\bullet$ & $\bullet$\\
+\cref{ch:horn}, proof search & 28 & & $\bullet$ & \\
+\cref{ch:hh}, hereditary Harrop & 26 & $\circ$ & $\bullet$ & \\
+\cref{ch:lambda}, λ-terms & 22 & & $\bullet$ & \\
+\cref{ch:hoprog}, higher-order programming & 33 & & $\bullet$ & \\
+\cref{ch:lambdatree}, λ-tree syntax & 34 & $\circ$ & $\bullet$ & \\
+\cref{ch:hounif}, pattern unification & 26 & $\circ$ & $\bullet$ & $\bullet$\\
+\cref{ch:apps}, applications & 31 & & $\bullet$ & \\
+\cref{ch:lkanren}, the literature & 32 & $\circ$ & & \\
+\cref{ch:micro}, the engine & 24 & $\circ$ & & $\bullet$\\
+\cref{ch:design}, design and protocol & 28 & $\bullet$ & & $\bullet$\\
+\cref{ch:module}, the module & 34 & $\bullet$ & & $\bullet$\\
+\cref{ch:examples}, the examples & 35 & & & $\bullet$\\
+\cref{ch:roadmap}, status and roadmap & 19 & $\circ$ & & $\bullet$\\
+\cref{app:rules}, reference card & 12 & & $\circ$ & $\circ$\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+% ==================================================================================================
+\section{Conventions}\label{sec:intro-conventions}
+
+\paragraph{Boxes.} Three kinds of box interrupt the text, and each can be skipped on a first reading.
+A \textbf{Tutorial} box walks through a computation step by step: a trace of unification, of a $\forall$ or
+$\imp$ step, of the changes of a state (see the box in \cref{sec:intro-brief}). A \textbf{Kanren angle} box
+says how a concept maps to \micro, what runs there today, and what the proposal changes. A \textbf{Pitfall}
+box marks a trap: one the book stresses, or one that a Scheme programmer is likely to fall into.
+
+\paragraph{Code.} Three environments, told apart by the color of the rule on their left:
+\begin{lprolog}
+typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.   % λProlog
+\end{lprolog}
+\begin{scheme}
+(°->list/datum (fresh° (q) (typeof° `(abs ,(ƛ (x) x)) q)))       ; aux Scheme
+\end{scheme}
+\begin{answers}
+((arr α α))
+\end{answers}
+\noindent The last one, \texttt{answers}, is always the \emph{actual output} of a run of the Scheme code
+above it, pasted verbatim, never written by hand. Inline, \lp{pi x\ G} is λProlog and \scm{(∀° (x) g)} is
+Scheme. Answers come in three forms. \scm{°->list/datum} gives plain data, comparable with \scm{equal?}.
+\scm{°->list #f} gives \micro's own form, a closed λ-expression whose parameters are the answer's unbound
+variables, such as \scm{(λ () (ƛ (x) x))}. \scm{°->pretty}, from \texttt{(aux kanren micro show)}, gives
+the αKanren-style view with constraints, such as \scm{(α : (= …))}. Reified variables print as \scm{α}, \scm{β}, \scm{γ}; a working variable that a
+constraint keeps prints as \scm{_3}. Names follow \aux: goals end in \scm{°}, their applicative forms in
+\scm{ª}, term constructors carry no suffix (\scm{ƛ}, \scm{@}), and internals carry the prefix
+\scm{μkanren-}.
+
+\paragraph{Pages of the book.} \book{n} refers to the \emph{printed} page $n$ of~\cite{MillerNadathur2012}, the
+number at the top of the page, which is the PDF page minus 16.
+\begin{pitfall}[Two page numberings]
+The comments in the prototype's files (\texttt{examples.scm}, the test suite, the module's header) cite the
+book as \texttt{p.N} with the \emph{PDF} page. So \texttt{p.207} in \texttt{examples.scm}, next to the
+\texttt{typeof} queries, is \book{191} here.
+\end{pitfall}
+
+\paragraph{Notation.} A sequent $\seq{\Sig}{\Prog}{G}$ asks for a proof of goal $G$ from program $\Prog$ over
+signature $\Sig$. Implication is written $\imp$, as in the book, and $D\imp G$ is \lp{D => G}. The logics are
+\fohc{} and \fohh{} (first-order Horn and hereditary Harrop) and \hohc{} and \hohh{} (their higher-order
+versions). $\Llam$ is the pattern fragment, $\eqb$ is λ-convertibility, $\subst{t}{s}{x}$ substitutes $s$ for $x$
+in $t$, and $\doteq$ is an equation to be solved. $\ell(X)$ and $\ell(c)$ are the levels of
+\cref{def:intro-levels}. Logic variables are upper case ($F$, $X$, $R$), eigenvariables lower case ($c$,
+$x$, $y$). Rules of proof search are set in small capitals (\rulename{generic}, \rulename{augment},
+\rulename{backchain}).
+
+\paragraph{Where the outputs come from.} Snippets in Parts~I and~II, and in \cref{ch:micro}, run on today's
+\micro, at commit \texttt{f53bdcb} of the \texttt{aux-lambdakanren} branch, unless a box says otherwise; some
+define a small throwaway interpreter first (\cref{sec:hh-interp}). The outputs of the proposal, in this
+chapter and from \cref{ch:design} on, come from the prototype as described in Part~III: \micro{} with the
+protocol applied (\texttt{micro.diff}), the show module with \texttt{show.diff}, and
+\texttt{(aux kanren lambda)}, all in \texttt{doc/hol-kanren/prototype/}. Every snippet was run by
+\texttt{csi} from CHICKEN~6.0.1pre1 (rev \texttt{55615603}), as installed; the
+benchmarks were compiled with \mbox{\texttt{csc -O2 -d1}}. The document was typeset with XeLaTeX, through Tectonic
+0.17.0, in Libertinus and DejaVu Sans Mono.
+
+% ==================================================================================================
+\section{Summary}\label{sec:intro-summary}
+\begin{itemize}
+  \item The goal is to bring λProlog's universal and hypothetical goals, λ-tree syntax and higher-order pattern
+        unification into \micro, following Miller and Nadathur's book (Part~I) and the miniKanren literature,
+        Ma and Friedman 2021 first (Part~II).
+  \item The outcome (Part~III) is a generic extension protocol in \micro{} plus the client module
+        \texttt{(aux kanren lambda)}. Three prototypes were compared by three reviews, and three adversarial
+        rounds hardened the result: 89 λ cases and \micro's 125 cases, run with and without the module,
+        pass, and the protocol costs about 1\% on first-order search.
+  \item The running example is \lp{typeof}. \scm{∀°} gives the body an eigenvariable one level deeper, and
+        \scm{⊃°} assumes its type. Backchaining on that hypothesis unifies the types, and the assumption
+        disappears with the answer.
+  \item Run backwards, the same program needs $R\,c\doteq c$: a pattern, solved by $R:=\abs{x}{x}$, while
+        $R\doteq c$ fails the scope check. Non-patterns wait and are reported as residual equations.
+  \item Three reading paths: a fast path of about 50 pages before the design and the module, the λProlog
+        path (Part~I), and the implementer path.
+  \item Answers are actual outputs; \book{n} is a printed page; the prototype's comments use PDF pages
+        (printed $+16$).
+\end{itemize}

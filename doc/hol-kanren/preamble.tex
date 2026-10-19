@@ -1,0 +1,67 @@
+% preamble.tex — shared by every chapter of hol-kanren.tex; compile with XeLaTeX (tectonic or latexmk -xelatex).
+\usepackage{amsmath,amsthm}
+\usepackage{unicode-math}
+\setmainfont{LibertinusSerif}[Extension=.otf,UprightFont=*-Regular,BoldFont=*-Bold,ItalicFont=*-Italic,BoldItalicFont=*-BoldItalic]
+\setsansfont{LibertinusSans}[Extension=.otf,UprightFont=*-Regular,BoldFont=*-Bold,ItalicFont=*-Italic]
+\setmathfont{LibertinusMath-Regular.otf}
+\setmonofont{DejaVu Sans Mono}[Scale=MatchLowercase]
+\usepackage[dvipsnames]{xcolor}
+\usepackage{mathpartir}
+\usepackage[most]{tcolorbox}
+\usepackage{booktabs,longtable,array,tabularx}
+\usepackage{enumitem}
+\usepackage{csquotes}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+\usepackage[capitalise,nameinlink]{cleveref}
+
+% ---------------------------------------------------------------- code
+% fvextra, not listings: listings scrambles code points above 255 (λ, α, ∀, ...) under XeTeX.
+% Environments: lprolog (λProlog source), scheme (aux Scheme source), answers (actual output of a run).
+% Inline: \lp{...} and \scm{...} (balanced braces; not inside section titles or captions, use \texttt there).
+\usepackage{fvextra}
+\fvset{fontsize=\small,breaklines=true,frame=leftline,framerule=1.2pt,xleftmargin=1.2em,framesep=0.6em,tabsize=2}
+\DefineVerbatimEnvironment{lprolog}{Verbatim}{rulecolor=\color{Plum!60}}
+\DefineVerbatimEnvironment{scheme}{Verbatim}{rulecolor=\color{OliveGreen!60}}
+\DefineVerbatimEnvironment{answers}{Verbatim}{fontsize=\footnotesize,formatcom=\color{black!75},rulecolor=\color{Gray!30}}
+\newcommand{\lp}{\Verb[fontsize=\small,formatcom=\color{Plum!70!black}]}
+\newcommand{\scm}{\Verb[fontsize=\small,formatcom=\color{OliveGreen!70!black}]}
+
+% ---------------------------------------------------------------- theorem-like environments
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}[chapter]
+\newtheorem{example}[definition]{Example}
+\theoremstyle{plain}
+\newtheorem{theorem}[definition]{Theorem}
+\newtheorem{proposition}[definition]{Proposition}
+\newtheorem{lemma}[definition]{Lemma}
+\newtheorem{corollary}[definition]{Corollary}
+\theoremstyle{remark}
+\newtheorem{remark}[definition]{Remark}
+
+% ---------------------------------------------------------------- reading boxes
+% code environments: lprolog, scheme, answers (actual output). tutorial: informal walk-through; kanren: how the concept maps to (aux kanren micro); pitfall: a trap the book stresses.
+\newtcolorbox{tutorial}[1][]{enhanced,breakable,colback=blue!3,colframe=blue!45!black,fonttitle=\bfseries\sffamily,
+  title={Tutorial\ifx\relax#1\relax\else: #1\fi},boxrule=0.6pt,arc=1.5pt}
+\newtcolorbox{kanren}[1][]{enhanced,breakable,colback=green!3,colframe=green!35!black,fonttitle=\bfseries\sffamily,
+  title={Kanren angle\ifx\relax#1\relax\else: #1\fi},boxrule=0.6pt,arc=1.5pt}
+\newtcolorbox{pitfall}[1][]{enhanced,breakable,colback=orange!4,colframe=orange!60!black,fonttitle=\bfseries\sffamily,
+  title={Pitfall\ifx\relax#1\relax\else: #1\fi},boxrule=0.6pt,arc=1.5pt}
+
+% ---------------------------------------------------------------- notation
+\newcommand{\book}[1]{\textup{[MN~p.\,#1]}}          % a PRINTED page of Miller & Nadathur (= PDF page - 16)
+\newcommand{\imp}{\supset}                              % implication, as in the book
+\newcommand{\seq}[3]{#1;#2\longrightarrow#3}            % Σ; P ⟶ G, a sequent of uniform proof search
+\newcommand{\Sig}{\Sigma}
+\newcommand{\Prog}{\mathcal{P}}
+\newcommand{\Llam}{L_\lambda}
+\newcommand{\fohc}{\textit{fohc}}  \newcommand{\fohh}{\textit{fohh}}
+\newcommand{\hohc}{\textit{hohc}}  \newcommand{\hohh}{\textit{hohh}}
+\newcommand{\typ}[1]{\mathsf{#1}}                        % a type or sort, e.g. \typ{o}, \typ{int}
+\newcommand{\cst}[1]{\mathsf{#1}}                        % a constant of a signature
+\newcommand{\abs}[2]{\lambda #1.\,#2}
+\newcommand{\eqb}{=_{\beta\eta}}
+\newcommand{\subst}[3]{#1[#2/#3]}                        % t[s/x]
+\newcommand{\rulename}[1]{\textsc{#1}}
+\newcommand{\aux}{\textsf{aux}}
+\newcommand{\micro}{\textsf{(aux kanren micro)}}

@@ -1,0 +1,1152 @@
+\chapter{Typed λ-terms and unification problems}\label{ch:lambda}
+
+\Cref{ch:horn,ch:hh} did logic programming over \emph{first-order} terms. \Cref{ch:hh} added
+universal quantifiers and implications to goals (\fohh), and with them eigenvariables: constants made
+up during the search that no logic variable created earlier may capture. Chapter~4 of the book
+\cite{MillerNadathur2012} keeps the logic and changes the \emph{terms}. First-order terms give way to
+\emph{simply typed λ-terms}. This chapter studies those terms on their own and leaves the higher-order
+logic built on them to \cref{ch:hoprog} \book{96}.
+
+The change has three consequences, and each of them touches a different part of a miniKanren:
+\begin{enumerate}[nosep]
+  \item \emph{What equality means.} Two terms are equal when they are λ-convertible (α, β, η), not
+        only when they are identical. This affects the term representation and the unifier.
+  \item \emph{What a logic variable may be bound to.} A unification problem becomes a
+        \emph{quantified formula}. Its prefix mixes ∀ and ∃, and the order of the quantifiers decides
+        which symbols a variable may use. This affects the state, which has to track scope.
+  \item \emph{How hard unification is.} There may be several, infinitely many, or no most general
+        unifiers, and the problem is undecidable. This affects the search: unification has to become a
+        stream of answers.
+\end{enumerate}
+The chapter follows the book's order. \Cref{sec:lambda-syntax,sec:lambda-conversion,sec:lambda-normal}
+cover the calculus. \Cref{sec:lambda-unifprob,sec:lambda-raising,sec:lambda-solutions,sec:lambda-examples}
+recast unification as quantified equalities. \Cref{sec:lambda-vocab} fixes the vocabulary that
+\cref{ch:hounif} uses for the unification procedure, and \cref{sec:lambda-undecidable} proves
+undecidability.
+
+% ======================================================================================
+\section{Syntax and types of λ-terms}\label{sec:lambda-syntax}
+
+Typed λ-terms are built from typed constants and variables with two operations. The first is
+\emph{application}, written as juxtaposition and associating to the left, exactly as for first-order terms.
+The second is \emph{abstraction}, which is new: from an expression $t$ in which a variable $x{:}\alpha$
+may occur free, it forms the function $\lambda(x{:}\alpha)\,t$ \book{97}. In λProlog this is written
+\lp{(x:A)\ T}. The type annotation can be dropped (\lp{x\ T}), and the type is then inferred.
+
+\paragraph{Parsing.} The body of an abstraction extends as far to the right as possible. So
+application binds tighter than abstraction, and abstraction associates to the right \book{97}:
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+mathematical & λProlog concrete syntax\\
+\midrule
+$\lambda f\,\lambda x\,(f\,(f\,(f\,x)))$ & \lp{f\x\ f (f (f x))}\\
+$\lambda x\,(f\,(g\,\lambda y\,(h\,x\,y))\,x)$ & \lp{x\ f (g y\ h x y) x}\\
+$\lambda x\,\lambda y\,x$ & \lp{x\y\ x}\\
+\bottomrule
+\end{tabular}
+\end{center}
+A backslash cannot occur inside an identifier, so no spaces are needed around it.
+
+\begin{definition}[Types and terms]\label{def:lambda-syntax}
+Types are generated from primitive types (sorts such as $\typ{i}$, and the type $\typ{o}$ of
+propositions), type variables $A$, type constructors such as $\typ{list}\,A$, and the arrow
+$\tau_1\to\tau_2$, which associates to the right. Terms are
+\[
+  t \;::=\; c \;\mid\; x \;\mid\; (t\;t) \;\mid\; \lambda(x{:}\tau)\,t .
+\]
+(The book introduces the grammar in prose \book{97--99}. This compact form is ours.)
+\end{definition}
+
+\paragraph{Typing.} The judgement $\Sig;\Gamma\Vdash t:\tau$ (in the book, with a double turnstile) says
+that $t$ has type $\tau$ when $\Sig$ gives the types of the constants and $\Gamma$ those of the
+variables. It is defined by the rules of Figure~4.1 \book{98}:
+\begin{mathpar}
+\inferrule{c:\sigma\in\Sig \\ \tau\triangleleft\sigma}{\Sig;\Gamma\Vdash c:\tau}
+\and
+\inferrule{x:\tau\in\Gamma}{\Sig;\Gamma\Vdash x:\tau}
+\and
+\inferrule{\Sig;\Gamma\Vdash g:\tau_1\to\tau_2 \\ \Sig;\Gamma\Vdash t:\tau_1}{\Sig;\Gamma\Vdash (g\;t):\tau_2}
+\and
+\inferrule{\Sig;\Gamma,x:\tau\Vdash t:\sigma}{\Sig;\Gamma\Vdash \lambda(x{:}\tau)\,t:\tau\to\sigma}\;(\dagger)
+\and
+\inferrule{\Sig;\Gamma\Vdash B:\tau}{\Sig;\Gamma\Vdash C:\tau}\;(\ddagger)
+\end{mathpar}
+Proviso $(\dagger)$: $x$ is not declared as a type or kind in $\Sig$ or $\Gamma$. Proviso $(\ddagger)$:
+$B$ and $C$ differ only in the names of bound variables. $\tau\triangleleft\sigma$ means that $\tau$ is a
+substitution instance of $\sigma$, so a polymorphic constant is instantiated afresh at every use
+\book{97}. Compared with the first-order rules of \cref{ch:horn}, the restrictions on the types in
+$\Sig$ and $\Gamma$ are gone: a constant may have any type, including a functional type that ends in
+$\typ{o}$. There is one new rule, for abstraction. And there are \emph{no special rules for the
+quantifiers}, because the quantifiers have become ordinary constants (see below) \book{97--98}.
+
+\begin{definition}[Well-formed, closed, simply typed {\book{98}}]\label{def:lambda-wf}
+A term $t$ is a \emph{well-formed λ-term over $\Sig$} if $\Sig;\Gamma\Vdash t:\tau$ is derivable for
+some $\Gamma$ and $\tau$. It is \emph{closed} if this holds with $\Gamma$ empty, and \emph{open}
+otherwise. It is \emph{simply typed} if neither its type nor the types of its subterms contain type
+variables.
+\end{definition}
+
+When every bound variable carries its annotation, the type of a well-formed term is unique up to
+renaming of type variables. When annotations are omitted, type inference gives each bound variable a
+fresh type variable and refines it \enquote{in as minimal a way as possible}. The type found this
+way is again unique up to renaming, the principal type \book{98--99}. The unification theory of
+\cref{ch:hounif} is stated for simply typed terms.
+
+\begin{example}[A typing derivation]\label{ex:lambda-typing}
+The Church numeral \lp{f\x\ f (f x)} has type $(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$. Write
+$\Gamma=f{:}\typ{i}\to\typ{i},\,x{:}\typ{i}$:
+\begin{mathpar}
+\inferrule*[right=($\dagger$)]{
+  \inferrule*[right=($\dagger$)]{
+    \inferrule*[right=app]{
+      \inferrule*{f:\typ{i}\to\typ{i}\in\Gamma}{\Sig;\Gamma\Vdash f:\typ{i}\to\typ{i}} \\
+      \inferrule*[right=app]{\Sig;\Gamma\Vdash f:\typ{i}\to\typ{i} \\ \Sig;\Gamma\Vdash x:\typ{i}}{\Sig;\Gamma\Vdash f\,x:\typ{i}}
+    }{\Sig;\Gamma\Vdash f\,(f\,x):\typ{i}}
+  }{\Sig;f{:}\typ{i}\to\typ{i}\Vdash \lambda x\,f\,(f\,x):\typ{i}\to\typ{i}}
+}{\Sig;\emptyset\Vdash \lambda f\,\lambda x\,f\,(f\,x):(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}}
+\end{mathpar}
+Read the derivation bottom up. Each abstraction rule $(\dagger)$ moves one binder into the context.
+The application rule \textsc{app} then checks $f$ against a functional type twice, and the leaves are
+instances of the variable rule (the two leaves above $f\,x$ are left implicit). Because the derivation
+ends with an empty context, the term is closed. No constant was used, so this derivation works for
+every $\Sig$, including one with no constant of type $\typ{i}$, a case that matters in
+\cref{sec:lambda-church,sec:lambda-solutions}.
+\end{example}
+
+\subsection{Formulas are terms of type o}\label{sec:lambda-formulas}
+
+A \emph{formula} is a well-formed term of type $\typ{o}$. The connectives are constants such as
+$\wedge:\typ{o}\to\typ{o}\to\typ{o}$. The quantifiers become constants too
+\book{99}:
+\[
+  \forall : (A\to\typ{o})\to\typ{o}, \qquad \exists : (A\to\typ{o})\to\typ{o}
+  \qquad\text{(concretely \lp{pi} and \lp{sigma})},
+\]
+and $\forall x\,B$ abbreviates $\forall(\lambda x\,B)$, written $\forall_\tau x\,B$ when the type of $x$
+matters. A quantified formula is typed with the ordinary rules. From $\Sig;\Gamma,x{:}\sigma\Vdash B:\typ{o}$
+the abstraction rule gives $\lambda x\,B:\sigma\to\typ{o}$, the instance
+$\forall:(\sigma\to\typ{o})\to\typ{o}$ of the constant gives the rest, and so $\forall(\lambda x\,B):\typ{o}$.
+For example, applying \lp{pi} at type \lp{(list int -> o) -> o} to an abstraction of type
+\lp{list int -> o} \book{99}:
+\begin{lprolog}
+y\ append (1::2::nil) y X.
+pi y\ append (1::2::nil) y X.
+\end{lprolog}
+Since signatures are no longer restricted, logical symbols may now appear \emph{inside the arguments of
+non-logical ones} \book{99--100}:
+\begin{lprolog}
+type foreach  (A -> o) -> list A -> o.
+foreach (x\ x > 5, x < 9) (3::10::6::8::nil).
+\end{lprolog}
+Here the conjunction \lp{,} sits inside an argument of \lp{foreach}. Higher-order programming
+(\cref{ch:hoprog}) rests on this possibility. One more fact matters a lot later. \emph{The logic has a
+single binder, λ-abstraction}: ∀, ∃ and every object-level binder (\cref{ch:lambdatree}) are encoded
+with it \book{100}.
+
+\begin{kanren}[terms are data, goals are procedures]
+In \micro{} a goal is a Scheme procedure from a state to a stream of states. A procedure is opaque to
+the unifier: it cannot be walked, compared or reified. So a formula on which one wants to
+\emph{unify}, for example to solve for a predicate variable, has to be represented as
+\emph{data}, such as a record for $\wedge$ or for \lp{pi} applied to an abstraction, and then
+interpreted by a meta-level relation. This is the design of \cref{ch:hoprog,ch:lkanren}. For
+\lp{foreach} with a ground Scheme predicate, ordinary higher-order Scheme is enough. Note also that
+the term language now needs a representation of λ itself, which Scheme closures cannot provide:
+\cref{sec:lambda-normal,sec:lambda-unifprob} use de Bruijn terms \cite{deBruijn1972} (lists in the first, records in the second), and \cref{ch:design}
+discusses the options.
+\end{kanren}
+
+% ======================================================================================
+\section{λ-conversion: the equality of the logic}\label{sec:lambda-conversion}
+
+An abstraction is meant to denote a function, and an application of an abstraction is meant to denote
+the result of the function. The conversion rules make this intended meaning part of the equality.
+They rely on substitution, which must not capture variables.
+
+\begin{definition}[Free for; substitution {\book{100}}]\label{def:lambda-subst}
+$t$ is \emph{free for} $x$ in $s$ if no free occurrence of $x$ in $s$ lies in the scope of an
+abstraction that binds a free variable of $t$. If $t$ is free for $x$ in $s$ and both have the same
+type, $\subst{s}{t}{x}$ is $s$ with every free occurrence of $x$ replaced by $t$.
+\end{definition}
+For example, $(f\,x)$ is free for $u$ in $\lambda w\,(g\,u\,w)$, but $(f\,w)$ is not: substituting it
+would put its free $w$ under the binder $\lambda w$. Ignoring the proviso is logically unsound, for the
+same reason as with quantified formulas in \cref{ch:hh}.
+
+\begin{definition}[The rules of λ-conversion {\book{100--101}}]\label{def:lambda-conv}
+The following rewrites may be applied to any subterm:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+rule & redex $\Rightarrow$ contractum & proviso\\
+\midrule
+α-rewriting & $\lambda x\,s\;\Rightarrow\;\lambda y\,\subst{s}{y}{x}$ & $y$ free for $x$ in $s$, $y$ not free in $s$\\
+β-contraction & $(\lambda x\,s)\,t\;\Rightarrow\;\subst{s}{t}{x}$ & $t$ free for $x$ in $s$ (lifted below)\\
+η-contraction & $\lambda x\,(s\,x)\;\Rightarrow\;s$ & $x$ not free in $s$\\
+\bottomrule
+\end{tabular}
+\end{center}
+The converses are β-expansion and η-expansion. \emph{α-conversion} is the reflexive, symmetric,
+transitive closure of α-rewriting. \emph{β-reduction} is the reflexive, transitive closure of
+α-conversion together with β-contraction, and \emph{β-conversion} is its symmetric, transitive closure.
+η-reduction and η-conversion are defined in the same way. \emph{λ-conversion} is the transitive
+closure of α-, β- and η-conversion.
+\end{definition}
+
+λ-conversion is an equivalence and a congruence, and \emph{it is the equality of higher-order logic}
+\book{101}. Two consequences stand out. First, terms related by λ-conversion cannot be told apart in
+the logic. Second, \emph{no specification can determine the name of a bound variable}, because that
+name can always be changed by α-conversion without changing the term. \Cref{ch:lambdatree} builds
+λ-tree syntax on this second fact.
+
+\begin{example}[Four equal terms {\book{101}}]\label{ex:lambda-four}
+\begin{lprolog}
+x\y\ f (g x) y
+X\Y\ f (g X) Y
+x\ f (g x)
+x\y\ f ((u\v\v) (2 + 3) (g x)) y
+\end{lprolog}
+The first two terms are α-convertible. The third is the first after an η-contraction:
+\[\lambda y\,(f\,(g\,x)\,y)\;\Rightarrow\;f\,(g\,x).\]
+A β-contraction of the fourth gives
+\begin{lprolog}
+x\y\ f ((v\v) (g x)) y
+\end{lprolog}
+and a second one gives back the first. Note that \lp{(2 + 3)} disappears entirely, because $u$ does
+not occur in the body \lp{v\v}.
+\end{example}
+
+\begin{pitfall}[capital letters are not always logic variables]
+In \lp{X\Y\ f (g X) Y} the tokens \lp{X} and \lp{Y} are \emph{bound} names, not logic variables. In
+λProlog only \emph{free} capitalised tokens are logic variables. A Scheme reader of λProlog code has to
+look at where a name is bound before deciding what it is.
+\end{pitfall}
+
+\paragraph{Liberalised substitution.} From now on $\subst{s}{t}{x}$ is defined even when $t$ is not free
+for $x$ in $s$. First α-rename $s$ to some $s'$ in which $t$ is free for $x$, then substitute. The result
+depends on the renaming only up to α, so modulo equality it is well defined. β-contraction then becomes
+$(\lambda x\,s)\,t\Rightarrow\subst{s}{t}{x}$ with no proviso \book{101}. This is ordinary
+capture-avoiding substitution.
+
+\begin{tutorial}[capture-avoiding β, by hand]
+Contract $(\lambda u\,\lambda w\,(g\,u\,w))\,(f\,w)$. The argument has a free $w$. A naive textual
+replacement would give $\lambda w\,(g\,(f\,w)\,w)$, where the outer $w$ has been \emph{captured} and now
+refers to the bound variable. This is a different function. Liberalised substitution first renames the
+binder, $\lambda u\,\lambda w'\,(g\,u\,w')$, and then substitutes:
+\[
+  (\lambda u\,\lambda w\,(g\,u\,w))\,(f\,w)\;\Rightarrow\;\lambda w'\,(g\,(f\,w)\,w').
+\]
+With de Bruijn indices (\cref{sec:lambda-normal}) the renaming becomes index arithmetic: the argument
+is shifted by one when it goes under a binder.
+\end{tutorial}
+
+% ======================================================================================
+\section{Normal forms and the power of β}\label{sec:lambda-normal}
+
+A \emph{β-redex} is a term $(\lambda x\,s)\,t$. An \emph{η-redex} is a term $\lambda x\,(t\,x)$ with $x$
+not free in $t$. A term with no β-redexes is in \emph{β-normal form}. If it has no η-redexes either, it
+is in \emph{λ-normal form} (also called βη-normal form) \book{101--102}.
+
+\begin{theorem}[Normal forms {\book{102}}]\label{thm:lambda-nf}
+Every term of the typed language has a λ-normal form, unique up to α-conversion. It is written
+$\mathrm{λnorm}(s)$. It can be computed by contracting β-redexes until none is left and then
+contracting η-redexes.
+\end{theorem}
+
+\begin{corollary}[Decidable equality {\book{102}}]\label{cor:lambda-eq}
+Two terms of the same type are λ-convertible if and only if their λ-normal forms are α-equivalent.
+\end{corollary}
+
+\begin{remark}[Background the book does not spell out]
+The book states \cref{thm:lambda-nf} as \enquote{well known}. In the literature it rests on two
+classical properties of the simply typed λ-calculus. \emph{Strong normalisation} says that every
+reduction sequence terminates, which gives existence. The \emph{Church–Rosser property} (confluence)
+says that diverging reductions can be joined again, which gives uniqueness. The algorithm also
+relies on a standard fact the book uses without proof: η-contracting a β-normal term creates no new
+β-redex, so doing η after β is enough.
+\end{remark}
+
+\begin{pitfall}[equality is intensional]
+Logical equivalences do not affect term equality. With $p,q:\typ{i}\to\typ{o}$, the term
+$\lambda x\,(p\,x)\wedge(q\,x)$ is \emph{not} equal to $\lambda x\,(q\,x)\wedge(p\,x)$ \book{102}. Types
+are inhabited by \emph{expressions}, not by sets. A syntactic unifier gets this right automatically. A
+unifier that knew about commutativity of $\wedge$ would be wrong.
+\end{pitfall}
+
+\subsection{Computing with β: Church numerals}\label{sec:lambda-church}
+
+The rule $(\lambda x\,s)\,t\Rightarrow\subst{s}{t}{x}$ can copy $t$ many times or throw it away. Even when
+$s$ and $t$ are both normal, the result need not be, because $x$ may sit in head position
+\book{102}. So normalisation is a model of computation. Let the sort $\typ{i}$ have \emph{no constants}.
+Then the closed λ-normal forms of type $(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$ are exactly
+the \emph{Church numerals} $\ulcorner n\urcorner=\lambda f\,\lambda x\,(f^n\,x)$ \book{102}. Arithmetic
+is then definable \book{103}:
+\[
+  \mathit{succ}=\lambda n\,\lambda f\,\lambda x\,f\,(n\,f\,x),\quad
+  \mathit{add}=\lambda n\,\lambda m\,\lambda f\,\lambda x\,n\,f\,(m\,f\,x),\quad
+  \mathit{mul}=\lambda n\,\lambda m\,\lambda f\,\lambda x\,n\,(m\,f)\,x .
+\]
+λProlog prints λ-normal forms, so it can run these functions (footnote: the ambient signature has the
+sort \lp{i}) \book{103}:
+\begin{lprolog}
+?- N = ((n\m\f\x\ n (m f) x) ((f:i -> i)\x\ f (f x)) (f\x\ f (f x))).
+N = f\x\ f (f (f (f x)))
+?-
+\end{lprolog}
+The book adds that the functions definable this way are \enquote{limited to the polynomial ones}
+\book{103}. (The phrasing is informal. The precise class, a result outside the book due to
+Schwichtenberg and Statman, is the \emph{extended} polynomials, which also allow a test for zero.)
+
+\paragraph{Blow-up.} Define the \emph{size} of a term as its number of applications. Normalising can
+increase the size enormously. The book's series \book{104} is
+\begin{lprolog}
+(g\e\ e)           (e\f\ e (e f)) (f\x\ f (f x)).
+(g\e\ g e)         (e\f\ e (e f)) (f\x\ f (f x)).
+(g\e\ g (g e))     (e\f\ e (e f)) (f\x\ f (f x)).
+(g\e\ g (g (g e))) (e\f\ e (e f)) (f\x\ f (f x)).
+\end{lprolog}
+with \lp{x : i}, \lp{f : i -> i}, \lp{e : (i -> i) -> i -> i} and
+\lp{g : ((i -> i) -> i -> i) -> (i -> i) -> i -> i}. The \lp{g\e\} parts are Church numerals one type
+level up. \lp{g\e\ g (g e)} has a \emph{fourth-order} type. The $(n{+}1)$-th term has size $n+6$, and its
+normal forms are the numerals 2, 4, 16 and 256 \book{104}.
+
+\begin{remark}[An erratum in the size formula]\label{rem:lambda-erratum-size}
+The book says the $(n{+}1)$-th normal form has size $2^{2^{\cdot^{\cdot^{2}}}}$ with $n+1$ twos
+\book{104}. The term \lp{e\f\ e (e f)} squares a numeral, and the outer numeral applies it $n$ times to
+$\ulcorner 2\urcorner$. So the normal form is $\ulcorner 2^{2^n}\urcorner$, of size $2^{2^n}$: 2, 4, 16,
+256, 65536. This matches the book's own \enquote{256} for the fourth term. A right-nested tower with
+four twos is 65536, though, so the printed formula is right only if the tower is read
+left-nested, $((2^2)^2)^{\cdots}$. The run below confirms the numbers. The point of the passage is
+unaffected: sizes can explode (Statman \cite{Statman1979} showed that λ-conversion is not elementary
+recursive, as the book's notes cite \book{116}).
+\end{remark}
+
+\begin{kanren}[de Bruijn terms and a β-normaliser in plain Scheme]
+With de Bruijn indices \cite{deBruijn1972} a bound variable is the number of binders between its
+occurrence and its binder. α-equivalent terms are then \emph{the same data structure}, and
+capture-avoidance turns into the index arithmetic of \scm{shift}. The following illustration is plain
+Scheme, not a proposed API (the design is in \cref{ch:design}). It converts named terms to de Bruijn
+form and computes β-normal forms (file \texttt{norm-core.scm}):
+\begin{scheme}
+;; A tiny β-normaliser: de Bruijn inside, names outside.
+;; Input: (λ (x y ...) body), applications (f a b ...), symbols.
+(define (->db t env)                    ; named term -> de Bruijn
+  (cond
+    ((symbol? t) (let ((i (index-of t env))) (if i i t)))
+    ((eq? (car t) 'λ)
+     (let loop ((xs (cadr t)) (env env))
+       (if (null? xs)
+           (->db (caddr t) env)
+           (list 'lam (loop (cdr xs) (cons (car xs) env))))))
+    (else
+     (let loop ((f (->db (car t) env)) (as (cdr t)))
+       (if (null? as)
+           f
+           (loop (list 'app f (->db (car as) env)) (cdr as)))))))
+(define (index-of x l)
+  (let loop ((l l) (i 0))
+    (cond ((null? l) #f)
+          ((eq? (car l) x) i)
+          (else (loop (cdr l) (+ i 1))))))
+(define (shift d c t)                   ; add d to the indices >= c
+  (cond ((integer? t) (if (>= t c) (+ t d) t))
+        ((symbol? t) t)
+        ((eq? (car t) 'lam) (list 'lam (shift d (+ c 1) (cadr t))))
+        (else (list 'app (shift d c (cadr t)) (shift d c (caddr t))))))
+(define (subst t j s)                   ; t[s/j], capture-free
+  (cond ((integer? t) (if (= t j) s t))
+        ((symbol? t) t)
+        ((eq? (car t) 'lam)
+         (list 'lam (subst (cadr t) (+ j 1) (shift 1 0 s))))
+        (else (list 'app (subst (cadr t) j s) (subst (caddr t) j s)))))
+(define (beta body arg) (shift -1 0 (subst body 0 (shift 1 0 arg))))
+(define (nf t)                          ; β-normal form
+  (cond ((or (integer? t) (symbol? t)) t)
+        ((eq? (car t) 'lam) (list 'lam (nf (cadr t))))
+        (else (let ((f (nf (cadr t))))
+                (if (and (pair? f) (eq? (car f) 'lam))
+                    (nf (beta (cadr f) (caddr t)))
+                    (list 'app f (nf (caddr t))))))))
+(define (size t)                        ; number of applications
+  (cond ((not (pair? t)) 0)
+        ((eq? (car t) 'lam) (size (cadr t)))
+        (else (+ 1 (size (cadr t)) (size (caddr t))))))
+(define (church t)                      ; λf λx f^n x -> n, else #f
+  (and (pair? t) (eq? (car t) 'lam)
+       (pair? (cadr t)) (eq? (car (cadr t)) 'lam)
+       (let loop ((b (cadr (cadr t))) (n 0))
+         (cond ((eqv? b 0) n)
+               ((and (pair? b) (eq? (car b) 'app) (eqv? (cadr b) 1))
+                (loop (caddr b) (+ n 1)))
+               (else #f)))))
+(define (run t) (church (nf (->db t '()))))
+\end{scheme}
+Running Church arithmetic and the blow-up series (file \texttt{church.scm}):
+\begin{scheme}
+(include "norm-core.scm")
+(define two '(λ (f x) (f (f x))))
+(define three '(λ (f x) (f (f (f x)))))
+(define (show . xs) (display xs) (newline))
+(show 'succ-3  (run `((λ (n f x) (f (n f x))) ,three)))
+(show 'add-2-3 (run `((λ (n m f x) (n f (m f x))) ,two ,three)))
+(show 'mul-2-2 (run `((λ (n m f x) (n (m f) x)) ,two ,two)))
+(define (series n)        ; (g\e\ g^n e) (e\f\ e (e f)) (f\x\ f (f x))
+  `((λ (g e) ,(let loop ((k n)) (if (= k 0) 'e `(g ,(loop (- k 1))))))
+    (λ (e f) (e (e f)))
+    ,two))
+(do ((n 0 (+ n 1))) ((> n 4))
+  (let* ((t (->db (series n) '())) (v (nf t)))
+    (show 'n n 'size (size t) 'nf-size (size v) 'numeral (church v))))
+\end{scheme}
+\begin{answers}
+(succ-3 4)
+(add-2-3 5)
+(mul-2-2 4)
+(n 0 size 6 nf-size 2 numeral 2)
+(n 1 size 7 nf-size 4 numeral 4)
+(n 2 size 8 nf-size 16 numeral 16)
+(n 3 size 9 nf-size 256 numeral 256)
+(n 4 size 10 nf-size 65536 numeral 65536)
+\end{answers}
+The input sizes are $n+6$, as the book says, and the normal-form sizes are $2^{2^n}$, as
+\cref{rem:lambda-erratum-size} says. For the unifier, the useful lesson is that a de Bruijn λ-term
+built from Scheme records or lists is \emph{already} handled by \micro's structural \scm{=°} up to α.
+What \scm{=°} cannot do is β: binding a logic variable that sits in head position creates a redex, so
+some walk-and-normalise step has to be added (\cref{def:module-hnf}).
+\end{kanren}
+
+\paragraph{Why logic programs do not explode.} The book gives three reasons \book{104--105}. (1)
+Integers and data structures are built-in or made from non-logical constructors, not Church-encoded.
+(2) Bound variables usually have primitive (order-0) types. If every bound variable in a term has a
+primitive type and $s,t$ are λ-normal, then $\subst{s}{t}{x}$ is λ-normal: it may contain many copies of
+$t$, but there are no new redexes. (3) In the sublanguage $\Llam$ (\cref{ch:lambdatree}), β is
+restricted to \emph{β\textsubscript{0}-contraction} $(\lambda x\,s)\,x\Rightarrow s$, which only renames,
+and normalisation then \emph{shrinks} terms.
+
+\begin{remark}[Order of a type]
+The book uses \enquote{$n$-th order} without giving a formula. The usual definition, consistent with all
+its uses, is $\mathrm{ord}(\tau)=0$ for primitive $\tau$ and
+$\mathrm{ord}(\tau_1\to\tau_2)=\max(\mathrm{ord}(\tau_1)+1,\mathrm{ord}(\tau_2))$. Checks: the type
+$(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$ is called second-order \book{102}, and the type of
+\lp{g\e\ g (g e)} fourth-order \book{104}. A unification problem whose variables have order at most
+2 is called \emph{third-order} \book{116}.
+\end{remark}
+
+% ======================================================================================
+\section{Unification problems as quantified equalities}\label{sec:lambda-unifprob}
+
+Section~1.5 of the book (\cref{ch:intro}) defined a unification problem as a multiset $\{t_1=s_1,\dots,t_p=s_p\}$ and related it
+to the formula $\forall y_1\dots\forall y_m\,\exists x_1\dots\exists x_n\,[t_1=s_1\wedge\dots\wedge
+t_p=s_p]$, with the $y$'s the constants and the $x$'s the logic variables \book{105}. Following Miller
+\cite{Miller1991,Miller1992}, the book now makes the \emph{formula} the official presentation and
+allows any quantifier prefix.
+
+\begin{definition}[Generalised unification problem {\book{105}}]\label{def:lambda-unifprob}
+A unification problem is a formula
+\[
+  Q_1x_1\dots Q_nx_n\,[\,t_1=s_1\wedge\dots\wedge t_m=s_m\,]\qquad(n,m\ge 0,\ Q_i\in\{\forall,\exists\}),
+\]
+with $t_j$ and $s_j$ λ-terms of the same type. The bound variables $x_i$ may have types of any order.
+\end{definition}
+
+Why mix the quantifiers? The book gives two reasons \book{106}, each with a query that fails.
+
+\emph{First, \fohh{} proof search creates mixed prefixes.} A \lp{pi} in a goal introduces an
+eigenvariable \emph{after} the logic variables already present:
+\begin{lprolog}
+?- pi y\ X = y.
+no
+?-
+\end{lprolog}
+The problem is $\exists x\,\forall y\,[x=y]$. It fails because no instance of \lp{X} may contain the
+eigenvariable that stands for $y$.
+
+\emph{Second, binders in terms behave like inner universal quantifiers.}
+\begin{lprolog}
+?- (y\ X) = (y\ y).
+no
+?-
+\end{lprolog}
+The problem is $\exists x\,[(\lambda y\,x)=(\lambda y\,y)]$. The equation $(\lambda y\,t)=(\lambda y\,s)$
+is logically equivalent to $\forall y\,[t=s]$, so this is again $\exists x\,\forall y\,[x=y]$, and it
+fails for the same reason: \emph{no instance of \lp{X} may contain a variable bound by an abstraction
+inside whose body \lp{X} occurs} \book{106}.
+
+\begin{tutorial}[reading a quantifier prefix]
+Every problem in this chapter can be read with one rule.
+\begin{quote}
+\emph{An existential variable may be instantiated only with a term built from symbols quantified to its
+\textbf{left}} (together with fresh logic variables when one is content with a unifier rather than a
+solution, \cref{sec:lambda-solutions}).
+\end{quote}
+Here is where each quantifier of a λProlog problem comes from.
+\begin{itemize}[nosep]
+\item \textbf{Constants of the signature} are outermost universals. They are to the left of everything,
+      so every logic variable may use them.
+\item \textbf{Free variables of the query} (\lp{X}) are existentials.
+\item \textbf{A \lp{pi} in a goal} adds a universal \emph{at that point}, to the right of the logic
+      variables that already exist. Variables created later, for example by backchaining inside the
+      scope of the \lp{pi}, sit to its right and may use it (\cref{ch:hh}).
+\item \textbf{A λ inside an equation} is an innermost universal around that equation.
+\end{itemize}
+Four readings follow, with $g:\typ{i}\to\typ{i}\to\typ{i}$:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+problem & what the ∃ may use & verdict\\
+\midrule
+$\forall y\,\exists x\,[x=y]$ & $y$ & solved by $x:=y$\\
+$\exists x\,\forall y\,[x=y]$ & nothing that mentions $y$ & no solution\\
+$\forall a\,\exists F\,[(F\,a)=(g\,a\,a)]$ & $g$ and $a$ & four solutions\\
+$\exists F\,\forall a\,[(F\,a)=(g\,a\,a)]$ & $g$ only & one solution\\
+\bottomrule
+\end{tabular}
+\end{center}
+The last two rows are worked out in \cref{sec:lambda-examples}. The same mechanism explains the
+second failing query. In \lp{(y\ X) = (y\ y)} the logic variable \lp{X} was created
+\emph{outside} the binder, so it is to the left of the inner $\forall y$. It may be instantiated with
+anything except a term that mentions that $y$.
+\end{tutorial}
+
+\paragraph{From ∀∃ to ∀∃∀.} In \fohc{} the natural class is ∀∃ problems: constants first, then logic
+variables. With λ-terms the natural class is \textbf{∀∃∀} \book{106}. The outer ∀'s are the
+constants. The inner ∀'s come from the binders of the equations: an equation at type $\tau\to\sigma$
+is replaced by $\forall(w{:}\tau)$ around an equation at type $\sigma$, and those quantifiers are moved
+out over the whole conjunction.
+
+\begin{example}[Turning λ-equations into a ∀∃∀ prefix {\book{106--107}}]\label{ex:lambda-prenex}
+Let $f:\typ{i}\to\typ{i}$ and $a:\typ{i}$, and consider
+\[
+  \exists G\,\exists H\,[(\lambda w\,f\,a)=(\lambda w\,f\,(G\,w))\;\wedge\;(\lambda w\,f\,w)=(\lambda w\,H\,(H\,w))],
+\]
+where $G,H:\typ{i}\to\typ{i}$. The transformation has three steps.
+\begin{enumerate}[nosep]
+\item Make the constants explicit:
+  $\forall f\,\forall a\,\exists G\,\exists H\,[\dots]$.
+\item Replace each λ-equation by a quantified one:
+  \[\forall f\,\forall a\,\exists G\,\exists H\,[\forall w\,[(f\,a)=(f\,(G\,w))]\wedge\forall w\,[(f\,w)=(H\,(H\,w))]].\]
+\item Prenex (one possibility):
+  \[\forall f\,\forall a\,\exists G\,\exists H\,\forall w\,\forall w'\,[(f\,a)=(f\,(G\,w))\wedge(f\,w')=(H\,(H\,w'))].\]
+\end{enumerate}
+Moving quantifiers to the prefix can introduce dependencies that are not really part of the problem:
+$\forall w$ and $\forall w'$ now both scope over the whole conjunction, although each was attached to one equation. The book calls these \enquote{logically harmless}
+and assumes prenex form from now on \book{107}.
+\end{example}
+The example only illustrates the transformation. By a short check of ours (the book does not
+discuss it), it has no solution. The first equation forces $G=\lambda w\,a$. But a closed $H$ over
+$f,a$ is $\lambda z\,f^k z$ or $\lambda z\,f^k a$, so $H\,(H\,w')$ is $f^{2k}w'$ or $f^k a$, never $f\,w'$.
+
+\begin{kanren}[miniKanren has only ∃, and binders leak]
+\scm{fresh°} is an existential, and there is no universal. The second failing query shows what this
+costs once binders are present. Encode \lp{(y\ X) = (y\ y)} with de Bruijn records (illustrative
+records, file \texttt{scope.scm}):
+\begin{scheme}
+(import (aux kanren micro) (aux base) (aux stream))
+;; de Bruijn records: α-equivalent terms are equal data
+(define-record lam body)
+(define-record dbi n)
+(define (show x) (display x) (newline))
+;; λx.λy.x and λu.λv.u are the same record tree
+(show (°->list #f (fresh° (q) (=° (make-lam (make-lam (make-dbi 1)))
+                                   (make-lam (make-lam (make-dbi 1))))
+                               (=° q 'equal))))
+;; ?- (y\ X) = (y\ y).   λProlog answers no; plain =° answers yes
+(show (°->list #f (fresh° (q) (=° (make-lam q) (make-lam (make-dbi 0))))))
+;; ∃x[x = x]: the answer is a unifier, not a closed witness
+(show (°->list #f (fresh° (q) (=° q q))))
+\end{scheme}
+\begin{answers}
+((λ () (quote equal)))
+((λ () (make-record-instance (quote dbi) 0)))
+((λ (α) α))
+\end{answers}
+The first line is what we want: α for free. The second is a \emph{wrong yes}. \scm{q} is bound to a
+dangling index, which is exactly the forbidden capture of the inner $\forall y$. (The third line is
+discussed in \cref{sec:lambda-solutions}.) For the prefix discipline, a miniKanren therefore needs
+(i) eigenvariables, that is, fresh constants that are never bound, and (ii) a \emph{scope check} on
+every binding: a variable may not receive a symbol quantified to its right. In \micro{} the monotone
+\scm{vars-count} index already records the order in which things are created, which is almost the
+prefix order. The open question is how a variable inherits the restriction of the variable it is
+bound to. λProlog implementations answer it with \emph{universe levels}
+\cite{NadathurJayaramanKwon1995,DunchevEtAl2015}, and \cref{ch:design} spells out the proposal.
+\end{kanren}
+
+% ======================================================================================
+\section{Simplifying prefixes: raising}\label{sec:lambda-raising}
+
+A prefix can alternate as often as it likes. Raising is the tool that brings every prefix to the
+∀∃∀ shape, or even to ∃∀. It moves an existential to the left of a universal and pays for it by making
+the existential's type higher-order.
+
+\begin{proposition}[Raising {\book{107}}]\label{prop:lambda-raising}
+Let $x:\tau$, $y:\sigma$ and $h:\sigma\to\tau$. Then
+\[
+  \forall y\,\exists x\,G\quad\text{is provable iff}\quad\exists h\,\forall y\,\subst{G}{(h\,y)}{x}.
+\]
+\end{proposition}
+\begin{proof}[Proof (the book's argument)]
+($\Rightarrow$) A proof of the left formula replaces $y$ by a new constant $c$ and $x$ by a term $t$,
+which may contain $c$. Prove the right formula with $h:=\lambda c\,t$ and $y:=c$. Note that $c$ is not
+free in $\lambda c\,t$, as the order $\exists h\,\forall y$ requires. ($\Leftarrow$) A proof of the right
+formula replaces $h$ by some $s$ and $y$ by a new $c$, and $c$ cannot be free in $s$. Prove the left
+formula with $y:=c$ and $x:=(s\,c)$.
+\end{proof}
+
+Applied repeatedly, raising moves every existential to the left of the universals before it. As a rule,
+for a block of universals:
+\[
+  \forall y_1{:}\sigma_1\dots\forall y_k{:}\sigma_k\;\exists x{:}\tau\;G
+  \;\rightsquigarrow\;
+  \exists h{:}\sigma_1\to\dots\to\sigma_k\to\tau\;\forall y_1\dots\forall y_k\;\subst{G}{(h\,y_1\dots y_k)}{x}.
+\]
+The \enquote{cost} is that the type of the existential is \emph{raised} by the types of the universals it
+crosses \book{108}.
+
+\begin{tutorial}[raising, step by step]
+\textbf{Step 0: a problem whose answer depends on order.} Let $g:\typ{i}\to\typ{i}\to\typ{i}$ and
+$a:\typ{i}$ be constants, and compare
+\[
+  (\mathrm{P}_1)\;\forall w\,\exists z\,[z=g\,a\,w]
+  \qquad\text{and}\qquad
+  (\mathrm{P}_2)\;\exists z\,\forall w\,[z=g\,a\,w].
+\]
+By the reading rule, in P\textsubscript{1} $z$ may use $w$ and $z:=g\,a\,w$ solves it. In
+P\textsubscript{2} $z$ may not use $w$, and no term without $w$ equals $g\,a\,w$, so P\textsubscript{2}
+has no solution.
+
+\textbf{Step 1: raise P\textsubscript{1}.} Move $\exists z$ across $\forall w$. The new variable
+$h:\typ{i}\to\typ{i}$ replaces $z$ by $(h\,w)$:
+\[
+  \exists h\,\forall w\,[h\,w=g\,a\,w].
+\]
+Now $h$ comes first and may not mention $w$. But it is \emph{applied} to $w$, so it gets $w$ back as an
+argument. The solution is $h:=\lambda c\,g\,a\,c$, and the check is $(\lambda c\,g\,a\,c)\,w\to_\beta g\,a\,w$.
+Translating back with the proof of \cref{prop:lambda-raising} gives $z:=h\,w=g\,a\,w$, the solution of
+Step~0. P\textsubscript{2} cannot be raised, because its existential is already on the left. The
+difference between the two problems is now visible in the syntax: $h$ is applied to $w$ in one, and
+$z$ stands alone in the other.
+
+\textbf{Step 2: raise over constants as well (∃∀ form).} Constants are outer universals, so one can
+also raise across them. Take $\forall a\,\exists F\,[(F\,a)=(g\,a\,a)]$ with $F:\typ{i}\to\typ{i}$.
+Raising $F$ across $\forall a$ gives $F':\typ{i}\to\typ{i}\to\typ{i}$, with $F$ replaced by $(F'\,a)$:
+\[
+  \exists F'\,\forall a\,[(F'\,a\,a)=(g\,a\,a)].
+\]
+$F'$ may not use $a$. It must be $\lambda y\,\lambda x\,(g\,s_1\,s_2)$ with each $s_i\in\{x,y\}$, so there
+are \emph{four} solutions. Mapped back by $F:=F'\,a$, they are the four solutions of the original
+problem, which \cref{sec:lambda-examples} lists. For instance, $F'=\lambda y\,\lambda x\,g\,y\,x$ gives
+$F=\lambda x\,g\,a\,x$.
+
+\textbf{What to remember.} Raising is an exact logical equivalence. It replaces \enquote{may use the
+universals to my left} by \enquote{is a closed function applied to those universals}. A logic variable
+under binders, \lp{X} inside \lp{y\ ...}, can always be read as a raised variable applied to the bound
+variables, \lp{(H y)}. When the arguments are \emph{distinct} bound variables, as in $h\,w$, the
+application is a \emph{higher-order pattern} (\cref{ch:lambdatree,ch:hounif}), and pattern problems
+have most general unifiers. In Step~2 the argument $a$ is repeated, $F'\,a\,a$, which is not a pattern,
+and indeed there is no most general solution.
+\end{tutorial}
+
+\paragraph{Skolemization, the dual.} Skolemizing an \emph{assumption} $\forall x\,\exists y\,D$ with
+$x:\sigma$ and $y:\tau$ gives $\forall x\,\subst{D}{(f\,x)}{y}$, where $f:\sigma\to\tau$ is a new
+\emph{Skolem constant}. For a \emph{goal} the roles swap: $\exists x\,\forall y\,G$ becomes
+$\exists x\,\subst{G}{(f\,x)}{y}$, that is, $\forall f\,\exists x\,\subst{G}{(f\,x)}{y}$ \book{108}. The
+two techniques are dual in two senses. Skolemization moves an \emph{∃ to a smaller scope} and
+introduces a new \emph{constant} of raised type. Raising moves a \emph{∀ to a smaller scope} and
+introduces a new \emph{existential variable} of raised type. Logically they differ: \enquote{relating
+unifiers for Skolemized unification problems to original, un-Skolemized unification problems is
+problematic, especially when unification involves variables of higher-order type} \book{108}. Raising,
+in contrast, is an equivalence (\cref{prop:lambda-raising}), which is why the book uses it to normalise
+prefixes.
+
+\begin{pitfall}[raising creates higher-order variables]
+Raising a first-order problem gives a higher-order one: in Step~1, $z:\typ{i}$ became
+$h:\typ{i}\to\typ{i}$. A first-order miniKanren with ∀-goals cannot implement scope by raising unless
+it also has λ-terms and β. Prenexing (\cref{ex:lambda-prenex}) has a related cost: it may add spurious
+dependencies. These are logically harmless, but a scope-tracking implementation becomes less
+permissive than it needs to be.
+\end{pitfall}
+
+\begin{kanren}[raising versus levels]
+Raising is how the book \emph{explains} logic variables under \lp{pi} and λ. Implementations usually
+do not raise up front. Nadathur, Jayaraman and Kwon tag each variable and constant with a \emph{universe index}
+\cite{NadathurJayaramanKwon1995}. A binding is allowed only if the term's constants have tags no larger
+than the variable's, and the tags of the term's variables are lowered to match. ELPI uses the same
+\emph{levels} \cite{DunchevEtAl2015}. Nadathur and Linnell \cite{NadathurLinnell2005} show how to erase
+the prefix and raise \emph{on the fly}, only over the universals that actually occur. For \micro{},
+the choice is between raising, which needs only terms (λ, application, β) but makes every existential
+higher-order, and levels, which need a new per-variable piece of state and keep variables first-order.
+The two must agree on the examples of this chapter. \Cref{ch:design} makes the choice.
+\end{kanren}
+
+% ======================================================================================
+\section{Unifiers, solutions and empty types}\label{sec:lambda-solutions}
+
+Once a problem is a formula, solving it should mean proving it. The connection is subtler than it
+looks. The higher-order version of \rulename{$\exists$R} \book{108--109} is
+\begin{mathpar}
+\inferrule{\seq{\Sig}{\Prog}{\subst{B}{t}{x}} \\ \Sig;\emptyset\Vdash t:\tau}{\seq{\Sig}{\Prog}{\exists_\tau x\,B}}\;\rulename{$\exists$R}
+\end{mathpar}
+The witness $t$ must be \emph{closed}, because its context is empty. Proving $\exists x\,[x=x]$ with
+$x:\typ{i}$ therefore needs a closed term of type $\typ{i}$, and whether one exists depends on
+$\Sig$. In the same way, $\exists x\,\exists y\,\exists z\,[x=(f\,y)\wedge y=(f\,z)]$ with
+$f:\typ{i}\to\typ{i}$ has the most general unifier $\{\langle X,f\,(f\,Z)\rangle,\langle Y,f\,Z\rangle\}$
+in the sense of the book's Section~1.5 (\cref{ch:intro}). The formula, however, is provable only if some closed term of type
+$\typ{i}$ exists \book{109}.
+
+\begin{definition}[Legitimate substitution, unifier, solution {\book{109}}]\label{def:lambda-solution}
+Consider the ∀∃∀ problem
+$\forall u_1\dots\forall u_p\,\exists x_1\dots\exists x_n\,\forall w_1\dots\forall w_q\,[t_1=s_1\wedge\dots\wedge t_m=s_m]$
+and let $\theta$ be a substitution for $x_1,\dots,x_n$.
+\begin{itemize}[nosep]
+\item $\theta$ is \emph{legitimate} if no $w_j$ occurs free in any $\theta(x_i)$.
+\item A legitimate $\theta$ is a \emph{unifier} if $\theta(t_j)$ and $\theta(s_j)$ are λ-convertible for
+      every $j$.
+\item A unifier is a \emph{solution} if the only free variables in the terms $\theta(x_i)$ are among
+      $u_1,\dots,u_p$.
+\end{itemize}
+A problem can have a unifier and no solution. \emph{It is a solution that makes the quantified formula
+provable.}
+\end{definition}
+
+In the book's Section~1.5 (\cref{ch:intro}) \enquote{solution} and \enquote{unifier} meant the same thing. They have to be separated
+now because, unlike first-order classical logic, higher-order intuitionistic logic does not assume that
+every type is \emph{inhabited}. The Church numerals show why this matters. They are the closed terms of
+type $(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$ only if $\typ{i}$ has \emph{no} closed term $t$, since
+otherwise $\lambda f\,\lambda x\,t$ would be a further, non-numeral inhabitant \book{109--110}.
+
+\begin{example}[Unifier but no solution]
+Let $\Sig$ contain only $u,v:\typ{i}\to\typ{i}$, so $\typ{i}$ is empty. The problem $\exists x\,[x=x]$
+has the unifier $\{x\mapsto X\}$ with $X$ a fresh logic variable. It has no solution, because there is
+no closed term of type $\typ{i}$. Add a constant $a:\typ{i}$ and $\{x\mapsto a\}$ becomes a solution.
+\end{example}
+
+\begin{kanren}[miniKanren answers are unifiers]
+The third answer of \texttt{scope.scm} above, \scm{((λ (α) α))} for $\exists x\,[x=x]$, is a
+\emph{unifier} in the sense of \cref{def:lambda-solution}. The reified \scm{α} is a fresh logic
+variable, not a closed witness. This is also λProlog's practice: answers may contain variables, and
+leftover flex–flex constraints (\cref{sec:lambda-vocab}). An untyped miniKanren cannot see empty types
+at all. Obtaining \emph{solutions} would need an explicit generator of closed inhabitants of a type
+over a signature, itself a proof-search relation. \Cref{sec:lambda-undecidable} shows that the gap
+between unifiers and solutions is exactly where undecidability lives.
+\end{kanren}
+
+% ======================================================================================
+\section{Example problems and their solutions}\label{sec:lambda-examples}
+
+These examples \book{110--111} are the core intuition pump of the chapter. Each one shows a way in
+which higher-order unification differs from the first-order kind.
+
+\subsection{Quantifier order changes the answers}\label{sec:lambda-order}
+
+Let $g:\typ{i}\to\typ{i}\to\typ{i}$ be a constructor of $\typ{i}$.
+\begin{itemize}
+\item $\forall a\,\exists F\,[(F\,a)=(g\,a\,a)]$ has \textbf{four} solutions:
+      $F\in\{\lambda x\,g\,a\,a,\ \lambda x\,g\,x\,a,\ \lambda x\,g\,a\,x,\ \lambda x\,g\,x\,x\}$.
+\item $\exists F\,\forall a\,[(F\,a)=(g\,a\,a)]$ has the \textbf{unique} solution $F=\lambda a\,g\,a\,a$.
+\end{itemize}
+\emph{Walk-through.} $F:\typ{i}\to\typ{i}$ is closed, so $F=\lambda x\,b$ with $b$ built from $g$, $x$ and
+whatever $F$ may use. The β-normal form of $F\,a$ is $\subst{b}{a}{x}$, and it must be $g\,a\,a$. So $b$ is
+$g\,s_1\,s_2$ where each $s_i$ either \emph{is} $a$ or \emph{becomes} $a$ under the substitution, that is,
+$s_i\in\{a,x\}$. In the first problem $a$ is to the left of $F$, so both choices are allowed for each
+position: $2\times 2=4$. In the second, $F$ may not mention $a$, only $s_i=x$ remains, and there is one
+solution. (\Cref{sec:lambda-raising} reached the same count of four by raising.)
+
+\begin{kanren}[a first-order simulation of both prefixes]
+In this example $F$ is applied to a single argument and its body is first-order, so the problem can be
+simulated in today's \micro. Represent $F$'s body as a first-order term in which \scm{x} stands for the
+bound variable, and relate a body to its instance $\subst{b}{a}{x}$ with a relation \scm{inst°}. The
+universal $a$ is the symbol \scm{a}. The ∃F∀a prefix, \enquote{$F$ may not mention $a$}, is then the
+constraint \scm{(absent° 'a body)}. This is an illustration, not general higher-order unification (file
+\texttt{order.scm}):
+\begin{scheme}
+(import (aux kanren micro) (aux base) (aux stream))
+;; F = λx.body, body a first-order term over g, a and x = (dbi 0)
+(define-record dbi n)
+(set-record-printer! dbi (λ (r port) (display "x" port)))
+(define x (make-dbi 0))
+(define (show x) (display x) (newline))
+;; (inst° body arg out): out = body[arg/x], the normal form of (F arg)
+(define-relation (inst° body arg out)
+  (cond°
+    ((=° body x) (=° out arg))
+    ((symbol° body) (=° out body))
+    ((null° body) (null° out))
+    ((fresh° (h t h* t*)
+       (=° body (cons h t)) (=° out (cons h* t*))
+       (inst° h arg h*) (inst° t arg t*)))))
+;; ∀a ∃F [(F a) = (g a a)]: F's body may mention the constant a
+(show (°->list/ground
+        (fresh° (body) (inst° body 'a '(g a a)))))
+;; ∃F ∀a [(F a) = (g a a)]: a comes after F, F's body must avoid it
+(show (°->list/ground
+        (fresh° (body) (absent° 'a body) (inst° body 'a '(g a a)))))
+\end{scheme}
+\begin{answers}
+((g x x) (g a x) (g x a) (g a a))
+((g x x))
+\end{answers}
+These are the book's four answers and its one answer. Two points carry over to the real design. First,
+the scope check is a \emph{constraint} on what a variable may contain, like \scm{absent°}, and it is
+attached at the moment the variable is created. Second, a relation that runs substitution
+\emph{backwards} (\scm{inst°} with \scm{out} known) is what imitation and projection do in Huet's
+procedure (\cref{ch:hounif}): each \scm{a} in the output is either imitated or projected from the
+argument.
+\end{kanren}
+
+\subsection{Words over a two-letter alphabet}\label{sec:lambda-words}
+
+Let the only constructors with target $\typ{i}$ be $u,v:\typ{i}\to\typ{i}$. Then $\typ{i}$ has no closed
+terms, and the closed terms of type $\typ{i}\to\typ{i}$ are \emph{words}: $\lambda w\,w$ is the empty word
+$\varepsilon$, $\lambda w\,u\,w$ is \enquote{u}, and $\lambda w\,u\,(v\,(u\,w))$ is \enquote{uvu}. Function
+composition is concatenation \book{110}. Three problems, all with $F,G:\typ{i}\to\typ{i}$:
+\begin{enumerate}
+\item $\exists F\,\exists G\,[(\lambda w\,F\,(G\,w))=(\lambda w\,u\,(v\,(u\,w)))]$ has \textbf{four}
+      solutions, the four ways of splitting uvu:
+      $(F,G)\in\{(\mathrm{uvu},\varepsilon),(\mathrm{uv},\mathrm{u}),(\mathrm{u},\mathrm{vu}),(\varepsilon,\mathrm{uvu})\}$.
+      Replacing the right-hand side by any other closed term asks for all ways of splitting that word.
+\item $\exists F\,[(\lambda w\,u\,(F\,(u\,w)))=(\lambda w\,u\,(v\,(v\,(u\,w))))]$ has the \textbf{only}
+      solution $F=\lambda w\,v\,(v\,w)$. The left-hand side is a \emph{pattern} that checks whether a word
+      starts and ends with u.
+\item $\exists F\,[(\lambda w\,u\,(F\,w))=(\lambda w\,F\,(u\,w))]$ is the word equation
+      $\mathrm{u}\cdot F=F\cdot\mathrm{u}$. Its solutions are \textbf{infinitely many}:
+      $F\in\{\lambda w\,w,\ \lambda w\,u\,w,\ \lambda w\,u\,(u\,w),\dots\}$, that is, $\mathrm{u}^k$ for every
+      $k\ge 0$. They are closed and pairwise distinct, so none is an instance of another: \emph{there is
+      no most general solution}.
+\end{enumerate}
+
+\begin{kanren}[words are lists, composition is append]
+Because $\typ{i}$ is empty, a closed term of type $\typ{i}\to\typ{i}$ \emph{is} a word, and in this one case
+higher-order unification becomes ordinary relational list programming (file \texttt{words.scm}):
+\begin{scheme}
+(import (aux kanren micro) (aux base) (aux stream))
+;; closed terms of type i -> i over u, v : i -> i are words,
+;; and composition is concatenation
+(define-relation (append° r s rs)
+  (cond°
+    ((null° r) (=° s rs))
+    ((fresh° (a d c) (cons° a d r) (cons° a c rs) (append° d s c)))))
+(define (show x) (display x) (newline))
+;; ∃F ∃G [(λw F (G w)) = (λw u (v (u w)))]
+(show (μkanren-run (q -1 #t)
+        (fresh° (F G) (append° F G '(u v u)) (=° q (list F G)))))
+;; ∃F [(λw u (F (u w))) = (λw u (v (v (u w))))]
+(show (μkanren-run (q -1 #t)
+        (fresh° (uF) (append° '(u) q uF) (append° uF '(u) '(u v v u)))))
+;; ∃F [(λw u (F w)) = (λw (F (u w)))]: five of infinitely many
+(show (μkanren-run (q 5 #t)
+        (fresh° (W) (append° '(u) q W) (append° q '(u) W))))
+\end{scheme}
+\begin{answers}
+((() (u v u)) ((u) (v u)) ((u v) (u)) ((u v u) ()))
+((v v))
+(() (u) (u u) (u u u) (u u u u))
+\end{answers}
+The third query shows the right attitude toward problems without an mgu. A miniKanren does not need
+a single answer: it returns a \emph{stream} of them, and \scm{take°} (here \scm{μkanren-run} with
+$n=5$) cuts the stream. This is the shape a general higher-order unifier in \micro{} must have
+(\cref{sec:lambda-undecidable}).
+\end{kanren}
+
+\subsection{Weak functionality}\label{sec:lambda-weak}
+
+Let $\typ{i}$ have at least the constants $a,b,c,d:\typ{i}$. Then
+$\exists F\,[(F\,a)=b\wedge(F\,c)=d]$ has \textbf{no solution}. The first equation is solved only by
+$F=\lambda x\,b$: $F$ cannot produce $b$ by projecting its argument $a$, so it must be the constant
+function. That $F$ fails the second equation \book{110--111}. A function that maps $a\mapsto b$ and
+$c\mapsto d$ exists as a set-theoretic object, but it is \emph{not expressible} by these λ-terms, which
+have no case analysis on constants. The book calls this \enquote{a relatively weak notion of
+functionality}.
+
+\begin{pitfall}[what a first-order intuition gets wrong]
+\begin{itemize}[nosep]
+\item \emph{Quantifier order is semantic}: $\forall a\,\exists F$ and $\exists F\,\forall a$ give four
+      answers and one answer.
+\item \emph{There may be several incomparable solutions} (four splittings of uvu), \emph{or
+      infinitely many with no mgu} (u·F = F·u). A unifier returning one substitution, as
+      \scm{μkanren-state-unify} does, cannot express this.
+\item \emph{λ-terms are not arbitrary functions}: no case analysis, so $F\,a=b\wedge F\,c=d$ is
+      unsolvable.
+\end{itemize}
+\end{pitfall}
+
+% ======================================================================================
+\section{Vocabulary for a unification procedure}\label{sec:lambda-vocab}
+
+\Cref{ch:hounif} presents Huet's procedure \cite{Huet1975}. The book prepares it with some vocabulary
+and a few structural observations \book{111--113}.
+
+\begin{definition}[Binder, head, arguments, body {\book{111}}]\label{def:lambda-head}
+Every β-normal term has the shape
+\[
+  \lambda x_1\dots\lambda x_n\,(h\;t_1\cdots t_p)\qquad(n,p\ge 0),
+\]
+where $h$ is a constant or a variable and every $t_i$ is β-normal. $x_1,\dots,x_n$ is the
+\emph{binder}, $h$ the \emph{head}, $t_1,\dots,t_p$ the \emph{arguments}, and $(h\,t_1\cdots t_p)$ the
+\emph{body}.
+\end{definition}
+
+\begin{definition}[βη-long normal form {\book{111}}]\label{def:lambda-long}
+A term is in \emph{βη-long normal form} if it has the shape above, every $t_i$ is βη-long, and the body
+has a non-functional type. For simply typed terms, that means a primitive type. Every β-normal form
+can be η-expanded into an equal βη-long form.
+\end{definition}
+\begin{example}[η-expanding to long form {\book{111}}]
+Let $f:(\typ{i}\to\typ{i})\to\typ{i}$. The term $f$ is β-normal but not long, since its body has
+functional type. One η-expansion gives $\lambda w\,f\,w$ with $w:\typ{i}\to\typ{i}$. This is still not
+long, because the argument $w$ has a non-primitive type. Expanding $w$ gives $\lambda w\,f\,(\lambda u\,w\,u)$
+with $u:\typ{i}$, which is βη-long. Note that deciding when to stop requires knowing the \emph{types}.
+\end{example}
+
+\begin{definition}[Rigid and flexible {\book{111--113}}]\label{def:lambda-rigid}
+In a problem over β-normal terms, an occurrence $\lambda\bar x\,(h\,t_1\cdots t_p)$ is \emph{rigid} if
+$h$ is ∀-bound in the prefix (constants included) or belongs to the binder $\bar x$. It is
+\emph{flexible} if $h$ is ∃-bound in the prefix. Equations are rigid–rigid, rigid–flexible,
+flexible–rigid or flexible–flexible, and a problem is \emph{flexible–flexible} if all of its equations
+are.
+\end{definition}
+The names are meant to suggest what substitution can do. Substitution never changes the head of a rigid
+term: every instance has a β-normal form with the same head. It can change the head of a flexible term
+\book{112}.
+
+\paragraph{Observation 1: rigid heads must agree.} By α and η, two rigid terms of the same type can be
+given the same binder: $\lambda\bar x\,(h\,t_1\cdots t_p)$ and $\lambda\bar x\,(k\,s_1\cdots s_q)$. Since
+neither head can change, a unifier can exist only if $h$ and $k$ are the same symbol \book{112}. With $F,G$
+logic variables and $c,d$ constants, none of the following has a unifier:
+\begin{gather*}
+  \{(\lambda x\,(d\,(c\,(F\,x))))=(\lambda x\,(c\,(d\,(G\,x))))\}\qquad
+  \{(\lambda x\,(x\,(F\,x)))=(\lambda x\,(c\,(G\,x)))\}\\
+  \{(\lambda x\,\lambda y\,(x\,(F\,x\,y)))=(\lambda x\,\lambda y\,(y\,(G\,x\,y)))\}
+\end{gather*}
+The first one, written precisely, is $\forall c\,\forall d\,\exists F\,\exists G\,[\lambda x\,(d\,(c\,(F\,x)))=\lambda x\,(c\,(d\,(G\,x)))]$.
+Note that in the second and third problems one of the heads is a \emph{bound} variable, which counts as
+rigid.
+
+\paragraph{Observation 2: substitution cannot create captured occurrences.} If a binder variable has
+no free occurrence in the body of a β-normal form, it has none in any instance either, because
+substitution avoids capture. So
+\[
+  \{(\lambda x\,\lambda y\,x\,(F\,x\,y))=(\lambda x\,\lambda y\,G\,y\,y)\}
+\]
+has no unifier \book{112--113}. Every instance of the left side has head $x$. No instance of the right
+side can contain the bound $x$: $G$ may be instantiated with a term containing a \emph{free} $x$, but
+that is a different $x$.
+
+\paragraph{Observation 3: flexible terms are limited only in their use of the binder.} A flexible term
+can become almost any term of its type, \emph{except} in how it uses the binder variables. For
+instance, $\lambda x\,\lambda y\,F\,(f\,x\,(G\,x))$ can become any $\lambda x\,\lambda y\,t$ with $x,y$ not
+free in $t$: take $F:=\lambda z\,t$, which throws its argument away. Some instances also contain $x$,
+such as $\lambda x\,\lambda y\,(f\,x\,x)$, obtained with $F:=\lambda z\,z$ and $G:=\lambda z\,z$. But no
+instance contains $y$ \book{113}, because $y$ is passed to neither $F$ nor $G$, and by Observation~2
+substitution cannot introduce it.
+
+\paragraph{Observation 4: a flex–flex pair.} Unify $\lambda x\,\lambda y\,G\,x$ with
+$\lambda x\,\lambda y\,H\,y$. Instances of the first ignore $y$, and instances of the second ignore $x$, so a
+common instance is $\lambda x\,\lambda y\,t$ with neither variable free in $t$. The \enquote{most general}
+unifier, derived in \cref{ch:hounif}, is $G:=\lambda w\,T$ and $H:=\lambda w\,T$, with $T$ a new variable
+\book{113}. (Pattern unification calls this step \emph{pruning}, \cref{ch:hounif}.)
+
+\begin{tutorial}[classifying heads in practice]
+Take the prefix $\forall c\,\exists F\,\exists G$ and three occurrences:
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+term & head & status\\
+\midrule
+$\lambda x\,(c\,(F\,x))$ & $c$, ∀-bound & rigid: every instance starts with $c$\\
+$\lambda x\,(x\,(F\,x))$ & $x$, in the binder & rigid: every instance starts with the bound $x$\\
+$\lambda x\,(F\,(c\,x))$ & $F$, ∃-bound & flexible: $F:=\lambda z\,z$ makes the head $c$\\
+\bottomrule
+\end{tabular}
+\end{center}
+A rigid–rigid equation either fails immediately or decomposes into equations between arguments
+(\cref{ch:hounif}). A flex–rigid equation is where the search branches (imitate the rigid head, or
+project an argument). A flex–flex equation always has a unifier, as in Observation~4, so Huet's
+procedure \emph{postpones} it (\cref{ch:hounif}). It need not have a \emph{solution}, as
+\cref{sec:lambda-undecidable} shows.
+\end{tutorial}
+
+\begin{kanren}[what the vocabulary means for the unifier]
+\micro's \scm{=°} already performs \enquote{rigid–rigid}: two records or pairs with different
+constructors fail at once, and the same constructor decomposes slot-wise. A de Bruijn representation
+whose application node exposes head and arguments, as in \cref{def:lambda-head}, makes Observation~1
+a constructor clash. Bound-variable heads (\scm{dbi} records) are rigid automatically. Everything about
+\emph{flexible} heads is new: the unifier must recognise a logic variable in head position, normalise
+after binding it, and either solve the equation deterministically (patterns, \cref{ch:lambdatree}) or
+branch and delay it. Delayed flex–flex equations need a store in the state, next to the disequality
+store, and \cref{ch:design} proposes one.
+\end{kanren}
+
+% ======================================================================================
+\section{Undecidability}\label{sec:lambda-undecidable}
+
+Derivability from \fohc{} programs is already undecidable, and so is unifiability of typed λ-terms
+modulo λ-conversion \book{113}. The book proves the second fact by two reductions. It also stresses that
+the specifications of later chapters produce \enquote{much tamer} problems.
+
+\subsection{The Post correspondence problem}\label{sec:lambda-pcp}
+
+\begin{definition}[PCP {\book{114}}]
+Given $n\ge 1$ and two lists $s_1,\dots,s_n$ and $t_1,\dots,t_n$ of words over $\{u,v\}$, decide whether
+there is a \emph{non-empty} sequence $i_1,\dots,i_k$ with $1\le i_j\le n$ such that
+$s_{i_1}\cdots s_{i_k}=t_{i_1}\cdots t_{i_k}$. This problem is undecidable.
+\end{definition}
+
+Encode a word $r=r_1\cdots r_m$ as $\hat r=\lambda w\,(r_1\,(\cdots(r_m\,w)\cdots))$, as in
+\cref{sec:lambda-words}. Concatenation is then $\lambda w\,(\hat r\,(\hat q\,w))$. Take a sort $\typ{i}$
+\emph{with no constructors}, and introduce $u,v:\typ{i}\to\typ{i}$ by universal quantifiers
+\book{114}:
+\[
+  \exists F\,\exists G\,\forall u\,\forall v\,
+  [\,(F\,\hat s_1\cdots\hat s_n)=(F\,\hat t_1\cdots\hat t_n)\;\wedge\;(F\,u\cdots u)=\lambda w\,(u\,(G\,u\,w))\,],
+\]
+with $G:(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$. For the lists $\mathrm{uv},\mathrm{u}$ and
+$\mathrm{u},\mathrm{vu}$ \book{114}:
+\[
+  \exists F\,\exists G\,\forall u\,\forall v\,
+  [\,(F\,(\lambda w\,u\,(v\,w))\,u)=(F\,u\,(\lambda w\,v\,(u\,w)))\;\wedge\;(F\,u\,u)=\lambda w\,(u\,(G\,u\,w))\,],
+\]
+where $F$ has the second-order type $(\typ{i}\to\typ{i})\to(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$.
+
+\begin{tutorial}[why the encoding is correct]
+\textbf{Read the prefix.} $F$ and $G$ come \emph{before} $\forall u\,\forall v$, so they may not mention
+$u$ or $v$. They can only rearrange their arguments. $\typ{i}$ has no constructors, so a closed $F$
+must be $\lambda x_1\dots\lambda x_n\,\lambda w\,d$ with $d:\typ{i}$ built only from $x_1,\dots,x_n,w$.
+The only possible shape is $d=x_{i_1}(\cdots(x_{i_k}\,w)\cdots)$ with $k\ge 0$ \book{114}.
+
+\textbf{Read off the index sequence.} $F\,\hat s_1\cdots\hat s_n$ normalises to the word
+$s_{i_1}\cdots s_{i_k}$, and the right side to $t_{i_1}\cdots t_{i_k}$. So the first equation says
+exactly that $i_1,\dots,i_k$ solves the PCP, except in the degenerate case $k=0$, where both sides are
+$\lambda w\,w$.
+
+\textbf{Exclude $k=0$.} The second equation says that $F\,u\cdots u$ starts with $u$, which forces
+$k\ge 1$. In the other direction, a PCP solution gives a unification solution directly
+\book{114--115}. The argument extends to \emph{unifiers} and to types $\typ{i}$ with constructors
+\book{115}.
+
+\textbf{Check the instance.} For $\mathrm{uv},\mathrm{u}$ / $\mathrm{u},\mathrm{vu}$, the sequence
+$1,2$ works: $\mathrm{uv}\cdot\mathrm{u}=\mathrm{u}\cdot\mathrm{vu}=\mathrm{uvu}$. This suggests
+$F=\lambda x_1\,\lambda x_2\,\lambda w\,x_1\,(x_2\,w)$ and $G=\lambda y\,\lambda w\,y\,w$. $G$ may not mention
+$u$ and has to obtain it from its argument. The book does not print this solution. The normaliser of
+\cref{sec:lambda-normal}, with $u,v$ as free symbols, confirms both equations, and also the Diophantine
+gadget of the next subsection (file \texttt{checks.scm}):
+\begin{scheme}
+(include "norm-core.scm")
+(define (same? s t) (equal? (nf (->db s '())) (nf (->db t '()))))
+(define (show . xs) (display xs) (newline))
+;; PCP instance uv,u / u,vu; u and v are free symbols
+(define F '(λ (x1 x2 w) (x1 (x2 w))))
+(define G '(λ (y w) (y w)))
+(show 'pcp (same? `(,F (λ (w) (u (v w))) u) `(,F u (λ (w) (v (u w)))))
+           (same? `(,F u u) `(λ (w) (u (,G u w)))))
+;; gadget for x = 1: λf λx N f (N f x) = λf λx N f (f x)
+(define (numeral n)
+  `(λ (f x) ,(let loop ((k n)) (if (= k 0) 'x `(f ,(loop (- k 1)))))))
+(define (gadget N)
+  (same? `(λ (f x) (,N f (,N f x))) `(λ (f x) (,N f (f x)))))
+(show 'numerals-0..3 (map (lambda (n) (gadget (numeral n))) '(0 1 2 3)))
+(show 'λf.λx.U (gadget '(λ (f x) U)))
+\end{scheme}
+\begin{answers}
+(pcp #t #t)
+(numerals-0..3 (#f #t #f #f))
+(λf.λx.U #t)
+\end{answers}
+\end{tutorial}
+
+Historically, Huet \cite{Huet1973} gave the PCP reduction, which shows that \emph{third-order}
+unification is undecidable \book{116}.
+
+\subsection{Hilbert's tenth problem}\label{sec:lambda-hilbert}
+
+Hilbert's tenth problem asks for an algorithm that decides whether a system of Diophantine equations
+(variables, numerals, $+$, $\times$ over $\mathbb N$) has a solution. No such algorithm exists
+\book{115}. It is enough to treat equations of the forms $x=1$, $x+y=z$ and $x\times y=z$. Take a sort
+$\typ{i}$ without constructors, so that the closed terms of $(\typ{i}\to\typ{i})\to\typ{i}\to\typ{i}$ are
+exactly the Church numerals $\ulcorner n\urcorner$, and give every existential this type. Then
+\book{115}:
+\begin{enumerate}
+\item The flex–flex problem $\exists N\,[(\lambda f\,\lambda x\,N\,f\,(N\,f\,x))=(\lambda f\,\lambda x\,(N\,f\,(f\,x)))]$
+      has the unique solution $N=\ulcorner 1\urcorner$. With $N=\ulcorner n\urcorner$ the sides are
+      $f^{2n}x$ and $f^{n+1}x$, so $2n=n+1$.
+\item The flex–flex problem $\exists M\,\exists N\,\exists P\,[(\lambda f\,\lambda x\,N\,f\,(M\,f\,x))=(\lambda f\,\lambda x\,P\,f\,x)]$
+      has the solution $\{(N,r),(M,s),(P,t)\}$ iff $r=\ulcorner n\urcorner$, $s=\ulcorner m\urcorner$ and
+      $t=\ulcorner n+m\urcorner$ for some $n,m\ge 0$.
+\item The flex–flex problem $\exists M\,\exists N\,\exists P\,[(\lambda f\,\lambda x\,N\,(M\,f)\,x)=(\lambda f\,\lambda x\,P\,f\,x)]$
+      has the solution $\{(N,r),(M,s),(P,t)\}$ iff $r=\ulcorner n\urcorner$, $s=\ulcorner m\urcorner$ and
+      $t=\ulcorner n\times m\urcorner$.
+\end{enumerate}
+
+\begin{remark}[An erratum in the addition gadget]
+The book prints the left side of item 2 as $\lambda f\,\lambda x\,(N\,f)\,(M\,f)\,x$ \book{115}. This parses
+as $((N\,f)\,(M\,f))\,x$, which is ill-typed, since $N\,f:\typ{i}\to\typ{i}$ is applied to
+$M\,f:\typ{i}\to\typ{i}$. The intended term is the addition combinator of \cref{sec:lambda-church},
+$\lambda f\,\lambda x\,N\,f\,(M\,f\,x)$, and that is the term shown above.
+\end{remark}
+
+\begin{theorem}[{\book{116}}]\label{thm:lambda-hilbert}
+A system of such equations becomes a flex–flex problem with one existential variable per
+$\mathbb N$-variable and one equation per equation. The problem has a \emph{solution} iff the system has
+a solution in $\mathbb N$. The variables have order at most 2, so the problem is third-order, and the
+construction extends to arbitrary Diophantine equations. Hence \textbf{it is undecidable whether a
+third-order flex–flex problem has a solution.}
+\end{theorem}
+
+\paragraph{Unifiers versus solutions, once more.} The encoding \emph{always} has a unifier: pick a new
+variable $U:\typ{i}$ and set every existential to $\lambda f\,\lambda x\,U$. Both sides of every gadget then
+normalise to $\lambda f\,\lambda x\,U$. This term is not closed, so it is not a solution \book{116}. The run
+above confirms both facts for gadget~1. Among $\ulcorner 0\urcorner,\dots,\ulcorner 3\urcorner$ only
+$\ulcorner 1\urcorner$ works, and $\lambda f\,\lambda x\,U$ works too. So the undecidable question concerns
+\emph{solutions}. Asking only for unifiers, a flex–flex problem is trivially unifiable, and this is why
+Huet's procedure can leave flex–flex pairs for last. In the bibliographic notes \book{116--117} the book
+credits this reduction to Miller \cite{Miller1992}. It differs from Goldfarb's \cite{Goldfarb1981}, which
+already shows that \emph{second-order} unification, for unifiers, is undecidable.
+
+\begin{kanren}[undecidability and the search]
+Since unification is undecidable, no complete procedure terminates on every input. A complete
+higher-order unifier is a \emph{semi-decision procedure}: a search, some of whose branches never
+finish. In a miniKanren this is a familiar situation. Such a unifier would be a \emph{goal} that produces a
+stream of unifiers. Huet's branching steps would become disjunctions, and \micro's \emph{interleaving}
+\scm{orª} would explore them fairly, which a depth-first exploration does not. Flex–flex pairs, which always
+have unifiers, would be left in a constraint store and reified with the answer, which then is a unifier and
+not necessarily a solution. The proposal keeps only the deterministic part: pattern problems are solved by
+one \scm{=°}, and non-patterns, flex–flex pairs included, wait in a store and are reported
+(\cref{sec:module-wake}). Huet's branching is left to an optional search over that store, which needs
+types (\cref{sec:roadmap-later-huet}).
+\end{kanren}
+
+\begin{remark}[Polymorphism]
+All the formal results of the book's chapter concern \emph{simply typed} terms. Type variables are
+allowed for convenience, for instance one declaration for \lp{pi}, but \emph{unification does not
+instantiate type variables}: they behave like sorts, so the simply typed results still apply
+\book{117}.
+\end{remark}
+
+% ======================================================================================
+\section{Summary}\label{sec:lambda-summary}
+
+\begin{itemize}
+\item Terms are simply typed λ-terms (Figure~4.1). Formulas are terms of type $\typ{o}$, the quantifiers
+      are constants $\forall,\exists:(A\to\typ{o})\to\typ{o}$ applied to abstractions, and λ is the
+      \emph{only} binder.
+\item The equality of the logic is λ-conversion (α, β, η). Bound names are unobservable, substitution
+      avoids capture, and equality ignores logical equivalences.
+\item Every term has a λ-normal form, unique up to α, so equality is decidable. β is powerful (Church
+      numerals) and normal forms can be huge ($2^{2^n}$ in the book's series, see the erratum).
+      Practical programs avoid this through built-in data, order-0 binders and $\Llam$.
+\item A unification problem is a quantified formula $Q_1x_1\dots Q_nx_n\,[\bigwedge t_j=s_j]$.
+      \emph{An existential may use only what is quantified to its left.} \lp{pi} and λ both introduce
+      universals, which is why \lp{pi y\ X = y} and \lp{(y\ X) = (y\ y)} fail.
+\item \emph{Raising} ($\forall y\,\exists x\,G\rightsquigarrow\exists h\,\forall y\,\subst{G}{(h\,y)}{x}$) is an
+      exact equivalence that brings any prefix to ∀∃∀ or ∃∀, at the cost of higher-order types.
+      Skolemization is its dual but does not preserve unifiers well.
+\item A \emph{unifier} may leave free variables, while a \emph{solution} uses only the outer universals.
+      Only solutions give proofs, and empty types make the difference real. miniKanren answers are
+      unifiers.
+\item Higher-order unification has several, infinitely many, or no solutions, and no mgu in general.
+      Quantifier order changes the count (4 versus 1), and λ-terms cannot do case analysis.
+\item Vocabulary for \cref{ch:hounif}: binder, head, arguments, body; βη-long form; rigid and
+      flexible terms; rigid heads must agree; vacuous binders stay vacuous; flex–flex pairs always
+      have unifiers.
+\item Unifiability is undecidable (PCP, third order), and so is the existence of solutions of
+      third-order flex–flex problems (Hilbert's tenth problem). Hence a miniKanren higher-order unifier
+      must be a goal producing a fair stream of unifiers, with flex–flex pairs postponed.
+\end{itemize}

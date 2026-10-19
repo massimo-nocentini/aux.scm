@@ -1,0 +1,52 @@
+--- round 1
+before
+backwards-2000 full 	2000	6068.0 ms
+backwards-2000 search	2000	672.0 ms
+open-1000 search    	1000	1311.0 ms
+perm6 ≠° full       	720	176.0 ms
+after
+backwards-2000 full 	2000	6121.0 ms
+backwards-2000 search	2000	690.0 ms
+open-1000 search    	1000	1356.0 ms
+perm6 ≠° full       	720	184.0 ms
+ext
+backwards-2000 full 	2000	6151.0 ms
+backwards-2000 search	2000	691.0 ms
+open-1000 search    	1000	1327.0 ms
+perm6 ≠° full       	720	192.0 ms
+--- round 2
+before
+backwards-2000 full 	2000	5923.0 ms
+backwards-2000 search	2000	662.0 ms
+open-1000 search    	1000	1314.0 ms
+perm6 ≠° full       	720	178.0 ms
+after
+backwards-2000 full 	2000	5959.0 ms
+backwards-2000 search	2000	669.0 ms
+open-1000 search    	1000	1326.0 ms
+perm6 ≠° full       	720	178.0 ms
+ext
+backwards-2000 full 	2000	5929.0 ms
+backwards-2000 search	2000	668.0 ms
+open-1000 search    	1000	1328.0 ms
+perm6 ≠° full       	720	199.0 ms
+--- λ workloads
+typeof church 400      	1	254.0 ms
+copy church 400        	1	256.0 ms
+typeof nest 150        	1	1306.0 ms
+copy nest 150          	1	1745.0 ms
+typeof backwards 30    	30	10.0 ms
+F x1..x50 = g x50..x1  	1	2.0 ms
+--- second review: first-order search after a ∀° (bench-after-forall)
+backwards-2000 search            	2000	680.0 ms
+backwards-2000 search, ∀° before 	2000	1125.0 ms
+backwards-2000 search, typeof° before	2000	1154.0 ms
+open-1000 search                 	1000	1354.0 ms
+open-1000 search, ∀° before      	1000	3055.0 ms
+--- second review: λ workloads after its fixes
+typeof church 400      	1	263.0 ms
+copy church 400        	1	265.0 ms
+typeof nest 150        	1	1326.0 ms
+copy nest 150          	1	1769.0 ms
+typeof backwards 30    	30	10.0 ms
+F x1..x50 = g x50..x1  	1	3.0 ms

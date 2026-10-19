@@ -1,0 +1,1631 @@
+% ch06-lambdatree.tex — λ-tree syntax: computing with binders (Miller & Nadathur, Chapter 7)
+\chapter{\texorpdfstring{$\lambda$}{λ}-tree syntax: computing with binders}\label{ch:lambdatree}
+
+The previous chapters gave us two kinds of machinery. \Cref{ch:lambda} and \cref{ch:hoprog} gave us
+simply typed $\lambda$-terms as \emph{data}, with an equality that already contains $\alpha$-, $\beta$- and
+$\eta$-conversion. \Cref{ch:hh} gave us the two goal connectives of hereditary Harrop formulas: the
+universal goal \lp{pi x\ G}, proved with a fresh \emph{eigenvariable}, and the implicational goal
+\lp{D => G}, proved with the program temporarily extended by \lp{D}. This chapter, which follows Chapter~7 of
+the book \cite{MillerNadathur2012} (\book{175}--\book{210}), shows what the two kinds of machinery can do
+together: they let a logic program compute over syntax that contains \emph{binders}.
+
+This is the chapter that motivates the whole proposal of this document. Every program in it
+manipulates formulas with quantifiers or $\lambda$-terms. None of them contains a single line about variable
+names, renaming, or capture-avoiding substitution. All of that is \enquote{relegated to the meta-level}.
+A miniKanren that wants to run these programs must therefore provide the meta-level: $\lambda$-terms as data,
+eigenvariables with a scope discipline, and a scoped program extension. We will read the book's programs
+closely, walk through how \lp{pi} and \lp{=>} make a binder \enquote{mobile}, and, in the \emph{Kanren
+angle} boxes, record what each concept asks of \micro.
+
+\section{The problem: syntax with binders}\label{sec:lambdatree-problem}
+
+Many symbolic objects contain binders \book{175}--\book{176}: the $x$ in $\int f(x)\,dx$, in
+$\frac{d}{dx}$ and in $\sum_{x=1}^{100}$; quantifiers; $\lambda$-abstractions; local declarations and formal
+parameters in programming languages; type quantifiers of polymorphic types; name restriction in the
+$\pi$-calculus. Programs that handle such objects (differentiators, compilers, interpreters, theorem
+provers, type checkers) all need the same three notions \book{176}:
+\begin{enumerate}[nosep]
+  \item the distinction between \emph{free} and \emph{bound} occurrences of a variable;
+  \item the irrelevance of bound names ($\alpha$-conversion): the formulas $\forall x.\,p(x)$ and
+        $\forall y.\,p(y)$ are the same;
+  \item \emph{capture-avoiding substitution}, needed both for instantiating quantifiers and for passing
+        parameters.
+\end{enumerate}
+The book observes that \enquote{a computational treatment of such binding-related notions is complicated,
+and programming language support for realizing them can be valuable} \book{176}. Anyone who has written a
+substitution function over a named representation, with its renaming case, knows why.
+
+The book's answer has three parts. We state them now and spend the chapter on them.
+\begin{enumerate}[nosep]
+  \item \textbf{Encoding.} Each object-level binder becomes a constant applied to a
+        $\lambda$-abstraction of the meta-level. So \lp{all (x\ B)} encodes the formula $\forall x.\,B$, and
+        \lp{abs (x\ t)} encodes the term $\lambda x.\,t$.
+  \item \textbf{Substitution is $\beta$.} Instantiating the bound variable of an abstraction \lp{B} with
+        \lp{T} is just writing the application \lp{(B T)}; the meta-level $\beta$-conversion does the rest.
+  \item \textbf{Mobility.} To recurse \emph{under} a binder, the program turns the term-level $\lambda$ into a
+        formula-level \lp{pi}, which proof search turns into a proof-level eigenvariable; facts about the
+        new eigenvariable are assumed with \lp{=>}.
+\end{enumerate}
+
+\section{Encoding objects with binding structure}\label{sec:lambdatree-encoding}
+
+\subsection{First-order formulas}\label{sec:lambdatree-fol}
+
+The object logic is first-order logic over two sorts, \lp{term} and \lp{form}. The propositional
+connectives are ordinary constants (re-listed on \book{177}):
+\begin{lprolog}
+type   ff,          % encoding the false proposition
+       tt   form.   % encoding the true proposition
+type   &&,          % encoding conjunction
+       !!,          % encoding disjunction
+       ==>  form -> form -> form.   % encoding implication
+type   neg  form -> form.           % encoding negation
+infixl &&  5.
+infixl !!  4.
+infixr ==> 3.
+\end{lprolog}
+A sample non-logical signature \book{177}:
+\begin{lprolog}
+type p  term -> form.
+type q  term -> term -> form.
+type f  term -> term.
+type a  term.
+\end{lprolog}
+Terms of type \lp{term -> form} are \enquote{abstractions of a term over a formula} \book{178}, for example
+\begin{lprolog}
+x\ (p x) ==> (p (f x))
+Z\ (p Z) ==> (p (f Z))
+Z\ (p Z) && (p (f Z))
+\end{lprolog}
+The first two are \emph{the same} $\lambda$-term, since they differ only in the bound name. Note that the
+capital \lp{Z} after \lp{Z\} is a bound variable, not a logic variable. The quantifiers are then
+\emph{second-order constants}: their argument has a functional type \book{178}.
+\begin{lprolog}
+type all, some  (term -> form) -> form.
+\end{lprolog}
+\begin{lprolog}
+all x\ (p x) ==> (p (f x))          % ∀x (p(x) ⊃ p(f(x)))
+some Z\ (p Z) && (p (f Z))          % ∃Z (p(Z) ∧ p(f(Z)))
+\end{lprolog}
+The book states the principle behind this as follows: \enquote{the mechanism that we have described divides
+the encoding of the object logic quantifiers into two parts: a second order constant that identifies the
+quantifier and an abstraction that captures its binding effect} \book{178}. For instance
+$\forall x\,\forall y\,(q(x,y)\imp\exists z\,(p(z)\wedge q(z,y)))$ is encoded as
+\begin{lprolog}
+all x\ all y\ (q x y) ==> some z\ p z && q z y.
+\end{lprolog}
+where \lp{\} extends as far to the right as possible and \lp{&&} (priority 5) binds tighter than
+\lp{==>} (priority 3).
+
+\begin{definition}[The encoding of formulas]\label{def:lambdatree-encoding}
+For first-order terms and formulas over the signature above, define $\ulcorner\cdot\urcorner$ by
+\[
+\begin{aligned}
+\ulcorner x\urcorner &= x, &
+\ulcorner f(t_1,\dots,t_n)\urcorner &= f\,\ulcorner t_1\urcorner\cdots\ulcorner t_n\urcorner,\\
+\ulcorner B\wedge C\urcorner &= \ulcorner B\urcorner \mathbin{\texttt{\&\&}} \ulcorner C\urcorner
+\quad(\text{similarly for } \vee,\imp,\neg,\top,\bot), &
+\ulcorner\forall x.\,B\urcorner &= \cst{all}\,(\abs{x}{\ulcorner B\urcorner}),\\
+& & \ulcorner\exists x.\,B\urcorner &= \cst{some}\,(\abs{x}{\ulcorner B\urcorner}).
+\end{aligned}
+\]
+\end{definition}
+
+The book does not state $\ulcorner\cdot\urcorner$ as a definition or prove anything about it; this formal
+version is ours, and so is the name. The chapter relies on two properties of it without stating them.
+First, it is a bijection between closed object formulas over the signature, taken up to renaming of bound
+variables, and closed terms of type \lp{form} over the same signature, taken up to $\alpha\beta\eta$-conversion.
+A canonical representative of each class is the $\beta$-normal, $\eta$-long term, which is what
+$\ulcorner\cdot\urcorner$ produces. Second, it commutes with substitution:
+$\ulcorner \subst{B}{t}{x}\urcorner = \subst{\ulcorner B\urcorner}{\ulcorner t\urcorner}{x}$. The second
+property is what makes \enquote{substitution is $\beta$} correct.
+
+\subsection{Untyped \texorpdfstring{$\lambda$}{λ}-terms}\label{sec:lambdatree-untyped}
+
+The second running object language is the untyped $\lambda$-calculus \book{178}--\book{179}:
+\begin{lprolog}
+kind tm   type.
+type app  tm -> tm -> tm.
+type abs  (tm -> tm) -> tm.
+\end{lprolog}
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+untyped term & encoding \\
+\midrule
+$\lambda x\, x$ & \lp{(abs x\x)} \\
+$\lambda x\,(x\,x)$ & \lp{(abs x\ (app x x))} \\
+$\lambda x\,\lambda y\, x$ & \lp{(abs x\ abs y\ x)} \\
+$\lambda x\,\lambda y\, y$ & \lp{(abs x\ abs y\ y)} \\
+$\lambda x\,\lambda y\,(y\,x)$ & \lp{(abs x\ abs y\ app y x)} \\
+$\lambda x\,\lambda y\,\lambda z\,((x\,z)\,(y\,z))$ & \lp{(abs x\abs y\abs z\ (app (app x z) (app y z)))} \\
+$(\lambda x\,(x\,x))\,(\lambda x\,(x\,x))$ & \lp{(app (abs x\ app x x) (abs x\ app x x))} \\
+\bottomrule
+\end{tabular}
+\end{center}
+Each object application becomes one \lp{app}; each object $\lambda$ becomes one \lp{abs} followed by one
+meta-level $\lambda$. Two remarks help in reading the rest of the chapter.
+\begin{itemize}[nosep]
+  \item No closed term of type \lp{tm} can be built from \lp{app} alone: every closed term starts with an
+        \lp{abs}, whose argument (of type \lp{tm -> tm}) is something like \lp{x\x} or \lp{x\ app x x}.
+  \item \enquote{the type tm can be seen as admitting new constructors as one descends under binders}
+        \book{179}. Below \lp{abs x\ abs y\} both \lp{x} and \lp{y} behave as extra constants of type
+        \lp{tm}. Mobility (\cref{sec:lambdatree-mobility}) makes this literally true: under a binder the
+        program works with a genuinely new constant.
+\end{itemize}
+
+\subsection{What the encoding gives for free}\label{sec:lambdatree-properties}
+
+The abstractions over syntax live at arrow types (\lp{term -> form}, \lp{tm -> tm}), and the equality of
+those types includes the three conversions of \cref{ch:lambda}.
+\begin{description}[nosep,font=\normalfont\itshape]
+  \item[$\alpha$.] The object language identifies formulas up to renaming of bound variables, and so does
+        the meta-language. \enquote{Since $\alpha$-conversion is included within the logical notion of equality,
+        it is impossible to access the names of bound variables} \book{180}. The book presents this as a
+        strength: the programmer is spared what does not matter, and the implementer may drop names entirely
+        (for instance with de Bruijn indices \cite{deBruijn1972}). The cost is that printing and parsing must
+        invent names.
+  \item[$\beta$.] This is the subject of \cref{sec:lambdatree-beta}.
+  \item[$\eta$.] Its effect is \enquote{rather mild} \book{180}: for $f:\typ{i}\to\typ{i}$,
+        $f=_\eta\abs{x}{f\,x}$. Hence $\forall x\,(p\,x)$ may be written \lp{(all x\ p x)} \emph{or}
+        \lp{(all p)}: \enquote{not only does the hohh language abstract away from names of bindings, but it also
+        sometimes allows one to abstract away from the presence of actual binders} \book{180}.
+\end{description}
+
+\begin{pitfall}[An $\eta$-short quantifier is still a quantifier]
+A head pattern \lp{(all B)} must also match the term \lp{(all p)}, and \lp{(B T)} must then reduce to
+\lp{(p T)}. An implementation either unifies modulo $\eta$ or keeps terms $\eta$-long. A representation that
+stores the binder \enquote{shape} syntactically and expects every quantifier to carry an explicit
+$\lambda$ will reject \lp{(all p)}.
+\end{pitfall}
+
+\section{Object-level substitution is meta-level \texorpdfstring{$\beta$}{β}}\label{sec:lambdatree-beta}
+
+\subsection{Instantiating quantifiers}
+
+The formula $\forall x\,(p\,x\imp\exists y\,(q\,x\,y))$ is \lp{all x\ p x ==> some y\ q x y}. To instantiate
+it with $f(a)$ we simply apply the abstraction to \lp{(f a)} \book{180}--\book{181}:
+\begin{lprolog}
+(x\ p x ==> some y\ q x y) (f a)
+\end{lprolog}
+which $\beta$-converts to \lp{p (f a) ==> some y\ q (f a) y}. (The book prints \lp{p (h a)} here, a typo;
+the page image confirms it, and it must be \lp{p (f a)}.) Note what was \emph{not} needed: no renaming of
+the inner \lp{y}, no check that \lp{(f a)} has no free \lp{y}. Capture avoidance is the meta-level's job.
+
+The predicate \lp{list_instan} relates a list of $n\ge 0$ terms and a formula with at least $n$ outer
+universal quantifiers to the result of instantiating the first $n$ \book{181}:
+\begin{lprolog}
+type list_instan  list term -> form -> form -> o.
+list_instan nil B B.
+list_instan (T::Ts) (all B) C :- list_instan Ts (B T) C.
+\end{lprolog}
+The head \lp{(all B)} is $\eta$-equal to \lp{(all x\ B x)}: matching it binds \lp{B} to the abstraction
+itself, and \enquote{the substitution for a bound variable is realized simply by writing down (B T)}
+\book{181}.
+
+\subsection{An interpreter for an object logic}\label{sec:lambdatree-interp}
+
+A more substantial example is an interpreter for first-order Horn clauses, written in higher-order Horn
+clauses (Figure~7.1, \book{181}). The object-level program is an explicit argument \lp{D}, a single formula.
+\begin{lprolog}
+type interp     form -> form -> o.
+type backchain  form -> form -> form -> o.
+type atom       form -> o.
+
+interp D tt.
+interp D (G1 && G2)  :- interp D G1, interp D G2.
+interp D (G1 !! G2)  :- interp D G1; interp D G2.
+interp D (some   G)  :- interp D (G X).
+interp D A           :- atom A, backchain D D A.
+backchain D A A.
+backchain D (D1 && D2) A   :- backchain D D1 A; backchain D D2 A.
+backchain D (all D1) A     :- backchain D (D1 X) A.
+backchain D (G ==> D1) A   :- backchain D D1 A, interp D G.
+\end{lprolog}
+The two higher-order clauses are the interesting ones. An object goal \lp{(some G)} is solved by solving
+\lp{(G X)} for a \emph{fresh logic variable} \lp{X}: the meta-level $\beta$ plugs the logic variable in for the
+object-bound variable, and later unification will find a witness. An object clause \lp{(all D1)} is used by
+instantiating it with a fresh logic variable as well. The sample object program of Figure~7.2 (\book{182})
+is
+\begin{lprolog}
+type a, b, c    term.
+type adj, path  term -> term -> form.
+type prog       form -> o.
+atom (adj _ _) & atom (path _ _).
+prog ((adj a b) && (adj b c) &&
+      (all x\ all y\ (adj x y) ==> (path x y)) &&
+      (all x\ all y\ all z\ (adj x y) && (path y z) ==> (path x z))).
+\end{lprolog}
+Two notational points recur in the rest of the chapter. An \lp{&} between two clause heads, as in
+\lp{atom (adj _ _) & atom (path _ _).}, is clause-level conjunction. The heads share one body (here an empty
+one), so the line stands for two clauses written together. The underscore \lp{_} is an anonymous logic
+variable. The predicate \lp{atom} is not part of the interpreter. It is defined for each object signature by
+listing its predicate constants, and here it says that \lp{adj} and \lp{path} atoms are atomic.
+The query \lp{?- prog P, interp P (path a X).} has two answers, \lp{X = b} and then \lp{X = c} \book{182}.
+
+\begin{tutorial}[How \texttt{interp} finds \texttt{X = b}]
+The goal \lp{interp P (path a X)} matches the last \lp{interp} clause, because \lp{atom (path a X)} holds. We
+must prove \lp{backchain P P (path a X)}. The program \lp{P} is a left-nested \lp{&&} of four parts, so the
+second \lp{backchain} clause descends into it. The two \lp{adj} facts do not match \lp{path a X}. The third part
+is \lp{all x\ all y\ (adj x y) ==> (path x y)}: the \lp{(all D1)} clause applies it to a fresh \lp{X1}, giving
+\lp{(D1 X1)} $=_\beta$ \lp{all y\ (adj X1 y) ==> (path X1 y)}; once more with \lp{Y1}, giving
+\lp{(adj X1 Y1) ==> (path X1 Y1)}. The \lp{==>} clause then requires \lp{backchain P (path X1 Y1) (path a X)}
+(the fact clause, binding \lp{X1 = a}, \lp{Y1 = X}) and then \lp{interp P (adj a X)}, which backchains to the fact
+\lp{adj a b} with \lp{X = b}. On backtracking, the fourth part of the program yields \lp{X = c} through
+\lp{adj a b} and \lp{path b c}. At no point did the interpreter rename a bound variable: each $\beta$-step
+\lp{(D1 X1)} replaced an object-level bound variable by a logic variable.
+\end{tutorial}
+
+\subsection{Evaluators for the untyped \texorpdfstring{$\lambda$}{λ}-calculus}
+
+Call-by-name and call-by-value evaluation are four clauses (Figure~7.3, \book{182}):
+\begin{lprolog}
+type cbn, cbv  tm -> tm -> o.
+cbn (abs R) (abs R).
+cbn (app M N) V :- cbn M (abs R), cbn (R N) V.
+cbv (abs R) (abs R).
+cbv (app M N) V :- cbv M (abs R), cbv N U, cbv (R U) V.
+\end{lprolog}
+\lp{(R N)} is the object-level $\beta$-contraction, done by the meta-level $\beta$. (The text on \book{182}
+says \enquote{the term U such that eval N U is provable}; \lp{eval} is a loose name for \lp{cbv}.) The behaviour
+is the expected one \book{183}. $\Omega=(\lambda x\,(x\,x))(\lambda x\,(x\,x))$ has no value under either
+evaluator: the search for a derivation is infinite. On $(\lambda x\,\lambda w\,w)\,\Omega$, call-by-name
+terminates and call-by-value loops:
+\begin{lprolog}
+?- cbn (app (abs x\ abs w\w) (app (abs x\ app x x) (abs x\ app x x))) V.
+   % V = (abs w\w)
+?- cbv (app (abs x\ abs w\w) (app (abs x\ app x x) (abs x\ app x x))) V.
+   % infinite search
+\end{lprolog}
+The book draws the moral of this section in one paragraph \book{183}. The specifications are succinct and
+declarative because \enquote{all the details regarding object-level bound variables and object-level
+substitution has been relegated to the meta-level}. They are still formal and precise: the details
+\enquote{have not gone away; they simply have become the burden of an implementation of a metalogic such as
+$\lambda$Prolog}, and the programmer \enquote{is relieved of dealing with the details behind such
+\textquote{concrete nonsense} as binder names, capture avoiding substitutions, etc.}
+
+\begin{kanren}[What works today: abstractions as Scheme closures]
+All the programs of this section use an abstraction only as an \emph{input}. The abstraction is already known
+when \lp{(R N)} is formed. A miniKanren can imitate this with \emph{functional} higher-order abstract syntax:
+represent \lp{abs R} by a list holding a Scheme procedure, and perform \lp{(R N)} with \scm{project°}. This
+runs on today's \micro, unchanged:
+\begin{scheme}
+(define (abs f) `(abs ,f))
+(define (app m n) `(app ,m ,n))
+(define ω (abs (λ (x) (app x x))))
+(define Ω (app ω ω))
+(define K* (abs (λ (x) (abs (λ (w) w)))))          ; λx λw w
+
+; call-by-name evaluation, Figure 7.3: (R N) is Scheme application, available only through project°
+(define-relation (cbn° m v)
+  (cond°
+    ((fresh° (r) (=° m `(abs ,r)) (=° v m)))
+    ((fresh° (m1 n r) (=° m `(app ,m1 ,n)) (cbn° m1 `(abs ,r))
+       (project° ((r* r)) (cbn° (r* n) v))))))
+
+; printing a HOAS term needs invented names: apply each closure to a generated symbol
+(define (hoas->sexp t)
+  (let loop ((t t) (k 1))
+    (cond
+      ((and (pair? t) (eq? (car t) 'abs))
+       (let ((w (string->symbol (string-append "w" (number->string k)))))
+         `(λ (,w) ,(loop ((cadr t) w) (+ k 1)))))
+      ((and (pair? t) (eq? (car t) 'app)) `(,(loop (cadr t) k) ,(loop (caddr t) k)))
+      (else t))))
+
+(print (μkanren-run (q -1 #t) (fresh° (v) (cbn° (app K* Ω) v) (project° ((v* v)) (=° q (hoas->sexp v*))))))
+; α-equivalent closures are different Scheme objects: unification fails
+(print (μkanren-run (q -1 #t) (=° (abs (λ (x) x)) (abs (λ (y) y)))))
+\end{scheme}
+\begin{answers}
+((λ (w1) w1))
+()
+\end{answers}
+The first answer is the book's \lp{V = (abs w\w)}. The second answer is the problem. Two $\alpha$-equivalent
+abstractions are distinct procedures, and \micro{} compares procedures with \scm{eq?}, so they do not unify. A
+closure cannot be printed without being applied to invented names (that is what \scm{hoas->sexp} does). A
+closure cannot be inspected except by applying it, and no unification can \emph{produce} one. Recognisers
+such as \lp{term}, \lp{bnorm} and \lp{typeof} below could still be run on closures. They only apply an
+input abstraction to a fresh constant, although they also need \lp{pi} and \lp{=>}. But every program that
+\emph{builds} an abstraction as output (\lp{red1}, path synthesis, \lp{trans} backwards, \lp{nnf},
+\lp{prenex}, \lp{copy}, \lp{subst} backwards), and every program that asks whether a body depends on its
+bound variable (\lp{vacuous}, the $\eta$-redex), is out of reach. \Cref{sec:lambdatree-hoas} comes back to
+this \enquote{functional} reading of higher-order abstract syntax.
+\end{kanren}
+
+\section{Mobility of binders}\label{sec:lambdatree-mobility}
+
+\subsection{Why an abstraction cannot be taken apart}
+
+Equal expressions should have equal parts: equal non-empty lists have equal heads and equal tails. Applied to
+$\lambda$-terms, this principle says that \enquote{we should not be able to decompose an abstraction into the
+variable that it binds and its body} \book{183}. The terms \lp{(all x\ some y\ p x ==> p y)} and
+\lp{(all z\ some y\ p z ==> p y)} are equal, yet the names \lp{x} and \lp{z} differ, and so do the would-be
+bodies \lp{(some y\ p x ==> p y)} and \lp{(some y\ p z ==> p y)}. \enquote{Such decompositions, in fact, have no
+logical status within the hohh language: Because equality includes $\alpha$-conversion, the name for a bound
+variable is a fiction, and an implementation may not represent it at all} \book{183}.
+
+So how does a program recurse into the body of a binder? The book's answer \book{184}:
+\enquote{during proof search, a term-level binding (i.e., a $\lambda$-abstraction) can be converted into a
+formula-level binding (i.e., a quantifier), which then can be converted into a proof-level binding (i.e., an
+eigenvariable).}
+\[
+\underbrace{\abs{y}{t}}_{\text{term level}}
+\;\rightsquigarrow\;
+\underbrace{\forall x.\,(\cdots\imp P\,((\abs{y}{t})\,x))}_{\text{formula level}}
+\;=_\beta\;
+\forall x.\,(\cdots\imp P\,(\subst{t}{x}{y}))
+\;\rightsquigarrow\;
+\underbrace{P\,(\subst{t}{c}{y})\ \text{ with } c \text{ fresh}}_{\text{proof level}}
+\]
+
+\subsection{The proof-search rules behind mobility}
+
+Recall from \cref{ch:hh} the rules for the two connectives that make mobility work, together with the
+backchaining rule. A goal is proved relative to a signature $\Sig$ (constants and eigenvariables in scope)
+and a program $\Prog$.
+\begin{mathpar}
+\inferrule{\seq{\Sig\cup\{c\}}{\Prog}{\subst{G}{c}{x}} \\ c\notin\Sig}{\seq{\Sig}{\Prog}{\forall x.\,G}}\;\rulename{generic}
+\and
+\inferrule{\seq{\Sig}{\Prog\cup\{D\}}{G}}{\seq{\Sig}{\Prog}{D\imp G}}\;\rulename{augment}
+\and
+\inferrule{\seq{\Sig}{\Prog}{\subst{G}{t}{x}} \\ t \text{ a } \Sig\text{-term}}{\seq{\Sig}{\Prog}{\exists x.\,G}}\;\rulename{instance}
+\end{mathpar}
+For an atomic goal $A$, \rulename{backchain} picks a clause $\forall\bar x\,(G\imp A')$ of $\Prog$ and an instance
+with $A'\theta\eqb A$, then proves $G\theta$. In an implementation the term $t$ of \rulename{instance} and the
+substitution $\theta$ are found by unification with logic variables. Then the side condition $c\notin\Sig$
+becomes the \textbf{scoping constraint}: a logic variable created \emph{before} the eigenvariable $c$ must never
+be instantiated with a term containing $c$, because at the time it was created its witness had to be a
+$\Sig$-term. This is why \lp{sigma X\ pi y\ X = y} fails while \lp{pi y\ sigma X\ X = y} succeeds. Chapter~7
+never mentions the constraint, but several of its programs (\lp{vacuous}, the $\eta$-redex clause,
+\lp{prenex}) are correct only because of it.
+
+\subsection{A first example: recognising terms}\label{sec:lambdatree-term}
+
+Because of typing, the predicate \lp{term : tm -> o} could be defined by the single clause \lp{term T.}. A more
+instructive definition reflects the two constructors of \lp{tm} into two clauses \book{184}. Written so that
+their logical content is visible:
+\begin{lprolog}
+pi M\ term M => pi N\ term N => term (app M N).
+pi R\ (pi x\ term x => term (R x)) => term (abs R).
+\end{lprolog}
+or, equivalently, in the usual clause syntax:
+\begin{lprolog}
+term (app M N) :- term M, term N.
+term (abs R)   :- pi x\ term x => term (R x).
+\end{lprolog}
+
+\begin{tutorial}[Following the binder of \texttt{(abs y\textbackslash\ app y y)}]
+The book traces the query \lp{?- (term (abs y\ app y y)).} \book{184}--\book{185}.
+\begin{lprolog}
+?- (term (abs y\ app y y)).
+?- pi x\ term x => term ((y\ app y y) x).     % backchain on abs clause
+?- pi x\ term x => term (app x x).            % β-conversion: term-level y -> formula-level x
+?- term (app c c).                            % eigenvariable c, program + (term c)
+\end{lprolog}
+\begin{enumerate}[nosep]
+  \item \emph{Backchaining} on the \lp{abs} clause unifies \lp{R} with the abstraction \lp{y\ app y y}. Nothing
+        has been decomposed: \lp{R} holds the whole abstraction.
+  \item The body of the clause applies \lp{R} to the \lp{pi}-bound \lp{x}. The redex \lp{((y\ app y y) x)} is
+        a $\beta_0$-redex (\cref{sec:lambdatree-llambda}): a $\lambda$ applied to a bound variable. Contracting
+        it moves the term-level binder \lp{y} to the formula-level binder \lp{x}.
+  \item \rulename{generic} replaces \lp{x} by a new eigenvariable \lp{c}. \rulename{augment} adds the clause
+        \lp{term c} to the program. The formula-level binder has become a proof-level binder.
+  \item \lp{term (app c c)} backchains on the \lp{app} clause, and both subgoals \lp{term c} are closed by the
+        assumed clause.
+\end{enumerate}
+Here \lp{c} is exactly one of the \enquote{new constructors} of \lp{tm} that appear under a binder. The program
+has no clause for variables, and it needs none: each variable gets its clause at the moment its binder is
+crossed, and loses it when the proof of the body is complete.
+\end{tutorial}
+
+The book distils the example into a programming idiom. We record it as a definition because every program
+of the chapter is an instance of it.
+
+\begin{definition}[The binder-mobility idiom, \book{185}]\label{def:lambdatree-idiom}
+\enquote{In order to continue a recursive analysis within the scope of a binder, first, apply that binder to a
+universal quantified goal variable, for which the metalogic will substitute an eigenvariable, and second,
+using an implicational goal, assume new clauses that extend the definition of various predicates so that
+they can deal with the presence of this new eigenvariable.}
+\end{definition}
+
+In code, the idiom is always the shape
+\lp{p (c R) ... :- pi x\ (hyp x => p (R x) ...).} The abstraction \lp{R} is never opened. It is applied to a
+fresh eigenvariable, and the assumed \lp{hyp x} tells the predicates of the program what to do when they meet
+it.
+
+\begin{pitfall}[A fresh constant is not an eigenvariable]
+Proving \lp{pi x\ G} with a fresh constant is only half of \rulename{generic}. The other half is the scoping
+constraint. Here is what happens without it, in today's \micro, if a universal goal is \enquote{implemented}
+by handing a \scm{gensym} to the body:
+\begin{scheme}
+; a NAIVE universal goal: a fresh Scheme constant, with no eigenvariable scope check
+(define (naive-pi f) (f (gensym 'c)))
+
+; λProlog: ?- sigma X\ pi y\ X = y.   must fail; the naive encoding succeeds
+(print (μkanren-run (q -1 #t) (naive-pi (λ (y) (=° q y)))))
+; λProlog: ?- pi y\ sigma X\ X = y.   must succeed (X is created inside the scope of y)
+(print (μkanren-run (q -1 #t) (naive-pi (λ (y) (fresh° (x) (=° x y) (=° q 'ok))))))
+\end{scheme}
+\begin{answers}
+(c102)
+(ok)
+\end{answers}
+The first query should fail. The query variable \scm{q} was created before the constant, yet it now holds that
+constant, which has escaped its scope. The same mistake in a unifier, letting a clause variable be bound to a
+term that mentions a variable bound inside its scope, makes \lp{vacuous} (\cref{sec:lambdatree-fol-comp})
+accept formulas whose quantifier is not vacuous. The constraint is not a matter of efficiency: it is part of
+the meaning of $\forall$.
+\end{pitfall}
+
+\begin{kanren}[What mobility requires of a miniKanren]
+Mobility needs three things that \micro{} lacks (see \cref{ch:micro} for the engine).
+\begin{enumerate}[nosep]
+  \item \emph{Eigenvariables}: constants created during the search, distinct from every other term, with a
+        scope. The engine must enforce the scoping constraint: a logic variable older than an eigenvariable
+        can never be bound to a term containing it, \emph{even indirectly} through younger variables (binding
+        $X:=f(Z)$ and later $Z:=c$ leaks $c$ into $X$). λProlog implementations use universe levels
+        \cite{NadathurJayaramanKwon1995}. The miniKanren with symbolic constraints uses an absento-like
+        \enquote{eigen} constraint over the variables in scope \cite{HemannByrdFriedman2013}.
+  \item \emph{Scoped program extension}: \lp{D => G} adds \lp{D} only while \lp{G} is being proved. Other branches
+        of the search and the answers of the enclosing goal must not see \lp{D}. Because miniKanren's search
+        interleaves branches, the extension must live in the search \emph{state}, not in a host-language
+        dynamic variable. A relation must be able to consult the assumed clauses as well as its static ones.
+  \item \emph{Application of an abstraction to an eigenvariable}, \lp{(R x)}, on both sides of the equation:
+        as input (when \lp{R} is known) and as output (when \lp{R} is a logic variable to be solved, as in most
+        programs below).
+\end{enumerate}
+How the proposal provides each of these is the subject of \cref{ch:design}.
+\end{kanren}
+
+\section{Computing with untyped \texorpdfstring{$\lambda$}{λ}-terms}\label{sec:lambdatree-untyped-comp}
+
+This section applies the idiom to the untyped $\lambda$-calculus. The programs grow from pure recognisers
+to programs that build abstractions as output, to programs that assume rules with bodies.
+
+\subsection{\texorpdfstring{$\beta$}{β}-normal forms}\label{sec:lambdatree-bnorm}
+
+\begin{definition}[$\beta$-normal, $\beta$-body-normal, \book{185}]\label{def:lambdatree-bnorm}
+An untyped $\lambda$-term is in \emph{$\beta$-normal form} if it contains no $\beta$-redex. Equivalently and
+positively, it has the shape $\lambda x_1\ldots\lambda x_n\,(v\,t_1\ldots t_m)$ with $n,m\ge0$, where $v$ is a
+variable and every $t_i$ is $\beta$-normal. The inner part $v\,t_1\ldots t_m$ is called
+\emph{$\beta$-body-normal}.
+\end{definition}
+
+The definition becomes three inference rules and three clauses \book{186}:
+\begin{mathpar}
+\inferrule{\forall x.\ \mathrm{bbnorm}(x)\imp\mathrm{bnorm}(M\,x)}{\mathrm{bnorm}(\cst{abs}\,M)}
+\and
+\inferrule{\mathrm{bbnorm}(H)}{\mathrm{bnorm}(H)}
+\and
+\inferrule{\mathrm{bbnorm}(M) \\ \mathrm{bnorm}(N)}{\mathrm{bbnorm}(\cst{app}\,M\,N)}
+\end{mathpar}
+\begin{lprolog}
+type bnorm, bbnorm  tm -> o.
+
+bnorm (abs M)    :- pi x\ bbnorm x => bnorm (M x).
+bnorm H          :- bbnorm H.
+bbnorm (app M N) :- bbnorm M, bnorm N.
+\end{lprolog}
+There is no static clause saying that a variable is $\beta$-body-normal, and there could not be one, since
+bound variables are not terms of the program. A variable becomes body-normal only through the assumption
+\lp{bbnorm x} made when its binder is crossed. A redex \lp{app (abs R) N} is rejected because
+\lp{bbnorm (abs R)} has no clause.
+
+\begin{tutorial}[A normal term and a redex]
+This walk-through is ours; the book gives no query for \lp{bnorm}. Take first
+\lp{?- bnorm (abs x\ app x x).}
+\begin{enumerate}[nosep]
+  \item The \lp{abs} clause matches with \lp{M = x\ app x x}. The body is
+        \lp{pi x\ bbnorm x => bnorm (M x)}: an eigenvariable \lp{c} is created, \lp{bbnorm c} is assumed, and the
+        goal is \lp{bnorm (app c c)} (after $\beta_0$).
+  \item \lp{bnorm (app c c)} is not an \lp{abs}, so the second clause reduces it to \lp{bbnorm (app c c)}, and the
+        third clause to \lp{bbnorm c} and \lp{bnorm c}.
+  \item \lp{bbnorm c} is the assumption. \lp{bnorm c} goes through the second clause to \lp{bbnorm c} again, also
+        the assumption. The query succeeds.
+\end{enumerate}
+Now take \lp{?- bnorm (app (abs x\x) (abs x\x)).} The \lp{abs} clause does not match. The second clause asks for
+\lp{bbnorm (app (abs x\x) (abs x\x))}, and the third clause for \lp{bbnorm (abs x\x)}. No static clause has a
+head \lp{bbnorm (abs _)}, and the only assumptions ever made are \lp{bbnorm c} on eigenvariables, so the query
+fails. The structure of the clauses alone, \enquote{a variable is body-normal only when its binder said so},
+rules the redex out.
+\end{tutorial}
+
+A pleasant consequence is a substitution lemma that costs nothing.
+
+\begin{theorem}[Substitution lemma \enquote{for free}, \book{186}]\label{thm:lambdatree-bnorm-subst}
+Let $\Gamma=\{\cst{bbnorm}\,c_1,\ldots,\cst{bbnorm}\,c_n\}$, $n\ge0$, with the $c_i$ eigenvariables. If
+\lp{(bnorm (abs R))} and \lp{(bbnorm S)} are both derivable from the program above together with $\Gamma$, then
+\lp{(bnorm (R S))} is derivable too. In object-level terms: if $\lambda x\,t$ is $\beta$-normal and $s$ is
+$\beta$-body-normal, then $\subst{t}{s}{x}$ is $\beta$-normal.
+\end{theorem}
+\begin{proof}[Proof (book's argument, with the inversion step made explicit)]
+A derivation of \lp{bnorm (abs R)} must end with the \lp{abs} clause, so
+\lp{pi x\ bbnorm x => bnorm (R x)} is derivable. Derivability is intuitionistic, so the universal quantifier
+can be instantiated with \lp{S}, giving \lp{bbnorm S => bnorm (R S)}, and modus ponens with \lp{bbnorm S}
+gives \lp{bnorm (R S)}.
+\end{proof}
+The book says only \enquote{since derivability is based on intuitionistic logic}. Two facts sit behind that
+phrase: cut admissibility, and the fact that an eigenvariable may be instantiated by any term. The inversion
+step (\enquote{must end with the \lp{abs} clause}) also uses the shape of $\Gamma$. $\Gamma$ contains only
+atoms \lp{bbnorm c} on eigenvariables, so no assumption can match \lp{bnorm (abs R)}. In a named
+representation this lemma is a page of index bookkeeping. Here the logic proves it.
+
+\subsection{Reduction to normal form}\label{sec:lambdatree-reduce}
+
+Figure~7.4 (\book{187}) specifies one-step reduction and reduction to normal form:
+\begin{lprolog}
+type redex, red1, reduce  tm -> tm -> o.
+redex (app (abs R) N) (R N).
+red1 M N :- redex M N.
+red1 (app M N) (app P N) & red1 (app N M) (app N P) :- red1 M P.
+red1 (abs M) (abs N) :- pi x\ red1 (M x) (N x).
+reduce M M :- bnorm M.
+reduce M N :- red1 M P, reduce P N.
+
+type repeat   (A -> A -> o) -> A -> A -> o.
+type reduce'  tm -> tm -> o.
+repeat Pred M N :- Pred M P, !, repeat Pred P N.
+repeat Pred M M.
+reduce' M N :- repeat red1 M N.
+\end{lprolog}
+\begin{itemize}[nosep]
+  \item \lp{redex} relates a $\beta$-redex to its contractum, again by meta-level $\beta$: \lp{(R N)}.
+  \item \lp{red1} contracts exactly one redex somewhere in the term. The \lp{abs} clause is new. Its
+        \emph{output} is the abstraction \lp{N}, and the goal \lp{red1 (M x) (N x)} asks unification to solve
+        \lp{(N x) = t} for an unknown \lp{N}: the answer is \lp{N} $:=$ \lp{x\ t}, with the eigenvariable abstracted
+        out of \lp{t}. This is a \emph{higher-order pattern} problem (\cref{sec:lambdatree-llambda,ch:hounif}).
+        There is no \lp{=>} here: \lp{red1} should simply fail on a bare variable, so no clause about \lp{x} is
+        needed.
+  \item \lp{reduce} uses \lp{bnorm} to decide when to stop. \lp{reduce'} uses the polymorphic higher-order
+        \lp{repeat}, which iterates its argument until it fails. The cut \lp{!} \enquote{prune[s] away alternative
+        solutions to the parent goal} \book{186}. (The text there says \lp{repeat'}; the figure's predicate is
+        \lp{repeat}.)
+\end{itemize}
+
+\begin{tutorial}[One step under a binder: \texttt{red1 (abs x\textbackslash\ app (abs y\textbackslash y) x) N}]
+This is our own example of an output abstraction, traced against the clauses of Figure~7.4 without the
+$\eta$-clause below. The term is $\lambda x\,((\lambda y\,y)\,x)$, with a redex under the binder.
+\begin{enumerate}[nosep]
+  \item \lp{red1 M N :- redex M N} fails: the term is an \lp{abs}, not an \lp{app}. The two \lp{app} clauses do
+        not match either.
+  \item The \lp{abs} clause matches with \lp{M = x\ app (abs y\y) x} and \lp{N = abs N1} for a new logic
+        variable \lp{N1 : tm -> tm}. It creates an eigenvariable \lp{c}. The goal is
+        \lp{red1 (app (abs y\y) c) (N1 c)}.
+  \item The \lp{redex} clause applies with \lp{R = y\y} and contractum \lp{(R c)}, which is \lp{c}. Now unification
+        must solve \lp{(N1 c) = c}. This is a pattern equation: \lp{N1} is applied to the eigenvariable \lp{c}
+        only. Its unique solution abstracts \lp{c} out of the right-hand side: \lp{N1 := x\ x}.
+  \item The answer is \lp{N = abs x\x}. On backtracking, the \lp{app} clauses try to reduce \lp{(abs y\y)} or
+        \lp{c} in one step. The first descends under \lp{y\} to the goal \lp{red1 d _} on a new eigenvariable
+        \lp{d}, the second gives \lp{red1 c _}. Both fail, because no clause, static or assumed, applies to a
+        bare eigenvariable. There is no other answer.
+\end{enumerate}
+The program contains no code for \enquote{rebuild the binder around the reduced body}. Unification does it in
+step 3, and the scoping constraint guarantees that \lp{N1}, created before \lp{c}, receives \lp{c} only through
+its argument.
+\end{tutorial}
+
+The $\eta$-redex needs one clause \book{187}:
+\begin{lprolog}
+redex (abs x\ app M x) M.
+\end{lprolog}
+It is correct because of the scoping constraint. \lp{M} is a clause variable, quantified \emph{outside} the
+binder \lp{x}, so no unifier can let \lp{M} depend on \lp{x}. This is exactly the side condition of $\eta$:
+$x$ not free in $M$. For instance, \lp{abs x\ app x x} is not an $\eta$-redex: matching it against
+\lp{abs x\ app M x} would need \lp{M = x}, and the scoping constraint forbids that binding. With this clause
+added, the term of the tutorial above is also an $\eta$-redex. Matching \lp{abs x\ app (abs y\y) x} against
+\lp{abs x\ app M x} gives \lp{M = abs y\y}, which does not mention \lp{x}, so \lp{red1} now finds
+\lp{abs y\y} first, through \lp{redex}, and then the $\alpha$-equal \lp{abs x\x} again through the \lp{abs}
+clause.
+
+The book adds a semantic remark \book{186}--\book{187}. A model of the untyped $\lambda$-calculus is a domain
+$D$ with maps $f:D\to[D\to D]$ and $g:[D\to D]\to D$; \lp{tm} plays $D$, \lp{app} plays $f$, \lp{abs} plays
+$g$. The $\beta$-clause states $(f\circ g)\,R=R$ and the $\eta$-clause states $(g\circ f)\,M=M$: \enquote{these
+are the familiar properties stating that f and g are, in fact, retracts}.
+
+\subsection{Reduction based on paths}\label{sec:lambdatree-paths}
+
+A \emph{path} walks from the root of a term to an occurrence of a variable. It passes \emph{through} an
+abstraction and chooses left or right at an application \book{187}. Paths contain binders too:
+\begin{lprolog}
+kind path type.
+type bnd          (path -> path) -> path.
+type left, right  path -> path.
+type path         tm -> path -> o.
+path (app M _) (left P) &
+path (app _ M) (right P) :- path M P.
+path (abs R) (bnd S) :- pi x\ pi p\ path x p => path (R x) (S p).
+\end{lprolog}
+The \lp{abs} clause introduces \emph{two} eigenvariables at once: a term variable \lp{x} and a path variable
+\lp{p}. The assumption \lp{path x p} links them: the path to the occurrence of \lp{x} \emph{is} \lp{p}. The paths of
+\lp{(abs x\ app x (abs y\ app y x))} are \book{188}
+\begin{lprolog}
+bnd u\ left u
+bnd u\ right (bnd v\ left v)
+bnd u\ right (bnd v\ right u)
+\end{lprolog}
+The relation also runs backwards: from a set of paths it synthesises the term, using \lp{foreach} from
+\cref{ch:hoprog} (\lp{foreach P nil. foreach P (X::L) :- P X, foreach P L.}) \book{188}:
+\begin{lprolog}
+?- foreach (path N)
+     ((bnd u\ left u) ::
+      (bnd u\ right (bnd v\ left v))::
+      (bnd u\ right (bnd v\ right u))::nil).
+N = abs W1\ app W1 (abs W2\ app W2 W1);
+no
+\end{lprolog}
+
+\begin{tutorial}[Synthesising a term from its paths]
+Take the first path. \lp{path N (bnd u\ left u)} can only use the \lp{abs} clause, so \lp{N = abs R} and
+\lp{S = u\ left u}. Under eigenvariables \lp{x}, \lp{p} with \lp{path x p} assumed, the goal is
+\lp{path (R x) (left p)}. The \lp{left} clause requires \lp{(R x) = app M _}. Unification solves this pattern
+problem with \lp{R := x\ app (M' x) (K x)}, two new logic variables applied to \lp{x}. Then \lp{path (M' x) p}
+is solved by the assumption \lp{path x p} itself, giving \lp{M' := x\ x}. The second and third paths fill in
+the right branch in the same way. Nothing in the program says \enquote{build an abstraction}. The abstraction
+in the answer is produced by unification, which abstracts the eigenvariable \lp{x} out of a term that contains
+it. This is the operation that Scheme closures could not perform.
+\end{tutorial}
+
+Paths can also cross a \emph{marked} $\beta$-redex. A path through \lp{(app (abs R) N)} goes through the body
+\lp{R}; when it reaches the bound variable of \lp{R}, it continues into \lp{N}. Marked redexes are written
+\lp{(beta N R)} (Figure~7.5, \book{189}):
+\begin{lprolog}
+type beta     tm -> (tm -> tm) -> tm.
+type addbeta  tm -> tm -> o.
+type bpath    tm -> path -> o.
+
+bpath (app M _) (left P)  &
+bpath (app _ M) (right P) :- bpath M P.
+bpath (abs R)   (bnd S)   :- pi x\ pi p\ bpath x p =>
+                                         bpath (R x) (S p).
+bpath (beta N R) P :-
+   pi x\ (pi Q\ bpath x Q :- bpath N Q) => bpath (R x) P.
+
+addbeta (app (abs R) N) (beta M S) :- addbeta (abs R) (abs S),
+                                      addbeta N M.
+addbeta (app (app M N) P) (app O Q) :- addbeta (app M N) O,
+                                       addbeta P Q.
+addbeta (abs R) (abs S) :-
+  pi x\ (pi M\ pi N\ addbeta (app x M) (app x N) :- addbeta M N) =>
+        (addbeta x x) => addbeta (R x) (S x).
+\end{lprolog}
+Two features are new.
+\begin{itemize}[nosep]
+  \item The \lp{beta} clause assumes a \emph{rule}, not a fact: \lp{pi Q\ bpath x Q :- bpath N Q}, \enquote{the
+        paths of \lp{x} are the paths of \lp{N}}. The assumed clause has a body and its own universally
+        quantified variable \lp{Q}, renamed at each use. It also mentions \lp{N}, a variable of the
+        enclosing clause, which it shares rather than renames.
+  \item \lp{addbeta} marks every redex. It dispatches on the head of an application: an \lp{abs} head is
+        marked, an \lp{app} head recurses, and a bound-variable head \lp{x} is handled by the rule assumed
+        when \lp{x}'s binder was crossed. A bare variable is copied by the assumed fact \lp{addbeta x x}.
+\end{itemize}
+Normalisation then has two stages: collect the \lp{bpath}s, then synthesise with \lp{path} \book{189}:
+\begin{lprolog}
+?- sigma B\ addbeta (app (abs x\x) (abs x\x)) B, bpath B Path.
+Path = bnd W1\ W1;
+no
+?- foreach (P\ path T P) (bnd (W1\ W1) :: nil).
+T = abs W1\ W1;
+no
+\end{lprolog}
+For $K\,(S\,K)$ with $K=\lambda x\lambda y\,x$ and $S=\lambda x\lambda y\lambda z\,((x\,z)\,(y\,z))$
+\book{189}--\book{190}, the query
+\begin{lprolog}
+?- sigma K\ sigma S\ sigma B\
+     K = (abs x\ abs y\ x),
+     S = (abs x\ abs y\ abs z\ app (app x z) (app y z)),
+     addbeta (app K (app S K)) B, bpath B Path.
+\end{lprolog}
+yields four paths, and synthesis gives
+\begin{lprolog}
+?- foreach (path T)
+     ((bnd W1\ bnd W2\ bnd W3\ left (left (bnd W4\ bnd W5\ W4)))::
+      (bnd W1\ bnd W2\ bnd W3\ left (right W3))::
+      (bnd W1\ bnd W2\ bnd W3\ right (left W2))::
+      (bnd W1\ bnd W2\ bnd W3\ right (right W3))::nil).
+T = abs W1\ abs W2\ abs W3\
+      app (app (abs W4\ abs W5\ W4) W3) (app W2 W3);
+no
+\end{lprolog}
+The result $\lambda w_1\lambda w_2\lambda w_3\,(((\lambda w_4\lambda w_5\,w_4)\,w_3)\,(w_2\,w_3))$ is \emph{not}
+$\beta$-normal. The redex $(K\,w_3)$ was \emph{created} by the reduction, so it was not marked. Iterating
+\enquote{mark, collect, synthesise} reaches the normal form if it terminates, and in the untyped calculus it
+need not terminate \book{190}.
+
+\begin{pitfall}[Collecting all answers is outside the logic]
+The two-stage method collects all solutions of \lp{bpath B Path} into a list. The book stresses that this
+\enquote{is not formally possible in the simple proof-theoretic framework that we have described here}
+\book{190}. Some Prolog systems provide \lp{bagof}, and persistent storage can simulate it. A miniKanren has
+the same situation. A goal that consumes a whole sub-search, such as the aggregation goals of \micro{}
+(\cref{ch:micro}), is available, but it is extra-logical. It also terminates only when the sub-search is
+finite.
+\end{pitfall}
+
+\subsection{Type inference}\label{sec:lambdatree-typeof}
+
+The book's type inference for the untyped calculus (\book{190}--\book{191}) is the best-known
+instance of the idiom:
+\begin{lprolog}
+kind ty type.
+type arr     ty -> ty -> ty.
+type typeof  tm -> ty -> o.
+typeof (app M N) A :- typeof M (arr B A), typeof N B.
+typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.
+\end{lprolog}
+Read as inference rules, the typing context $\Gamma$ is the set of assumed atoms \lp{typeof c A}:
+\begin{mathpar}
+\inferrule{\Gamma\vdash M:B\to A \\ \Gamma\vdash N:B}{\Gamma\vdash \cst{app}\,M\,N : A}
+\and
+\inferrule{\Gamma,\ c:A\vdash M\,c:B \\ c \text{ fresh}}{\Gamma\vdash\cst{abs}\,M : A\to B}
+\end{mathpar}
+The context is not a data structure of the program. It is the set of clauses that the \lp{=>} goals have added,
+and the variable rule of the type system is \rulename{backchain} on one of them. The interaction is
+\book{191}:
+\begin{lprolog}
+?- typeof (abs x\ abs y\ abs z\ app (app x z) (app y z)) Ty.
+Ty = arr (arr T1 (arr T2 T3)) (arr (arr T1 T2) (arr T1 T3))
+?- typeof (abs x\x) Ty.
+Ty = arr T1 T1
+?- typeof (abs x\ app x x) Ty.
+no
+\end{lprolog}
+
+\begin{tutorial}[Why \texttt{typeof (abs x\textbackslash x) Ty} answers \texttt{arr T1 T1}]
+\begin{enumerate}[nosep]
+  \item Backchaining on the \lp{abs} clause binds \lp{Ty = arr A B} for fresh logic variables \lp{A}, \lp{B}, and
+        \lp{M = x\x}.
+  \item \rulename{generic} creates an eigenvariable \lp{c}. \rulename{augment} adds the clause \lp{typeof c A}.
+        This assumed clause contains the \emph{logic variable} \lp{A}, which is shared with the rest of the
+        derivation. Assumptions are not closed facts.
+  \item The goal is now \lp{typeof ((x\x) c) B}, that is, \lp{typeof c B}. Neither static clause applies, since
+        \lp{c} is neither an \lp{app} nor an \lp{abs}. The assumed clause applies and unifies \lp{B} with \lp{A}.
+  \item So \lp{Ty = arr A A}, printed \lp{arr T1 T1}.
+\end{enumerate}
+For \lp{abs x\ app x x} the same steps give the assumption \lp{typeof c A}, and \lp{typeof (app c c) B} needs
+\lp{typeof c (arr B0 B)} and \lp{typeof c B0}. With the assumption these are \lp{A = arr B0 B} and \lp{A = B0},
+hence \lp{B0 = arr B0 B}. The occurs check rejects this, and the answer is \lp{no}. Without an occurs check the
+answer would be a cyclic type.
+\end{tutorial}
+
+Two more details matter. The type \lp{ty} has only the constructor \lp{arr}, so it has \emph{no closed
+inhabitants}. Inferred types are therefore necessarily open, which links back to the distinction between
+unifiers and solutions of \cref{ch:lambda}. With an added constant \lp{type i ty.} one can ask closed
+questions \book{191}:
+\begin{lprolog}
+?- typeof (abs x\x) (arr i i).
+yes
+?- typeof (abs x\x) (arr i Ty).
+Ty = i
+\end{lprolog}
+
+\begin{theorem}[Subject reduction for call-by-name, \book{191}--\book{192}]\label{thm:lambdatree-subject}
+If \lp{(cbn P V)} and \lp{(typeof P A)} are derivable, then \lp{(typeof V A)} is derivable.
+\end{theorem}
+\begin{proof}[Proof (book's argument)]
+By induction on the derivation of \lp{cbn P V}. If it uses the first \lp{cbn} clause, $P=V$. Otherwise
+\lp{P = (app M N)}, and there are shorter derivations of \lp{cbn M (abs R)} and \lp{cbn (R N) V}. From
+\lp{typeof (app M N) A} there is a \lp{B} with \lp{typeof M (arr B A)} and \lp{typeof N B}. By the induction
+hypothesis, \lp{typeof (abs R) (arr B A)}. Hence \lp{pi x\ typeof x B => typeof (R x) A} is derivable.
+Instantiating \lp{x} with \lp{N} and using \lp{typeof N B} gives \lp{typeof (R N) A}. The induction hypothesis on
+\lp{cbn (R N) V} gives \lp{typeof V A}.
+\end{proof}
+The book adds that the same holds for \lp{cbv} (left to the reader), and comments: \enquote{The hard technical
+part in such a proof is establishing a substitution lemma \ldots{} Here, that substitution lemma is obtained
+essentially for free by referring to well-known properties of intuitionistic logic} \book{192}.
+
+\begin{kanren}[The usual miniKanren rendering: an explicit context]
+The standard miniKanren way to write a type inferencer avoids both \lp{pi} and \lp{=>}. It uses de Bruijn
+indices, so that bound names do not exist, and it passes the context as an explicit list. This runs on today's
+\micro{} (indices are Peano numerals and start from \scm{z} for the innermost binder; the book's de Bruijn
+indices in \cref{sec:lambdatree-debruijn} start from 1):
+\begin{scheme}
+(define-relation (nth° Γ k a)
+  (fresh° (b Γ* k*)
+    (=° Γ `(,b . ,Γ*))
+    (cond° ((=° k 'z) (=° a b))
+           ((=° k `(s ,k*)) (nth° Γ* k* a)))))
+
+(define-relation (typeof° Γ m a)
+  (cond°
+    ((fresh° (k) (=° m `(var ,k)) (nth° Γ k a)))
+    ((fresh° (m1 n b) (=° m `(app ,m1 ,n)) (typeof° Γ m1 `(arr ,b ,a)) (typeof° Γ n b)))
+    ((fresh° (body a1 b) (=° m `(lam ,body)) (=° a `(arr ,a1 ,b)) (typeof° `(,a1 . ,Γ) body b)))))
+
+(define S '(lam (lam (lam (app (app (var (s (s z))) (var z)) (app (var (s z)) (var z)))))))
+(define I '(lam (var z)))
+(define ω '(lam (app (var z) (var z))))
+
+(print (μkanren-run (q -1 #t) (typeof° '() S q)))
+(print (μkanren-run (q -1 #t) (typeof° '() I q)))
+(print (μkanren-run (q -1 #t) (typeof° '() ω q)))
+\end{scheme}
+\begin{answers}
+((arr (arr α (arr β γ)) (arr (arr α β) (arr α γ))))
+((arr α α))
+()
+\end{answers}
+These are the book's three answers. The occurs check of \micro{} rejects $\lambda x\,(x\,x)$ exactly as in the
+tutorial above. The difference between the two programs is where the context lives. In \scm{typeof°} it is
+data, threaded through every call and looked up with a hand-written \scm{nth°}. In \lp{typeof} it is part of
+the program, and the logic guarantees the substitution lemma behind \cref{thm:lambdatree-subject}. With an
+explicit context, every relation that may meet a bound variable must accept and pass on the context. With
+\lp{=>}, a predicate written without any knowledge of binders, such as \lp{atom} in
+\cref{sec:lambdatree-fol-comp}, keeps working under them. Supporting the second style is the point of the
+proposal (\cref{ch:design}).
+\end{kanren}
+
+\subsection{Translating to and from de Bruijn syntax}\label{sec:lambdatree-debruijn}
+
+In de Bruijn's notation \cite{deBruijn1972} a variable is a positive integer $n$ that refers to the $n$-th
+enclosing abstraction, counting from 1 \book{192}:
+\begin{center}
+\begin{tabular}{@{}ll@{\qquad}ll@{}}
+\toprule
+term & de Bruijn & term & de Bruijn\\
+\midrule
+$\lambda x\,x$ & $\lambda 1$ & $\lambda x\lambda y\,(y\,x)$ & $\lambda\lambda(1\,2)$\\
+$\lambda x\,(x\,x)$ & $\lambda(1\,1)$ & $\lambda x\lambda y\lambda z\,((x\,z)(y\,z))$ & $\lambda\lambda\lambda((3\,1)(2\,1))$\\
+$\lambda x\lambda y\,x$ & $\lambda\lambda2$ & $\lambda x\,(x\,(\lambda y\,x))$ & $\lambda(1\,\lambda2)$\\
+$\lambda x\lambda y\,y$ & $\lambda\lambda1$ & $\lambda x\,(x\,(\lambda y\,(x\,(\lambda w\,(w\,x)))))$ & $\lambda(1\,(\lambda(2\,(\lambda(1\,3)))))$\\
+\bottomrule
+\end{tabular}
+\end{center}
+The same variable receives different numbers at different depths (the $x$ of the last row is 1, 2 and 3).
+The encoding \book{193}, in which \lp{deb} is both a kind and a constructor, and the translation are:
+\begin{lprolog}
+kind deb  type.
+type ab   deb -> deb.
+type ap   deb -> deb -> deb.
+type deb  int -> deb.
+\end{lprolog}
+\begin{lprolog}
+type trans  int -> tm -> deb -> o.
+type depth  int -> tm -> o.
+trans D (abs M) (ab P) :- pi c\ depth D c =>
+                            (E is D + 1, trans E (M c) P).
+trans D (app M N) (ap P Q) :- trans D M P, trans D N Q.
+trans D X (deb E) :- depth N X, E is (D - N).
+\end{lprolog}
+In \lp{trans D t d}, \lp{D} is one more than the number of enclosing binders. Each eigenvariable is tagged, by
+the assumption \lp{depth D c}, with the level at which it was bound. At an occurrence, the index is the current
+level minus the binding level. The relation works in both directions \book{193}:
+\begin{lprolog}
+?- trans 1 (abs x\ app x (abs y\ app x (abs w\ app w x))) D.
+D = ab (ap (deb 1) (ab (ap (deb 2) (ab (ap (deb 1) (deb 3))))))
+?- trans 1 P
+     (ab (ap (deb 1) (ab (ap (deb 2) (ab (ap (deb 1) (deb 3))))))).
+P = abs W1\ app W1 (abs W2\ app W1 (abs W3\ app W3 W1))
+\end{lprolog}
+
+\begin{tutorial}[Tracing \texttt{?- trans 1 (abs x\textbackslash\ abs y\textbackslash\ abs z\textbackslash\ y) P.}]
+The book traces this query \book{193}--\book{194}.
+\begin{enumerate}[nosep]
+  \item \lp{P := (ab P1)}. A new eigenvariable \lp{c} is introduced and \lp{depth 1 c} is assumed. Goal:
+        \lp{trans 2 (abs y\ abs z\ y) P1}. (The meta-level $\beta$ has replaced the bound \lp{x} by \lp{c}; since
+        \lp{x} does not occur in the body, nothing visible changes.)
+  \item \lp{P1 := (ab P2)}, eigenvariable \lp{d}, assume \lp{depth 2 d}. Goal: \lp{trans 3 (abs z\ d) P2}.
+  \item \lp{P2 := (ab P3)}, eigenvariable \lp{e}, assume \lp{depth 3 e}. Goal: \lp{trans 4 d P3}.
+  \item Only the third clause applies: \lp{P3 := (deb E)} and \lp{depth N d, E is (4 - N)}. The assumption gives
+        \lp{N = 2}, so \lp{E = 2}.
+  \item Answer: \lp{P = (ab (ab (ab (deb 2))))}.
+\end{enumerate}
+The book's text writes the assumptions as \enquote{depth c 1}, \enquote{depth d 2}, \enquote{depth e 3}, with the
+arguments swapped with respect to \lp{type depth int -> tm -> o}. The program assumes \lp{depth 1 c}, and so on.
+In the reverse direction the same clauses run with \lp{P} unknown. The third clause then finds the eigenvariable
+\lp{X} whose \lp{depth} gives the right index, and the \lp{(M c)} of the first clause is solved as a pattern
+problem, as in the path synthesis of \cref{sec:lambdatree-paths}.
+\end{tutorial}
+
+A variant (\book{194}) with no \lp{depth} predicate assumes new \lp{trans} clauses for each
+eigenvariable. It has \emph{no} static clause for variables:
+\begin{lprolog}
+trans D (app M N) (ap P Q) :- trans D M P, trans D N Q.
+trans D (abs M) (ab P) :-
+   pi u\
+     (pi N\ pi H\ trans N u (deb H) :- H is (N - D))
+       => (D' is D + 1, trans D' (M u) P).
+\end{lprolog}
+For the query traced above, the assumed clauses are
+\begin{lprolog}
+pi N\ pi H\ trans N c (deb H) :- H is (N - 1).
+pi N\ pi H\ trans N d (deb H) :- H is (N - 2).
+pi N\ pi H\ trans N e (deb H) :- H is (N - 3).
+\end{lprolog}
+and \lp{?- trans 4 d P3.} is solved by the second. Each assumed clause has captured the value of the outer
+\lp{D} at the time it was assumed. It behaves as a closure over the context.
+
+\begin{kanren}[The same translation with an explicit environment]
+In \micro{} the translation is written with an explicit environment of names. It is the miniKanren analogue of
+the \lp{depth} assumptions:
+\begin{scheme}
+; named terms: a symbol, (app m n), (λ x b); de Bruijn terms as in typeof.scm (z = innermost binder)
+(define-relation (index° env x k)
+  (fresh° (y env*)
+    (=° env `(,y . ,env*))
+    (cond° ((=° x y) (=° k 'z))
+           ((fresh° (k*) (≠° x y) (=° k `(s ,k*)) (index° env* x k*))))))
+
+(define-relation (trans° env t d)
+  (cond°
+    ((symbol° t) (fresh° (k) (=° d `(var ,k)) (index° env t k)))
+    ((fresh° (m n p r) (=° t `(app ,m ,n)) (=° d `(app ,p ,r)) (trans° env m p) (trans° env n r)))
+    ((fresh° (x b p) (=° t `(λ ,x ,b)) (symbol° x) (=° d `(lam ,p)) (trans° `(,x . ,env) b p)))))
+
+; λx (x (λy (x (λw (w x))))), the p.193 example, forwards
+(print (μkanren-run (q -1 #t) (trans° '() '(λ x (app x (λ y (app x (λ w (app w x)))))) q)))
+; λx λy x backwards: the binder names come back as constrained logic variables
+(print (μkanren-run (q -1 #f) (trans° '() q '(lam (lam (var (s z)))))))
+\end{scheme}
+\begin{answers}
+((lam (app (var z) (lam (app (var (s z)) (lam (app (var z) (var (s (s z))))))))))
+((λ (α β) (begin (deny (equal? β α))) (assert (every (μ v (symbol? v)) (list α β))) (cons (quote λ) (cons α (cons (cons (quote λ) (cons β (cons α (quote ())))) (quote ()))))))
+\end{answers}
+The forward answer is the book's \lp{D}, shifted to 0-based indices. The backward answer shows what names cost.
+λProlog answers \lp{abs W1\ abs W2\ W1}: there are no names, and the printer invents \lp{W1}, \lp{W2}. The named
+miniKanren answer is $(\lambda\,\alpha\,(\lambda\,\beta\,\alpha))$ for \emph{any} two symbols $\alpha\ne\beta$.
+The disequality is needed to rule out the shadowed reading $\lambda x\lambda x\,x$, which would be
+$\lambda\lambda1$. The names are logic variables with side conditions, and the programmer had to write the
+\scm{≠°} that excludes capture. In λ-tree syntax there is no such condition to write.
+\end{kanren}
+
+\section{Computations over first-order formulas}\label{sec:lambdatree-fol-comp}
+
+\subsection{Vacuous quantifiers and quantifier-free formulas}
+
+Figure~7.6 (\book{195}):
+\begin{lprolog}
+type vacuous    form -> form -> o.
+type quantfree  form -> o.
+vacuous (all  x\ P) P.
+vacuous (some x\ P) P.
+quantfree tt & quantfree ff.
+quantfree F :- atom F.
+quantfree (neg F) :- quantfree F.
+quantfree (F && G) & quantfree (F !! G) & quantfree (F ==> G) :-
+   quantfree F, quantfree G.
+\end{lprolog}
+\lp{vacuous} \enquote{succeeds exactly when the top-level abstracted variable does not appear in the body of the
+formula and, in this case, binds the second argument to the body} \book{195}. There is no occurrence test in
+the code. Matching \lp{(all x\ P)} against \lp{(all x\ p a)} succeeds with \lp{P = p a}. Matching it against
+\lp{(all x\ p x)} would need \lp{P = p x}, but \lp{P} is quantified outside \lp{x\}, so \lp{x} cannot appear in its
+value and unification fails. The scoping constraint performs the occurrence test. \lp{quantfree} relies on
+\lp{atom} (as in Figure~7.2), which is defined for each object signature.
+
+\subsection{Negation normal form}\label{sec:lambdatree-nnf}
+
+A formula is in \emph{negation normal form} (NNF) if it contains no implication and negation is applied only to
+atoms. It is in \emph{prenex normal form} if no quantifier is in the scope of a connective. In classical
+first-order logic every formula is equivalent to one in NNF, to one in prenex form, and to one in both
+\book{195}. The NNF transformation orients the equivalences
+\[
+\begin{aligned}
+\neg\neg B&\equiv B, & B_1\imp B_2&\equiv\neg B_1\vee B_2, & \neg\forall x\,B\,x&\equiv\exists x\,\neg B\,x,\\
+\neg(B_1\wedge B_2)&\equiv\neg B_1\vee\neg B_2, & \neg(B_1\vee B_2)&\equiv\neg B_1\wedge\neg B_2, &
+\neg\exists x\,B\,x&\equiv\forall x\,\neg B\,x
+\end{aligned}
+\]
+from left to right (Figure~7.7, \book{196}):
+\begin{lprolog}
+type nnf  form -> form -> o.
+nnf A A & nnf (neg A) (neg A) :- atom A.
+nnf (neg (neg B)) D :- nnf B D.
+nnf (neg (B && C)) (D !! E) &
+nnf (neg (B !! C)) (D && E) :- nnf (neg B) D, nnf (neg C) E.
+nnf (B ==> C) (D !! E) :- nnf (neg B) D, nnf C E.
+nnf (B !! C) (D !! E) &
+nnf (B && C) (D && E) :- nnf B D, nnf C E.
+nnf (neg (all B)) (some D) &
+nnf (neg (some B)) (all D) :- pi x\ nnf (neg (B x)) (D x).
+nnf (all B) (all D) &
+nnf (some B) (some D) :- pi x\ nnf (B x) (D x).
+\end{lprolog}
+The quantifier clauses are the idiom without \lp{=>}. Under \lp{pi x\} the eigenvariable \lp{x} is an object
+\emph{term}, and the only predicate that meets the atoms containing it is \lp{atom}, which does not look inside
+terms. The output \lp{(D x)} is again a pattern problem. Its solution abstracts \lp{x} out of the transformed
+body, rebuilding the quantifier around it. For example (our trace, assuming \lp{atom} holds of \lp{p} atoms),
+\lp{?- nnf (neg (all x\ p x)) D.} skips the two \lp{atom}-guarded clauses, since neither the whole formula nor
+\lp{all x\ p x} is atomic. It reaches the \lp{neg (all B)} clause with \lp{B = x\ p x} and \lp{D = some D1}. Under
+an eigenvariable \lp{c} the goal is \lp{nnf (neg (p c)) (D1 c)}. The clause \lp{nnf (neg A) (neg A) :- atom A}
+gives \lp{(D1 c) = neg (p c)}, so \lp{D1 := x\ neg (p x)} and \lp{D = some x\ neg (p x)}, the formula
+$\exists x\,\neg p(x)$.
+
+The book claims that no two heads overlap, so \lp{nnf} is a partial function, and that \enquote{a simple argument
+by induction shows also that the function represented is total} \book{196}. Both claims need qualification.
+
+\begin{pitfall}[Non-overlap modulo a guard, and a missing case]
+Syntactically, the head \lp{nnf A A} overlaps every other head, since \lp{A} is a variable. The clauses are
+disjoint only \emph{modulo the guard} \lp{atom A}, which fails on compound formulas. A miniKanren port must keep
+that guard decisive. The \lp{atom} relation must \emph{fail}, not enumerate or suspend, on compound or unbound
+input, or \lp{nnf} produces spurious answers. Moreover, \lp{tt}, \lp{ff} and \lp{neg (B ==> C)} have no clause.
+The last matches none of \lp{neg (neg _)}, \lp{neg (_ && _)}, \lp{neg (_ !! _)}, \lp{neg (all _)},
+\lp{neg (some _)}. Totality holds only for the formulas without these cases. The fix when porting is one more
+clause, \lp{nnf (neg (B ==> C)) (D && E) :- nnf B D, nnf (neg C) E.}
+\end{pitfall}
+
+\subsection{Prenex normal form}\label{sec:lambdatree-prenex}
+
+For formulas in NNF, the prenex transformation uses the equivalences \book{196}
+\[
+(\forall x\,B_1x)\wedge(\forall x\,B_2x)\equiv\forall x\,(B_1x\wedge B_2x),\qquad
+(\exists x\,B_1x)\vee(\exists x\,B_2x)\equiv\exists x\,(B_1x\vee B_2x),
+\]
+and, for $Q\in\{\forall,\exists\}$ and $\circ\in\{\wedge,\vee\}$,
+$B_1\circ(Q x\,B_2x)\equiv Qx\,(B_1\circ B_2x)$ and $(Qx\,B_2x)\circ B_1\equiv Qx\,(B_2x\circ B_1)$. The usual
+side condition, $x$ not free in $B_1$, is not written anywhere in the program, because it is automatic: in the
+clauses below \lp{B} and \lp{C} are clause variables quantified outside the \lp{pi x\}. (The restriction to NNF
+input \enquote{is not necessary and is used only to shorten the specification}, \book{196}.) Figure~7.8
+(\book{197}):
+\begin{lprolog}
+type prenex, merge  form -> form -> o.
+prenex A A & prenex (neg A) (neg A) :- atom A.
+prenex (B && C) D :- prenex B U, prenex C V,
+                     merge (U && V) D.
+prenex (B !! C) D :- prenex B U, prenex C V,
+                     merge (U !! V) D.
+prenex (all B) (all D) &
+prenex (some B) (some D) :- pi x\ prenex (B x) (D x).
+merge ((all B) && (all C)) (all D) :-
+   pi x\ merge ((B x) && (C x)) (D x).
+merge ((all B) && C) (all D) &
+merge ((some B) && C) (some D) :-
+   pi x\ merge ((B x) && C) (D x).
+merge (B && (all C)) (all D) &
+merge (B && (some C)) (some D) :-
+   pi x\ merge (B && (C x)) (D x).
+merge ((some B) !! (some C)) (some D) :-
+   pi x\ merge ((B x) !! (C x)) (D x).
+merge ((some B) !! C) (some D) &
+merge ((all B) !! C) (all D) :-
+   pi x\ merge ((B x) !! C) (D x).
+merge (B !! (some C)) (some D) &
+merge (B !! (all C)) (all D) :-
+   pi x\ merge (B !! (C x)) (D x).
+merge B B :- quantfree B.
+\end{lprolog}
+Look at the clause \lp{merge ((all B) && C) (all D) :- pi x\ merge ((B x) && C) (D x).} The formula \lp{C}
+moves under the new quantifier without any renaming, because \lp{C} is a closed value with respect to \lp{x}.
+Capture is impossible by construction.
+
+Some formulas have a unique prenex form \book{196}. For example
+\begin{lprolog}
+(all x\ (p x) && (all y\ q x y) && (p (f x))) !! (p a).
+\end{lprolog}
+has only
+\begin{lprolog}
+all x\ all y\ ((p x) && (q x y) && (p (f x))) !! (p a).
+\end{lprolog}
+In general, though, \lp{prenex} is a relation, not a function \book{196}--\book{197}:
+\begin{lprolog}
+?- prenex ((all x\ q x x) && (all z\ all y\ q z y)) P.
+\end{lprolog}
+has five answers \book{197}:
+\begin{lprolog}
+all z\ all y\ (q z z) && (q z y)
+all x\ all z\ all y\ (q x x) && (q z y)
+all z\ all x\ (q x x) && (q z x)
+all z\ all x\ all y\ (q x x) && (q z y)
+all z\ all y\ all x\ (q x x) && (q z y)
+\end{lprolog}
+
+\begin{tutorial}[Where the five prenex forms come from]
+Both conjuncts are already prenex, so the goal reduces to
+\lp{merge ((all x\ q x x) && (all z\ all y\ q z y)) P}. The following explanation is our own hand trace
+against the clause order of Figure~7.8. It reproduces the book's order under depth-first search.
+\begin{enumerate}[nosep]
+  \item The $\forall\wedge\forall$ clause shares one eigenvariable between \lp{x} and \lp{z}, leaving
+        \lp{merge ((q c c) && (all y\ q c y))}, which pulls \lp{y} out: answer 1.
+  \item The \lp{((all B) && C)} clause pulls \lp{x} alone, then \lp{z} and \lp{y} come out of the right side one at
+        a time: answer 2.
+  \item The \lp{(B && (all C))} clause pulls \lp{z} first, leaving
+        \lp{merge ((all x\ q x x) && (all y\ q c y))}. That subproblem again has three ways out: the
+        $\forall\wedge\forall$ clause sharing \lp{x} with \lp{y} (answer 3), pulling \lp{x} then \lp{y} (answer
+        4), or pulling \lp{y} then \lp{x} (answer 5).
+\end{enumerate}
+Every answer is a correct prenex form. No other clause applies at any step: the $\vee$ clauses need \lp{!!},
+and \lp{merge B B :- quantfree B} fails while a quantifier remains. A miniKanren port with the same clauses
+would have to produce exactly these five answers, but its interleaving search may list them in a different
+order.
+\end{tutorial}
+
+\subsection{Syntactic classes and a richer interpreter}
+
+Figure~7.9 (\book{198}) recognises the goal and clause formulas of \fohc{} and \fohh{} (\cref{ch:horn,ch:hh}):
+\begin{lprolog}
+type fohcG, fohcD, fohhG, fohhD  form -> o.
+fohcG tt.
+fohcG A :- atom A.
+fohcG (some B) :- pi x\ fohcG (B x).
+fohcG (B && C) & fohcG (B !! C) :- fohcG B, fohcG C.
+fohcD A :- atom A.
+fohcD (G ==> D) :- fohcG G, fohcD D.
+fohcD (D1 && D2) :- fohcD D1, fohcD D2.
+fohcD (all D) :- pi x\ fohcD (D x).
+fohhG tt.
+fohhG A :- atom A.
+fohhG (D ==> G) :- fohhD D, fohhG G.
+fohhG (B && C) & fohhG (B !! C) :- fohhG B, fohhG C.
+fohhG (some B) & fohhG (all B) :- pi x\ fohhG (B x).
+fohhD A :- atom A.
+fohhD (D1 && D2) :- fohhD D1, fohhD D2.
+fohhD (G ==> D) :- fohhG G, fohhD D.
+fohhD (all D) :- pi x\ fohhD (D x).
+\end{lprolog}
+Here the book remarks on the \lp{pi x\} without \lp{=>}, a deviation from the idiom \book{198}. The
+eigenvariables are object terms and \lp{atom} does not inspect terms, so no assumptions are needed. (The same
+silent deviation occurs in \lp{red1}, \lp{nnf} and \lp{prenex}.) The book also notes a free substitution theorem:
+\enquote{If $\forall x\,D$ is a first-order Horn clause and t is a term, then $D[t/x]$ is a first-order Horn
+clause} \book{198}. It is the analogue of \cref{thm:lambdatree-bnorm-subst} and is proved the same way.
+
+Two clauses extend the interpreter of Figure~7.1 from \fohc{} to \fohh{} \book{198}:
+\begin{lprolog}
+interp D (D1 ==> G) :- interp (D1 && D) G.
+interp D (all G) :- pi x\ interp D (G x).
+\end{lprolog}
+Object $\wedge$, $\vee$, $\exists$ in goals are handled by meta $\wedge$, $\vee$, $\exists$, and the object
+$\forall$ in goals by the meta \lp{pi}. Object implication in goals extends the object program. Since the object
+program is an explicit argument, the extension is just \lp{(D1 && D)}, and no meta-level \lp{=>} is used.
+
+\section{Specifying substitution without \texorpdfstring{$\beta$}{β}}\label{sec:lambdatree-copy}
+
+Substitution into a term with an abstraction, by $\beta$, is one clause \book{199}:
+\begin{lprolog}
+type subst (tm -> tm) -> tm -> tm -> o.
+subst R N (R N).
+\end{lprolog}
+As \cref{ch:lambda} showed, however, \enquote{full $\beta$-conversion is a complex operation on terms} \book{199}. The book therefore shows how to
+specify substitution with only the weak $\beta_0$ of \cref{sec:lambdatree-llambda}. The tools are a
+\emph{copy} predicate and a hypothetical assumption.
+
+\subsection{Copy clauses}
+
+Figure~7.10 (\book{200}):
+\begin{lprolog}
+type copy   tm -> tm -> o.
+type subst  (tm -> tm) -> tm -> tm -> o.
+copy (app M N) (app P Q) :- copy M P, copy N Q.
+copy (abs M) (abs N) :- pi x\ copy x x => copy (M x) (N x).
+subst M T S :- pi x\ copy x T => copy (M x) S.
+\end{lprolog}
+\lp{copy} specifies equality: for closed terms, \lp{copy t s} is derivable if and only if $t=s$. A trace
+\book{199}:
+\begin{lprolog}
+?- copy (abs x\ abs y\ app y x) M.
+   % M := (abs M1); eigenvariable c; assume (copy c c)
+?- copy (abs y\ app y c) (M1 c).
+   % (M1 c) := (abs M2); eigenvariable d; assume (copy d d)
+?- copy (app d c) (M2 d).
+   % three backchainings: app clause, then (copy d d), then (copy c c)
+   % finally (M2 d) unified with (app d c)
+M2 = u\app u c
+M1 = v\abs u\app u v
+M  = abs v\abs u\app u v.
+\end{lprolog}
+The equations \lp{(M1 c) = (abs M2)} and \lp{(M2 d) = (app d c)} are pattern problems, solved by abstracting
+the eigenvariable out. So \lp{copy} \emph{rebuilds} its input binder by binder, and the abstractions of the output
+are produced by unification.
+
+\begin{tutorial}[Reading \texttt{subst} as a hypothetical copy]
+\lp{subst M T S} copies the body of \lp{M} except that the outermost bound variable copies to \lp{T} \book{200}.
+The clause does this in three steps:
+\begin{enumerate}[nosep]
+  \item the binder of \lp{M} becomes a formula-level \lp{pi x\};
+  \item the assumption \lp{copy x T} says \enquote{wherever you meet \lp{x}, produce \lp{T}};
+  \item \lp{copy (M x) S} copies the body.
+\end{enumerate}
+Inside the body, the assumptions \lp{copy c c} for inner binders preserve inner variables. The assumption
+\lp{copy x T} replaces the substituted one. Since \lp{T} is closed with respect to every eigenvariable created
+inside, no capture can happen.
+\end{tutorial}
+
+\begin{proposition}[Correctness of \texttt{subst}, \book{200}]\label{prop:lambdatree-subst}
+If \lp{(subst M T S)} is derivable, then \lp{S} is equal to \lp{(M T)}.
+\end{proposition}
+\begin{proof}
+\lp{pi x\ copy x T => copy (M x) S} is derivable. Since \lp{copy} is equality in the program without
+assumptions, \lp{copy T T} is derivable. Instantiate \lp{x} with \lp{T}: the assumption becomes \lp{copy T T} and can
+be discharged by modus ponens. So \lp{copy (M T) S} is derivable from the program without assumptions, hence
+\lp{(M T)} $=$ \lp{S}.
+\end{proof}
+
+\subsection{Copy clauses for first-order formulas, and where they come from}
+
+For the first-order formulas over the signature
+\begin{lprolog}
+type a  term.
+type f  term -> term.
+type g  term -> term -> term.
+type p  term -> form.
+type q  term -> term -> form.
+\end{lprolog}
+the copy clauses and substitution are Figure~7.11 (\book{201}):
+\begin{lprolog}
+kind term, form  type.
+type copyterm  term -> term -> o.
+type copyform  form -> form -> o.
+type subst     (term -> form) -> term -> form -> o.
+
+copyterm a a.
+copyterm (f X) (f U) :- copyterm X U.
+copyterm (g X Y) (g U V) :- copyterm X U, copyterm Y V.
+
+copyform tt tt.
+copyform ff ff.
+copyform (neg B) (neg D) :- copyform B D.
+copyform (B && C) (D && E) &
+copyform (B !! C) (D !! E) &
+copyform (B ==> C) (D ==> E) :- copyform B D, copyform C E.
+copyform (all B) (all D) &
+copyform (some B) (some D) :- pi y\ copyterm y y =>
+                                     copyform (B y) (D y).
+copyform (p X) (p U) :- copyterm X U.
+copyform (q X Y) (q U V) :- copyterm X U, copyterm Y V.
+
+subst M T N :- pi x\ copyterm x T => copyform (M x) N.
+\end{lprolog}
+These clauses are not ad hoc. They are generated from the signature by a translation that \enquote{lowers} the
+equality at a higher type to relations at the base types \book{201}--\book{202}.
+
+\begin{definition}[Type lowering, \book{201}--\book{202}]\label{def:lambdatree-lowering}
+For terms $t,s$ of type $\tau$ built from the base types \lp{term} and \lp{form}, define the formulas
+$[\![t,s:\tau]\!]^{+}$ (for goals) and $[\![t,s:\tau]\!]^{-}$ (for clauses) by
+\[
+\begin{aligned}
+{}[\![t,s:\cst{term}]\!]^{\pm} &= \cst{copyterm}\ t\ s, \qquad
+[\![t,s:\cst{form}]\!]^{\pm} = \cst{copyform}\ t\ s,\\
+[\![t,s:\tau\to\sigma]\!]^{+} &= \forall x\,\big([\![x,x:\tau]\!]^{-}\imp[\![t\,x,\ s\,x:\sigma]\!]^{+}\big),\\
+[\![t,s:\tau\to\sigma]\!]^{-} &= \forall x\,\forall y\,\big([\![x,y:\tau]\!]^{+}\imp[\![t\,x,\ s\,y:\sigma]\!]^{-}\big).
+\end{aligned}
+\]
+\end{definition}
+The positive case is the idiom itself: to compare two functions, apply both to a fresh $x$ and assume that $x$
+is related to itself. The negative case, used for clauses, compares arguments pairwise. Polarity flips at each
+arrow, just as an arrow-typed argument of a constructor turns a clause into a hypothetical goal.
+
+\begin{example}[Lowering the quantifier \lp{all}, \book{201}--\book{202}]\label{ex:lambdatree-lower-all}
+For $\cst{all}:(\cst{term}\to\cst{form})\to\cst{form}$:
+\[
+\begin{aligned}
+&[\![\cst{all},\cst{all}:(\cst{term}\to\cst{form})\to\cst{form}]\!]^{-}\\
+&\quad= \forall x\forall y\,\big([\![x,y:\cst{term}\to\cst{form}]\!]^{+}\imp[\![\cst{all}\,x,\cst{all}\,y:\cst{form}]\!]^{-}\big)\\
+&\quad= \forall x\forall y\,\big((\forall z\,[\![z,z:\cst{term}]\!]^{-}\imp[\![x\,z,\ y\,z:\cst{form}]\!]^{+})\imp[\![\cst{all}\,x,\cst{all}\,y:\cst{form}]\!]^{-}\big)\\
+&\quad= \forall x\forall y\,\big(\forall z\,(\cst{copyterm}\ z\ z\imp\cst{copyform}\ (x\,z)\ (y\,z))\\
+&\qquad\qquad\imp\cst{copyform}\ (\cst{all}\,x)\ (\cst{all}\,y)\big).
+\end{aligned}
+\]
+This is the \lp{all} clause of Figure~7.11. \enquote{In fact, the clauses in that figure are exactly the formulas
+$[\![c, c : \tau]\!]^-$ for each of the constants c : $\tau$ of the object logic} \book{202}.
+\end{example}
+
+\begin{proposition}[\book{202}]
+\lp{(copyterm T S)} is derivable if and only if \lp{T} and \lp{S} are equal terms, and \lp{(copyform B C)} is
+derivable if and only if \lp{B} and \lp{C} are equal formulas. Hence, if \lp{(subst M T S)} is provable, then
+\lp{S} is equal to \lp{(M T)}.
+\end{proposition}
+
+Two remarks from \book{202}. First, these programs are \emph{signature-dependent}: the object signature is
+reflected into clauses, whereas the one-line $\beta$ version is not. Second, lowering is general. Each primitive
+type maps to its own predicate, the relation need not be binary, and the \lp{term} predicate of
+\cref{sec:lambdatree-term} is the arity-one lowering for the signature \lp{abs}, \lp{app}.
+
+Substitution can also be defined by direct recursion on the abstraction, with no copy predicate (Figure~7.12,
+\book{203}):
+\begin{lprolog}
+type subst      (term -> form) -> term -> form -> o.
+type substterm  (term -> term) -> term -> term -> o.
+subst (x\ tt) T tt.
+subst (x\ ff) T ff.
+subst (x\ neg (B x)) T (neg D) :- subst B T D.
+subst (x\ (B x) && (C x))  T (D && E)  &
+subst (x\ (B x) !! (C x))  T (D !! E)  &
+subst (x\ (B x) ==> (C x)) T (D ==> E) :- subst B T D,
+                                         subst C T E.
+subst (x\ all  (B x)) T (all  D) &
+subst (x\ some (B x)) T (some D) :-
+   pi y\ substterm (x\y) T y => subst (x\ B x y) T (D y).
+subst (x\ p (X x)) T (p U) :- substterm X T U.
+subst (x\ q (X x) (Y x)) T (q U V) :- substterm X T U,
+                                      substterm Y T V.
+substterm (x\ x) T T.
+substterm (x\ a) T a.
+substterm (x\ f (F x)) T (f S) :- substterm F T S.
+substterm (x\ g (F x) (G x)) T (g S R) :-
+   substterm F T S,
+   substterm G T R.
+\end{lprolog}
+The book says only that these clauses are signature dependent, and in its notes that they are loosely based
+on Andrews' equational presentation of $\lambda$-conversion \book{210}. Three points are worth seeing. The patterns
+\lp{(x\ a)} and \lp{(x\y)} are \emph{vacuous} abstractions: they match only bodies that do not depend on \lp{x}.
+Under a nested quantifier the body becomes a two-place abstraction \lp{(x\ B x y)}. The assumption
+\lp{substterm (x\y) T y} says that the inner bound \lp{y}, seen as a constant function of \lp{x}, substitutes to
+itself.
+
+\subsection{Substitution runs backwards}
+
+Every version of \lp{subst} is a relation (\book{202}). Given \lp{T} and the result, it computes
+the abstraction:
+\begin{lprolog}
+?- subst M (f a) ((p (f a)) && (q a (f a))).
+M = x\ (p x) && (q a x)
+M = x\ (p x) && (q a (f a))
+M = x\ (p (f a)) && (q a x)
+M = x\ (p (f a)) && (q a (f a))
+\end{lprolog}
+Each of the two occurrences of \lp{(f a)} may or may not be abstracted, so there are $2\times2$ answers. They
+are the four \emph{existential generalisations} of $p(f(a))\wedge q(a,f(a))$ on the term $f(a)$ \book{203}:
+$\exists x\,p(x)\wedge q(a,x)$, $\exists x\,p(x)\wedge q(a,f(a))$, $\exists x\,p(f(a))\wedge q(a,x)$,
+$\exists x\,p(f(a))\wedge q(a,f(a))$. The \enquote{abstracted} answer comes first. This is consistent with the
+convention of \cref{ch:hh} that clauses added by an implication are tried before the static ones, so
+\lp{copyterm x (f a)} is tried before \lp{copyterm (f X) (f U)}.
+
+\begin{pitfall}[Copy is equality logically, not operationally]
+\enquote{the operational behavior of the copy predicate can be quite different from that of the equality notion
+it encodes} \book{207}. \lp{?- M = N.} binds \lp{M} to \lp{N} at once. \lp{?- copy M N.} builds terms. With
+\begin{lprolog}
+kind i     type.
+type a     i.
+type f     i -> i.
+type copyi i -> i -> o.
+copyi a a.
+copyi (f X) (f Y) :- copyi X Y.
+\end{lprolog}
+\lp{?- copyi M N.} enumerates \lp{a}, \lp{(f a)}, \lp{(f (f a))}, \ldots, and \enquote{if the order of the clauses
+for copyi were reversed, then this query would cause the depth-first $\lambda$Prolog interpreter to loop without
+providing any solution} \book{207}.
+\end{pitfall}
+
+\begin{kanren}[Clause order and interleaving]
+The same predicate in \micro, in both clause orders:
+\begin{scheme}
+(define-relation (copyi° m n)
+  (cond° ((=° m 'a) (=° n 'a))
+         ((fresh° (x y) (=° m `(f ,x)) (=° n `(f ,y)) (copyi° x y)))))
+(define-relation (copyi-rev° m n)
+  (cond° ((fresh° (x y) (=° m `(f ,x)) (=° n `(f ,y)) (copyi-rev° x y)))
+         ((=° m 'a) (=° n 'a))))
+
+(print (μkanren-run (q 4 #t) (fresh° (m n) (=° q `(,m ,n)) (copyi° m n))))
+(print (μkanren-run (q 4 #t) (fresh° (m n) (=° q `(,m ,n)) (copyi-rev° m n))))
+\end{scheme}
+\begin{answers}
+((a a) ((f a) (f a)) ((f (f a)) (f (f a))) ((f (f (f a))) (f (f (f a)))))
+((a a) ((f a) (f a)) ((f (f a)) (f (f a))) ((f (f (f a))) (f (f (f a)))))
+\end{answers}
+The reversed order loops in λProlog but produces the same answers here. \scm{define-relation} delays the
+recursive call and \scm{cond°} interleaves its branches, so the base case is reached. Interleaving changes the
+\emph{order} of answers (the five prenex forms come out in the order 1~3~2~4~5, \cref{sec:examples-prenex};
+the four generalisations happen to keep the book's order, \cref{sec:examples-subst}) and turns some depth-first loops into
+productive streams. It does not remove genuine divergence. \lp{cbv} on $(\lambda x\lambda w\,w)\,\Omega$ has no
+answer under any strategy, and a conjunction such as \enquote{\scm{copyi°} and then fail} still runs forever,
+because it has infinitely many candidates and no finite failure.
+\end{kanren}
+
+\section{The \texorpdfstring{$\lambda$}{λ}-tree approach to abstract syntax}\label{sec:lambdatree-hoas}
+
+Concrete syntax (strings, whitespace, parentheses, infix operators, comments) is for humans. Parsing produces
+\emph{abstract syntax}, a tree \book{203}. For binders there are several choices \book{204}: keep explicit names;
+or map object binding to the meta-language's binding, which is called \emph{higher-order abstract syntax}
+(HOAS) \cite{PfenningElliott1988}. The term covers \enquote{a range of encoding techniques}, and the book
+distinguishes two of them sharply.
+\begin{itemize}[nosep]
+  \item In functional programming, and in constructive type theories that compute by evaluation, meta-level
+        abstraction builds \emph{rich function spaces}. \enquote{Because of the richness of these spaces, it is not
+        possible to compare function-valued expressions for equality in any simple way}. If quantified formulas
+        are encoded with such functions, \enquote{we cannot also compare or structurally analyze formulas under
+        such an encoding} \book{204}.
+  \item Most logic programming languages have no meta-level binders in terms at all.
+  \item The $\lambda$-terms of hohh use \enquote{a $\lambda$-calculus with a weak notion of functionality that makes
+        it possible to analyze the structures of objects under the encoding} \book{204}.
+\end{itemize}
+The book contrasts \enquote{the two extremes in the treatment of binding---one using functions that are best
+thought of extensionally and the other using $\lambda$-expressions that are easily treated intensionally}.
+
+\begin{definition}[$\lambda$-tree syntax, \book{204}]\label{def:lambdatree-lambdatree}
+\enquote{We shall use the term $\lambda$-tree syntax to denote the approach to higher-order abstract syntax that uses
+typed $\lambda$-terms modulo equality based on $\alpha$-conversion, some sufficiently weak form of
+$\beta$-conversion, and possibly $\eta$-conversion.}
+\end{definition}
+In this chapter $\beta$ is \enquote{weakened} by simple typing, which makes it terminating. The next section
+weakens it much further, to $\beta_0$.
+
+The book's bibliographic notes (\book{208}--\book{210}) trace the idea back a long way. Encoding a binder as a
+constant applied to a $\lambda$-abstraction goes back at least to Church's simple theory of types (1940), and
+λProlog's \lp{pi} and \lp{sigma} are named after Church's $\Pi$ and $\Sigma$. Computing with such terms
+starts with Huet and Lang (1978) and Miller and Nadathur (1987). The phrase \enquote{higher-order abstract
+syntax} comes from Pfenning and Elliott \cite{PfenningElliott1988}, and the name \enquote{$\lambda$-tree
+syntax} from Miller and Palamidessi (1999). The copy clauses of \cref{sec:lambdatree-copy} go back to Miller
+(1991) at second order and to Felty for arbitrary orders. The $\Llam$ fragment of the next section is
+Miller's \cite{Miller1991}.
+
+For a miniKanren programmer, the options can be compared directly. The first column is the
+\enquote{functional} reading of HOAS that we ran in \cref{sec:lambdatree-beta}. The second is nominal logic
+programming as in $\alpha$Kanren \cite{ByrdFriedman2007,Byrd2009}, based on nominal unification
+\cite{UrbanPittsGabbay2004}. The third is $\lambda$-tree syntax.
+\begin{center}
+\small
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.27\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.2\linewidth}>{\raggedright\arraybackslash}p{0.23\linewidth}@{}}
+\toprule
+ & host closures & names + freshness ($\alpha$Kanren) & $\lambda$-tree syntax \\
+\midrule
+$\alpha$-equivalence & no (\scm{eq?} only) & yes, via swapping & yes, built in \\
+substitution & host application & a user relation with freshness side conditions & meta-level $\beta$ (or $\beta_0$ + copy) \\
+analysing a body & only by applying to a name & by unification under \texttt{tie} & by mobility (\texttt{pi}, \texttt{=>}) \\
+building an abstraction by unification & impossible & yes & yes (pattern unification) \\
+\enquote{$x$ not free in $M$} & not expressible & freshness constraint $a\,\#\,M$ & scoping of variables \\
+\bottomrule
+\end{tabular}
+\end{center}
+The same notes (\book{209}--\book{210}) name nominal logic as the alternative approach: it is
+first-order, with name-swapping and freshness, and binding is derived from these primitives. Porting the book's
+programs to $\alpha$Kanren would mean rewriting them, not transliterating them: there is no $\beta$, mobility is replaced by fresh names, and hypothetical
+contexts must be threaded explicitly.
+
+\section{The \texorpdfstring{$L_\lambda$}{Lλ} subset}\label{sec:lambdatree-llambda}
+
+Predicate quantification is useful for manipulating $\lambda$-tree syntax, but \enquote{it is certainly not
+central to it} \book{205}. Can $\beta$ be weakened further? The book recalls the chapter's two principles: bound
+names are a fiction ($\alpha$), and binders are mobile, from term level to formula level to proof level. It then
+identifies the variables that carry mobility.
+
+\begin{definition}[Essentially universal and essentially existential occurrences, \book{205}]\label{def:lambdatree-essential}
+In a goal formula $G$, a bound variable occurrence is \emph{essentially universal} if it is bound by a positive
+$\forall$, a negative $\exists$, or a term-level $\lambda$. It is \emph{essentially existential} otherwise, that is,
+if it is bound by a negative $\forall$ or a positive $\exists$. In a program clause the classification is dual: an
+occurrence is essentially universal if it is bound by a negative $\forall$, a positive $\exists$, or a term-level
+$\lambda$, and essentially existential if it is bound by a positive $\forall$ or a negative $\exists$.
+\end{definition}
+During proof search, essentially existential variables become logic variables, instantiated by unification
+with general terms. Essentially universal ones are instantiated only with eigenvariables. \enquote{It is the
+essentially universal bound variable occurrences that provide mobility during proof search} \book{205}. In the
+clause \lp{typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.}, the clause variables \lp{M},
+\lp{A}, \lp{B} are essentially existential, while the \lp{pi}-bound \lp{x} sits in the negative body of the clause
+and is essentially universal.
+
+\begin{definition}[$\Llam$, \book{205}--\book{206}]\label{def:lambdatree-llambda}
+$\Llam$ restricts hohh by requiring (1) that all quantification be over non-predicate types, and (2) that
+\enquote{Every subterm in B with an essentially existential variable occurrence as its head, that is, a subterm of
+the form ($x\,t_1\ldots t_n$) ($n\ge0$), where x is essentially existentially quantified in B, must be such that
+$t_1,\ldots,t_n$ are distinct essentially universal variable occurrences bound in the scope of x.}
+\end{definition}
+Such an application $x\,y_1\ldots y_n$ is a \emph{higher-order pattern}. If $x$ is ever instantiated with a
+term $t$, the only redexes created have the form $(t\,y_1\ldots y_n)$ with the $y_i$ not free in $t$. Up to
+$\alpha$ and $\eta$, $t=\lambda y_1\ldots\lambda y_n\,t'$, and the reduction just strips the binders
+\book{206}. Only this sub-case of $\beta$ is needed.
+
+\begin{definition}[$\beta_0$, \book{206}]\label{def:lambdatree-beta0}
+\[
+(\abs{x}{s})\,x = s \qquad(\beta_0)
+\]
+In the presence of $\alpha$-conversion this is equivalent to $(\abs{y}{s})\,x=\subst{s}{x}{y}$, provided $x$ is not
+free in $\abs{y}{s}$.
+\end{definition}
+
+\begin{example}[Goal versus clause, \book{206}]
+With $p:\typ{i}\to\typ{o}$ and $f:\typ{i}\to\typ{i}$, the formula
+$\forall_{\typ{i}\to\typ{i}}x\,\forall_{\typ{i}}y\,(p\,(x\,y)\imp p\,(f\,y))$ is an $\Llam$ \emph{goal}: both
+quantifiers are positive, so $x$ and $y$ are essentially universal, and nothing existential is applied. As a
+\emph{program clause} it is not in $\Llam$: there both $x$ and $y$ are essentially existential, and $(x\,y)$ applies
+an existential variable to an existential one. Membership in $\Llam$ depends on polarity.
+\end{example}
+
+The book states which programs of the chapter belong to $\Llam$ \book{206}: \enquote{all the program clauses in
+Figures 7.7 through 7.12 belong to $L_\lambda$}, and exactly one clause of Figure~7.4 does not, namely
+\lp{redex (app (abs R) N) (R N).}, where \lp{R} is applied to the existential \lp{N}. By the same definition, more
+programs of the chapter are outside $\Llam$, although the book singles out only \lp{redex}. The table summarises the
+situation; the classification of the rows other than \lp{redex} and Figures~7.7--7.12 is ours.
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.47\linewidth}p{0.45\linewidth}@{}}
+\toprule
+in $\Llam$ (applications are \texttt{(M x)} with \texttt{x} \texttt{pi}-bound) & outside $\Llam$ \\
+\midrule
+\texttt{term}, \texttt{bnorm}, \texttt{red1}, \texttt{reduce}, \texttt{path}, \texttt{bpath}, \texttt{addbeta},
+\texttt{typeof}, \texttt{trans}, \texttt{vacuous}, \texttt{nnf}, \texttt{prenex}, \texttt{fohcG} \ldots,
+\texttt{copy}, every \texttt{subst} of Figures 7.10--7.12
+& \texttt{redex} (\texttt{(R N)}); \texttt{list\_instan} (\texttt{(B T)}); \texttt{interp}/\texttt{backchain}
+(\texttt{(G X)}, \texttt{(D1 X)}); \texttt{cbn}/\texttt{cbv} (\texttt{(R N)}, \texttt{(R U)}); the one-line
+\texttt{subst R N (R N)}; \texttt{repeat} and \texttt{foreach} (they quantify over predicates) \\
+\bottomrule
+\end{tabular}
+\end{center}
+In every non-$\Llam$ clause of the chapter, the abstraction is applied to an argument of \emph{base} type
+(\lp{term} or \lp{tm}). Instantiating \lp{R : tm -> tm} with \lp{N : tm} therefore never creates a new redex. It is
+plain \enquote{instantiate the bound variable}, provided \lp{R} is known when the application is formed.
+
+A non-$\Llam$ program can often be rewritten into $\Llam$ \book{206}. With the copy clauses of Figure~7.10, the
+offending clause becomes
+\begin{lprolog}
+redex (app (abs R) N) S :- subst R N S.
+\end{lprolog}
+\enquote{If we do this, we obtain a specification that is entirely within $L_\lambda$.} The translation has two
+costs \book{207}. The signature must be reflected into copy clauses with $[\![\cdot]\!]^{\pm}$. And copy behaves
+operationally unlike equality (the \lp{copyi} pitfall above).
+
+Why care? Compare the two rules \book{207}:
+\[
+(\abs{x}{M})\,N=\subst{M}{N}{x}\quad(\beta)\qquad\qquad(\abs{x}{M})\,x=M\quad(\beta_0).
+\]
+A $\beta_0$ step removes one abstraction--application pair, and the result is strictly smaller and has no new
+redexes. A $\beta$ step may shrink the term (if $x$ does not occur in $M$), may blow it up (if $x$ occurs many times
+and $N$ is large), and may create new redexes (if $x$ occurs applied in $M$). The difference carries over to
+unification, the subject of \cref{ch:hounif} \book{208}:
+\begin{itemize}[nosep]
+  \item unification modulo $\beta\eta$ is undecidable and may have several most general unifiers;
+  \item $\Llam$ unification is \enquote{much more like first-order unification}: it is decidable, and when a unifier
+        exists there is a single most general one \cite{Miller1991,Nipkow1993};
+  \item \enquote{an overwhelming majority of clauses in \textquote{typical} $\lambda$Prolog programs are within the
+        $L_\lambda$ fragment}.
+\end{itemize}
+
+\begin{pitfall}[$\beta_0$ is not the same as $\Llam$]
+All $\Llam$ unification problems are problems modulo $\alpha$, $\beta_0$, $\eta$, but not conversely \book{208}.
+Finding $F$ with $\forall x\,(F\,x\,x=x)$ needs only $\beta_0$ to justify the solutions $F:=\lambda u\lambda v\,u$
+and $F:=\lambda u\lambda v\,v$. It is not an $\Llam$ problem, because $F$ is applied to the same universal variable
+twice, and it has two incomparable most general unifiers. A unifier for a miniKanren must decide what to do with
+such non-pattern equations: reject them, or postpone them until they become patterns.
+\end{pitfall}
+
+Finally, raising (\cref{ch:lambda}), the transformation of $\forall y\,\exists x\,G$ into
+$\exists h\,\forall y\,\subst{G}{(h\,y)}{x}$ that implementations use to simplify quantifier alternation,
+\enquote{preserves the class of $L_\lambda$ formulas} \book{208}: $(h\,y)$ is a pattern.
+
+\begin{kanren}[A requirements checklist for \micro]
+Gathering the boxes of this chapter, a miniKanren that runs the book's programs needs the following. Each item is
+justified by a program above. The design that provides them is in \cref{ch:design,ch:module}.
+\begin{center}
+\small
+\begin{tabular}{@{}p{0.34\linewidth}p{0.58\linewidth}@{}}
+\toprule
+requirement & needed by \\
+\midrule
+abstractions as data, equal up to $\alpha$ (and $\eta$) & every program; \texttt{(all p)}; answers like \texttt{abs W1\textbackslash\ W1} \\
+application of a known abstraction to a term & \texttt{list\_instan}, \texttt{interp}, \texttt{cbn}, \texttt{cbv}, \texttt{redex} \\
+eigenvariables with the scoping constraint & every \texttt{pi}; correctness of \texttt{vacuous}, $\eta$-\texttt{redex}, \texttt{prenex} \\
+scoped assumed facts, possibly with logic variables & \texttt{term}, \texttt{bnorm}, \texttt{typeof}, \texttt{trans}, \texttt{copy} \\
+scoped assumed rules with bodies and own $\forall$ variables & \texttt{bpath}, \texttt{addbeta}, the \texttt{trans} variant \\
+pattern unification for output abstractions \texttt{(D x)} & \texttt{red1}, \texttt{path} synthesis, \texttt{nnf}, \texttt{prenex}, \texttt{copy}, \texttt{subst} backwards \\
+occurs check, also through abstractions & \texttt{typeof (abs x\textbackslash\ app x x)} \\
+printing binders with invented names & every answer containing an abstraction \\
+\bottomrule
+\end{tabular}
+\end{center}
+Some of this exists in the miniKanren literature. The miniKanren with symbolic constraints has an
+\enquote{eigen} operator with a scope check \cite{HemannByrdFriedman2013}. $\lambda$Kanren adds \texttt{tie},
+application, \texttt{all} and assumed relations to $\mu$Kanren \cite{MaLuFriedman2020}, and its successor
+discusses the $\alpha$-equivalence surprises of combining higher-order unification with miniKanren
+\cite{MaFriedman2021} (see \cref{ch:lkanren}). Today's \micro{} has none of these features. It does have
+first-order unification with occurs check and records, which can represent de Bruijn terms, and an interleaving
+search, which already changes some of the book's loops into productive streams.
+\end{kanren}
+
+\section{Summary}\label{sec:lambdatree-summary}
+\begin{itemize}
+  \item An object-level binder is a constant applied to a meta-level abstraction: \lp{all (x\ B)},
+        \lp{abs (x\ t)}. Equality of the meta-language includes $\alpha$ (bound names are a fiction), $\beta$ and
+        $\eta$ (so \lp{(all p)} is a quantifier too).
+  \item Object-level substitution is meta-level $\beta$: \lp{(B T)}. Interpreters (\lp{interp}) and evaluators
+        (\lp{cbn}, \lp{cbv}) need no renaming code at all.
+  \item An abstraction cannot be decomposed into a name and a body. Recursion under a binder uses
+        \emph{mobility}: term-level $\lambda$, then formula-level \lp{pi}, then proof-level eigenvariable, with
+        \lp{=>} assuming the clauses that describe the new eigenvariable (\cref{def:lambdatree-idiom}).
+  \item The eigenvariable's scoping constraint is part of the meaning of \lp{pi}. It silently implements every
+        \enquote{$x$ not free in $M$} side condition (\lp{vacuous}, $\eta$, prenex). A fresh constant without it is
+        unsound.
+  \item Assumptions are scoped, may contain logic variables (\lp{typeof x A}), and may be rules with bodies and
+        their own quantifiers (\lp{bpath}, \lp{addbeta}, \lp{trans}). Some predicates have no static clause for
+        variables at all.
+  \item Metatheory comes cheap: the substitution lemma for \lp{bnorm}, subject reduction for \lp{typeof}, and the
+        correctness of \lp{subst} all follow from instantiating a \lp{pi} and discharging a \lp{=>}.
+  \item Programs that \emph{build} abstractions (\lp{red1}, \lp{nnf}, \lp{prenex}, \lp{copy}, path synthesis,
+        \lp{trans} backwards) rely on unification solving \lp{(D x) = t} by abstracting the eigenvariable out:
+        pattern unification.
+  \item Copy clauses, generated from the signature by type lowering $[\![\cdot]\!]^{\pm}$, specify substitution
+        using only $\beta_0$. They are logically equality but operationally term generators.
+  \item The relations are not functions: \lp{prenex} has five answers on the book's example, \lp{subst} run
+        backwards enumerates the four existential generalisations.
+  \item $\lambda$-tree syntax is HOAS with $\lambda$-terms modulo $\alpha$, a weak $\beta$ and possibly $\eta$, which can
+        be analysed intensionally, unlike host-language closures. $\Llam$ restricts existential variables to
+        patterns, so that only $\beta_0$ is needed and unification is decidable and unitary (\cref{ch:hounif}).
+  \item On today's \micro, abstractions as closures work only as inputs, and explicit contexts with de Bruijn
+        indices replace \lp{pi}/\lp{=>} at the cost of threading the context and writing capture conditions by
+        hand. The requirements checklist above is the starting point of the proposal (\cref{ch:design}).
+\end{itemize}

@@ -1,0 +1,103 @@
+--- a/src/aux.kanren.micro.show.scm
++++ b/src/aux.kanren.micro.show.scm
+@@ -46,6 +46,8 @@
+         ((μkanren-tagged? r 'cons) (cons (D (cadr r)) (D (caddr r))))
+         ((μkanren-tagged? r 'vector) (list->vector (map D (cdr r))))
+         ((μkanren-tagged? r 'make-record-instance) (apply make-record-instance (map D (cdr r))))
++        ((μkanren-tagged? r 'ƛ) `(ƛ ,(cadr r) ,(D (caddr r))))   ; the λ-terms of (aux kanren lambda)
++        ((μkanren-tagged? r '@) `(@ ,@(map D (cdr r))))
+         (else r))))
+ 
+   ; `(μ v (symbol? v))` ↦ `symbol?`, ie. the name of the predicate carried by a tag.
+@@ -56,18 +58,23 @@
+ 
+   ; `(begin (deny (equal? α 'list)))` ↦ `(≠ α list)`, `(assert (every ...))` ↦ `(symbol? α)`, ...
+   (define (μkanren-form->constraint c)
++    (define (denial denied)
++      (cond
++        ((μkanren-tagged? denied '≐) `(≠ ,(μkanren-repr->datum (cadr denied)) ,(μkanren-repr->datum (caddr denied))))
++        ((μkanren-tagged? denied '∃) `(∀ ,(cadr denied) ,(denial (caddr denied))))   ; ¬∃x.e is ∀x.¬e
++        (else (let* ((equalities (if (μkanren-tagged? denied 'and) (cdr denied) (list denied))) ; (equal? α repr) | (and (equal? ...) ...)
++                     (ls (map cadr equalities))
++                     (rs (map (o μkanren-repr->datum caddr) equalities)))
++                (if (one? (length ls)) `(≠ ,(car ls) ,(car rs)) `(≠ ,ls ,rs))))))  ; a tuple disequality.
+     (cond
+-      ((μkanren-tagged? c 'begin)
+-        (let* ((denied (cadr (cadr c)))                                    ; (equal? α repr) | (and (equal? ...) ...)
+-               (equalities (if (μkanren-tagged? denied 'and) (cdr denied) (list denied)))
+-               (ls (map cadr equalities))
+-               (rs (map (o μkanren-repr->datum caddr) equalities)))
+-          (if (one? (length ls)) `(≠ ,(car ls) ,(car rs)) `(≠ ,ls ,rs))))  ; a tuple disequality.
++      ((μkanren-tagged? c 'begin) (denial (cadr (cadr c))))
++      ((μkanren-tagged? c '∀) `(∀ ,(cadr c) ,(μkanren-form->constraint (caddr c))))  ; closed over eigenvariables
+       ((μkanren-tagged? c 'assert)
+         (let1 (b (cadr c))
+           (cond
+-            ((μkanren-tagged? b 'every) (cons (μkanren-tag-def->name (cadr b)) (cdr (caddr b))))
+-            ((μkanren-tagged? b 'absent?) `(absento ,(cadr (cadr b)) ,(μkanren-repr->datum (caddr b))))  ; a variable or a term.
++            ((μkanren-tagged? b 'every) (cons (μkanren-tag-def->name (cadr b)) (map μkanren-repr->datum (cdr (caddr b)))))
++            ((μkanren-tagged? b 'absent?) `(absento ,(μkanren-repr->datum (cadr b)) ,(μkanren-repr->datum (caddr b))))  ; a variable or a term.
++            ((μkanren-tagged? b '≐) `(= ,(μkanren-repr->datum (cadr b)) ,(μkanren-repr->datum (caddr b))))  ; a suspended equation
+             (else c))))
+       (else c)))
+ 
+@@ -75,9 +82,15 @@
+   (define (μkanren-answer->constraints a) (map μkanren-form->constraint (μkanren-answer-forms a)))
+   (define (μkanren-answer-ground? a) (and (null? (μkanren-answer-vars a)) (null? (μkanren-answer-forms a))))
+ 
++  ; an answer as one datum, αKanren-style: the term alone, or `(term : constraint ...)`.
++  (define (μkanren-answer->pretty a)
++    (let1 (cs (μkanren-answer->constraints a))
++      (if (null? cs) (μkanren-answer->datum a) `(,(μkanren-answer->datum a) : ,@cs))))
++
+   ; running -------------------------------------------------------------------------
+ 
+   (define (°->answers g) (°->list #f g))
++  (define (°->pretty g) (map μkanren-answer->pretty (°->answers g)))
+ 
+   ; Consume the answer stream by hand, timing each answer and counting how many suspensions the
+   ; engine had to force to produce it: a cheap profile of *where* the search spends its time.
+@@ -273,7 +286,8 @@
+   ; The low-level picture: the answer term drawn as the DAG it really is, where cons cells are
+   ; ⟦cons⟧ nodes, logic variables are circles, atoms are boxes, and *sharing is visible* because
+   ; equal subterms are hash-consed to a single node.  Constraints hang off the variables they
+-  ; restrict as dashed edges.
++  ; restrict as dashed edges.  The λ-terms of (aux kanren lambda) are ⟦ƛ x⟧ and ⟦@⟧ nodes, with a
++  ; node per binder, never shared with a constant of the same name.
+   ;
+   ; `share` says how far hash-consing goes: with `answer` (the default) each answer is a subgraph of
+   ; its own; with `all` every *ground* subterm is shared by the whole answer set, so a family of
+@@ -300,13 +314,30 @@
+           ((vector? v) (ground? vars (vector->list v)))
+           ((and (record-instance? v) (not (μkanren-var? v))) (ground? vars (record->vector v)))
+           (else #t)))
+-      (define ((node i vars) v)
+-        (let* ((N (node i vars))
+-               (key (if (and (eq? share 'all) (ground? vars v)) (cons 'ground v) (cons i v))))
++      ; a λ-term of (aux kanren lambda), `(ƛ (x ...) body)` or `(@ h a ...)`, is a node of its own, not the
++      ; cons cells of its datum: its binders are nodes of that ƛ, `bound` maps their names to them, and the
++      ; subterms below it that mention them are hash-consed apart from the rest, since `x` there is no
++      ; constant `x`.
++      (define (mentions? x v) (cond ((symbol? v) (eq? x v)) ((pair? v) (or (mentions? x (car v)) (mentions? x (cdr v)))) (else #f)))
++      (define (ƛ-form? v) (and (pair? v) (eq? (car v) 'ƛ) (list? v) (= (length v) 3) (list? (cadr v)) (every symbol? (cadr v))))
++      (define (@-form? v) (and (pair? v) (eq? (car v) '@) (list? v) (<= 2 (length v))))
++      (define ((node i vars #!optional (bound '())) v)
++        (let* ((N (node i vars bound))
++               (scope (if (any (λ (b) (mentions? (car b) v)) bound) bound '()))
++               (key (if (and (eq? share 'all) (null? scope) (ground? vars v)) (cons 'ground v) (cons (cons i scope) v))))
+           (cond
++            ((and (symbol? v) (assq v bound)) => cdr)
+             ((hash-table-exists? ids key) (hash-table-ref ids key))
+             (else
+               (let1 (id (cond
++                          ((ƛ-form? v) (let* ((id (decl! "[[" (conc "ƛ " (string-intersperse (map ->string (cadr v)) " ")) "]]" "cell"))
++                                              (xs (map (λ (x) (let1 (b (decl! "((" (->string x) "))" "atom")) (edge! id "binds" b) (cons x b))) (cadr v))))
++                                         (edge! id "body" ((node i vars (append xs bound)) (caddr v)))
++                                         id))
++                          ((@-form? v) (let1 (id (decl! "[[" "@" "]]" "cell"))
++                                         (edge! id "head" (N (cadr v)))
++                                         (for-each (λ (j w) (edge! id (conc j) (N w))) (ι (length (cddr v)) 1) (cddr v))
++                                         id))
+                           ((and (symbol? v) (member? v vars)) (decl! "((" (->string v) "))" "var"))
+                           ((null? v) (decl! "([" "()" "])" "atom"))
+                           ((pair? v) (let1 (id (decl! "[[" "cons" "]]" "cell"))

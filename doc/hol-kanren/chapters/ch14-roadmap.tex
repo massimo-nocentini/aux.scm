@@ -1,0 +1,910 @@
+\chapter{Limitations, costs and a roadmap}\label{ch:roadmap}
+
+% ------------------------------------------------------------------------------------------------
+\section*{What and why}
+
+\Cref{ch:design,ch:module,ch:examples} presented the proposal from the inside. The first gave the
+extension protocol added to \micro, the second the module \texttt{(aux kanren lambda)} built on it, and
+the third the book's programs running beside their λProlog originals. This chapter looks at the proposal
+from the outside, as a reviewer would before a merge. It asks five questions.
+\begin{enumerate}
+  \item \emph{How do we know it works?} What the test suites check, how a case is written, and what a
+    green run does and does not establish (\cref{sec:roadmap-testing}).
+  \item \emph{Where does it differ from λProlog?} Nine documented limitations and deviations, each
+    pinned by a test case, most with a small run (\cref{sec:roadmap-limits}).
+  \item \emph{What does it cost?} The measured overhead on first-order search, after a \texttt{∀°},
+    and on λ workloads, and where that time goes (\cref{sec:roadmap-perf}).
+  \item \emph{How does it enter the repository?} A staged merge, file by file, with a review order
+    (\cref{sec:roadmap-merge}), and six later work items (\cref{sec:roadmap-later}).
+  \item \emph{What must the author decide?} The questions that only the maintainer of \aux{} can
+    answer (\cref{sec:roadmap-questions}).
+\end{enumerate}
+
+Every Scheme snippet below was run against the prototype: micro with the protocol applied, plus the
+module. Its output is pasted verbatim. The prototype will live in \texttt{doc/hol-kanren/prototype/}:
+the module, \texttt{micro.diff}, \texttt{show.diff}, the design notes \texttt{DESIGN.md}, the tests (with
+the two copies of micro's suites, \texttt{micro-tests/} and \texttt{micro-tests-with-lambda/}), the
+examples, the benchmarks, and the scripts \texttt{build.sh} and \texttt{run-tests.sh}. After
+the merge it moves to \texttt{src/aux.kanren.lambda.scm} and \texttt{src/test/microkanren-lambda*.scm}.
+The snippets import \scm{(aux base)}, \scm{(aux stream)}, \micro, \scm{(aux kanren micro show)} and
+\scm{(aux kanren lambda)}.
+
+Page numbers \enquote{p.N} in the prototype's comments are PDF pages (see \cref{sec:intro-conventions}).
+
+
+% ------------------------------------------------------------------------------------------------
+\section{How the proposal is tested}\label{sec:roadmap-testing}
+
+\subsection{Three layers of tests}\label{sec:roadmap-layers}
+
+The tests come in three layers, each with its own job.
+\begin{description}
+  \item[Acceptance (A1--A9).] The acceptance criteria that the three prototypes shared, these cases say what the module must
+    do: the scope of \texttt{∀}, hypothetical clauses, type inference, object-level substitution, $\Llam$
+    unification, the differences from Ma and Friedman~\cite{MaFriedman2021}, the larger programs of the
+    book, and micro's stores on λ-terms. A9 says that micro alone has not changed.
+  \item[Regression (R, R2, R3).] The proposal went through three adversarial review rounds, which sent
+    thirteen, eight and twelve reports. Every report was reproduced before it was fixed, and every code fix
+    came with a regression case; each case of the third round fails on the code before its fix. Several reports turned out to describe the
+    same defect, and two were documentation errors or a cost, not code defects. So the rounds left 12, 6
+    and 9 cases.
+  \item[Limits.] A separate suite, \texttt{microkanren-lambda-limits.scm}, pins what the module does
+    \emph{not} do, or does differently from λProlog. Its opening doc string reads \enquote{Known limits of
+    (aux kanren lambda), each pinned so that a change of behaviour is noticed.} When one of these cases
+    fails, a limitation has changed, perhaps for the better, and the documentation must change with it.
+\end{description}
+
+\begin{table}[h]
+\centering\small
+\caption{The two suites of the module, group by group.}\label{tab:roadmap-suites}
+\begin{tabular}{@{}llrr@{}}
+\toprule
+group & subject & cases & assertions \\
+\midrule
+A1 & \texttt{∀} scope: escapes, aliases, levels reaching clauses & 9 & 22 \\
+A2 & \texttt{⊃} hypothetical clauses: scope, order, sharing; courses, jars, reverse & 8 & 21 \\
+A3 & \texttt{∀} and \texttt{⊃} together: type inference, forwards and backwards & 3 & 8 \\
+A4 & object-level substitution: cbn, β, copy, subst, existential generalisation & 4 & 9 \\
+A5 & $\Llam$: flex--rigid, flex--flex, pruning, 8.G--8.M, non-patterns, η & 10 & 40 \\
+A6 & Ma \& Friedman 2021, case by case & 5 & 13 \\
+A7 & de Bruijn, prenex, mappred, palindromes, Fischer's CPS & 5 & 12 \\
+A8 & micro's stores on λ-terms: \texttt{≠°}, \texttt{absent°}, types, printing, grouping & 11 & 65 \\
+A9 & a first-order case inside the suite & 1 & 2 \\
+R  & the first review round & 12 & 44 \\
+R2 & the second review round & 6 & 31 \\
+R3 & the third review round & 9 & 53 \\
+\midrule
+   & \texttt{microkanren-lambda.scm} & 83 & 320 \\
+   & \texttt{microkanren-lambda-limits.scm} & 6 & 13 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{How a case is written}\label{sec:roadmap-case}
+
+A case is a list of assertions \texttt{(}$\assert$\texttt{= expected actual)} from \scm{(aux unittest)}. Every expected
+answer was written by hand, from the book or from the logic, and none was captured from a run. This
+matters: one prototype had a generated snapshot as its suite, which would have frozen its bugs as
+expected answers. Here is the A1 case that tests escapes through an alias:
+\begin{scheme}[commandchars=\\\{\}]
+((test/A1/alias _)
+ ; the escape through a younger variable is caught whatever the order of the bindings and their kind.
+ (\ensuremath{\assert}= '() (°->list #f (fresh° (q) (∀° (x) (fresh° (y) (=° q (list y)) (=° y x))))))
+ (\ensuremath{\assert}= '() (°->list #f (fresh° (q) (∀° (x) (fresh° (y) (=° y x) (=° q (list y)))))))
+ (\ensuremath{\assert}= '() (°->list #f (fresh° (q) (∀° (x) (fresh° (y z) (=° q (list y)) (=° y z) (=° z x))))))
+ (\ensuremath{\assert}= '() (°->list #f (fresh° (q) (∀° (x) (fresh° (y) (=° y q) (=° y x))))))
+ (\ensuremath{\assert}= '() (°->list #f (fresh° (q) (∀° (x) (=° (vector q) (vector x)))))))
+\end{scheme}
+Three habits of the suite show here. First, the \emph{same} property is asserted under several goal
+orders. Conjunction must be commutative, and many defects found by the reviews broke exactly that: an
+answer lost in one order of the goals and found in another. Second, the runner states what is compared.
+\scm{(°->list #f g)} gives micro's answer as rebuilding code, constraints included, while
+\scm{°->list/datum} gives plain data comparable with \scm{equal?} against an answer quoted from the book.
+An error is compared through its message. Third, comments cite the book's page or the review report that
+the case pins.
+
+\begin{tutorial}[What the levels do in the second assertion]
+Both assertions encode $\exists q\,\forall x\,\exists y.\ q=(y)\wedge y=x$, which has no proof: it would
+need $q=(x)$, and $q$ is quantified outside $x$. \Cref{sec:examples-scope} follows the first order, where
+\textbf{Check} lowers $y$ when $q:=(y)$ is made and then rejects $y':=x$. Here $\ell(q)=0$ and
+$\ell(x)=\ell(y)=1$ (\cref{def:design-levels}), and \scm{(=° y x)} comes first. $\ell(y)=1=\mathit{top}$,
+the highest level reached (\cref{def:module-state}), and a variable of level $\mathit{top}$ sees every
+eigenvariable that exists, so $y:=x$ is not checked (a fast path, \cref{sec:module-fast}). Then
+\scm{(=° q (list y))} binds $q:=(y)$; the check (\cref{def:module-check}) walks $(y)$ to $(x)$ and finds
+$\ell(x)=1>\ell(q)=0$. No answer. The two orders fail at different bindings, for the same reason. The
+other three assertions vary the route: a chain of two variables, a var--var binding in the other
+direction, a vector instead of a list.
+\end{tutorial}
+
+\subsection{micro's own suites, run twice}\label{sec:roadmap-a9}
+
+Acceptance item A9 lives mostly outside the module's suite, which holds only one first-order case under
+that name. A9 is micro's six existing suites, 125 cases in all, run twice against the edited micro: the
+core suite and those of aggregation, untagged terms, show, arithmetic and dates. The first copy is
+unchanged. The second differs only in its import line, which also loads the module, so that the
+extension is \emph{registered} while first-order code runs. For the core suite:
+\begin{answers}
+5c5
+<   (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
+---
+>   (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux kanren lambda) (aux fds sbral))
+\end{answers}
+The expectations are not touched, answer order included. A seventh suite, the one of union-find, tests
+\texttt{(aux kanren unionfind)}, a separate engine that does not import micro, so it was not run.
+
+\subsection{The run}\label{sec:roadmap-run}
+
+The script \texttt{build.sh} compiles the edited micro, its sibling modules (show, arith, date) and the
+module with \texttt{csc -O2 -d1 -s -J} into a private repository, \texttt{repo/} beside the script, that
+shadows the installed micro. The script \texttt{run-tests.sh} then runs the two suites of the module,
+the six suites of micro twice (from \texttt{micro-tests/} and \texttt{micro-tests-with-lambda/}), and the
+curated examples, with the private repository first on the search path:
+\begin{Verbatim}
+cd doc/hol-kanren/prototype
+sh build.sh
+sh run-tests.sh
+\end{Verbatim}
+Both scripts set \texttt{CHICKEN\_REPOSITORY\_PATH} to \texttt{repo/} followed by the installed repository,
+and \texttt{build.sh} passes \texttt{-I} for the installed headers; both paths are hard-coded to
+\texttt{\textasciitilde/.local} and must be adapted on another machine. Nothing is installed. The output of
+\texttt{run-tests.sh}, verbatim:
+\begin{answers}
+test/microkanren-lambda ((ran 83) (failed 0))
+test/microkanren-lambda-limits ((ran 6) (failed 0))
+micro-tests/microkanren ((ran 24) (failed 0))
+micro-tests/microkanren-aggregation ((ran 6) (failed 0))
+micro-tests/microkanren-untagged ((ran 7) (failed 0))
+micro-tests/microkanren-show ((ran 15) (failed 0))
+micro-tests/microkanren-arith ((ran 52) (failed 0))
+micro-tests/microkanren-date ((ran 21) (failed 0))
+micro-tests-with-lambda/microkanren ((ran 24) (failed 0))
+micro-tests-with-lambda/microkanren-aggregation ((ran 6) (failed 0))
+micro-tests-with-lambda/microkanren-untagged ((ran 7) (failed 0))
+micro-tests-with-lambda/microkanren-show ((ran 15) (failed 0))
+micro-tests-with-lambda/microkanren-arith ((ran 52) (failed 0))
+micro-tests-with-lambda/microkanren-date ((ran 21) (failed 0))
+examples.scm ok
+\end{answers}
+That is $83+6=89$ cases of the module, plus micro's $24+6+7+15+52+21=125$ cases run twice, $339$ cases
+in all, with 0 failures. The aux repository was never written while the prototype was built: its
+\texttt{git status} shows only the untracked files it had at the start, and both diffs pass
+\texttt{patch --dry-run} against the current \texttt{src/}.
+
+\begin{pitfall}[What a green run does not say]
+The suites are example-based. They show that the module gives the book's answers on the book's examples,
+and that every defect found by review stays fixed. They do not prove soundness. The guarantees on pattern
+problems come from the theorems the algorithm follows: Miller's termination and most-general-unifier
+results~\cite{Miller1991}, the soundness and completeness of universe tagging~\cite{NadathurJayaramanKwon1995},
+and its levels formulation~\cite{NadathurLinnell2005}. The tests check that the code follows those
+algorithms on the cases tried. And a passing limits suite is no good news in itself: it means the
+limitations are still there.
+\end{pitfall}
+
+% ------------------------------------------------------------------------------------------------
+\section{Limitations and deviations from λProlog}\label{sec:roadmap-limits}
+
+λProlog is a typed language with its own implementation of the hohh search. \texttt{(aux kanren lambda)}
+is an untyped library over a miniKanren with interleaving search and constraint stores that λProlog
+does not have. Some departures follow from that: they are the price of the host. Others are choices that
+could be revisited. \Cref{tab:roadmap-limits} lists all nine, with the case that pins each. The
+subsections take them in order.
+
+\begin{longtable}{@{}r>{\raggedright\arraybackslash}p{0.52\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}@{}}
+\caption{The limitations, each pinned by a case.}\label{tab:roadmap-limits}\\
+\toprule
+& limitation & pinned by \\
+\midrule\endfirsthead
+\toprule
+& limitation & pinned by \\
+\midrule\endhead
+1 & only dynamic relations take hypotheses; no predicate quantification & \texttt{A2/static-relations} \\
+2 & untyped: η only at abstractions, \texttt{@} distinct from lists, β may diverge & \texttt{limits/untyped} \\
+3 & non-patterns suspended, never enumerated: floundering reported, not detected & \texttt{limits/no-huet} \\
+4 & answer order is micro's interleaving & \texttt{A7/prenex}, \texttt{A3/backwards} \\
+5 & \texttt{≠°}, \texttt{absent°} and types are extensions, with a chosen reading of \texttt{∀} & \texttt{A8/diseq-extensional}, \texttt{R2/extensional-absent-order} \\
+6 & host escapes: levels police logic variables, not Scheme values & \texttt{limits/host-escape} \\
+7 & binder names are hints; some projected constraints keep a working variable & \texttt{A6/alpha}, \texttt{limits/absent-projection} \\
+8 & costs: no indexing of E and N; the scope check after any \texttt{∀°} & \texttt{bench/} (\cref{sec:roadmap-perf}) \\
+9 & the answer variable must be created outside every \texttt{∀°} & \texttt{R2/answer-inside-forall} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Only dynamic relations take hypotheses}\label{sec:roadmap-lim-dynamic}
+
+In λProlog every predicate is dynamic: \lp{D => G} may add clauses for any predicate, including one
+that has static clauses in the program. Here only a relation defined with \scm{define-dynamic-relation}
+consults the context Γ, and assuming a clause for any other relation is an error. A \texttt{⊃°} that
+silently ignored such a clause would be worse, and all three prototypes did that.
+\begin{scheme}
+(define-relation (r° x) (=° x 1))
+(define-dynamic-relation (d° x) (=° x 1))
+(error-message (λ () (°->list #f (fresh° (q) (⊃° ((r° 2)) (r° q))))))
+(°->list/datum (fresh° (q) (⊃° ((d° 2)) (d° q))))
+\end{scheme}
+\begin{answers}
+"not a dynamic relation, see define-dynamic-relation"
+(2 1)
+\end{answers}
+The dynamic relation answers 2 before 1, because hypotheses come first, most recent first, then the
+static body (\book{78}, \cref{sec:hh-rules}).
+
+Two consequences follow, both because clauses are Scheme closures and not formulas. A program cannot
+build a clause as a term and then assume it. And there is no quantification over predicates, so the
+book's \lp{reverse}, which hides its auxiliary \lp{rev} under \lp{pi rev\ ...} \book{125--126}
+(\cref{def:hoprog-hohhplus}), cannot be transcribed as it stands. The suite runs instead the \fohh{} \lp{reverse} of
+Figure~3.4 \book{87}, which assumes the clauses of its auxiliary predicate but does not hide its name: here
+\scm{rev°} is a dynamic relation declared at top level, with no static clauses (\texttt{A2/reverse}). Roadmap item (e) addresses
+predicate quantification (\cref{sec:roadmap-later-pred}).
+
+\subsection{Untyped terms}\label{sec:roadmap-lim-untyped}
+
+λProlog's terms are simply typed, and its unifier works on βη-long normal forms. The module has no
+types. It keeps terms η-short and η-expands one side only when the other is an abstraction, which is
+Miller's treatment of the untyped case~\cite{Miller1991}. Three facts follow.
+\begin{scheme}
+(°->list #f (fresh° (q) (=° (@ 'g 'a) '(g a))))
+(μkanren-datum (ƛ (x) (@ 'g x)))
+\end{scheme}
+\begin{answers}
+()
+g
+\end{answers}
+\begin{itemize}
+  \item λ-tree application \scm{(@ 'g 'a)} is not the list \scm{'(g a)}: the first is a term of the
+    meta-language, the second Scheme data of the object language. Keeping them apart is what keeps
+    conjunction commutative. One prototype conflated them and lost that property.
+  \item $\abs{x}{(g\,x)}$ is built η-short as $g$.
+  \item Full β through \scm{@} on instantiated heads is not guaranteed to terminate on untyped
+    meta-terms. With types, β-reduction would terminate.
+\end{itemize}
+There is also no check that a solution exists in a possibly empty type (\cref{sec:lambda-solutions}).
+Roadmap item (f) addresses types (\cref{sec:roadmap-later-types}).
+
+\subsection{Non-patterns are suspended, never enumerated}\label{sec:roadmap-lim-huet}
+
+Outside $\Llam$ the module does what Teyjus does: it suspends the equation in the store E, retries it after every
+binding in case it has become a pattern, and reports it in the answer if it is still suspended (\cref{sec:hounif-pragmatics}).
+It does not run Huet's procedure (\cref{sec:hounif-huet}). Two runs show what this means:
+\begin{scheme}
+(°->list #f (fresh° (q F) (=° q F) (=° (@ F 'a) 'b) (=° (@ F 'a) 'c)))
+(°->list #f (fresh° (q F) (=° q F) (=° (@ F 'a) '(g a a))))
+\end{scheme}
+\begin{answers}
+((λ (α) (assert (≐ (@ α 'a) 'b)) (assert (≐ (@ α 'a) 'c)) α))
+((λ (α) (assert (≐ (@ α 'a) (cons 'g (cons 'a (cons 'a '()))))) α))
+\end{answers}
+The second problem is the book's Example 8.A (\cref{ex:hounif-nomgu}), $F\,a=g\,a\,a$, written with list
+data for the right-hand side. It has four unifiers and no most general one \book{213}. The module does
+not choose: it answers that $F$ is any α satisfying the residual. That answer is correct but conditional.
+
+The first problem shows the cost of not choosing. $F\,a=b$ and $F\,a=c$ have no common solution, since
+$b\ne c$. Huet's procedure would find that out, but the module only suspends both equations and returns
+an answer whose residuals are jointly unsatisfiable. This is \emph{floundering reported but not detected}:
+the answer says what was left undecided, and it is up to the reader, or a later binding, to find out that
+it is empty. Roadmap item (d) would add an optional Huet search over E (\cref{sec:roadmap-later-huet}).
+
+\subsection{Answer order is micro's interleaving}\label{sec:roadmap-lim-order}
+
+λProlog searches depth-first, left to right; micro interleaves the branches of a disjunction. Where the
+book lists answers, the two orders often agree: augmentation order \book{78}, the existential
+generalisations \book{203}, the palindromes \book{142}, reverse, the course database (whose extra,
+duplicate proofs come in the interleaving's order), and the CPS term
+\book{257}. They differ on \lp{prenex}, whose five answers \book{196--197} come out as the book's first,
+third, second, fourth and fifth:
+\begin{answers}
+((all (ƛ (x) (all (ƛ (x1) (and (q x x) (q x x1))))))
+ (all (ƛ (x) (all (ƛ (x1) (and (q x1 x1) (q x x1))))))
+ (all (ƛ (x) (all (ƛ (x1) (all (ƛ (x2) (and (q x x) (q x1 x2))))))))
+ (all (ƛ (x) (all (ƛ (x1) (all (ƛ (x2) (and (q x1 x1) (q x x2))))))))
+ (all (ƛ (x) (all (ƛ (x1) (all (ƛ (x2) (and (q x2 x2) (q x x1)))))))))
+\end{answers}
+The difference also helps. Where depth-first search loops, interleaving finds answers that λProlog misses.
+Asked for terms of type $i\to i$, \lp{typeof} run backwards loops under depth-first search. Here it
+enumerates terms:
+\begin{answers}
+((abs (ƛ (x) x))
+ (abs (ƛ (x) (app (abs (ƛ (x1) x1)) x)))
+ (abs (ƛ (x) (app (abs (ƛ (x1) x)) x))))
+\end{answers}
+The suite compares answer \emph{sets}, through a sorted copy, wherever interleaving rather than logic
+decides the order. Where it compares a sequence against the book, the book's order is the claim being tested.
+
+\subsection{Disequality, absence and types under \texttt{∀}}\label{sec:roadmap-lim-readings}
+
+λProlog has no disequality, no \emph{absento} and no type constraints. micro has all three, so the
+module had to decide what they mean when an eigenvariable is involved. For \scm{≠°} there are two
+defensible readings of $\forall x.\ q\ne x$.
+\begin{definition}[two readings of an eigenvariable under $\ne$]\label{def:roadmap-readings}
+Under the \emph{generic} reading, an eigenvariable is the new constant $c\notin\Sig$ introduced by
+\rulename{generic} (\cref{fig:rules-right}), distinct from every term the older variables can denote. Under the \emph{extensional} reading, an eigenvariable stands for an
+arbitrary term of its universe~\cite{Moiseenko2019,JinEtAl2021}.
+\end{definition}
+The generic reading is the default: it matches λProlog, where \lp{pi x\ not (q = x)} succeeds, and it
+behaves like αKanren's noms~\cite{ByrdFriedman2007}. The extensional reading is chosen by the parameter
+\scm{μkanren-λ-reading}:
+\begin{scheme}
+(°->list #f (fresh° (q) (∀° (x) (≠° q x))))
+(parameterize ((μkanren-λ-reading 'extensional)) (°->list #f (fresh° (q) (∀° (x) (≠° q x)))))
+(parameterize ((μkanren-λ-reading 'extensional))
+  (list (°->list #f (fresh° (q) (∀° (x) (fresh° (y) (≠° y x) (=° y 'a))) (=° q 'ok)))
+        (°->list #f (fresh° (q) (∀° (x) (fresh° (y) (≠° y x) (=° y `(f ,x)))) (=° q 'ok)))))
+(°->list #f (fresh° (q) (∀° (x) (fresh° (y) (≠° y x) (=° y 'a))) (=° q 'ok)))
+\end{scheme}
+\begin{answers}
+((λ (α) α))
+()
+(() ((λ () 'ok)))
+((λ () 'ok))
+\end{answers}
+Read them as statements about all $x$.
+\begin{itemize}
+  \item Generic, $\forall x.\,q\ne x$: $q$ is older than $x$ and can never denote it, so the
+    disequality holds for good and vanishes from the answer.
+  \item Extensional, $\forall x.\,q\ne x$: $x$ ranges over every term, $q$'s value included, so the
+    disequality cannot hold for all $x$ and the goal fails.
+  \item Extensional, $\forall x\,\exists y.\ y\ne x\wedge y=a$: the instance $x=a$ refutes it.
+    With $y=(f\;x)$ it holds, since no term $x$ equals the list $(f\;x)$ (occurs check).
+  \item Generic, $\forall x\,\exists y.\ y\ne x\wedge y=a$: $a$ is not the new name $x$, so it holds.
+\end{itemize}
+Both readings were implemented so that the order of a binding and a disequality does not change the
+answer. \texttt{A8/diseq-extensional} pins both orders of $\forall x.\,F\,x\ne x$ and $F:=\abs{z}{c}$, and
+\texttt{R2/extensional-absent-order} pins four goal orders of $\forall x\,\exists Y.\ Y\ne a\wedge
+\mathit{absent}(a,Y)\wedge Y=x$, which fails in every order.
+
+The reading has edges, and the proposal documents them. \scm{absent°} and the types always use the generic
+reading. A disequality keeps the reading in force when it is posted, with one exception. A first-order
+disequality sits in micro's store D, which records no reading. If it later \emph{migrates} to the
+module's store N, because one of its sides came to hold a λ-term or an eigenvariable, it takes the reading
+in force at the migration. The two readings then differ only if a program changes
+\scm{μkanren-λ-reading} between the two goals. Under the extensional reading, once a \texttt{∀°} has run,
+a first-order disequality goes to N at once, with its reading.
+
+\subsection{Host escapes}\label{sec:roadmap-lim-host}
+
+Levels police logic variables. A Scheme value that host code carries out of a scope is not a logic
+variable, and the levels know nothing about the route it took. The limits suite pins both halves of the
+story:
+\begin{scheme}
+(define stash #f)
+(°->list #f (fresh° (q) (∀° (x) (project° ((v x)) (begin (set! stash v) ✓°)))
+                        (λ (s) ((=° q stash) s))))
+(°->list #f (fresh° (q) (∀° (x) (project° ((v x)) (begin (set! stash v) ✓°)))
+                        (∀° (y) (fresh° (z) (=° z stash) (=° q 'leaked)))))
+\end{scheme}
+\begin{answers}
+()
+((λ () 'leaked))
+\end{answers}
+\begin{tutorial}[Why the first escape is caught and the second is not]
+In both goals the first \scm{∀°} raises the depth to 1 and creates $x$ with $\ell(x)=1$. \scm{project°}
+stores the eigenvariable record in a Scheme variable, and the scope exits, so the depth is back to 0.
+\begin{enumerate}
+  \item First goal: $q$ was created at depth 0. Binding $q:=x$ is checked, and $\ell(x)=1>\ell(q)=0$ is
+    a scope failure. The smuggled name cannot reach an \emph{older} variable.
+  \item Second goal: a second \scm{∀°} raises the depth to 1 again, and $z$ is created inside it with
+    $\ell(z)=1$. Binding $z:=x$ passes the check, since $\ell(x)=1\le\ell(z)$. A level is a depth, not the
+    identity of a scope, so two sibling scopes at the same depth look alike.
+\end{enumerate}
+\end{tutorial}
+Inside the logic no such program can be written: a variable created in a later scope never sees the
+earlier eigenvariable, because it is out of its lexical scope. The escape needs \scm{project°} and
+\scm{set!}. The point of the first case is that even this route cannot violate the quantifier prefix of
+the older variables. That guarantee has a price, discussed in \cref{sec:roadmap-perf-forall}.
+
+\subsection{Binder names are hints; projected constraints}\label{sec:roadmap-lim-hints}
+
+A λ-record stores an interned hint, the name the user wrote, for printing. Terms built alike are
+therefore \scm{equal?}, and they group in \scm{groupby°}. α-variants written with different names are
+not \scm{equal?}, although they are α-equivalent, which \scm{≐} and \scm{μkanren-α=?} decide:
+\begin{scheme}
+(list (equal? (ƛ (x) `(f ,x)) (ƛ (x) `(f ,x)))
+      (equal? (ƛ (x) `(f ,x)) (ƛ (y) `(f ,y)))
+      (≐ (ƛ (x) `(f ,x)) (ƛ (y) `(f ,y))))
+\end{scheme}
+\begin{answers}
+(#t #f #t)
+\end{answers}
+A hint that \scm{equal?} ignored could not be stored in the record. The proposal chose to print answers
+with the user's binder names, and gave up \scm{equal?} modulo α for that (\cref{sec:roadmap-questions}).
+
+The second half of this item is about answers. An \emph{absento} on a flexible term whose head is in
+the answer is kept whole, and an argument out of the answer prints as a working variable:
+\begin{scheme}
+(°->list #f (fresh° (q) (fresh° (Y) (absent° 'c (@ q Y)))))
+(°->list #f (fresh° (q) (fresh° (F) (absent° 'c (@ F q)))))
+\end{scheme}
+\begin{answers}
+((λ (α) (assert (absent? 'c (@ α _1))) α))
+((λ (α) α))
+\end{answers}
+The first answer says: there is some \texttt{\_1} such that $c$ does not occur in $\alpha\,\_1$. It cannot
+be weakened to an absento on $\alpha$ alone: $\alpha:=\abs{z}{z\,c}$ contains $c$, yet with
+$\_1:=\abs{v}{b}$ the application reduces to $b$. In the second answer the head $F$ is out of the answer
+and may be a constant function, so the constraint is dropped. A disequality with such an argument,
+\scm{(deny (equal? β (@ α _3)))}, and an absento whose datum may still reduce to an atom of the answer,
+\scm{(absent? (@ α 'b) 'a)}, are likewise kept in the answer (\texttt{R3/diseq-unreachable-argument},
+\texttt{R3/absento-datum-reduces}).
+
+\subsection{Costs}\label{sec:roadmap-lim-costs}
+
+The engine pays for three things that λProlog implementations avoid. Every binding retries all the
+suspended equations of E and the disequalities of N when they are not empty, with no index by variable
+(the wake-up loop of \cref{sec:module-wake}).
+The scope check walks bound terms below the top level from the first \texttt{∀°} on, for the rest of the
+search, even after that \texttt{∀°} has exited. And deeply nested binders scale quadratically.
+\Cref{sec:roadmap-perf} gives the figures.
+
+\subsection{The answer variable outside every \texttt{∀°}}\label{sec:roadmap-lim-answer}
+
+\scm{°->list} reifies variable 0, the first one created. If it is created inside a \scm{∀°} and its
+value holds that scope's eigenvariable, no answer can be written without the eigenvariable. λProlog
+reports no binding for a variable quantified inside \lp{pi x\ }. The module raises an error instead of
+printing an eigenvariable free:
+\begin{scheme}
+(error-message (λ () (°->list #f (∀° (x) (fresh° (q) (=° q x))))))
+(°->list #f (∀° (x) (fresh° (q) (=° q 'a))))
+(°->list #f (fresh° (q) (∀° (x) (=° q 'a))))
+\end{scheme}
+\begin{answers}
+"the answer holds the eigenvariable of a ∀° it was created in: create the variable it reifies outside every ∀°"
+((λ () 'a))
+((λ () 'a))
+\end{answers}
+An answer that does not hold the eigenvariable is reported as usual, wherever its variable was created.
+The idiomatic form is the third one: create the query variable first.
+
+% ------------------------------------------------------------------------------------------------
+\section{Performance}\label{sec:roadmap-perf}
+
+All figures are in milliseconds, compiled with \texttt{csc -O2 -d1}, the best of three runs per round, with
+two rounds. Three binaries are compared. \emph{before} is the installed micro, unedited. \emph{after} is
+the edited micro with no extension loaded. \emph{ext} is the edited micro with \texttt{(aux kanren
+lambda)} loaded, so its hooks are registered. The first-order benchmark is the one the engineering review
+used to compare the three prototypes.
+
+\subsection{The protocol on first-order search}\label{sec:roadmap-perf-protocol}
+
+\begin{table}[h]
+\centering\small
+\caption{The cost of the protocol on first-order search.}\label{tab:roadmap-perf-protocol}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+benchmark (ms, round 1 / round 2) & before & after & ext \\
+\midrule
+\texttt{append°} backwards, 2000 answers, full & 6068 / 5923 & 6121 / 5959 & 6151 / 5929 \\
+the same, search only & 672 / 662 & 690 / 669 & 691 / 668 \\
+open \texttt{append°}, 1000 answers, search & 1311 / 1314 & 1356 / 1326 & 1327 / 1328 \\
+perm6 with 15 pairwise \texttt{≠°}, 720 answers & 176 / 178 & 184 / 178 & 192 / 199 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Read \cref{tab:roadmap-perf-protocol} column by column. From \emph{before} to \emph{after}, the protocol
+alone costs at most 1\% end to end on \texttt{append°} (5923 to 5959 ms in round 2), within the 2.5\%
+round-to-round noise of the unedited binary. That is what one \scm{pair?} test per call site costs when
+no extension is registered. All call sites are off micro's hottest path: the variable clauses and the
+pair--pair clause of unification are untouched.
+
+From \emph{after} to \emph{ext}, \texttt{append°} does not move, but perm6 does: 192 / 199 ms, 8--12\% more
+than the unedited micro's 176 / 178 ms (4--12\% more than \emph{after}). perm6 keeps
+15 disequalities in D throughout, so after every \scm{=°} the \texttt{post} hook must decide whether a
+new binding brought a λ-term or an eigenvariable into one of D's prefixes (\cref{def:micro-prefix}),
+which would then have to migrate to N (\cref{sec:roadmap-lim-readings}). That look costs a few microseconds per binding while D is non-empty.
+The d2 prototype, on which the proposal is based, paid 45--50\% here.
+
+\subsection{With D or A non-empty}\label{sec:roadmap-perf-DA}
+
+The third review round found that this look was too expensive in another case: one unrelated constraint
+before a long first-order search. Recall micro's stores (\cref{sec:micro-stores}): D holds the
+disequalities, A the type constraints such as \scm{symbol°}, and T the absentos. With D or A non-empty,
+the proposal walked every new binding through the substitution, and \texttt{append°} backwards binds
+long ground tails at every step. That walk is the factor of 1.65 to 1.76 in the middle column below. The last row is a control: its constraint goes to T,
+which this walk never concerned.
+\begin{table}[h]
+\centering\small
+\caption{One unrelated constraint before the search (\texttt{t} is not used by \texttt{append°}).}\label{tab:roadmap-perf-DA}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\texttt{append°} backwards, 2000 answers, search (ms) & after & ext, before the fix & ext, now \\
+\midrule
+plain & 673 / 669 & 665 & 657 / 664 \\
++ \texttt{symbol° t} & 674 / 675 & 1097 & 687 / 695 \\
++ \texttt{≠° t 1} & 655 / 657 & 1172 & 670 / 675 \\
++ \texttt{absent° t} & 661 / 664 & --- & 656 / 666 \\
+\bottomrule
+\end{tabular}
+\end{table}
+The fix bounds the look: the hook inspects the new bindings for at most 64 nodes, and past that it walks
+D and A themselves. The order matters. Walking D and A at every \scm{=°}, the first fix tried, cost perm6
+60\% (288 / 302 ms), because perm6's 15 prefixes are walked each time. With the bounded look first,
+perm6 stays at 193 / 194 ms, against 181 / 179 for \emph{after}.
+
+\subsection{After a \texttt{∀°}}\label{sec:roadmap-perf-forall}
+
+The second review round measured first-order search that runs after some \texttt{∀°} has run and exited.
+In \cref{tab:roadmap-perf-forall}, \texttt{pre} is \scm{(∀° (z) ✓°)}, which binds nothing and exits at
+once, and \texttt{typeof°} is one type inference of $\abs{x}{x}$ run before the search.
+\begin{table}[h]
+\centering\small
+\caption{First-order search after a \texttt{∀°} has run. A second run gave 680 / 1125 / 1154 and 1354 / 3055 ms; a third, after the third review's fixes, 663 / 1101 / 1090 and 1310 / 2918 ms.}\label{tab:roadmap-perf-forall}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+benchmark (ms) & no \texttt{∀°} before & \texttt{pre} before & \texttt{typeof°} before \\
+\midrule
+\texttt{append°} backwards, 2000 answers, search & 663 & 1104 (+66\%) & 1092 (+65\%) \\
+open \texttt{append°}, 1000 answers, search & 1296 & 2940 (+127\%) & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{tutorial}[Where the time goes after a \texttt{∀°}]
+Take one step of \texttt{append°} backwards on the list $L$ of 1999 numbers. It binds a variable to a
+pair whose tail is a ground suffix of $L$.
+\begin{enumerate}
+  \item \emph{No \texttt{∀°} has run.} The level table is empty, no scope check runs, and the only walk of
+    the bound term is micro's occurs check.
+  \item \emph{\texttt{pre} has run.} The depth went to 1 and back to 0, so the highest level reached is
+    $\mathit{top}=1$. The search's variables are at level 0, below $\mathit{top}$. Each binding of such a variable gets the
+    scope check, whose allocation-free \scm{μkanren-plain?} walks the bound term through the
+    substitution, beside micro's occurs check. On \texttt{append°} the two walk the same ground tail of the
+    list, so each binding walks that tail twice.
+\end{enumerate}
+Why not skip the check when the depth is back to 0 and nothing of a higher level is reachable? For logic
+variables that would be safe: an exited scope reaches a depth-0 binding only through constraints, which
+are checked when they wake. But an eigenvariable smuggled out by host code would then reach an older
+variable unchecked, which is the first case of \cref{sec:roadmap-lim-host}. The cheap fix gives up that
+guarantee, so it was not made. The proper fix is one walk that does both checks (\cref{sec:roadmap-later-walk}).
+\end{tutorial}
+
+\subsection{λ workloads}\label{sec:roadmap-perf-lambda}
+
+\Cref{tab:roadmap-perf-lambda} compares the final module with the three prototypes. The prototypes'
+columns are the engineering review's measurements on the same programs.
+\begin{table}[h]
+\centering\small
+\caption{λ workloads. d1 is the layered prototype, d2 the hooks prototype the proposal grew from, d3
+the native one.}\label{tab:roadmap-perf-lambda}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+benchmark (ms) & final & d2 & d3 & d1 \\
+\midrule
+\texttt{typeof} of the Church numeral 400 & 254 & 441 & 105 & 385 \\
+\texttt{copy} of the Church numeral 400 & 256 & 442 & 116 & 314 \\
+\texttt{typeof} of 150 nested binders & 1306 & --- & 1409 & --- \\
+\texttt{copy} of 150 nested binders & 1745 & --- & 1779 & --- \\
+\texttt{typeof} backwards, 30 (term, type) pairs & 10 & 11 & --- & --- \\
+one pattern equation $F\,x_1\dots x_{50}=g\,x_{50}\dots x_1$ under 50 \texttt{∀} & 2 & 6 & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The final module is 1.7 times faster than d2, from which it grew, and 2.4 times slower than d3 on the
+Church numeral. Its history on \texttt{typeof} of Church 400 shows where the time went:
+\begin{center}\small
+\begin{tabular}{@{}lr@{}}
+\toprule
+step & ms \\
+\midrule
+d2 ported, with instantiation that shifts only open terms & 463 \\
+allocation-free \scm{μkanren-plain?} for the scope check & 330 \\
+no check for bindings of variables at the top level & 311 \\
+the \texttt{atom?} hook: micro's occurs check stops rebuilding eigenvariables & 254 \\
+\bottomrule
+\end{tabular}
+\end{center}
+The last step is worth explaining. micro's occurs check rebuilds a foreign record as the list of its
+slots to look inside it. An eigenvariable holds no logic variable, so the hook lets micro skip it, and
+that alone saved 18\%.
+
+A profile of the remaining time puts it in micro's walks, \scm{μkanren-state-find} and its sbral
+lookup. These are the var--var chains that the type variables of \texttt{typeof} form, since micro binds
+the older variable to the newer, plus the occurs check of every binding of a subterm. Both are on micro's
+hot path, outside the extension's reach. d3's lead comes from its in-core binding, which does the occurs
+check and the level check in one walk. That is roadmap item (a). The remaining figures show no gap: on
+150 nested binders the final module is 2--8\% faster than d3. The module's cost on nested binders grows
+quadratically with the nesting (\cref{sec:roadmap-lim-costs}).
+
+The fixes of the review rounds cost nothing measurable here. After the second round: typeof Church 400
+260 ms, copy 259 ms, nested typeof 1292 ms, nested copy 1732 ms. After the third: 253, 256, 1284 and
+1729 ms.
+
+% ------------------------------------------------------------------------------------------------
+\section{A staged merge into the aux repository}\label{sec:roadmap-merge}
+
+The proposal is three independent pieces of different risk. They should enter the repository in three
+stages, each reviewed and tested on its own.
+
+\begin{table}[h]
+\centering\small
+\caption{Which file goes where.}\label{tab:roadmap-files}
+\begin{tabular}{@{}lll@{}}
+\toprule
+stage & from \texttt{doc/hol-kanren/prototype/} & to \\
+\midrule
+1 & \texttt{micro.diff} (+235/−41) & \texttt{src/aux.kanren.micro.scm} \\
+2 & \texttt{aux.kanren.lambda.scm} (1255 lines) & \texttt{src/aux.kanren.lambda.scm} \\
+  & \texttt{test/microkanren-lambda.scm}, \texttt{-limits.scm} & \texttt{src/test/microkanren-lambda*.scm} \\
+  & \texttt{test/programs.scm} & \texttt{src/test/programs.scm} \\
+  & one \texttt{extension} line & \texttt{src/aux.egg} \\
+3 & \texttt{show.diff} (+42/−12) & \texttt{src/aux.kanren.micro.show.scm} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Stage 1: the protocol}\label{sec:roadmap-stage1}
+
+The diff is self-contained and mentions neither λ-terms, levels nor clauses. It could carry another
+store as well, nominal terms or finite domains, so it is worth having even if stage 2 is postponed.
+Both diffs were checked with \texttt{patch --dry-run} against the current \texttt{src/}. Applying the first
+and, once the egg is rebuilt and installed, running micro's suites (without installing anything, the
+private repository of \texttt{build.sh} and \texttt{run-tests.sh}, \cref{sec:roadmap-run}, gives the
+same run):
+\begin{Verbatim}
+cd src
+patch aux.kanren.micro.scm < ../doc/hol-kanren/prototype/micro.diff
+make test-microkanren test-microkanren-show test-microkanren-arith test-microkanren-date
+\end{Verbatim}
+These four targets run 112 cases. The aggregation and untagged suites have no target of their own: the
+\texttt{test} target runs them with the other four (\texttt{src/Makefile}, lines 46--51), or they run alone
+with \texttt{cd test \&\& csi -s microkanren-aggregation.scm}, and likewise for
+\texttt{microkanren-untagged.scm}. The expected result is \cref{sec:roadmap-run}'s: 125 cases, unchanged answers. The benchmark's
+\emph{after} column (\cref{tab:roadmap-perf-protocol}) is the performance criterion. The diff already
+documents each hook in micro's comments; the merge should add to them a short section on the protocol as
+a whole.
+
+What to review, in this order:
+\begin{enumerate}
+  \item \emph{The state.} A seventh field \texttt{X}, the extensions' slot, which micro never reads. It
+    is copied at micro's two positional constructions (\scm{μkanren-state-update} and \scm{freshª}),
+    \scm{μkanren-state-with} accepts \scm{X:}, and \scm{make-μkanren-state} keeps its six-argument
+    signature, so the positional states of \texttt{test/microkanren.scm} still work.
+  \item \emph{The registry and the call sites.} \scm{make-μkanren-extension} and
+    \scm{μkanren-extension-register!}; each call site costs one \scm{pair?} test when the registry is
+    empty. There are thirteen hooks: \texttt{term?}, \texttt{atom?}, \texttt{unify}, \texttt{occurs},
+    \texttt{post}, \texttt{diseq}, \texttt{tag}, \texttt{parts}, \texttt{value}, \texttt{repr},
+    \texttt{terms}, \texttt{forms} and \texttt{environment}; \cref{ch:design} gives their contracts.
+  \item \emph{The two invariants} that every hook must keep (\cref{def:design-invariants}): a hook that
+    changes nothing answers the very state it was given, and a hook that binds returns the extended
+    \texttt{assocs}.
+  \item \emph{The two exported primitives}: \scm{μkanren-state-forget}, which unbinds a variable so that a
+    \texttt{post} hook can turn a binding just made back into a constraint before D, A and T see it, and
+    \scm{μkanren-post-unify}, the post-\scm{=°} chain that an extension goal unifying on its own must call
+    (\cref{sec:design-forget}).
+  \item \emph{One change of micro's own behaviour.} micro decided an atom against an absento's datum with
+    \scm{equal?} only, so \scm{(absent° D q) (=° q 'a) (=° D 'a)} succeeded in micro alone. The diff
+    decides it by unification and watches it while pending. This is a bug fix of micro, independent of λ,
+    and deserves its own look.
+\end{enumerate}
+
+\subsection{Stage 2: the module and its suites}\label{sec:roadmap-stage2}
+
+Besides \texttt{srfi-1} and CHICKEN's own modules, the module imports \scm{(aux base)}, \scm{(aux stream)},
+\scm{(aux fds sbral)} and \micro, and registers
+its extension when it is loaded. The egg gets one line after micro's, in the style of its neighbours:
+\begin{Verbatim}
+  (extension aux.kanren.micro)
+  (extension aux.kanren.lambda)
+  (extension aux.kanren.arith)
+\end{Verbatim}
+Other entries of \texttt{src/aux.egg} state their dependencies with \texttt{component-dependencies}. Writing
+\texttt{(component-dependencies aux.kanren.micro)} would make this one explicit too. The suite
+includes \texttt{programs.scm} from its own directory, so the file goes beside it in
+\texttt{src/test/}. The Makefile would follow its existing pattern: two lines in \texttt{test}, after
+micro's suites, and a target of its own.
+\begin{Verbatim}
+	cd test && ${CSI} -s microkanren-lambda.scm
+	cd test && ${CSI} -s microkanren-lambda-limits.scm
+\end{Verbatim}
+Then micro's six suites should be run once more with the module loaded, as in
+\cref{sec:roadmap-a9}. The simplest way is to keep the second copy of the six suites under
+\texttt{doc/hol-kanren/prototype/}, since they differ from \texttt{src/test/} only in their import line.
+
+What to review, in this order. First the limits suite, 51 lines that state what is not promised. Then
+the scope check and variable elimination, which carry soundness (\cref{ch:module}). Then the discharge
+at \texttt{∀°} exit, then the store N. The printing code comes last: a mistake there shows up in answers,
+not in the search.
+
+\subsection{Stage 3: the show module}\label{sec:roadmap-stage3}
+
+\texttt{show.diff} teaches \scm{(aux kanren micro show)} to read \scm{ƛ}, \scm{@}, \scm{≐}, \texttt{∃} and
+\texttt{∀} in answers, draws λ-terms in the mermaid cells view with a node per binder, and adds
+\scm{°->pretty}. It reads answer forms syntactically and does not import the module, so it is independent
+of stage 2. It is useful only with it.
+\begin{Verbatim}
+cd src
+patch aux.kanren.micro.show.scm < ../doc/hol-kanren/prototype/show.diff
+make test-microkanren-show
+\end{Verbatim}
+
+% ------------------------------------------------------------------------------------------------
+\section{Later work}\label{sec:roadmap-later}
+
+Six items were left out of the proposal on purpose. Each should be measured separately, against the
+figures of \cref{sec:roadmap-perf} and the suites of \cref{sec:roadmap-testing}. For each, the paragraphs
+below say how it would fit the protocol and which concept of the book it serves.
+
+\subsection{(a) One walk for the occurs and the scope check}\label{sec:roadmap-later-walk}
+
+\emph{What.} micro's binding site, \scm{μkanren-state-update}, runs the occurs check. The module's
+\texttt{post} hook then walks the same term again for the scope check. A combined walk does both, as d3's
+in-core \texttt{occurs/fast} does.
+
+\emph{How it fits.} A new hook at the binding site, which returns a \emph{verdict} instead of micro's
+boolean: no occurrence and nothing out of scope; an occurs failure; or a term that needs variable
+elimination. With no extension registered, micro keeps its own check.
+
+\emph{What it buys.} Most of the cost of first-order search after a \texttt{∀°} (+65\% to +127\%,
+\cref{tab:roadmap-perf-forall}) and the remaining factor of 2.4 against d3 on Church 400
+(\cref{tab:roadmap-perf-lambda}). It keeps the host-escape guarantee, because the check still runs at depth 0.
+
+\emph{Book concept.} The mixed prefix of a unification problem (\cref{sec:lambda-unifprob}), read as
+universe levels (\cref{sec:rules-levels}, \cref{sec:hounif-pragmatics}). Nadathur, Jayaraman and Kwon's binding rule~\cite{NadathurJayaramanKwon1995}
+is one condition on the bound term, so it is natural to check it in the same walk as the occurs check.
+
+\subsection{(b) Var--var orientation by level}\label{sec:roadmap-later-varvar}
+
+\emph{What.} When two variables are unified, bind the one of higher level to the one of lower level.
+micro binds the older to the newer, so a variable of a deep scope may become the value of an outer one,
+and the scope check must then lower it (\cref{def:rules-binding}).
+
+\emph{How it fits.} It needs a hook in micro's var--var clause, the hottest path after pair--pair. That
+is why the graft from d3 was declined. \textbf{Check} (\cref{def:module-check}) already lowers the
+younger variable, which gives the same most general unifier up to renaming, so this item is about cost only: fewer lowering bindings, and
+perhaps shorter var--var chains, which the profile of \cref{sec:roadmap-perf-lambda} places among the
+remaining costs. It must be measured on first-order search too, where the hook would cost on every
+var--var binding.
+
+\emph{Book concept.} Raising and lowering in a mixed prefix (\cref{sec:lambda-raising}). Binding the
+deeper variable to the outer one is always within scope. Binding the outer variable to the deeper one is
+allowed only after the deeper one has been lowered, which is the extra work this item saves.
+
+\subsection{(c) Indexing E and N by variable}\label{sec:roadmap-later-index}
+
+\emph{What.} Today every \scm{=°} retries all suspended equations of E and all disequalities of N, oldest
+first, in rounds, until no round binds (\cref{sec:roadmap-lim-costs}). An index from each variable to the
+constraints that mention it would retry only those the new bindings touch.
+
+\emph{How it fits.} Entirely inside the extension. E and N live in the slot \texttt{X}, which micro never
+reads, and the \texttt{post} hook already receives the new bindings as \texttt{assocs}. No change to micro.
+The care needed is in what \enquote{touches} means: a binding wakes a constraint on a variable it reaches
+through the substitution, not only on the variable it binds, and the variables created by lowering and
+pruning must be indexed too.
+
+\emph{Book concept.} Dynamic $\Llam$ (\cref{sec:hounif-pragmatics}): an equation that does not respect the
+$\Llam$ condition is deferred \enquote{until such time that substitutions resulting from solving other parts of
+the problem have altered its status} \book{226}. An index decides cheaply which deferred equations a
+substitution may have altered.
+
+\subsection{(d) Huet pre-unification as an optional search}\label{sec:roadmap-later-huet}
+
+\emph{What.} An opt-in goal that takes the suspended equations of E and searches their solutions with
+Huet's imitation and projection steps~\cite{Huet1975}, each choice a branch of the interleaving search.
+On Example 8.A it would enumerate the four unifiers of \cref{ex:hounif-nomgu}. On the first problem of
+\cref{sec:roadmap-lim-huet} it would find no solution and fail, so floundering would be detected, not
+only reported.
+
+\emph{How it fits.} E is the natural agenda: it already holds the non-pattern equations, closed over the
+eigenvariables they mention, and woken equations are retried by the existing loop. Huet's branching is
+don't-know nondeterminism, which a miniKanren stream represents directly. It should be a goal the user
+calls, not the default, because the search may not terminate (\cref{sec:hounif-hard}).
+
+\emph{The obstacle.} Projection needs the target type and arities, and imitation the arity and argument
+types of the constant: \enquote{Huet's procedure cannot run without types} (\cref{sec:hounif-huet}).
+So this item presupposes (f).
+
+\emph{Book concept.} Huet's procedure and its matching trees \book{214--220}, and the limit of
+pattern unification that \cref{sec:hoprog-panacea} discusses.
+
+\subsection{(e) Predicate quantification}\label{sec:roadmap-later-pred}
+
+\emph{What.} Goals such as \lp{pi rev\ (... rev ...) => rev L K nil}, which introduce a hidden predicate
+local to one call \book{125--126}.
+
+\emph{How it fits.} Through dynamic relations created at run time. Γ is an alist keyed by relation, so a
+\texttt{∀} over a predicate would allocate a new key, a new dynamic relation with no static clauses, and
+pass it to the body. Clauses assumed for it are then visible only inside that body, and no program text
+outside can name it. This is a sketch: the proposal does not implement it.
+
+\emph{Book concept.} \hohh$^+$ (\cref{def:hoprog-hohhplus}): a clause head may be a variable bound by an
+essentially universal quantifier. By the time the clause is assumed, $\forall R$ has replaced the variable
+by a new constant, so the operational behaviour does not change. Only the visibility of names does.
+
+\subsection{(f) Simple types}\label{sec:roadmap-later-types}
+
+\emph{What.} Optional simple types on λ-terms and on logic variables.
+
+\emph{How it fits.} Through the interplay of the \texttt{atom?} and \texttt{tag} hooks, which the proposal
+names for this item without designing it. One reading: a type is a tag on a term, and a typed variable can
+be η-expanded by its type. Unification could then work on η-long forms,
+as λProlog does, instead of η-expanding only when one side is an abstraction
+(\cref{sec:roadmap-lim-untyped}).
+
+\emph{What it buys.} Type-directed η, β that is guaranteed to terminate, the existence check on
+possibly empty types, and with them item (d).
+
+\emph{Book concept.} The simply typed terms of \cref{ch:lambda} and the βη-long normal forms on which
+the book's unification algorithms are stated (\cref{sec:lambda-normal}).
+
+% ------------------------------------------------------------------------------------------------
+\section{Open questions for the author}\label{sec:roadmap-questions}
+
+The proposal makes a choice wherever one was needed to build it and test it. Some of those choices are
+the maintainer's to make, and are listed here as questions. Each says what the proposal does now and
+what is at stake.
+
+\begin{enumerate}
+  \item \emph{The module's name.} The proposal keeps \texttt{(aux kanren lambda)}. The layer is λProlog's
+    logic, and λKanren is the name the literature gives this line of work, Ma and Friedman's paper
+    included~\cite{MaFriedman2021}. A name such as \texttt{(aux kanren hohh)} would describe only the
+    goals, while the module also gives λ-tree syntax and $\Llam$ unification. The names inside follow
+    \aux: goals end in \texttt{°}, their applicative forms in \texttt{ª}, term constructors have no
+    suffix (\scm{ƛ}, \scm{@}), and internals carry the \texttt{μkanren-} prefix.
+  \item \emph{The extensional reading.} \scm{μkanren-λ-reading} exposes a second meaning of
+    \scm{≠°} under \texttt{∀°} (\cref{def:roadmap-readings}). It costs code and one edge case,
+    the reading of a migrated disequality (\cref{sec:roadmap-lim-readings}). Keep it public, keep it as
+    an internal option, or remove it and keep only λProlog's generic reading?
+  \item \emph{Should micro own the protocol?} The proposal puts a generic extension protocol in micro,
+    a global registry, and one client. The alternatives were a layered module that leaves micro untouched
+    (d1, which leaked eigenvariables through micro's own \scm{=°}) and λ-terms native in micro (d3, a
+    931-line diff that special-cases every walker). A per-state hook list instead of a global registry
+    would require every initial state to carry the hooks, since \scm{°->list} starts from
+    \scm{μkanren-state-empty}. Is a protocol in micro, with its contracts and invariants, something the
+    maintainer wants to keep stable?
+  \item \emph{The cost after a \texttt{∀°}.} First-order search after any \texttt{∀°} takes 1.7 to 2.3
+    times as long (\cref{tab:roadmap-perf-forall}). The cheap fix gives up the host-escape guarantee
+    (\cref{sec:roadmap-lim-host}); the proper one is roadmap item (a). Should stage 2 be merged now and
+    (a) done later, or should (a) be a condition of the merge? And is it worth this price to catch
+    escapes made with \scm{project°} and \scm{set!}?
+  \item \emph{Which relations are dynamic.} In λProlog every predicate takes hypotheses; here only those
+    made by \scm{define-dynamic-relation}, and \texttt{⊃°} on any other is an error
+    (\cref{sec:roadmap-lim-dynamic}). Should \scm{define-relation} itself become dynamic when the module
+    is loaded? The proposal does not measure what that would cost.
+  \item \emph{α-equivalence and \scm{equal?}.} Hints are interned, so terms built alike are
+    \scm{equal?}, but α-variants with different names are not (\cref{sec:roadmap-lim-hints}). Truly
+    nameless records would make \scm{equal?} decide α, at the price of answers printed with generated
+    names instead of the user's. Which matters more for the intended use?
+  \item \emph{An answer inside \texttt{∀°}.} Reifying a variable created inside a \texttt{∀°} that holds its
+    eigenvariable is an error, where λProlog reports no binding (\cref{sec:roadmap-lim-answer}). Keep the
+    error, or answer with no binding as λProlog does?
+  \item \emph{A defect of micro left as it is.} Under a type of the user's that holds of pairs, micro's
+    subsumption turns \scm{absent° '(a) q} into \scm{q ≠ (a)}, so
+    \scm{(absent° '(a) q) (nonnum° q) (=° q '((a)))} succeeds: the subsumption assumes that typed values
+    are atoms. It involves no λ-term, so the proposal did not touch it. Fix it in micro, with the protocol
+    or separately?
+  \item \emph{Two clause syntaxes.} Hypothetical clauses may be written infix, \scm{(H ← B)}, or prefix,
+    \scm{(← H B)}; both are accepted. Keep both, or settle on one?
+\end{enumerate}
+
+% ------------------------------------------------------------------------------------------------
+\section{Summary}\label{sec:roadmap-summary}
+
+\begin{itemize}
+  \item The module has two suites: 83 cases with 320 hand-written assertions (acceptance A1--A9 and the
+    regressions R, R2, R3 of three adversarial review rounds), and 6 cases that pin its limits. micro's six
+    suites, 125 cases, pass with the edited micro both without and with the module loaded, answer order
+    unchanged: 339 cases, 0 failures.
+  \item The suites test behaviour on examples, under several goal orders; the guarantees on pattern
+    problems come from the theorems of Miller, of Nadathur, Jayaraman and Kwon, and of Nadathur and
+    Linnell, which the algorithm follows.
+  \item Nine limitations are documented and pinned. Only dynamic relations take hypotheses, and there is
+    no predicate quantification. Terms are untyped. Non-patterns are suspended, never enumerated, so
+    floundering is reported, not detected. Answer order is micro's interleaving. \scm{≠°},
+    \scm{absent°} and types use the generic reading of \texttt{∀}, with an extensional option for
+    \scm{≠°}. Levels police logic variables, not Scheme values. Binder names are hints. Constraints are
+    retried unindexed, and the scope check runs after any \texttt{∀°}. The answer variable must be
+    created outside every \texttt{∀°}.
+  \item The protocol costs about 1\% on first-order search, and the loaded extension 8--12\% on a
+    search that keeps many disequalities. After a \texttt{∀°}, first-order search takes 1.7--2.3 times as long,
+    because the scope check walks the bound term beside the occurs check. On λ workloads the module is
+    1.7 times faster than the d2 prototype it grew from and 2.4 times slower than the native d3 on
+    Church 400, the rest of the time being in micro's walks.
+  \item The merge has three stages. First the protocol, into micro's source. Then the module, its
+    suites, \texttt{programs.scm} and one egg line. Last the show extension. Review the protocol's invariants
+    and its one change to micro's semantics first.
+  \item Six later items: one walk for the occurs and scope checks; var--var orientation by level; an
+    index of E and N; an optional Huet search, which needs types; predicate quantification through dynamic
+    relations made at run time; simple types.
+  \item Nine questions are the author's to answer, among them the module's name, the extensional reading,
+    whether micro should own a protocol, and whether the cost after a \texttt{∀°} must be paid down before
+    the merge.
+\end{itemize}

@@ -1,0 +1,1514 @@
+\chapter{Applications: provers, functional programs, processes}\label{ch:apps}
+
+The previous chapters assembled three tools: $\lambda$-tree syntax, which represents object-level binders
+by meta-level abstractions (\cref{ch:lambdatree}); the universal and implicational goals of hereditary
+Harrop formulas, which give fresh constants and scoped hypotheses (\cref{ch:hh}); and the unification of
+$\lambda$-terms, decidable and most-general in the pattern fragment $\Llam$ (\cref{ch:hounif}). Chapters
+9--11 of the book~\cite{MillerNadathur2012} put the three to work on three families of meta-programs:
+\emph{proof systems} (intuitionistic and classical provers, proof checkers, tactics),
+\emph{functional programs} (type inference, evaluators, partial evaluation, CPS conversion) and
+\emph{processes} (the $\pi$-calculus, its transitions, traces, and an encoding of the $\lambda$-calculus).
+
+All three follow the same recipe, and it is the main idea of this chapter:
+
+\begin{enumerate}[nosep]
+  \item a judgment of the object system becomes a predicate, and each inference rule becomes a clause
+        (the book calls this a ``reflection of provability relations directly into predicates'', \book{240});
+  \item object-level binders are meta-level $\lambda$s, so object-level substitution is $\beta$-reduction;
+  \item to go under a binder, the program introduces a fresh constant with \lp{pi x\ ...} and, usually, a
+        hypothetical fact about it with \lp{=>}.
+\end{enumerate}
+
+\noindent The side conditions that clutter the usual presentations (``$y$ fresh'', ``$y$ not free in the
+conclusion'', ``$w\notin fn(P)$'') then disappear: the nesting of quantifiers already enforces them. For
+each application we ask three questions, since they decide what a miniKanren needs: which binding
+facilities does it use ($\forall$, $\imp$, pattern unification, more than patterns)? Which part runs on
+today's \micro{} with a first-order encoding? What changes when depth-first search is replaced by
+miniKanren's interleaving search? Four small ports below were actually run on \micro{}. Their outputs
+are reproduced verbatim.
+
+% =====================================================================================================
+\section{Proof systems as logic programs}\label{sec:apps-provers}
+
+\subsection{Intuitionistic propositional logic: from a loop to a decision procedure}\label{sec:apps-ipl}
+
+Formulas are built from two constants and three connectives \book{229--230}:
+
+\begin{lprolog}
+kind  term, form    type.             % types for terms and formulas
+type  ff,                             % encoding the false proposition
+      tt            form.             % encoding the true proposition
+type  &&,                             % encoding conjunction
+      !!,                             % encoding disjunction
+      ==>           form -> form -> form.   % encoding implication
+infixl &&  5.
+infixl !!  4.
+infixr ==> 3.
+\end{lprolog}
+
+\noindent A sequent $\Gamma\longrightarrow G$ has a multiset $\Gamma$ of hypotheses and one conclusion.
+The book's starting point is the following calculus \book{230}. (In the printed figure the axiom for
+$\top$ is mislabelled $\bot L$.)
+
+\begin{mathpar}
+\inferrule{ }{\Gamma, A\longrightarrow A}\;\rulename{init}\ (A\text{ atomic})
+\and \inferrule{ }{\Gamma,\bot\longrightarrow G}\;\bot L
+\and \inferrule{ }{\Gamma\longrightarrow\top}\;\top R
+\and \inferrule{\Gamma,A,B\longrightarrow G}{\Gamma,A\land B\longrightarrow G}\;\land L
+\and \inferrule{\Gamma\longrightarrow A \\ \Gamma\longrightarrow B}{\Gamma\longrightarrow A\land B}\;\land R
+\and \inferrule{\Gamma,A\longrightarrow G \\ \Gamma,B\longrightarrow G}{\Gamma,A\lor B\longrightarrow G}\;\lor L
+\and \inferrule{\Gamma\longrightarrow A_i}{\Gamma\longrightarrow A_1\lor A_2}\;\lor R_i
+\and \inferrule{\Gamma,A\imp B\longrightarrow A \\ \Gamma,B\longrightarrow G}{\Gamma,A\imp B\longrightarrow G}\;\imp L
+\and \inferrule{\Gamma,A\longrightarrow B}{\Gamma\longrightarrow A\imp B}\;\imp R
+\end{mathpar}
+
+\paragraph{Why the direct translation loops.}
+Each rule, read from conclusion to premises, removes a connective, except $\imp L$, whose left premise
+still contains the principal formula $A\imp B$. The instance
+\[
+  \inferrule{p\imp q\longrightarrow q \\ q\longrightarrow q}{p\imp q\longrightarrow q}\;\imp L
+\]
+has a left premise identical to its conclusion. A depth-first interpreter that tries this premise first
+recurses forever. The book: ``Depth-first search usually steers the interpreter into endless loops when
+trying to work backwards from a given sequent'' \book{230}. Soundness of such direct translations is
+easy. Completeness of their \emph{execution} is not.
+
+\paragraph{The cure: a better calculus, not a better interpreter.}
+Replace $\imp L$ by six rules that look at the shape of the antecedent~\cite{Dyckhoff1992,Hudelmaier1992}
+(\book{231}). (The text says ``four rules''. The figure shows six.)
+
+\begin{mathpar}
+\inferrule{\Gamma,A,B\longrightarrow G}{\Gamma,A,A\imp B\longrightarrow G}\;{\imp}L_1\ (A\text{ atomic})
+\and \inferrule{\Gamma,C\imp D\imp B\longrightarrow G}{\Gamma,(C\land D)\imp B\longrightarrow G}\;{\imp}L_2
+\and \inferrule{\Gamma,C\imp B,D\imp B\longrightarrow G}{\Gamma,(C\lor D)\imp B\longrightarrow G}\;{\imp}L_3
+\and \inferrule{\Gamma,D\imp B\longrightarrow C\imp D \\ \Gamma,B\longrightarrow G}{\Gamma,(C\imp D)\imp B\longrightarrow G}\;{\imp}L_4
+\and \inferrule{\Gamma\longrightarrow G}{\Gamma,\bot\imp B\longrightarrow G}\;{\imp}L_5
+\and \inferrule{\Gamma,B\longrightarrow G}{\Gamma,\top\imp B\longrightarrow G}\;{\imp}L_6
+\end{mathpar}
+
+\begin{theorem}[Hudelmaier, Dyckhoff; \book{230--231}]\label{thm:apps-dyckhoff}
+The calculus obtained by replacing $\imp L$ with ${\imp}L_1$--${\imp}L_6$ is sound and complete for this
+fragment of propositional intuitionistic logic, and every sequence of sequents produced by backward proof
+search is finite. A weight can be assigned to connectives and sequents so that every conclusion weighs
+more than each of its premises. Consequently the direct translation of the calculus into $\lambda$Prolog
+``actually constitutes a decision procedure'' \book{231}.
+\end{theorem}
+
+\noindent The book does not give the weight function. Provability in this logic is PSPACE-complete
+(Statman, cited on \book{245}). Here is the program \book{232}:
+
+\begin{lprolog}
+type  atom     form -> o.
+type  seq      list form -> form -> o.
+
+seq Gamma A :- atom A, memb_and_rest A Gamma _.
+seq Gamma tt.
+seq Gamma (A && B)  :- seq Gamma A, seq Gamma B.
+seq Gamma (A !! B)  &
+seq Gamma (B !! A)  :- seq Gamma A.
+seq Gamma (A ==> B) :- seq (A::Gamma) B.
+seq Gamma _ :- memb_and_rest ff Gamma _.
+seq Gamma G :- memb_and_rest (A && B) Gamma Gamma',
+               seq (A::B::Gamma') G.
+seq Gamma G :- memb_and_rest (A !! B) Gamma Gamma',
+               (seq (A::Gamma') G; seq (B::Gamma') G).
+seq Gamma G :- memb_and_rest (A ==> B) Gamma Gamma',
+  ( atom A, memb_and_rest A Gamma' _, seq (B::Gamma') G;
+    A = (C && D),  seq ((C ==> D ==> B)::Gamma') G;
+    A = (C !! D),  seq ((C ==> B)::(D ==> B)::Gamma') G;
+    A = (C ==> D), seq ((D ==> B)::Gamma') A,
+                   seq (B::Gamma') G;
+    A = ff,        seq Gamma' G;
+    A = tt,        seq (B::Gamma') G  ).
+\end{lprolog}
+
+\noindent The relation \lp{memb_and_rest X L R} (from \book{58}) holds when \lp{L} contains \lp{X} and
+\lp{R} is \lp{L} with that occurrence removed. It plays the role of multiset selection. The head
+\lp{H1 & H2 :- B} is two clauses sharing a body, so one line gives both $\lor R$ rules. The last clause is
+${\imp}L_1$--${\imp}L_6$ written as a single six-way disjunction on the shape of \lp{A}. The predicate
+\lp{atom} is deliberately left open: ``This predicate can be defined simply by adding clauses to the
+program that enumerate all the propositional letters'' \book{231}. The book proves the formula
+$a\imp(a\imp b)\imp(a\imp b\imp c)\imp c$ by introducing the letters locally \book{231} (the printed formula
+has an unbalanced parenthesis):
+
+\begin{lprolog}
+?- pi a\ pi b\ pi c\ atom a => atom b => atom c =>
+              seq nil (a ==> (a ==> b) ==> (a ==> b ==> c) ==> c).
+\end{lprolog}
+
+\noindent The query ``achieves the same effect by introducing three new constants and assuming that each
+of them satisfies the atom predicate'' \book{231}. It succeeds. It is a compact showcase of \lp{pi} (fresh
+constants) together with \lp{=>} (local clauses).
+
+\begin{tutorial}[the proof the program finds]
+Three $\imp R$ steps give the context $[a\imp b\imp c,\ a\imp b,\ a]$ (most recent first, since $\imp R$
+conses) and goal $c$. The atom $c$ is not in the context. \lp{memb_and_rest (A ==> B)} first selects
+$a\imp(b\imp c)$. Since $a$ is present, ${\imp}L_1$ replaces it by $b\imp c$. On this implication
+${\imp}L_1$ fails because $b$ is not yet present, so the search backtracks to $a\imp b$, and ${\imp}L_1$
+adds $b$. Now ${\imp}L_1$ on $b\imp c$ adds $c$, and \rulename{init} closes the branch. No rule ever puts
+back the formula it consumed. This is the decreasing weight of \cref{thm:apps-dyckhoff} at work.
+\end{tutorial}
+
+\begin{pitfall}[a typo that makes the prover unsound]
+The $\lor L$ clause printed in the figure reads \lp{(seq (A::Gamma') G; seq (B::Gamma') G)}. It succeeds if
+\emph{either} branch succeeds, but $\lor L$ needs \emph{both} premises. With \lp{;} the sequent
+$a\lor b\longrightarrow a$ is ``proved''. The body must be the conjunction
+\lp{seq (A::Gamma') G, seq (B::Gamma') G}. The page image confirms the semicolon is really there. The run
+below shows both versions.
+\end{pitfall}
+
+\begin{kanren}[the decision procedure on today's (aux kanren micro)]
+Nothing in this program needs binders, so it ports to \micro{} directly. Formulas become tagged lists,
+atoms become Scheme symbols, and \lp{atom} becomes the type constraint \scm{symbol°}. The constraint does
+not enumerate letters, and it stays pending if its argument is unbound. Because \scm{tt} and \scm{ff} are
+symbols too, they are excluded with \scm{≠°}. The parameter \scm{both} chooses how the two $\lor L$
+premises combine: \scm{andª} gives the correct rule, \scm{orª} the printed typo.
+\begin{scheme}[fontsize=\footnotesize]
+(define-relation (atom° a) (symbol° a) (≠° a 'tt) (≠° a 'ff))
+
+(define-relation (memb-and-rest° x l rest)
+  (cond° ((fresh° (d) (=° l (cons x d)) (=° rest d)))
+         ((fresh° (y d r) (=° l (cons y d)) (=° rest (cons y r)) (memb-and-rest° x d r)))))
+
+;; Figure 9.3, with the ∨L clause written as a conjunction; `both` combines the two ∨L premises
+(define ((seq°/with both) Γ G)
+  (define seq° (seq°/with both))
+  (λ (s)
+    (δ ((cond°
+          ((atom° G) (fresh° (r) (memb-and-rest° G Γ r)))
+          ((=° G 'tt))
+          ((fresh° (A B) (=° G `(&& ,A ,B)) (seq° Γ A) (seq° Γ B)))
+          ((fresh° (A B) (=° G `(!! ,A ,B)) (or° (seq° Γ A) (seq° Γ B))))
+          ((fresh° (A B) (=° G `(==> ,A ,B)) (seq° `(,A . ,Γ) B)))
+          ((fresh° (r) (memb-and-rest° 'ff Γ r)))
+          ((fresh° (A B r) (memb-and-rest° `(&& ,A ,B) Γ r) (seq° `(,A ,B . ,r) G)))
+          ((fresh° (A B r) (memb-and-rest° `(!! ,A ,B) Γ r)
+             (both (seq° `(,A . ,r) G) (seq° `(,B . ,r) G))))
+          ((fresh° (A B r) (memb-and-rest° `(==> ,A ,B) Γ r)
+             (cond°
+               ((atom° A) (fresh° (r*) (memb-and-rest° A r r*)) (seq° `(,B . ,r) G))
+               ((fresh° (C D) (=° A `(&& ,C ,D)) (seq° `((==> ,C (==> ,D ,B)) . ,r) G)))
+               ((fresh° (C D) (=° A `(!! ,C ,D)) (seq° `((==> ,C ,B) (==> ,D ,B) . ,r) G)))
+               ((fresh° (C D) (=° A `(==> ,C ,D)) (seq° `((==> ,D ,B) . ,r) A) (seq° `(,B . ,r) G)))
+               ((=° A 'ff) (seq° r G))
+               ((=° A 'tt) (seq° `(,B . ,r) G))))))
+        s))))
+
+(define seq° (seq°/with andª))          ; the correct ∨L: both premises
+(define seq-typo° (seq°/with orª))      ; the printed ∨L: either premise
+
+(define (proofs g) (length (μkanren-run (q -1 #t) g (=° q 'yes))))
+
+(define f1 '(==> a (==> (==> a b) (==> (==> a (==> b c)) c))))   ; the formula of p.247
+(define em '(!! a (==> a ff)))                                    ; excluded middle
+(define peirce '(==> (==> (==> a b) a) a))                        ; Peirce's formula
+
+(pretty-print
+  (list (list 'f1      (μkanren-run (q 1 #t) (seq° '() f1) (=° q 'yes)) (proofs (seq° '() f1)))
+        (list 'or-left (proofs (seq° '((!! a b)) 'a)) (proofs (seq-typo° '((!! a b)) 'a)))
+        (list 'or-comm (proofs (seq° '() '(==> (!! a b) (!! b a)))))
+        (list 'em      (proofs (seq° '() em)))
+        (list 'peirce  (proofs (seq° '() peirce)))))
+\end{scheme}
+\begin{answers}
+((f1 (yes) 3) (or-left 0 1) (or-comm 1) (em 0) (peirce 0))
+\end{answers}
+The body of \scm{seq°/with} is wrapped in \scm{(λ (s) (δ ...))}, exactly as \scm{define-relation} expands,
+so that building the recursive goal does not loop. Every \scm{run*} above terminates, as
+\cref{thm:apps-dyckhoff} promises for a ground query. For the formula of \book{231} the search finds three derivations.
+$a\lor b\longrightarrow a$ has none with the correct rule and one with the typo. Excluded middle and
+Peirce's formula, which are classically valid but not intuitionistically (\cref{ch:hh}), get the answer
+\emph{no}.
+\end{kanren}
+
+\begin{kanren}[what interleaving changes for the looping calculus]
+Interleaving does not make the naive calculus terminate, but it does change which queries succeed.
+Take only the atomic, $\imp R$ and the original $\imp L$ rule:
+\begin{scheme}[fontsize=\footnotesize]
+(define-relation (naive° Γ G)
+  (cond°
+    ((symbol° G) (fresh° (r) (memb-and-rest° G Γ r)))
+    ((fresh° (A B) (=° G `(==> ,A ,B)) (naive° `(,A . ,Γ) B)))
+    ((fresh° (A B r) (memb-and-rest° `(==> ,A ,B) Γ r) (naive° Γ A) (naive° `(,B . ,r) G)))))
+
+(pretty-print (μkanren-run (q 1 #t) (naive° '((==> p q) (==> q r) q) 'r) (=° q 'yes)))
+(flush-output)
+(pretty-print (μkanren-run (q 1 #t) (naive° '((==> p q)) 'q) (=° q 'yes)))
+\end{scheme}
+\begin{answers}
+(yes)
+\end{answers}
+The first query is a theorem, and \scm{run 1} answers immediately. A depth-first reading of the same clauses,
+in clause order, would select $p\imp q$ first and then loop on its left premise
+$\ldots\longrightarrow p$, which reproduces itself. Interleaving gives the branch through $q\imp r$ its
+turn. The second query is the book's looping instance $p\imp q\longrightarrow q$, which is not a theorem.
+Here the stream is infinite and empty: the run was killed after 30 seconds with no output. In short,
+interleaving makes the search \emph{complete for answers}, while termination still has to come from the
+calculus.
+\end{kanren}
+
+% -----------------------------------------------------------------------------------------------------
+\subsection{Natural deduction with proof terms}\label{sec:apps-nd}
+
+For first-order intuitionistic logic, add the quantifiers \lp{type all, some (term -> form) -> form.} of
+\cref{ch:lambdatree}. Natural deduction has \emph{hypothetical} premises (in ${\imp}I$, ${\lor}E$, ${\exists}E$
+a derivation may start from a discharged assumption) and \emph{eigenvariable} conditions (for ${\forall}I$
+and ${\exists}E$, ``This variable must not be free in the conclusion of the rule or in any assumption that
+remains undischarged'', \book{232}). Four representative rules out of the fourteen \book{233}:
+
+\begin{mathpar}
+\inferrule{[A] \\\\ \vdots \\\\ B}{A\imp B}\;{\imp}I
+\and \inferrule{A \\ A\imp B}{B}\;{\imp}E
+\and \inferrule{A[y/x]}{\forall x\,A}\;{\forall}I\ (y\text{ fresh})
+\and \inferrule{\forall x\,A}{A[t/x]}\;{\forall}E
+\end{mathpar}
+
+\noindent The book records whole derivations as $\lambda$-terms of a type \lp{proof}, with one
+constructor per rule \book{233}. An excerpt of the fourteen declarations:
+
+\begin{lprolog}
+type imp_i           (proof -> proof) -> proof.
+type imp_e           form -> proof -> proof -> proof.
+type all_e           term  -> (term -> form) -> proof -> proof.
+type all_i           (term -> proof) -> proof.
+\end{lprolog}
+
+\noindent Three design choices are visible in the types. A rule that \emph{discharges} a hypothesis takes
+an abstraction over proofs (\lp{imp_i (proof -> proof)}), and the bound proof variable \emph{is} the
+hypothesis label. A rule with an \emph{eigenvariable} abstracts over terms (\lp{all_i (term -> proof)}).
+\emph{Elimination} rules store the formulas that appear in a premise but not in the conclusion, such as
+the antecedent in \lp{imp_e A}, which makes checking syntax-directed. The checking relation
+\lp{P # A}, ``P is a proof of A'', follows Felty~\cite{Felty1993} (\book{234}):
+
+\begin{lprolog}
+type  #     proof -> form -> o.
+infix # 2.
+
+true_i # tt.
+(and_i P1 P2) # (A && B) :- (P1 # A), (P2 # B).
+(or_i1 P) # (A !! B)  :- P # A.
+(or_i2 P) # (A !! B)  :- P # B.
+(imp_i Q) # (A ==> B) :- pi p\ (p # A) => ((Q p) # B).
+(some_i T P) # (some A)  :- P # (A T).
+(all_i Q) # (all A)   :- pi y\ (Q y) # (A y).
+(false_e A P) # A     :- P # ff.
+(and_e1 B P) # A      :- P # (A && B).
+(and_e2 A P) # B      :- P # (A && B).
+(or_e A B P Q1 Q2) # C
+   :- (P # (A !! B)),
+      (pi p1\ (p1 # A) => ((Q1 p1) # C)),
+      (pi p2\ (p2 # B) => ((Q2 p2) # C)).
+(imp_e A P1 P2) # B   :- (P1 # A), (P2 # (A ==> B)).
+(some_e A P1 Q) # B
+   :- (P1 # (some A)),
+      pi y\ pi p\ (p # (A y)) => ((Q y p) # B).
+(all_e T A P) # (A T) :- (P # (all A)).
+\end{lprolog}
+
+\begin{tutorial}[reading the ${\imp}I$ clause]
+To check \lp{imp_i Q} against $A\imp B$, the clause picks a fresh proof constant \lp{p} (\lp{pi p\}),
+assumes the atomic fact \lp{p # A} (\lp{=>}), and checks \lp{Q p} against $B$. Since \lp{Q} has type
+\lp{proof -> proof}, \lp{Q p} $\beta$-reduces and puts the hypothesis label in place. Discharge is
+automatic, because the assumption \lp{p # A} disappears when the goal \lp{(Q p) # B} has been proved.
+In the \lp{all_i} clause, \lp{pi y\} produces a constant that occurs nowhere else, which is exactly the
+eigenvariable condition. In the book's words, ``implicational goals are used to capture the hypothetical
+judgments \ldots and universal goals are used to introduce and subsequently abstract over the proofs of
+the assumed formulas'' and ``to enforce the newness constraint'' \book{234}.
+\end{tutorial}
+
+\noindent The same clauses can be run in four modes. Reading them is the best way to see what
+``relational'' means for a meta-program. The vocabulary is \lp{a, b : form}, \lp{q : term -> form},
+\lp{c : term}, \lp{f : term -> term} \book{234}.
+
+\paragraph{1. Checking.} All three queries are solvable \book{234}:
+\begin{lprolog}
+?- (imp_i w\w) # (a ==> a).
+?- (imp_i x\ imp_i y\ imp_e a x y) # (a ==> ((a ==> b) ==> b)).
+?- (imp_i P\ all_i y\ imp_i Q\
+      (imp_e (q (f y))
+        (imp_e (q y) Q (all_e y (x\ (q x) ==> (q (f x))) P))
+        (all_e (f y) (x\ (q x) ==> (q (f x))) P)))
+   # ((all x\ (q x) ==> (q (f x))) ==>
+      (all x\ (q x) ==> (q (f (f x))))).
+\end{lprolog}
+The third proof term reads, from the outside in: assume \lp{P}$\,:\forall x(q\,x\imp q(f\,x))$; for a
+fresh \lp{y} assume \lp{Q}$\,:q\,y$; \lp{all_e y _ P} proves $q\,y\imp q(f\,y)$, so the inner
+\lp{imp_e (q y) Q (...)} proves $q(f\,y)$; \lp{all_e (f y) _ P} proves $q(f\,y)\imp q(f(f\,y))$, and the
+outer \lp{imp_e (q (f y)) ...} concludes $q(f(f\,y))$. Note that the instantiation bodies
+\lp{x\ (q x) ==> (q (f x))} are spelled out inside both \lp{all_e} nodes: this is the information an
+elimination rule stores so that checking stays syntax-directed.
+
+\paragraph{2. Inference.} With the formula unknown, the checker computes it \book{235}:
+\begin{lprolog}
+?- (imp_i w\ (and_i (and_e2 a w) (and_e1 b w))) # R.
+R = a && b ==> b && a.
+\end{lprolog}
+
+\paragraph{3. Completion.} ``Sometimes proofs can be incompletely described by including free variables
+in them'' \book{235}. Here the two instantiation bodies of the third checking query are replaced by
+logic variables \lp{A} and \lp{A'} (of type \lp{term -> form}), and the formula by \lp{B}. (Here \lp{P} and \lp{Q} are $\lambda$-bound variables, not logic variables, despite the
+capitals.)
+\begin{lprolog}
+?- (imp_i P\ all_i y\ imp_i Q\
+      (imp_e (q (f y)) (imp_e (q y) Q (all_e y A P))
+             (all_e (f y) A' P))) # B.
+
+A = w\ p w ==> p (f w)
+A' = w\ p w ==> p (f w)
+B = all (w\ p w ==> p (f w)) ==> all (w\ p w ==> p (f (f w)))
+\end{lprolog}
+(The printed answer says \lp{p} where the query says \lp{q}. Read \lp{q}.) The two unknowns are found in
+different ways. \lp{A} is found by a pattern equation: \lp{(all_e y A P) # (q y ==> q (f y))} yields
+\lp{A y = q y ==> q (f y)} with \lp{y} a \lp{pi}-constant, which is in $\Llam$ and has the unique solution
+$\abs{w}{q\,w\imp q\,(f\,w)}$. \lp{A'} appears in \lp{A' (f y) = ...}, which is \emph{not} a pattern. It is
+fixed only because \lp{P # (all A')} must match the stored hypothesis about \lp{P}, forcing \lp{A' = A}.
+A Teyjus-style implementation delays the non-pattern equation until then (\cref{ch:hounif}).
+
+\paragraph{4. Proving fails.} \lp{?- P # (a ==> ((a ==> b) ==> b)).} loops, although the second checking
+query above contains its proof \book{235}. After two \lp{imp_i} steps the goal \lp{X # b} matches no
+hypothesis. The elimination clauses then accept any formula as conclusion: \lp{(false_e A P) # A} asks for
+\lp{P # ff}, which again only \lp{false_e} matches, and so on forever. Elimination rules used backwards have
+unconstrained premises.
+
+\begin{pitfall}[mode matters]
+One specification serves as checker, inferencer and completer, and fails as a prover. The logical reading
+is the same in all four modes. The operational behaviour is not. When a specification is ``relational'',
+it is worth asking for each argument whether it is given, partially given, or unknown.
+\end{pitfall}
+
+\begin{kanren}[what natural deduction needs]
+\textbf{$\forall$.} Fresh proof labels (\lp{pi p\}) and eigenvariables (\lp{pi y\}) are needed, the second
+\emph{with a scope check}: a logic variable created before \lp{y} must never be bound to a term
+containing \lp{y}. \textbf{$\imp$.} Every hypothesis is an \emph{atomic} fact (\lp{p # A}). An explicit
+context argument with a lookup clause, the standard miniKanren technique for type environments, is
+therefore enough. \textbf{Patterns.} Checking and inference work with first-order named or locally
+nameless binders plus a substitution relation. Completion with an unknown \lp{A} in \lp{all_e} needs
+pattern unification (\lp{A y = t} means ``abstract \lp{y} out of \lp{t}''), and \lp{A' (f y)} needs
+postponement. \textbf{Search.} Under interleaving the prover mode becomes complete in principle: the
+\lp{false_e} branch is only one of several fair branches. The search space of the unconstrained
+elimination rules remains huge, however. The sources do not measure it. See \cref{ch:design} for how the
+proposal provides these features.
+\end{kanren}
+
+% -----------------------------------------------------------------------------------------------------
+\subsection{A classical prover with bounded contraction}\label{sec:apps-cl}
+
+For classical first-order logic, the book uses formulas in \emph{negation normal form} (no $\imp$,
+negation only on atoms) and a one-sided calculus \textsf{CL} with four \emph{zones} \book{236}:
+\[
+  \Sigma : \mathcal{L};\ \Gamma;\ \Phi
+\]
+Here $\Sigma$ holds the eigenvariables, $\mathcal{L}$ is a \emph{set} of literals, $\Gamma$ is a \emph{list}
+of formulas still to be introduced, and $\Phi$ is a \emph{list} of existential formulas. The rules are (with
+$A$ atomic, $t$ a $\Sigma$-term, $y\notin\Sigma$):
+
+\begin{mathpar}
+\inferrule{\Sigma : A,\mathcal{L};\ \Gamma;\ \Phi}{\Sigma : \mathcal{L};\ A,\Gamma;\ \Phi}\;\rulename{lit}
+\and \inferrule{\Sigma : \neg A,\mathcal{L};\ \Gamma;\ \Phi}{\Sigma : \mathcal{L};\ \neg A,\Gamma;\ \Phi}\;\rulename{lit}
+\and \inferrule{\Sigma : \mathcal{L};\ \Gamma;\ \Phi,\exists x.B}{\Sigma : \mathcal{L};\ \exists x.B,\Gamma;\ \Phi}\;\exists
+\and \inferrule{ }{\Sigma : \mathcal{L};\ \top,\Gamma;\ \Phi}\;\top R
+\and \inferrule{\Sigma : \mathcal{L};\ B,\Gamma;\ \Phi \\ \Sigma : \mathcal{L};\ C,\Gamma;\ \Phi}{\Sigma : \mathcal{L};\ B\land C,\Gamma;\ \Phi}\;\land R
+\and \inferrule{\Sigma : \mathcal{L};\ B,C,\Gamma;\ \Phi}{\Sigma : \mathcal{L};\ B\lor C,\Gamma;\ \Phi}\;\lor R
+\and \inferrule{\Sigma\cup\{y\} : \mathcal{L};\ B[y/x],\Gamma;\ \Phi}{\Sigma : \mathcal{L};\ \forall x\,B,\Gamma;\ \Phi}\;\forall R
+\and \inferrule{ }{\Sigma : A,\neg A,\mathcal{L};\ \cdot;\ \Phi}\;\rulename{init}
+\and \inferrule{\Sigma : \mathcal{L};\ B[t/x];\ \Phi,\exists x\,B}{\Sigma : \mathcal{L};\ \cdot;\ \exists x\,B,\Phi}\;\exists R
+\end{mathpar}
+
+\noindent The calculus is a systematic tableau in the sense of Smullyan~\cite{Smullyan1968}. A non-empty
+$\Gamma$ determines the rule completely. When $\Gamma$ is empty, the only choices are \rulename{init} versus
+$\exists R$, and the witness $t$. The rule $\exists R$ puts $\exists x\,B$ back at the \emph{end} of $\Phi$,
+so all existentials get their turn. This alone does not give termination: for
+$\cdot:\cdot;\ \exists x.q(x);\ \cdot$, ``proof search \ldots leads to the attempt to prove sequents
+of the form $\cdot : q(t_1),\ldots,q(t_n);\cdot;\exists x.q(x)$, for increasingly larger sets of terms''
+\book{237}. The remedy is to bound the number of instances of each existential and to retry with a larger
+bound (iterative deepening).
+
+\begin{pitfall}[no rule for $\bot$]
+``If the first formula in the introduction zone is $\bot$ \ldots that sequent is not provable''
+\book{236}. Hence $\bot\lor\top$ is not provable as written. In a one-sided classical calculus $\bot$ should
+simply be dropped from $\Gamma$. A port should add \lp{prv (ff::Gamma) Phi :- prv Gamma Phi.} (This is our
+notes' analysis. The book does not comment.)
+\end{pitfall}
+
+\noindent Literals are \lp{p A} and \lp{n A} for an atom \lp{A : atm}. The existential zone is a queue of
+pairs (formula, remaining uses), implemented as a \emph{functional difference list} \book{238}: a list is
+represented by a function from its tail to the whole list, so the empty queue is \lp{que x\x} and
+\lp{qpush X (que k\ Phi k) (que k\ Phi ((pr X N)::k)) :- bound N.} appends at the end by
+$\beta$-reduction. \lp{qpop} takes the front pair and, if uses remain, re-appends it with one use fewer.
+All these matches are $\Llam$ patterns. Popping the empty queue fails because \lp{x\x} and
+\lp{k\ (pr X 1)::(Phi k)} clash rigidly, so no emptiness test is needed. The prover itself is
+\book{239}:
+
+\begin{lprolog}
+type lit         form -> o.
+type prv         list form -> que form -> o.
+
+prv (tt       :: Gamma) Phi.
+prv ((B && C) :: Gamma) Phi :- prv (B::Gamma) Phi,
+                               prv (C::Gamma) Phi.
+prv ((B !! C) :: Gamma) Phi :- prv (B::C::Gamma) Phi.
+prv ((all B)  :: Gamma) Phi :- pi x\ prv ((B x)::Gamma) Phi.
+prv ((some B) :: Gamma) Phi :- qpush (some B) Phi Q,
+                               prv Gamma Q.
+prv (p A      :: Gamma) Phi :- lit (p A) => prv Gamma Phi.
+prv (n A      :: Gamma) Phi :- lit (n A) => prv Gamma Phi.
+prv nil Phi :- lit (n A), lit (p A).
+prv nil Phi :- qpop (some B) Phi Q, prv ((B T)::nil) Q.
+
+posints 1.
+posints N :- posints M, N is M + 1.
+
+thm B :- posints N, bound N => prv (B::nil) (que x\x).
+\end{lprolog}
+
+\noindent Two of the four zones are not arguments at all. $\Sigma$ is realized by the \lp{pi x\} of the
+$\forall R$ clause: ``it uses $\lambda$Prolog-level universal quantifiers and the generic constants they
+introduce during computation to implicitly realize the eigenvariables'' \book{238}. $\mathcal{L}$ is
+realized by \lp{lit A =>}, a hypothetical fact. In the $\exists R$ clause the witness \lp{T} is a
+\emph{fresh logic variable}. It is not guessed: the initial clause \lp{lit (n A), lit (p A)} chooses it
+later, by unification. The side condition ``$t$ is a $\Sigma$-term'' is enforced by the unifier, which
+refuses to bind \lp{T} to an eigenvariable introduced after \lp{T} was created. Iterative deepening comes
+from \lp{posints}: a failure at bound $N$ backtracks into \lp{posints}, which produces $N+1$. ``B
+represents a formula in negation normal form that has a CL proof if and only if the goal (thm B) is
+provable'' \book{239}. On non-theorems \lp{thm} runs forever, since first-order logic is only
+semi-decidable.
+
+\begin{pitfall}[cut plus logic variables loses completeness]
+An improvement closes a branch as soon as a complementary literal arrives \book{239}:
+\lp{prv (p A :: Gamma) Phi :- lit (n A) ; lit (p A) => prv Gamma Phi.} (and the dual clause). Adding a
+cut, \lp{lit (n A), ! ; ...}, ``is acceptable when there are no existential quantifiers'', but with them
+``the interaction between such logic variables and the Prolog-cut (!) can lead to incompleteness''
+\book{240}. The counterexample is
+\begin{lprolog}
+((p (r c)) !! (p (r t)) !! (p (g c)) !! (some x\ (n (r x)) && (n (g x)))).
+\end{lprolog}
+It is a theorem, but ``the logic variable that instantiates x gets bound to t first and the cut then
+eliminates the path in which it would get bound to c'' \book{240}. Cut never breaks soundness, since it
+only removes alternatives. It keeps completeness only after a test that cannot bind logic variables.
+\end{pitfall}
+
+\begin{kanren}[what the classical prover needs, and what interleaving gives]
+\textbf{$\forall$ with a scope check is soundness-critical here.} Our notes derive two tests (not in the
+book). The drinker formula $\exists x(D x\imp\forall y\,D y)$, in NNF
+\lp{some x\ (n (d x)) !! (all y\ p (d y))}, must need bound~2: the first witness is created before $y$ and
+cannot become $y$. The invalid $(\forall y\exists x\,R(x,y))\imp\exists x\forall y\,R(x,y)$ must never be
+proved. Without the scope check a port proves it. \textbf{$\imp$.} Only atomic facts (\lp{lit A}, \lp{bound N})
+are assumed, so an explicit literal-list argument and an explicit bound suffice. \textbf{Patterns.} The
+functional difference list needs $\Llam$. A naive first-order open-tailed list is \emph{wrong}: popping an
+empty \scm{(dl V V)} unifies \scm{V} with a cons and conjures an item. With a ground spine, an ordinary list
+and \scm{append°} is the safe port. \textbf{Search.} Under interleaving the round-robin queue alone already
+makes the prover complete, because every node has finitely many children and the infinite $\exists R$ chain
+is interleaved with the \rulename{init} alternatives. The bound then serves only to make failing searches
+stop. \textbf{Cut.} \micro{}'s \scm{if°} is a \emph{soft} cut: it keeps every answer of the test. Translating
+\lp{!} as \scm{(if° (take° 1 test) ...)} reproduces the book's incompleteness exactly. Plain \scm{if°}
+happens to prove the formula above but is still incomplete in general. Only the cut-free disjunction is
+safe. See \cref{ch:design}.
+\end{kanren}
+
+% -----------------------------------------------------------------------------------------------------
+\subsection{Tactics and tacticals}\label{sec:apps-tactics}
+
+Direct reflection ``has the benefit of yielding a transparently correct specification. However, it also
+means that we must use the control regimen of the interpreter'' \book{240}. The remedy is the LCF
+architecture~\cite{GordonMilnerWadsworth1979}, recast as relations~\cite{FeltyMiller1988,Felty1993}. An
+inference rule becomes \emph{data}: a relation between the goal of proving the conclusion and the goal of
+proving the premises. Search strategies then become ordinary higher-order predicates over such relations.
+
+\begin{definition}[goals, tactics, tacticals; \book{241}]\label{def:apps-tactic}
+A \emph{primitive goal} is an object to be proved (a sequent, a typing judgment \lp{P # A}, \ldots).
+\emph{Compound goals} are \lp{trueg} (closed), \lp{G1 cc G2} (both) and \lp{allg (x\ G)} (for a generic
+\lp{x}). A \emph{tactic} is a predicate of type \lp{goal -> goal -> o} relating a primitive goal to the
+goal of its premises. It fails when it does not apply, and it may leave logic variables, such as
+quantifier witnesses, in its output. A \emph{tactical} is a higher-order predicate combining tactics.
+\end{definition}
+
+\noindent The goal language and its simplifier are \book{241}:
+
+\begin{lprolog}
+kind  goal     type.
+type  trueg    goal.                    % vacuously true goal
+type  cc       goal -> goal -> goal.    % conjunctive goal
+type  allg     (A -> goal) -> goal.     % universally quantified goal
+infixl cc 3.
+
+type  goalreduce, redex, red1   goal -> goal -> o.
+type  primgoal                  goal -> o.
+
+redex (trueg cc G) G & redex (G cc trueg) G.
+redex (allg x\trueg) trueg.
+red1 G H :- redex G H, !.
+red1 (G cc H) (Gx cc H) &
+red1 (H cc G) (H cc Gx) :- red1 G Gx.
+red1 (allg G) (allg Gx) :- pi x\ red1 (G x) (Gx x).
+goalreduce G H :- red1 G Gx, !, goalreduce Gx H.
+goalreduce G G.
+\end{lprolog}
+
+\noindent \lp{goalreduce} rewrites with $\top_g\mathbin{cc}G\to G$, $G\mathbin{cc}\top_g\to G$ and
+$\mathit{allg}\,(\abs{x}{\top_g})\to\top_g$ anywhere in a goal, until no rewrite applies. A goal ``is
+proved'' when it reduces to \lp{trueg}. The pattern \lp{allg x\trueg} matches only a \emph{vacuous}
+abstraction, one whose body does not mention \lp{x}. The binder type \lp{A} of \lp{allg} is polymorphic,
+so the same goal language serves goals over terms and over proofs. The cuts are safe here because the
+input is ground and the rewriting is confluent.
+
+\paragraph{A first example: reachability.} The book's smallest instance has nodes, edges as primitive goals
+\lp{adj X Y}, and paths as primitive goals \lp{path X Y} \book{242}:
+
+\begin{lprolog}
+kind node   type.
+type a, b, c, d, e   node.
+type adj, path   node -> node -> goal.
+
+primgoal (adj _ _)  &  primgoal (path _ _).
+
+type adj_tac, path_base_tac, path_rec_tac   goal -> goal -> o.
+
+adj_tac (adj a b) trueg  &  adj_tac (adj a c) trueg.
+adj_tac (adj b d) trueg  &  adj_tac (adj c d) trueg.
+adj_tac (adj d a) trueg  &  adj_tac (adj d e) trueg.
+
+path_base_tac  (path X Y) (adj X Y).
+path_rec_tac   (path X Y) ((adj X Z) cc (path Z Y)).
+\end{lprolog}
+
+\noindent \lp{adj_tac} closes an edge goal. The two path tactics are the two inference rules for
+\lp{path}. In \lp{path_rec_tac} the intermediate node \lp{Z} appears only in the output: a tactic may leave
+an unknown in the premises, to be fixed later when \lp{adj_tac} is applied to \lp{adj X Z}. The graph
+($a{\to}b$, $a{\to}c$, $b{\to}d$, $c{\to}d$, $d{\to}a$, $d{\to}e$) has the cycle $a{\to}b{\to}d{\to}a$.
+The book gives no query for this figure. A run on \micro{} is in the kanren box below.
+
+\paragraph{Sequent calculus as tactics.} The rules of an intuitionistic sequent calculus for $\land$,
+$\imp$ and $\forall$ become tactics \book{242}:
+
+\begin{lprolog}
+type sq   list form -> form -> goal.
+primgoal (sq _ _).
+
+type initial, and_r, imp_r, all_r, and_l, imp_l, all_l, all_l'   goal -> goal -> o.
+
+initial (sq Gamma A) trueg :- memb_and_rest A Gamma _.
+and_r   (sq Gamma (A && B)) ((sq Gamma A) cc (sq Gamma B)).
+imp_r   (sq Gamma (A ==> B)) (sq (A::Gamma) B).
+all_r   (sq Gamma (all A)) (allg x\ sq Gamma (A x)).
+and_l   (sq Gamma A) (sq (B::C::Gamma') A) :-
+          memb_and_rest (B && C) Gamma Gamma'.
+imp_l   (sq Gamma A) ((sq Gamma B) cc (sq (C::Gamma') A)) :-
+          memb_and_rest (B ==> C) Gamma Gamma'.
+all_l   (sq Gamma A) (sq ((B T)::Gamma) A) :-
+          memb_and_rest (all B) Gamma Gamma'.
+all_l'  (sq Gamma A) (sq ((B T)::Gamma') A) :-
+          memb_and_rest (all B) Gamma Gamma'.
+\end{lprolog}
+
+\noindent Each clause relates a conclusion to the goal of its premises. \lp{imp_l} is the plain ${\imp}L$ of
+the first calculus: its left premise \lp{sq Gamma B} keeps $B\imp C$. The tactic \lp{all_r} does not
+introduce the eigenvariable itself. It returns a quantified \emph{goal} \lp{allg x\ ...}, and the
+eigenvariable becomes a real \lp{pi}-constant only when a tactical enters that goal. The tactic \lp{all_l}
+keeps the universal hypothesis (contraction: it uses the original \lp{Gamma}), while \lp{all_l'} drops it
+(it uses \lp{Gamma'}). In both, \lp{T} is an open witness. The tacticals are \book{244}:
+
+\begin{lprolog}
+type maptac   (goal -> goal -> o) -> goal -> goal -> o.
+
+maptac Tac trueg trueg.
+maptac Tac (I1 cc I2) (O1 cc O2) :- maptac Tac I1 O1,
+                                    maptac Tac I2 O2.
+maptac Tac (allg In) (allg Out) :- pi t\ maptac Tac (In t) (Out t).
+maptac Tac In Out :- primgoal In, Tac In Out.
+
+type idtac          goal -> goal -> o.
+type repeat, try    (goal -> goal -> o) -> goal -> goal -> o.
+type then,
+     orelse, orelse! (goal -> goal -> o) ->
+                     (goal -> goal -> o) -> goal -> goal -> o.
+
+idtac             In In.
+then    Tac1 Tac2 In Out :- Tac1 In Mid, maptac Tac2 Mid Out.
+orelse  Tac1 Tac2 In Out :- Tac1 In Out  ; Tac2 In Out.
+orelse! Tac1 Tac2 In Out :- Tac1 In Out, ! ; Tac2 In Out.
+repeat  Tac       In Out :- orelse (then Tac (repeat Tac))
+                                   idtac In Out.
+try     Tac       In Out :- orelse Tac idtac In Out.
+\end{lprolog}
+
+\noindent Read tactics as binary relations. Then \lp{idtac} is the identity, \lp{orelse} is union,
+\lp{orelse!} is ``the first answer of the first tactic, else the second'', \lp{try T} is ``\lp{T} if it
+applies, else no change'', and \lp{repeat T} applies \lp{T} as often as possible first, with fewer
+applications on backtracking. \lp{maptac T} lifts \lp{T} from primitive goals to compound goals. It enters
+\lp{allg} with \lp{pi t\} and re-abstracts the result through the pattern \lp{Out t}, and it fails if
+\lp{T} fails on any primitive leaf. \lp{then T1 T2} is the relational composition of \lp{T1} with
+\lp{maptac T2}. It cannot simply be \lp{T1 In Mid, T2 Mid Out}, because \lp{Mid} may be compound
+\book{243}.
+
+\paragraph{Invertible rules first.} A rule is \emph{invertible} when its premises are provable iff its
+conclusion is. Such rules ``can be forced to appear at the end of a proof without any loss of
+completeness'' \book{243}:
+
+\begin{lprolog}
+invertible In Out :-
+   repeat (orelse and_r (orelse and_l (orelse imp_r all_r))) In Out.
+\end{lprolog}
+
+\noindent With \lp{p : term -> form} and \lp{f : term -> term}, the book reports \book{243--244}:
+
+\begin{lprolog}
+?- invertible (sq [] ((a && (a ==> b)) ==> (a && b))) Out.
+Out = ((sq (a :: (a ==> b) :: nil) a) cc (sq (a :: (a ==> b) :: nil) b))
+
+?- invertible (sq [] ((all x\ (p x) ==> (p (f x))) ==>
+                      (all x\ (p x) ==> (p (f (f x))))))
+              Out.
+Out = (allg (w\ sq (p w :: (all w\ p w ==> p (f w)) :: nil)
+                   (p (f (f w)))))
+\end{lprolog}
+
+\noindent What remains in the second answer becomes propositional after two instantiations of the
+universal hypothesis. To finish it, the book links the decision procedure of
+\cref{sec:apps-ipl} in as a tactic and composes a \emph{script} \book{244--245}:
+
+\begin{lprolog}
+ip_decide (sq Gamma A) trueg :- seq Gamma A.
+
+?- then invertible (then all_l (then all_l' ip_decide))
+       (sq [] ((all x\ (p x) ==> (p (f x))) ==>
+               (all x\ (p x) ==> (p (f (f x))))))
+       Out.
+Out = allg W1\ trueg
+\end{lprolog}
+
+\begin{tutorial}[how the script closes the goal]
+\lp{invertible} leaves \lp{allg w\ sq [p w, all (...)] (p (f (f w)))}. \lp{maptac} enters the \lp{allg}
+with a fresh constant \lp{w}. \lp{all_l} adds \lp{p T1 ==> p (f T1)} and keeps the $\forall$. \lp{all_l'}
+adds \lp{p T2 ==> p (f T2)} and drops it. Because \lp{T1} and \lp{T2} were created \emph{inside} the scope
+of \lp{w}, they may be bound to terms containing \lp{w}. \lp{ip_decide} runs \lp{seq}. There, ${\imp}L_1$ on
+the first implication needs the atom \lp{p T2} in the context, and \lp{memb_and_rest} \emph{unifies}
+\lp{T2 := w}, adding \lp{p (f w)}. The second implication then gets \lp{T1 := f w}, adding
+\lp{p (f (f w))}, and \rulename{init} closes the sequent. The witnesses are found by unification at the
+leaves, exactly as in the classical prover. (\lp{seq} needs \lp{atom} for first-order atoms, for example
+\lp{atom (p _).}, which the book does not show.) The output \lp{allg W1\ trueg} reduces to \lp{trueg}
+with the goal-simplifier \lp{goalreduce} of \book{241}.
+\end{tutorial}
+
+\begin{kanren}[tacticals in Scheme, and what interleaving does to them]
+Tacticals are higher-order relations, and in Scheme they are just procedures from relations to relations.
+Everything except \lp{allg} is first order, so the reachability example \book{242} runs on \micro{}
+today. Goals are tagged lists, and \scm{maptac°} has no \lp{allg} case:
+\begin{scheme}[fontsize=\footnotesize]
+(define-relation (primgoal° g)
+  (fresh° (x y) (or° (=° g `(adj ,x ,y)) (=° g `(path ,x ,y)))))
+
+(define-relation (adj-tac° in out)
+  (=° out 'trueg)
+  (cond° ((=° in '(adj a b))) ((=° in '(adj a c))) ((=° in '(adj b d)))
+         ((=° in '(adj c d))) ((=° in '(adj d a))) ((=° in '(adj d e)))))
+(define-relation (path-base-tac° in out)
+  (fresh° (x y) (=° in `(path ,x ,y)) (=° out `(adj ,x ,y))))
+(define-relation (path-rec-tac° in out)
+  (fresh° (x y z) (=° in `(path ,x ,y)) (=° out `(cc (adj ,x ,z) (path ,z ,y)))))
+
+(define (maptac° tac)
+  (define-relation (m in out)
+    (cond° ((=° in 'trueg) (=° out 'trueg))
+           ((fresh° (i1 i2 o1 o2) (=° in `(cc ,i1 ,i2)) (=° out `(cc ,o1 ,o2)) (m i1 o1) (m i2 o2)))
+           ((primgoal° in) (tac in out))))
+  m)
+(define (idtac° in out) (=° in out))
+(define ((then° t1 t2) in out) (fresh° (mid) (t1 in mid) ((maptac° t2) mid out)))
+(define ((orelse° t1 t2) in out) (or° (t1 in out) (t2 in out)))
+(define ((try° t) in out) ((orelse° t idtac°) in out))
+(define ((repeat° t) in out)
+  (λ (s) (δ (((orelse° (then° t (repeat° t)) idtac°) in out) s))))
+
+;; stands in for `goalreduce Out trueg`: Out is made of trueg and cc only
+(define-relation (closed° g)
+  (cond° ((=° g 'trueg))
+         ((fresh° (g1 g2) (=° g `(cc ,g1 ,g2)) (closed° g1) (closed° g2)))))
+
+(define step° (orelse° adj-tac° (orelse° path-base-tac° path-rec-tac°)))
+
+(pretty-print (μkanren-run (q -1 #t) ((then° path-rec-tac° (try° adj-tac°)) '(path a e) q)))
+(pretty-print (μkanren-run (q 4 #t) ((repeat° step°) '(path a e) q)))
+(pretty-print (μkanren-run (q 3 #t) ((repeat° step°) '(path a e) q) (closed° q)))
+\end{scheme}
+\begin{answers}
+((cc (adj a α) (path α e)) (cc trueg (path b e)) (cc trueg (path c e)))
+((path a e) (adj a e) (cc (adj a α) (path α e)) (cc trueg (path b e)))
+((cc trueg (cc trueg trueg))
+ (cc trueg (cc trueg trueg))
+ (cc trueg (cc trueg (cc trueg (cc trueg (cc trueg trueg))))))
+\end{answers}
+The open witness \scm{α} of \scm{path-rec-tac°} is chosen later by \scm{adj-tac°}, just as \lp{T} is in
+\lp{all_l}. The first answer of \scm{repeat°} is \emph{zero} applications, \scm{(path a e)}. The book's
+depth-first \lp{repeat} would instead answer first with the maximal sequence, which here is the unprovable
+leftover \lp{adj a e}. Interleaving enumerates all application lengths fairly. On the cyclic graph it
+produces the two three-edge proofs ($a{\to}b{\to}d{\to}e$, $a{\to}c{\to}d{\to}e$) and then a six-edge one
+around the cycle. A depth-first enumeration of all answers would never terminate here, and interleaving
+does not terminate either, but it keeps producing proofs. A script built from \lp{orelse} and
+\lp{repeat} is therefore \emph{complete} under interleaving, while committed choice (\lp{orelse!}, the cuts
+of \lp{goalreduce}) needs \scm{(if° (take° 1 ...) ...)}. \textbf{What is missing} is \lp{maptac} over \lp{allg}. It needs a
+universal goal (a fresh eigenvariable) and the abstraction of that eigenvariable out of the result
+(\lp{Out t}, a pattern). See \cref{ch:design}.
+\end{kanren}
+
+% =====================================================================================================
+\section{Computations over functional programs}\label{sec:apps-fp}
+
+Chapter 10 of the book turns to programming-language semantics. The object language \textsf{miniFP} is an
+untyped call-by-value $\lambda$-calculus with a conditional, a fixed point, booleans, integers and lists
+\book{248}:
+
+\[
+  M ::= x\mid \lambda x.M\mid M\,N\mid \mathsf{cond}\,M\,N\,P\mid \mathsf{fix}\,x.M\mid \mathsf{cns}\,M\,N
+        \mid \mathsf{i}\,n\mid \mathsf{tt}\mid\mathsf{ff}\mid\mathsf{null}\mid \mathsf{cons}\mid\mathsf{car}\mid\ldots
+\]
+\begin{lprolog}
+type abs    (tm -> tm) -> tm.          % function abstraction
+type @      tm -> tm -> tm.            % application
+infixl @ 4.                            % application is infix
+type cond   tm -> tm -> tm -> tm.      % conditional
+type fixpt  (tm -> tm) -> tm.          % recursive functions
+\end{lprolog}
+
+\noindent The remaining constructors are first order: \lp{cns} is the list \emph{value} constructor, \lp{i}
+injects integers, and constants such as \lp{cons}, \lp{car}, \lp{sum}, \lp{equal} have type \lp{tm}. \lp{cons} is a built-in \emph{function}, applied
+with \lp{@}. The encoding is untyped, so \lp{cons @ (i 4) @ (i 5)} is a legal \lp{tm} but not a valid
+program. Validity is a separate typing judgment. Four sample programs are named by \lp{prog} \book{249}.
+For instance:
+
+\begin{lprolog}
+prog "map" (fixpt map\ abs f\ abs l\
+  cond (nullp @ l) null (cons @ (f @ (car @ l)) @
+                                (map @ f @ (cdr @ l)))).
+\end{lprolog}
+
+\subsection{Typing: hypotheses about bound variables}\label{sec:apps-typeof}
+
+The four structural rules of simple typing are \book{250}:
+
+\begin{lprolog}
+typeof (M @ N) A         :- typeof M (arr B A), typeof N B.
+typeof (cond P Q R) A    :- typeof P bool, typeof Q A, typeof R A.
+typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.
+typeof (fixpt M) A       :- pi x\ typeof x A => typeof (M x) A.
+\end{lprolog}
+
+\noindent One axiom per constant follows, such as \lp{typeof car (arr (lst A) A).} There is no clause for
+variables. Instead, when the \lp{abs} clause enters the binder, it \emph{assumes} a clause
+\lp{typeof x A} for the fresh \lp{x}. The book reports \book{249--250} that \lp{typeof (abs w\ w)} has type
+\lp{arr int int}, \lp{arr bool bool}, and even \lp{pi t\ typeof (abs w\ w) (arr t t)}. For the four programs
+it reports:
+
+\begin{lprolog}
+?- sigma Exp\ prog Name Exp, typeof Exp Ty.
+Ty = arr int int.
+Ty = arr A (arr (lst A) bool).
+Ty = arr (lst A) (arr (lst A) (lst A)).
+Ty = arr (arr A B) (arr (lst A) (lst B)).
+\end{lprolog}
+
+\begin{pitfall}[polymorphic constants, monomorphic variables]
+The type variables of a constant's axiom are renamed at each use of the clause, so each occurrence of
+\lp{car} may get its own instance. The assumed clause \lp{typeof x A}, by contrast, contains the
+\emph{outer} logic variable \lp{A}, which is not renamed, so all occurrences of \lp{x} share one type.
+That is exactly simple typing. It is also why let-polymorphism is out of reach: ``no simple extension to
+the program provided in Figure 10.3 can realize this algorithm'' \book{260}.
+\end{pitfall}
+
+\begin{kanren}[the classic miniKanren type inferencer is this program]
+Since every hypothesis is an atomic fact about a fresh variable, an explicit environment $\Gamma$ can
+replace \lp{=>}. Variables are then named by Scheme symbols, and constants are wrapped as \scm{(c name)}
+to keep the two apart. Sharing a logic variable inside $\Gamma$ is precisely the non-renaming of \lp{A}.
+Wrapping each constant's type variables in \scm{fresh°} is the per-use renaming. Excerpt (the remaining
+constant clauses, and the four programs written with a helper \scm{@*} for iterated application, are in
+the run file):
+\begin{scheme}[fontsize=\footnotesize]
+(define-relation (lookup° Γ x t)
+  (fresh° (y u r)
+    (=° Γ `((,y . ,u) . ,r))
+    (cond° ((=° x y) (=° t u))
+           ((≠° x y) (lookup° r x t)))))
+
+(define-relation (typeof° Γ m t)
+  (cond°
+    ((symbol° m) (lookup° Γ m t))
+    ((fresh° (M N B) (=° m `(@ ,M ,N)) (typeof° Γ M `(arr ,B ,t)) (typeof° Γ N B)))
+    ((fresh° (P Q R) (=° m `(cond ,P ,Q ,R)) (typeof° Γ P 'bool) (typeof° Γ Q t) (typeof° Γ R t)))
+    ((fresh° (x M A B) (=° m `(abs ,x ,M)) (=° t `(arr ,A ,B)) (typeof° `((,x . ,A) . ,Γ) M B)))
+    ((fresh° (f M) (=° m `(fixpt ,f ,M)) (typeof° `((,f . ,t) . ,Γ) M t)))
+    ((fresh° (n) (=° m `(i ,n)) (=° t 'int)))
+    ((=° m '(c tt)) (=° t 'bool))
+    ;; ... (c ff), (c null), (c equal), (c cons) ...
+    ((fresh° (A) (=° m '(c car)) (=° t `(arr (lst ,A) ,A))))
+    ;; ... (c cdr), (c nullp), (c consp), (c and), (c zerop), (c minus), (c sum)
+    ))
+
+(for-each (λ (p) (pretty-print (cons (car p) (μkanren-run (q -1 #t) (typeof° '() (cdr p) q)))))
+  `((id . (abs w w)) (fib . ,fib) (mem . ,mem) (appnd . ,appnd) (map . ,map) (self . (abs w (@ w w)))))
+\end{scheme}
+\begin{answers}
+(id (arr α α))
+(fib (arr int int))
+(mem (arr α (arr (lst α) bool)))
+(appnd (arr (lst α) (arr (lst α) (lst α))))
+(map (arr (arr α β) (arr (lst α) (lst β))))
+(self)
+\end{answers}
+These are the book's types. Self-application has none, because \micro{}'s occurs check rejects
+$B = B\to A$. Running the relation \emph{backwards} enumerates inhabitants of a type:
+\begin{scheme}[fontsize=\footnotesize]
+(pretty-print (μkanren-run (q 5 #t) (typeof° '() q '(arr int int))))
+\end{scheme}
+\begin{answers}
+((abs α α)
+ (fixpt α α)
+ (abs α (i β))
+ (@ (abs α α) (abs β β))
+ (abs α (fixpt β β)))
+\end{answers}
+(Grounded answers omit the pending \scm{symbol°} constraints on \scm{α}, \scm{β}.) Note the
+well-typed divergent term \scm{(fixpt α α)}. In the book's clause order, depth-first search would try the
+application clause first and recurse on an ever larger function type. Interleaving gives every clause its
+turn. The named-binder encoding works here because typing never substitutes. Evaluation does, and needs
+more (see below).
+\end{kanren}
+
+\subsection{Big-step evaluation}\label{sec:apps-eval}
+
+The natural semantics~\cite{Kahn1987} of miniFP is a relation $M\Downarrow V$ \book{251--252}. Its
+structural core reads:
+
+\begin{mathpar}
+\inferrule{V\text{ a value}}{V\Downarrow V}
+\and \inferrule{M\Downarrow F \\ N\Downarrow U \\ \mathrm{apply}(F,U)\Downarrow V}{M\,N\Downarrow V}
+\and \inferrule{M[\mathsf{fix}\,x.M/x]\Downarrow V}{\mathsf{fix}\,x.M\Downarrow V}
+\and \inferrule{M[U/x]\Downarrow V}{\mathrm{apply}(\lambda x.M,\,U)\Downarrow V}
+\end{mathpar}
+
+\begin{lprolog}
+val (abs _) & val (i _) & val tt & val ff & val null.
+val (cns _ _) & val (spec _ _ _).
+
+eval V V            :- val V.
+eval (M @ N) V      :- eval M F, eval N U, apply F U V.
+eval (fixpt R) V    :- eval (R (fixpt R)) V.
+eval (cond C L R) V :- eval C B, if (B = tt) (eval L V) (eval R V).
+eval F (spec I F nil) :- special I F.
+
+apply (abs R) U V         :- eval (R U) V.
+apply (spec 1 F Args) U V :- eval_spec F (U::Args) V.
+apply (spec C F Args) U (spec D F (U::Args)) :- C > 1, D is C - 1.
+\end{lprolog}
+
+\noindent Application of an abstraction ``corresponds to a substitution that is realized elegantly through
+$\beta$-conversion in the specification language'' \book{251}: \lp{eval (R U) V}. A built-in \lp{F} of
+arity $n$ evaluates to the partial application \lp{spec n F nil}, which collects already evaluated
+arguments \emph{in reverse order} until the $\delta$-rule \lp{eval_spec} fires, for example
+\lp{eval_spec minus ((i N)::(i M)::nil) (i V) :- V is M - N.} With these clauses
+\lp{prog "fib" F, eval (F @ (i 12)) V} gives \lp{V = (i 144)}, and mapping fib over $[9,4]$ gives
+\lp{(cns (i 34) (cns (i 3) null))} \book{251--253}. Since \lp{eval_spec equal} compares with
+$\lambda$Prolog's \lp{=}, which is equality of $\lambda$-terms up to $\alpha\beta\eta$,
+\lp{eval (equal @ (abs x\x) @ (abs y\y)) V} gives \lp{V = tt} \book{253}. This is ``stronger'' than a
+functional language, which cannot compare functions. (The book suggests replacing \lp{B = C} by a
+first-order \lp{eq B C} that only compares integers, booleans and lists. Since \lp{eq} has no clause for
+\lp{abs} and the test sits inside an \lp{if}, the same query then gives \lp{V = ff}, our notes observe.)
+
+\begin{tutorial}[evaluating a small application]
+Take \lp{eval ((abs x\ cond x (i 1) (i 2)) @ tt) V}. The clause for \lp{@} evaluates the function, which
+is a value and evaluates to itself, so \lp{F = abs x\ cond x (i 1) (i 2)}; it evaluates the argument
+\lp{tt} to \lp{U = tt}; then \lp{apply (abs R) U V} calls \lp{eval (R U) V}. Here \lp{R} is the
+meta-level function \lp{x\ cond x (i 1) (i 2)}, so \lp{R U} $\beta$-reduces to
+\lp{cond tt (i 1) (i 2)}: object-level substitution has been done by the metalanguage. The \lp{cond}
+clause evaluates \lp{tt} to \lp{B = tt} and takes the then branch, \lp{V = i 1}.
+\end{tutorial}
+
+\noindent New binding constructs fit the same pattern. The book's bibliographic notes add \lp{let}, with
+concrete \lp{let x = t in b} represented as \lp{(let t (x\b))}, and one clause \book{259--260}:
+\lp{eval (let T R) V :- eval T U, eval (R U) V.}
+
+\begin{pitfall}[\texttt{if} is a commit, not logic]
+The conditional is defined with a cut \book{137}:
+\begin{lprolog}
+type if   o -> o -> o -> o.
+if P Q R :- P, !, Q.
+if P Q R :- R.
+\end{lprolog}
+It commits to the first proof of \lp{P}. The book says it is used ``only for convenience'' and can be
+rewritten as \lp{(U = tt, G ; U = ff, H)} when \lp{U} is a boolean \book{251}. The two readings differ on a non-boolean test. They also differ, more seriously, on an
+\emph{eigenvariable} test: \lp{k = tt} fails for a generic \lp{k}, so \lp{if} silently takes the else
+branch. This matters for mixed evaluation below.
+\end{pitfall}
+
+\subsection{Evaluation contexts as meta-level functions}\label{sec:apps-evalc}
+
+The reduction semantics of Felleisen and Hieb~\cite{FelleisenHieb1992} splits a term into an
+\emph{evaluation context} with a hole and the next redex: $E[R]\longmapsto E[N]$ when $R$ reduces to $N$,
+with $E ::= [\,]\mid \mathsf{cond}\,E\,N\,P\mid E\,N\mid V\,E$. In $\lambda$Prolog a context is simply a
+function \lp{tm -> tm}, and plugging is application \book{254}:
+
+\begin{lprolog}
+context R (x\ x) R :- redex R.
+context (cond M N P) (x\ cond (E x) N P) R :-
+    non_val M, context M E R.
+context (M @ N) (x\ (E x) @ N) R :-
+    non_val M, context M E R.
+context (V @ M) (x\ V @ (E x)) R :-
+    val V, non_val M, context M E R.
+
+evalc V V :- val V.
+evalc M V :- context M E R, reduce R N, evalc (E N) V.
+\end{lprolog}
+
+\noindent \lp{redex}, \lp{non_val} and \lp{reduce} are first-order tables (for example
+\lp{reduce ((abs R) @ N) (R N).}). Each decomposition succeeds exactly once \book{255}:
+\begin{lprolog}
+?- context (cond ((abs x\ ff) @ tt) (i 2) (i 3)) E R.
+%  succeeds exactly once:  R = ((abs x\ ff) @ tt),  E = (W\ cond W (i 2) (i 3))
+\end{lprolog}
+\noindent The output context \lp{x\ cond (E x) N P} is built from the recursively computed \lp{E} by
+abstraction. Every context answer is therefore a higher-order output.
+
+\subsection{Partial evaluation: unfolding and mixed evaluation}\label{sec:apps-mixeval}
+
+Both evaluators unfold \lp{fixpt R} into \lp{R (fixpt R)}. The query
+\lp{prog "map" (fixpt Body), Unfold = (Body (fixpt Body))} exhibits this as a source-to-source
+transformation \book{255}. (The printed result is mis-parenthesized: \lp{@ f @ (cdr @ l)} must apply the
+inner \lp{fixpt}, not lie inside its body.) More interesting is \emph{mixed evaluation}, which evaluates
+under a binder by treating the bound variable as an unknown value \book{256}:
+
+\begin{lprolog}
+type mixeval  tm -> tm -> o.
+mixeval (abs R) (abs S) :- pi k\ val k => eval (R k) (S k).
+
+?- prog "appnd" App,
+   eval (App @ (cons @ (i 1) @ (cons @ (i 5) @ null))) R,
+   mixeval R S.
+\end{lprolog}
+
+\noindent This ``yields the single answer substitution, binding the variable S to''
+\lp{abs w\ cons @ (i 1) @ (cons @ (i 5) @ w)} \book{256}. (By the \lp{eval_spec cons} clause the value form
+should be \lp{cns (i 1) (cns (i 5) w)}, the same function.) Append has been specialized away. Note
+\lp{(S k)}: a logic variable applied to an eigenvariable, the pattern case. Its solution abstracts \lp{k}
+out of the computed value.
+
+\begin{proposition}[\book{256}]\label{prop:apps-mixeval}
+If \lp{mixeval (abs R) (abs S)} holds and \lp{val T} is provable, then evaluating \lp{(R T)} yields the value
+\lp{(S T)}.
+\end{proposition}
+
+\noindent The proof idea is the substitution property of $\forall$ and $\imp$: instantiate the generic
+derivation of \lp{eval (R k) (S k)} at \lp{T} and discharge \lp{val k} with \lp{val T}.
+
+\begin{pitfall}[the proposition needs the logical reading]
+With the cut-based \lp{if}, \cref{prop:apps-mixeval} fails. Our notes' counterexample is
+\lp{mixeval (abs b\ cond b (i 1) (i 2)) S}. The test \lp{if (k = tt) ...} cannot unify the
+eigenvariable, so the else branch gives \lp{S = b\ i 2}, but \lp{eval (cond tt (i 1) (i 2))} is \lp{i 1}.
+With \lp{(B = tt, ... ; B = ff, ...)} the conditional on \lp{k} simply fails, and soundness holds. Failing
+on an eigenvariable means ``unknown'', not ``different''.
+\end{pitfall}
+
+\subsection{CPS conversion and administrative redexes}\label{sec:apps-cps}
+
+Fischer's call-by-value CPS transformation~\cite{Fischer1972} \book{257} on the pure fragment is
+defined by $\mathcal{F}$ on terms and $\Psi$ on values (abstractions and variables). The marked
+$\bar\lambda$ are the \emph{administrative} abstractions:
+\begin{align*}
+  \mathcal{F}[V] &= \bar\lambda k.\,(k\;\Psi[V])\\
+  \mathcal{F}[M\,N] &= \bar\lambda k.\,(\mathcal{F}[M]\;\bar\lambda m.\,(\mathcal{F}[N]\;\bar\lambda n.\,(m\,k\,n)))\\
+  \Psi[x] &= x\\
+  \Psi[\lambda x.M] &= \lambda k.\,\lambda x.\,(\mathcal{F}[M]\,k)
+\end{align*}
+
+\begin{lprolog}
+type ftrans, phi  tm -> tm -> o.
+
+ftrans (abs V) (abs k\ k @ U) :- phi (abs V) U.
+ftrans (M @ N) (abs k\ P @ (abs m\ Q @ (abs n\ m @ k @ n))) :-
+    ftrans M P, ftrans N Q.
+
+phi (abs M) (abs k\ abs x\ (P x) @ k) :-
+    pi x\ pi y\ ftrans x (abs k\ k @ y) => ftrans (M x) (P y).
+\end{lprolog}
+
+\begin{tutorial}[where did the variable case go?]
+Neither \lp{ftrans} nor \lp{phi} has a clause for variables. When \lp{phi} enters the binder of
+\lp{abs M}, it creates a source variable \lp{x}, a target variable \lp{y}, and the local clause
+\lp{ftrans x (abs k\ k @ y)}. That clause \emph{is} the equation $\mathcal{F}[x]=\bar\lambda k.(k\,\Psi[x])$
+for this one variable. The translated body is \lp{P y}, a pattern, so \lp{P} is the body abstracted over
+\lp{y}, and \lp{abs x\ (P x) @ k} re-binds it. The same device reappears in the $\lambda$-to-$\pi$
+translation of \cref{sec:apps-lampi}: ``one base case is assumed for every bound variable encountered''
+\book{274}.
+\end{tutorial}
+
+\noindent On $(\lambda u.u)(\lambda u.u)$ the book reports \book{257}:
+\begin{lprolog}
+?- ftrans ((abs u\u) @ (abs u\u)) F.
+
+F = (abs W1\ (abs (W2\ W2 @ abs W3\ abs W4\ abs (W5\ W5 @ W4) @ W3)) @
+     (abs W2\ (abs (W3\ W3 @ abs W4\ abs W5\ abs (W6\ W6 @ W5) @ W4)) @
+     (abs W3\ W2 @ W1 @ W3))).
+\end{lprolog}
+\noindent To read it, let $U$ be $\Psi[\lambda u.u]$ before any simplification,
+\lp{abs a\ abs b\ ((abs c\ c @ b) @ a)}. Then \lp{F} is
+\lp{abs k\ (abs k1\ k1 @ U) @ (abs m\ (abs k2\ k2 @ U) @ (abs n\ m @ k @ n))}, which is the
+application equation of $\mathcal{F}$ with both sides instantiated by the value equation. The result
+contains many $\beta$-redexes that exist ``solely for the purpose of providing a compositional account of
+the transformation''. These are the administrative redexes. The two-phase version \book{258} builds administrative abstractions with a separate constructor
+\lp{adm : (tm -> tm) -> tm} and then reduces them away:
+\begin{lprolog}
+admred ((adm R) @ N) (R N).
+
+red1 M N :- admred M N.
+red1 (M @ N) (M' @ N) & red1 (N @ M) (N @ M') :- red1 M M'.
+red1 (adm R) (abs S) & red1 (abs R) (abs S) :-
+    pi x\ red1 (R x) (S x).
+
+red M N :- red1 M P, !, red P N.
+red M M.
+
+?- ftrans ((abs x\x) @ (abs x\x)) T, red T S.
+S = (abs W1\ (abs W2\ abs W3\ W2 @ W3) @ W1 @ (abs W2\ abs W3\ W2 @ W3)).
+\end{lprolog}
+\noindent The \lp{ftrans}/\lp{phi} clauses are those above with \lp{adm} for the marked $\bar\lambda$. The
+answer is $\lambda k.\,\Psi'\,k\,\Psi'$ with $\Psi'=\lambda k.\lambda x.(k\,x)$. The cut in \lp{red} is
+safe because administrative reduction is confluent and terminating.
+
+\begin{kanren}[what functional meta-programs need]
+\textbf{$\forall$ and $\imp$.} Every hypothesis in this chapter is an atomic fact about a fresh variable:
+\lp{typeof x A}, \lp{val k}, \lp{ftrans x (abs k\ k @ y)}. A universal goal plus a scoped atomic
+hypothesis covers them all. The scope check is mostly invisible here, since no query lets an eigenvariable
+escape. \textbf{Patterns.} The \emph{outputs} \lp{(S k)} of \lp{mixeval}, \lp{(P y)} of \lp{phi}, \lp{(S x)}
+of \lp{red1} and the contexts \lp{x\ cond (E x) N P} are pattern equations. Each means ``abstract the
+eigenvariable out of the result''. \textbf{Beyond patterns.} \lp{(R U)}, \lp{(R (fixpt R))}, \lp{(E N)}
+are not patterns, but in the intended modes their heads are known, so they are plain $\beta$-reductions.
+Running them backwards would need general higher-order unification. \textbf{First-order alternatives.} The
+book cites Hannan and Miller's transformation of $\beta$-based specifications into closure-based
+ones~\cite{HannanMiller1992}. The standard relational miniKanren interpreter with environments and
+closures is that transformation applied to \lp{eval}. It runs backwards, but values become closures, which
+changes \lp{equal} on functions and rules out \lp{mixeval}. Contexts can be defunctionalized into
+first-order frames with a structural plug relation. \textbf{Conditionals.} \lp{if (B = C) ...} becomes a
+\scm{cond°} of \scm{=°} and \scm{≠°}, which is \emph{more} relational than the book and works with unbound
+arguments. Under the module's default generic reading (\cref{def:roadmap-readings}), however,
+\scm{≠°} does decide $k\neq\cst{tt}$ for an eigenvariable $k$, so a \scm{cond°} of \scm{=°} and
+\scm{≠°} reproduces the \lp{mixeval} unsoundness. Under \scm{(fresh° (q) ...)},
+\begin{scheme}
+(∀° (k) (cond° ((=° k 'tt) (=° q 1)) ((≠° k 'tt) (=° q 2))))
+\end{scheme}
+answers \scm{(2)}. With \scm{(μkanren-λ-reading 'extensional)} the disequality is kept and the
+conditional on $k$ fails, answering \scm{()}, as soundness requires. Where a literal translation of a
+commit is wanted, \micro{}'s soft-cut \scm{if°} needs \scm{take° 1}. See \cref{sec:module-stores} and
+\cref{sec:roadmap-lim-readings}.
+\end{kanren}
+
+% =====================================================================================================
+\section{A process calculus: the \texorpdfstring{$\pi$}{pi}-calculus}\label{sec:apps-pi}
+
+The $\pi$-calculus~\cite{MilnerParrowWalker1992} has the most delicate binders of the three
+applications. Names are bound by input and by restriction, and a restricted name can be sent out of its
+scope (\emph{scope extrusion}). Chapter 11 of the book shows that $\lambda$-tree syntax treats this
+``naturally'' \book{261}, and it also uses the calculus to expose a limit of the logic.
+
+\subsection{Syntax and one-step transitions}\label{sec:apps-pi-one}
+
+Processes are $P ::= 0\mid P\mid P\mid P+P\mid x(y).P\mid \bar x y.P\mid [x=y].P\mid \tau.P\mid (y)P\mid\ !P$,
+where $y$ is bound in $x(y).P$ and in $(y)P$. Free names are constants, and bound names are
+$\lambda$-variables \book{262--263}:
+
+\begin{lprolog}
+kind name  type.
+kind proc  type.
+type null        proc.
+type plus, par   proc -> proc -> proc.
+type in          name -> (name -> proc) -> proc.
+type out, match  name -> name -> proc -> proc.
+type taup        proc -> proc.
+type nu          (name -> proc) -> proc.
+type bang        proc -> proc.
+
+type a, b, c     name.
+type example     int -> proc -> o.
+
+example 1 (par (in b y\ null) (out b a null)).
+example 2 (plus (in b y\ out b a null) (out b a (in b y\ null))).
+example 3 (nu x\ par (in x y\ null) (out x a null)).
+example 4 (nu x\ out a x null).
+example 5 (in a y\ par (in y w\ null) (out b b null)).
+example 6 (in a y\ plus (in y w\ out b b null)
+                         (out b b (in y w\ null))).
+example 7 (nu y\ out a y (par (in y w\ null) (out b b null))).
+example 8 (nu y\ out a y (plus (in y w\ out b b null)
+                               (out b b (in y w\ null)))).
+\end{lprolog}
+
+\noindent For example, example 1 is $(b(y).0)\mid(\bar b a.0)$ and example 3 is
+$(x)((x(y).0)\mid(\bar x a.0))$. Actions are \lp{tau}, the free output \lp{up x y} ($\bar x y$) and the free
+input \lp{dn x y}. A \emph{bound} action is the partial application \lp{up x} or \lp{dn x}, of type
+\lp{name -> action}. There are two transition predicates. \lp{one P A P'} has a free action and a process
+as result. \lp{onep P A P'} has a bound action and an \emph{abstracted} continuation of type
+\lp{name -> proc}. The book's rules with binding side conditions are \book{264--265}:
+
+\begin{mathpar}
+\inferrule{P\xrightarrow{\alpha}P'}{(y)P\xrightarrow{\alpha}(y)P'}\;\rulename{res}\ (y\notin n(\alpha))
+\and \inferrule{ }{x(z).P\xrightarrow{x(w)}P\{w/z\}}\;\rulename{input}\ (w\notin fn((z)P))
+\and \inferrule{P\xrightarrow{\bar x y}P'}{(y)P\xrightarrow{\bar x(w)}P'\{w/y\}}\;\rulename{open}\ (y\neq x,\ w\notin fn((y)P'))
+\and \inferrule{P\xrightarrow{\bar x(w)}P' \\ Q\xrightarrow{x(w)}Q'}{P\mid Q\xrightarrow{\tau}(w)(P'\mid Q')}\;\rulename{close}
+\end{mathpar}
+
+\noindent Together with the binder-free rules (prefixes, match, sum, par, and the communication rule com),
+they become \book{264}:
+
+\begin{lprolog}
+kind action  type.
+type tau     action.
+type up, dn  name -> name -> action.
+
+type one   proc -> action -> proc -> o.
+type onep  proc -> (name -> action) -> (name -> proc) -> o.
+
+one  (taup P)      tau      P.
+one  (out X Y P)   (up X Y) P.
+onep (in X M)      (dn X)   M.
+one  (match X X P) A P' :- one  P A P'.
+onep (match X X P) A P' :- onep P A P'.
+one  (plus P Q) A P'    :- one  P A P'; one  Q A P'.
+onep (plus P Q) A P'    :- onep P A P'; onep Q A P'.
+one  (par P Q) A (par P' Q) &
+one  (par Q P) A (par Q P') :- one P A P'.
+onep (par P Q) A (y\ par (P' y) Q) &
+onep (par Q P) A (y\ par Q (P' y)) :- onep P A P'.
+one  (nu P) A (nu P')           :- pi y\ one  (P y) A (P' y).
+onep (nu P) A (x\ nu y\ P' y x) :- pi y\ onep (P y) A (P' y).
+onep (nu P) (up X) P'           :-
+        pi y\ one (P y) (up X y) (P' y).
+one  (par P Q) tau (nu y\ par (P' y) (Q' y)) &
+one  (par Q P) tau (nu y\ par (Q' y) (P' y)) :-
+        onep P (up X) P', onep Q (dn X) Q'.
+one  (par P Q) tau (par S (T Y)) :- one  P (up X Y) S,
+                                    onep Q (dn X)   T.
+one  (par P Q) tau (par (S Y) T) :- onep P (dn X) S,
+                                    one  Q (up X Y) T.
+\end{lprolog}
+
+\begin{tutorial}[where the side conditions went]
+\emph{res}: in \lp{one (nu P) A (nu P') :- pi y\ one (P y) A (P' y)}, the variable \lp{A} is quantified
+over the whole clause, outside the \lp{pi y}. No legal instance can put \lp{y} into \lp{A}: ``the side
+condition associated with the res rule is realized declaratively through a proper nesting of
+quantification'' \book{265}. \emph{input} and \emph{open}: the bound name is ``represented by an explicit
+abstraction in the abstracted processes that result'' \book{266}. The input clause simply returns the
+abstraction \lp{M}, so there is nothing to rename. \emph{open}'s $y\neq x$ holds because \lp{y} is
+quantified inside the scope of \lp{X}. \emph{close}: the abstraction over the restricted name lies inside
+the scope of \lp{P'} and \lp{Q'}, so the name cannot occur free in them \book{266}. The input
+continuation stays abstract until a communication plugs the received name in, at \lp{(T Y)} and \lp{(S Y)}.
+This is the late semantics.
+\end{tutorial}
+
+\noindent The book animates the specification with queries \book{266--267}:
+
+\begin{lprolog}
+?- example 1 P, one P A P'.
+P = par (in b W\ null) (out b a null)
+A = up b a
+P' = par (in b W\ null) null;
+P = par (in b W\ null) (out b a null)
+A = tau
+P' = par null null;
+no
+
+?- example 1 P, onep P A P'.
+P = par (in b W\ null) (out b a null)
+A = W\ dn b W
+P' = W\ par null (out b a null);
+no
+\end{lprolog}
+
+\noindent For example 3 the query for \lp{one} has a single answer, \lp{tau} to
+\lp{nu W\ par null null} \book{267}: every visible action would mention the restricted name. Our notes also derive, by the same reading of the clauses, that example 4,
+$(x)(\bar a x.0)$, has \emph{no} free transition (sending $x$ would leak it) but has the bound output
+\lp{A = W\ up a W}, \lp{P' = W\ null} by \emph{open}.
+
+\begin{tutorial}[three transitions, clause by clause]
+\emph{The $\tau$ of example 1.} The goal is \lp{one (par (in b y\ null) (out b a null)) tau P'}. The
+first communication clause needs the left component to output, which an input cannot do. The second,
+\lp{one (par P Q) tau (par (S Y) T) :- onep P (dn X) S, one Q (up X Y) T}, works:
+\lp{onep (in b y\ null) (dn X) S} matches the input clause with \lp{X = b} and \lp{S = y\ null}; then
+\lp{one (out b a null) (up b Y) T} matches the output clause with \lp{Y = a}, \lp{T = null}. The result
+\lp{par (S Y) T} is \lp{par ((y\ null) a) null}, which $\beta$-reduces to \lp{par null null}. The
+received name was plugged in only now, by the application \lp{(S Y)}: this is the late semantics.
+
+
+\smallskip\noindent\emph{Why example 3 has no visible action.} The \emph{res} clause asks
+\lp{pi y\ one (P y) A (P' y)}, with \lp{P y = par (in y z\ null) (out y a null)}. The output component
+offers \lp{up y a}, so \lp{A = up y a} would be needed. But \lp{A} was created \emph{before} the
+\lp{pi y}, and the unifier refuses to bind it to a term that contains \lp{y}. Only the internal
+communication, whose label \lp{tau} does not mention \lp{y}, survives.
+
+
+\smallskip\noindent\emph{Scope extrusion in example 4.} \lp{one (nu x\ out a x null) A P'} fails for the same reason
+(\lp{A = up a y} is out of scope). The bound-output clause for \emph{open},
+\lp{onep (nu P) (up X) P' :- pi y\ one (P y) (up X y) (P' y)}, succeeds instead: the action pattern
+\lp{up X y} already contains the fresh \lp{y}, so only \lp{X = a} is needed, and
+\lp{(P' y) = null} is a pattern equation with the vacuous solution \lp{P' = W\ null}. The extruded
+name is carried by the abstraction in the result, not by a free constant.
+\end{tutorial}
+
+\subsection{Traces, may and must}\label{sec:apps-pi-traces}
+
+Traces record sequences of actions. Bound outputs are continued with a \emph{generic} name, while bound
+inputs are continued with a \emph{logic variable}, ``for an input action, we would want to consider
+different possible instantiations'' \book{268}:
+
+\begin{lprolog}
+kind trace  type.
+type empty  trace.
+type tr     action -> trace -> trace.
+type trp    (name -> action) -> (name -> trace) -> trace.
+
+type trace  proc -> trace -> o.
+trace P empty.
+trace P (tr Act Tr)     :- one P Act Q, trace Q Tr.
+trace P (trp (up X) Tr) :- onep P (up X) Q,
+                           pi x\ trace (Q x) (Tr x).
+trace P (tr (dn X Y) Tr) :- onep P (dn X) Q, trace (Q Y) Tr.
+\end{lprolog}
+
+\noindent For example 1 the query \lp{?- example 1 P, trace P Tr.} produces six traces \book{268}:
+\begin{lprolog}
+empty
+tr (up b a) empty
+tr (up b a) (tr (dn b T) empty)
+tr tau empty
+tr (dn b T) empty
+tr (dn b T) (tr (up b a) empty)
+\end{lprolog}
+\noindent (The book prints \lp{trp (dn b T)} in the last two lines. Its own clauses produce
+\lp{tr (dn b T)}, since only bound \emph{outputs} build \lp{trp}, and its later \lp{comptrace} answers
+use \lp{tr (dn b T1)}.) Each input leaves a logic variable \lp{T}: the trace says ``some name was
+received''. The logic variable can be \emph{narrowed} later by \lp{match}. The query below enumerates exactly
+four traces \book{268--269}:
+\begin{lprolog}
+?- trace (in a Y\ plus (match Y b (out Y Y null))
+                       (match Y c (out Y Y null))) Tr.
+
+empty
+tr (dn a T) empty
+tr (dn a b) (tr (up b b) empty)
+tr (dn a c) (tr (up c c) empty)
+\end{lprolog}
+\noindent After the input, the continuation is \lp{plus (match T b (out T T null)) (match T c ...)}.
+The clause \lp{one (match X X P) A P'} can fire only if its two arguments unify, so it binds \lp{T := b}
+in one branch and \lp{T := c} in the other. Had the input been continued with a \emph{generic} name
+(\lp{pi}), both matches would have failed and the last two traces would be lost: ``this process can do
+an unrestricted input and \ldots\ if that input is chosen to be b or c, then further, distinct output
+actions can follow'' \book{269}.
+
+\begin{definition}[may- and must-judgments; \book{269}]
+A \emph{may-judgment} asserts the existence of a computation path, so it corresponds to the existence of a
+proof. A \emph{must-judgment} quantifies over all behaviours: a process can never do some action, all
+traces of $P$ are traces of $Q$, $P$ is simulated by $Q$.
+\end{definition}
+
+\noindent ``The style of logic specifications that we have described in this book does not, in general,
+provide declarative treatments of must-judgments. Negation-as-failure can be used, however, to capture or
+approximate some of these judgments'' \book{269}. Negation-as-failure is the cut-based predicate of
+\book{137}:
+\begin{lprolog}
+type not  o -> o.
+not P :- P, !, fail.
+not P.
+\end{lprolog}
+\noindent With it the book defines terminal processes, complete traces, separating traces and trace
+equivalence \book{270}:
+\begin{lprolog}
+type possible, terminal  proc -> o.
+type comptrace           proc -> trace -> o.
+type separating_trace    proc -> proc -> trace -> o.
+type trace_equiv         proc -> proc -> o.
+
+possible P :- one P _ _ ; onep P _ _.
+terminal P :- not (possible P).
+
+comptrace P empty :- terminal P.
+comptrace P (tr Act Tr)      :- one P Act Q, comptrace Q Tr.
+comptrace P (tr (dn X Y) Tr) :- onep P (dn X) P',
+                                comptrace (P' Y) Tr.
+comptrace P (trp (up X) Tr)  :- onep P (up X) P',
+                                pi x\ comptrace (P' x) (Tr x).
+
+separating_trace P Q T :- trace P T,
+                          not (trace Q T).
+trace_equiv P Q :- not (separating_trace P Q _),
+                   not (separating_trace Q P _).
+\end{lprolog}
+\noindent A complete trace is one that cannot be extended: it may end with \lp{empty} only at a process
+that can do nothing. Each of the four predicates hides a ``for all'' inside a \lp{not}: \lp{terminal P}
+says that \emph{no} transition exists, \lp{trace_equiv} that \emph{no} trace separates. Examples 5 and 6
+are separated, in one direction only, by an input of \lp{b} followed by an internal step
+\book{270--271}:
+\begin{lprolog}
+?- example 5 P, example 6 Q, separating_trace P Q T.
+T = tr (dn a b) (tr tau empty)
+\end{lprolog}
+\noindent Example 5 is $a(y).((y(w).0)\mid(\bar b b.0))$. After the input, its two parallel components
+can communicate, but only on a common channel, so the communication clause unifies the received logic
+variable with \lp{b}. Example 6, $a(y).((y(w).\bar b b.0)+(\bar b b.y(w).0))$, offers the same two
+actions only in sequence, inside a choice, and can never make the internal step. The query in the other
+direction answers \lp{no}. Examples 7 and 8 replace the input prefix by a bound output. They have no
+separating trace in either direction \book{271}, because the extruded name is generic and can never equal
+\lp{b}.
+
+\paragraph{An incorrect simulation.} Trace equivalence is too coarse: $\bar x a.(\bar y b.0+\bar y c.0)$
+and $(\bar x a.\bar y b.0+\bar x a.\bar y c.0)$ are trace-equivalent, but after $\bar x a$ the first can
+still choose between two outputs and the second cannot \book{271}. The finer notion is simulation: ``$P$
+is simulated by $Q$ if whenever $P$ can perform an action and evolve into a process $P'$, $Q$ can perform
+an identical action that transforms it into a process $Q'$ that simulates $P'$'' \book{271}, read
+coinductively. The book attempts it with negation-as-failure and labels its own attempt
+\emph{incorrect} \book{272}:
+\begin{lprolog}
+type foreach2  (A -> B -> o) -> (A -> B -> o) -> o.
+type sim       proc -> proc -> o.
+
+foreach2 P Q :- not (sigma X\ sigma Y\ P X Y, not (Q X Y)).
+
+sim P Q :- foreach2 (A\P'\ one P A P')
+                    (A\P'\ sigma Q'\ one Q A Q', sim P' Q'),
+           foreach2 (A\P'\ onep P A P')
+                    (A\P'\ sigma Q'\ onep Q A Q',
+                           pi x\ sim (P' x) (Q' x)).
+\end{lprolog}
+\noindent The query
+\begin{lprolog}
+?- sim (in a x\ par (in x y\ null) (out c b null))
+       (in a x\ plus (in x y\ out c b null) (out c b (in x y\ null))).
+solved
+\end{lprolog}
+\noindent answers \lp{solved}, which is wrong. After receiving \lp{c} on \lp{a}, the first
+process can do a $\tau$ and the second cannot. Diagnosis: ``the universal quantifier in goals \ldots has an
+\emph{intensional} character: The generic goal must be derived by showing that an \emph{identical}
+derivation exists for any of its instances. However, $\pi$-calculus processes may have different evolutions
+for different instantiations of an input action'' \book{272}. What is needed is ``a universal quantifier that
+has an \emph{extensional} interpretation''. The bibliographic notes point to logics with
+definitions~\cite{McDowellMiller2000}, where $\forall$ is extensional, together with a separate
+\emph{generic} quantifier $\nabla$ for names~\cite{MillerTiu2005} (\book{275}).
+
+\begin{pitfall}[one \texttt{pi}, two jobs]
+In $\lambda$Prolog, \lp{pi} serves both as ``a fresh name'' (binders, where it is right) and as ``for all
+instances'' (must-judgments, where it is wrong). Negation-as-failure is ``at best an ad hoc device'' with
+uninstantiated variables \book{273}, and it needs finite failure, which replication can destroy.
+\end{pitfall}
+
+\subsection{Replication, and the \texorpdfstring{$\lambda$}{lambda}-calculus inside \texorpdfstring{$\pi$}{pi}}\label{sec:apps-lampi}
+
+Replication $!P$, ``the parallel composition of any number of copies of $P$'' \book{262}, adds four
+clauses \book{273}:
+\begin{lprolog}
+one  (bang P) A (par P1 (bang P)) :- one P A P1.
+onep (bang P) X (y\ par (M y) (bang P)) :- onep P X M.
+one  (bang P) tau (par (par R (M Y)) (bang P)) :-
+     onep P (dn X) M, one P (up X Y) R.
+one  (bang P) tau (par (nu y\ par (M y) (N y)) (bang P)) :-
+     onep P (up X) M, onep P (dn X) N.
+\end{lprolog}
+\noindent A copy acts with a free action, a copy acts with a bound action, two copies communicate a free
+name, and two copies communicate an extruded one. In each case a fresh \lp{bang P} remains. Milner's call-by-name encoding~\cite{Milner1990} sends arguments over a channel $u$
+\book{273}:
+\begin{align*}
+  [\![x]\!](u) &= \bar x u.0 \qquad\qquad
+  [\![\lambda x M]\!](u) = u(x).u(v).[\![M]\!](v)\\
+  [\![M\,N]\!](u) &= (v).([\![M]\!](v)\mid(x).(\bar v x.\bar v u.!x(w).[\![N]\!](w)))
+\end{align*}
+\begin{lprolog}
+type trans  tm -> (name -> proc) -> o.
+
+trans (abs M) (u\ in u x\ in u v\ P x v) :-
+    pi x\ pi y\ trans x (u\ out y u null) => trans (M x) (P y).
+
+trans (app M N)
+      (u\ nu v\ par (P v)
+                    (nu x\ out v x (out v u (bang (in x Q))))) :-
+    trans M P, trans N Q.
+\end{lprolog}
+\noindent As in \lp{phi}, the base case for variables is assumed as a local clause when the recursion
+enters a binder. The book checks the encoding by computing complete traces \book{274}:
+\begin{lprolog}
+?- trans (abs w\ w) P, comptrace (P b) T.
+P = u\ in u x\ in u y\ out x y null
+T = tr (dn b T1) (tr (dn b T2) (tr (up T1 T2) empty));
+no
+\end{lprolog}
+\noindent For \lp{(app (abs w\ w) (abs w\ w))} the complete trace is
+\lp{tr tau (tr tau (tr tau (tr (dn b T1) (tr (dn b T2) (tr (up T1 T2) empty)))))}: three silent steps
+``corresponding to reduction of the term $(\lambda x\,x)(\lambda x\,x)$ to $\lambda x\,x$'', then the trace of the
+identity \book{275}. (The printed process term for this query shadows a name and swaps the two \lp{par}
+components, but the trace is unaffected.)
+
+\begin{remark}[$\Llam$ and $\pi$I; \book{275}]
+``Almost all the one-step transition rules \ldots are in the $\Llam$ fragment''. The exceptions are the last
+two clauses of the \lp{one}/\lp{onep} program and the third replication clause, where an abstraction is applied
+to a received logic variable (\lp{T Y}, \lp{S Y}, \lp{M Y}). Deleting them gives Sangiorgi's
+$\pi$I~\cite{Sangiorgi1996}, in which ``only new names are bound to inputs'', so the metalogic needs only
+$\beta_0$-conversion.
+\end{remark}
+
+\begin{kanren}[what the $\pi$-calculus needs]
+\textbf{$\forall$ with a real scope check.} Here the scope check is the whole point, because \emph{res},
+\emph{open} and \emph{close} hold only because outer variables cannot capture the fresh name. Without it,
+example 4 would perform the free output $\bar a x$ and example 3 would perform \lp{up W a}. A cheaper
+discipline, posting an \scm{absent°} constraint on the clause's own variables after each generic subgoal,
+is \emph{not} enough. Our notes give the test \lp{trace (in a z\ nu x\ match z x (out b b null)) Tr}. In
+$\lambda$Prolog it yields only \lp{empty} and \lp{tr (dn a T) empty}, because the received \lp{T}, a
+variable hidden inside the process, may not become the restricted \lp{x}. An absent-on-clause-variables
+port also yields \lp{tr (dn a T) (tr (up b b) empty)}. The check must live in unification.
+\textbf{$\imp$.} \lp{trans} assumes atomic clauses about fresh variables, as in \cref{sec:apps-fp}.
+\textbf{Patterns.} Abstracted continuations, \lp{(P' y)} under \lp{pi y}, and the trace abstraction
+\lp{(Tr x)} are all pattern equations. \textbf{Beyond patterns.} \lp{(T Y)} with \lp{Y} a logic variable is
+outside $\Llam$. A faithful engine postpones it until \lp{T} is known. A first-order locally nameless
+encoding turns it into a harmless structural ``open'' relation. \textbf{Negation.} \lp{not G} is
+\scm{(if° (take° 1 G) ✗° ✓°)}. Without \scm{take° 1}, \micro{}'s soft cut would map \scm{✗°} over every
+answer of \lp{G} and diverge whenever \lp{G} has infinitely many. \textbf{Search.} With \lp{bang},
+\lp{trace} becomes an infinite but productive stream under interleaving, but negation still needs finite
+failure. \textbf{Must-judgments.} Our notes propose, beyond the book, to make the bound-input case of
+\lp{sim} extensional by case analysis over the free names plus one fresh name. This is a finite substitute
+for the definitions-and-$\nabla$ reading. See \cref{ch:design} for which of these the proposal adopts.
+\end{kanren}
+
+% =====================================================================================================
+\section{Summary}\label{sec:apps-summary}
+
+\begin{itemize}[nosep]
+  \item \textbf{One recipe for three domains.} A judgment becomes a predicate. Object binders become meta
+        $\lambda$s. Going under a binder means \lp{pi} plus a hypothetical fact. Freshness and non-capture
+        side conditions are then discharged by quantifier nesting.
+  \item \textbf{Specification versus search.} Direct translations are sound, but depth-first execution can
+        loop (${\imp}L$, \lp{#} as a prover). A better calculus (Dyckhoff's) gives a decision procedure.
+        Programmable control (tactics and tacticals) moves the strategy into the program.
+  \item \textbf{Logic variables as delayed choices.} Witnesses of $\exists R$, \lp{all_l} and
+        \lp{path_rec_tac}, and received names in traces, are chosen by unification at the leaves. The unifier
+        must respect eigenvariable scope.
+  \item \textbf{Cut and \texttt{if} are dangerous with logic variables and eigenvariables.} They can lose
+        completeness (the CL counterexample) or break soundness theorems (\lp{mixeval}).
+  \item \textbf{Must-judgments are beyond hohh.} \lp{pi} is intensional. Simulation needs an extensional
+        $\forall$ (definitions) and a generic $\nabla$.
+  \item \textbf{Interleaving search} makes naive calculi, prover modes and tactic scripts complete for
+        answers, and it makes the classical prover complete without iterative deepening. It never provides
+        termination.
+\end{itemize}
+
+\noindent The requirements, application by application (``atomic'' means every assumed clause is an atomic
+fact, so an explicit context could replace \lp{=>}):
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}>{\raggedright\arraybackslash}p{3.1cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X@{}}
+\toprule
+application & $\forall$ (eigenvariables) & $\imp$ (hypotheses) & $\lambda$-term unification\\
+\midrule
+Dyckhoff \texttt{seq} & only in the query & atomic, query only & none: \textbf{runs on \micro{} today}\\
+natural deduction \texttt{\#} & proof labels, $\forall I$, $\exists E$ & atomic (\texttt{p \# A}) & patterns for completion, \mbox{\texttt{A' (f y)}} delayed\\
+classical \texttt{prv} & $\forall R$, scope check vital & atomic (\texttt{lit}, \texttt{bound}) & patterns (difference-list queue)\\
+tactics & \texttt{maptac} under \texttt{allg} & none & pattern \texttt{Out t}; rest \textbf{runs today}\\
+\texttt{typeof} & under \texttt{abs}, \texttt{fixpt} & atomic & none with named binders: \textbf{runs today}\\
+\texttt{eval}, \texttt{evalc} & none & none & $\beta$ with known heads; contexts as outputs\\
+\texttt{mixeval}, CPS & under the binder & atomic & patterns \texttt{(S k)}, \texttt{(P y)}\\
+$\pi$ transitions, traces & \emph{res}/\emph{open}/\emph{close}, scope check vital & atomic (\texttt{trans}) & patterns, plus non-$\Llam$ \mbox{\texttt{(T Y)}}\\
+\bottomrule
+\end{tabularx}
+\end{center}

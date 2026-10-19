@@ -1,0 +1,1600 @@
+\chapter{Higher-order miniKanren: the literature}\label{ch:lkanren}
+
+\providecommand{\lkclo}[2]{\langle #1;\,#2\rangle}
+\providecommand{\lkq}{\stackrel{?}{=}}
+\providecommand{\lkJust}{\mathsf{Just}}
+\providecommand{\lkNothing}{\mathsf{Nothing}}
+\providecommand{\lkyes}{{\ttfamily ✓}}
+\providecommand{\lkno}{{\ttfamily ✗}}
+
+The previous chapters described what λProlog is. It has a logic, higher-order hereditary Harrop
+formulas (\cref{ch:hh}). It has a term language, simply typed λ-terms used as λ-tree syntax
+(\cref{ch:lambda,ch:lambdatree}). It has a unifier, Huet's procedure or its decidable core, pattern
+unification (\cref{ch:hounif}). And it has a style of programming (\cref{ch:apps}). This chapter
+changes the point of view. Several people have tried to put these ideas into a miniKanren, and
+several systems implement λProlog efficiently. What did they actually do, and what went wrong?
+
+The user named one paper as the key reference: Ma and Friedman, \emph{A New Higher-order
+Unification Algorithm for λKanren} \cite{MaFriedman2021}. We present it in full in
+\cref{sec:lkanren-mf21}, followed by a critical assessment against pattern unification and nominal
+unification (\cref{sec:lkanren-assess}). Then we survey the rest of the literature. The earlier
+λKanren paper \cite{MaLuFriedman2020} comes first (\cref{sec:lkanren-mk20}). Then nominal unification
+and αKanren \cite{UrbanPittsGabbay2004,ByrdFriedman2007} (\cref{sec:lkanren-nominal}). Then
+eigenvariables, negation and ∀ inside miniKanren
+\cite{HemannByrdFriedman2013,Moiseenko2019,JinEtAl2021} (\cref{sec:lkanren-eigen}). Last come the
+techniques used by real λProlog systems, Teyjus, ELPI and Makam (\cref{sec:lkanren-impl}). The chapter
+ends with a comparison table of the design options (\cref{sec:lkanren-compare}). It does
+\emph{not} choose between them: the choice is made in \cref{ch:design}.
+
+\section{The map of the territory}\label{sec:lkanren-map}
+
+The book gives the logic and an operational semantics. It has the search rules \rulename{and},
+\rulename{augment}, \rulename{generic} and \rulename{backchain}, plus unification of λ-terms. A
+miniKanren that wants to host this must answer six concrete questions. The rest of the chapter is
+organized around them.
+
+\begin{enumerate}[label=\textbf{Q\arabic*.}]
+  \item \textbf{Representation of λ-terms.} The options are named binders, de Bruijn indices, de
+    Bruijn levels, locally nameless terms, nominal atoms, or explicit substitutions. The goal is to
+    make α-equivalence cheap and to avoid β as far as possible.
+  \item \textbf{Which unification runs inside \scm{=°}.} There are five candidates: first-order (today),
+    nominal (αKanren), Miller's pattern unification $\Llam$ (λKanren 2020, Teyjus~2, ELPI), Huet's full
+    pre-unification, or the \enquote{static closures} of Ma and Friedman 2021.
+  \item \textbf{How to implement \rulename{generic} ($\forall x.G$).} You need fresh eigen-constants
+    plus a \emph{scope check}. The check can use an explicit quantifier prefix
+    \cite{Miller1991,MaLuFriedman2020}, numeric universe indices or levels
+    \cite{NadathurJayaramanKwon1995,DunchevEtAl2015}, or an absento-like constraint over the
+    variables in scope \cite{HemannByrdFriedman2013}.
+  \item \textbf{How to implement \rulename{augment} ($D\imp G$).} A hypothetical clause must be visible
+    to every relation call made during the proof of $G$, and only there. In a shallow embedding this
+    clashes with the lexical scope of host-language procedures.
+  \item \textbf{What to do outside the decidable fragment.} You can fail, delay the equation as a
+    constraint, or enumerate unifiers.
+  \item \textbf{How the new features meet the other constraints} \scm{≠°}, \scm{absent°} and the
+    type tags. Eigen-constants and disequality do not mix naively.
+\end{enumerate}
+
+The historical arc, in the notes' order: Miller 1991 ($\Llam$, mixed prefixes, raising and pruning)
+\cite{Miller1991}; Nipkow 1993 (functional, de Bruijn) \cite{Nipkow1993}; Nadathur, Jayaraman and Kwon
+1995 (universe indices) \cite{NadathurJayaramanKwon1995}; Dowek, Hardin, Kirchner and Pfenning 1996
+(explicit substitutions) \cite{DowekHardinKirchnerPfenning1996}; Urban, Pitts and Gabbay 2004 (nominal
+unification) \cite{UrbanPittsGabbay2004}; Nadathur and Linnell 2005 (on-the-fly raising)
+\cite{NadathurLinnell2005}; αKanren 2007 \cite{ByrdFriedman2007}; ELPI 2015 \cite{DunchevEtAl2015};
+then the miniKanren papers of 2019--2021
+\cite{Moiseenko2019,MaLuFriedman2020,MaFriedman2021,JinEtAl2021}.
+
+% =====================================================================================================
+\section{Ma and Friedman 2021: static closures}\label{sec:lkanren-mf21}
+
+\subsection{What kind of paper this is}
+
+The paper is a ten-page workshop paper, presented at the miniKanren Workshop 2021. Its abstract states
+the thesis (p.\,1):
+\begin{quote}
+\enquote{λKanren, adapted from λProlog, extends miniKanren with higher-order logic programming.
+The existing higher-order unification algorithms, however, are neither sound nor complete w.r.t.\ an
+“intuitive” understanding of α-equivalence. This paper shows these gaps and proposes a new method to
+handle α-equivalence in higher-order unification.}
+\end{quote}
+It opens provocatively: \enquote{Is there a world where true is equal to false? Indeed, there is, if
+higher-order unification and miniKanren meet each other} (p.\,1).
+
+The background section recalls the one notion from \cref{ch:hounif} that the whole paper argues
+about, in its own words (p.\,1): \enquote{For an application form $Fa$, if $F$ is a unification
+variable, then $a$ must be a list of zero or more distinct bound variables. Such restricted application
+forms are called \emph{patterns} and we hereafter refer to the problem identified by Miller as
+\emph{pattern unification}.} The related work (p.\,7--8) adds Huet's vocabulary: a term is \emph{rigid}
+\enquote{if its head symbol is a bound variable or a constant}, and \emph{flex} \enquote{if its head symbol
+is a unification variable}. Keep in mind one fact for later: in every query of §2--4, the unknown
+$X$ sits under a λ but is \emph{not} applied to anything. It is a pattern with zero arguments, so
+pattern unification lets it depend on none of the bound variables.
+
+\begin{pitfall}[a preview, not an algorithm]
+The conclusion says: \enquote{This paper shows a preview of static closures} (p.\,9). The paper has
+\textbf{no algorithm listing, no inference rules for unification, no theorems and no proofs}. Its
+formal content is two grammars, three operations on scopes and three worked examples. Its code is a
+set of REPL transcripts. Soundness and completeness are explicitly future work: \enquote{We
+anticipate extending the formulation of higher-order unification with static closures and derive a
+sound and complete algorithm for α-equivalence} (p.\,9). The rules in \cref{sec:lkanren-recon} below
+are our own \emph{reconstruction}, not the paper's, and we flag them as such. (Where this chapter
+says \enquote{the notes}, it means the unpublished working notes from which this survey was written.)
+\end{pitfall}
+
+The paper has seven sections. §1 gives background. §2 asks \enquote{grafting or substitution?}
+(p.\,2--4). §3 shows how one can \enquote{turn false to true} (p.\,4). §4 introduces static closures
+(p.\,5--6). §5 describes a shallow-embedding implementation of the language (p.\,6--7). §6 is related
+work (p.\,7--8) and §7 the conclusion. The paper uses two box styles for examples: \enquote{solid
+boxes for examples that are complete and dash boxes for examples that are incomplete or somewhat
+questionable} (footnote 2, p.\,2). In every \scm{(run 1 X ...)} of the paper, \scm{X} is simply
+existentially quantified at the top, outside every λ (footnote 1, p.\,2).
+
+\subsection{Grafting versus substitution}\label{sec:lkanren-graft}
+
+First-order miniKanren already has a word for what unification produces. For
+
+\begin{scheme}
+> (run 1 X
+    (== X 'cat))
+'(cat)
+\end{scheme}
+
+\noindent the paper says \enquote{internally, the answer is a grafting \dots\ written as $\{X\mapsto
+\texttt{'cat}\}$} (p.\,2).
+
+\begin{definition}[Grafting and substitution {\cite[p.\,2--3]{MaFriedman2021}}]\label{def:lkanren-graft}
+A \emph{grafting} $\{X\mapsto t\}$ is a purely textual replacement of the unification variable $X$
+by $t$. It is \emph{not} capture-avoiding: grafting $X\mapsto a$ into $\abs{a}{X}$ yields
+$\abs{a}{a}$, so the name $a$ gets captured. A \emph{substitution} is the capture-avoiding
+instantiation of standard higher-order unification: \enquote{Standard higher-order unification relies
+on substitution, but not grafting, to instantiate unification variables. Substitution is
+capture-avoiding, whereas grafting is not} (p.\,3).
+\end{definition}
+
+In first-order unification the two notions coincide, because there are no binders. They part ways
+as soon as terms have binders. The paper follows a \enquote{novice} through three queries. The first
+one, α-equivalence of closed terms, is unproblematic:
+
+\begin{scheme}
+> (run 1 X
+    (== (λ (a) a) (λ (b) b)))
+'(_0)
+\end{scheme}
+
+\noindent (\texttt{\_0} means that $X$ is unrestricted). Then, \enquote{out of curiosity}, the novice
+puts the query variable under a binder and asks \enquote{Does this query succeed?}:
+
+\begin{scheme}
+> (run 1 X
+    (== (λ (a) X) (λ (b) b)))
+'()
+\end{scheme}
+
+\noindent \enquote{Surprisingly enough, with higher-order unification, there is no answer.} The novice
+expects $X = a$. The reason is the \emph{scope restriction}.
+
+\begin{definition}[Scope restriction {\cite[p.\,3]{MaFriedman2021}}]\label{def:lkanren-scope}
+\enquote{Unification variables are ∃-quantified and lambda variables are ∀-quantified. A scope is a
+list of those quantifiers. Further, a ∀-quantified variable may instantiate (or occurs in the
+instantiation of) an ∃-quantified variable, only if the ∀ variable precedes the ∃ variable in the
+scope.} As a side condition on a binding in a mixed prefix $Q$:
+\[
+  \inferrule{X \text{ is } \exists\text{-quantified in } Q \\ \forall y\in FV_\forall(t).\; y \prec_Q X}
+            {X\mapsto t \text{ is allowed}}
+\]
+\end{definition}
+
+For \lp{λa.X =? λb.b} the scope is \scm{'((∃ X) (∀ a))}. The variable $a$ comes \emph{after} $X$, so
+it cannot instantiate $X$. This is exactly λProlog's behaviour: it is the eigenvariable condition of
+\rulename{generic} (\cref{ch:hh}), and in unification it is what raising and pruning enforce
+(\cref{ch:hounif}). The paper draws the opposite conclusion (p.\,3): \enquote{It is fair to say that
+the existing pattern unification algorithms are not complete w.r.t.\ the natural sense of
+α-equivalence.} It also says (p.\,3): \enquote{For beginners who are not familiar with higher-order
+unification, α-equivalence is only decided by the binder positions. But pattern unification imposes
+an appendage limitation by taking unification variables into account.}
+
+A conjunction shows why the restriction has a reason to exist (dashed box, p.\,3):
+
+\begin{scheme}
+> (run 1 X
+    (== (λ (a) X) (λ (b) b))
+    (== (λ (c) X) (λ (d) d)))
+\end{scheme}
+
+\noindent \enquote{Associating X with a cannot work, neither does c. If we text-replace X with either,
+then the other one fails.} The paper's first proposal is to stop treating λ-variables as names:
+\enquote{We first propose to treat unification variables and lambda variables differently. In
+particular, lambda variables are effectively constants if they are represented by de Bruijn levels}
+(p.\,3).
+
+\begin{definition}[de Bruijn levels and indices {\cite[footnote 3, p.\,4]{MaFriedman2021}}]\label{def:lkanren-levels}
+\enquote{There are two ways to implement de Bruijn's nameless syntax, indices and levels. Both use
+numbers to represent variables} \cite{deBruijn1972}. A \emph{level} counts binders from the
+\emph{outside}: the outermost binder is $0$. An \emph{index} counts binders from the \emph{inside}:
+the nearest binder is $0$.
+\end{definition}
+
+\begin{example}
+In $\abs{c}{\abs{d}{c}}$, the variable $c$ has level $0$ and index $1$, and $d$ has level $1$ and
+index $0$. The term is $\lambda.\lambda.\,0$ with levels and $\lambda.\lambda.\,1$ with indices. The
+paper writes the level $\ell$ as \texttt{d}$\ell$. So \texttt{d0} names the outermost enclosing
+binder, whatever it is called, and the answer \texttt{'(d0)} reads: \enquote{these two terms can be made
+α-equal, if X corresponds to de Bruijn level 0} (p.\,3).
+\end{example}
+
+With levels, the two problematic queries succeed (solid boxes, p.\,3):
+
+\begin{scheme}
+> (run 1 X
+    (== (λ (a) X) (λ (b) b)))
+'(d0)
+> (run 1 X
+    (== (λ (a) X) (λ (b) b))
+    (== (λ (c) X) (λ (d) d)))
+'(d0)
+\end{scheme}
+
+\noindent \enquote{If we instantiate X with d0 and reify these levels w.r.t.\ their binders, we have
+the problem solved with no surprise}: the two equations become \scm{(== (λ (a) a) (λ (b) b))} and
+\scm{(== (λ (c) c) (λ (d) d))}. The paper goes on (p.\,3--4): \enquote{using grafting with de Bruijn
+levels captures the essence of α-equivalence: names don't matter. A unification algorithm based on de
+Bruijn levels would also be more straightforward because it's practically first-order. But, we cannot
+yet lift the scope restriction on lambda variables and drop in de Bruijn levels, because sometimes
+names do matter and \dots}. The sentence continues in the title of §3.
+
+\begin{kanren}[(aux kanren micro) already grafts]
+Grafting is what a first-order unifier does on nameless terms. Today's \micro{} unifies records slot
+by slot, so a \scm{define-record} is a new term constructor for free. If we write λ-terms with de
+Bruijn indices as records, \scm{=°} grafts. It reproduces the paper's answers, and also the problems
+discussed below. The demonstration uses indices, not levels; for the examples here only the
+outermost binder matters, and it is index~$0$ under one λ.
+\begin{scheme}
+(import scheme (chicken base) (chicken pretty-print)
+        (aux base) (aux stream) (aux kanren micro))
+
+(define-syntax-rule (show label expr)
+  (begin (display ";; ") (display label) (newline)
+         (pretty-print expr)))
+
+;; 1. Named binders as plain lists: syntactic unification ignores alpha.
+(show "named: (λ a a) = (λ b b)"
+  (°->list #f (fresh° (q) (=° '(λ a a) '(λ b b)))))
+
+;; 2. Nameless binders as records with de Bruijn indices.
+(define-record lam body)
+(define-record dbi n)
+(define (λ. t) (make-lam t))
+(define (ix n) (make-dbi n))
+
+(show "de Bruijn: λ.0 = λ.0"
+  (°->list #f (fresh° (q) (=° (λ. (ix 0)) (λ. (ix 0))))))
+(show "grafting: λa.X = λb.b"
+  (°->list #f (fresh° (x) (=° (λ. x) (λ. (ix 0))))))
+(show "grafting: λa.X = λb.b  and  λc.X = λd.d"
+  (°->list #f (fresh° (x) (=° (λ. x) (λ. (ix 0)))
+                          (=° (λ. x) (λ. (ix 0))))))
+(show "true = false: λa.λa.X = λc.λd.c"
+  (°->list #f (fresh° (x) (=° (λ. (λ. x)) (λ. (λ. (ix 1)))))))
+(show "dangling: λa.X = λb.b, then Q = X at top level"
+  (°->list #f (fresh° (q) (fresh° (x) (=° (λ. x) (λ. (ix 0)))
+                                      (=° q x)))))
+\end{scheme}
+\begin{answers}
+;; named: (λ a a) = (λ b b)
+()
+;; de Bruijn: λ.0 = λ.0
+((λ (α) α))
+;; grafting: λa.X = λb.b
+((λ () (make-record-instance 'dbi 0)))
+;; grafting: λa.X = λb.b  and  λc.X = λd.d
+((λ () (make-record-instance 'dbi 0)))
+;; true = false: λa.λa.X = λc.λd.c
+((λ () (make-record-instance 'dbi 1)))
+;; dangling: λa.X = λb.b, then Q = X at top level
+((λ () (make-record-instance 'dbi 0)))
+\end{answers}
+The first query shows that named binders as plain data are useless: α-equivalent terms do not
+unify. The next three reproduce the paper's \texttt{'(\_0)}, \texttt{'(d0)}, \texttt{'(d0)}. The fifth
+is the \enquote{true = false} problem of the next subsection. The answer \texttt{(dbi 1)} is
+perfectly correct for the nameless terms, but it denotes the \emph{outer} binder. In the user's
+named term $\abs{a}{\abs{a}{X}}$ that binder is shadowed. The last query shows a \emph{dangling}
+index: $Q$ lives at top level, outside every binder, yet it is bound to \enquote{the nearest
+binder}. \Cref{sec:lkanren-assess} returns to it.
+\end{kanren}
+
+\subsection{Binder-merging and \enquote{true = false}}\label{sec:lkanren-merge}
+
+\begin{definition}[Binder-merging {\cite[p.\,4]{MaFriedman2021}}]\label{def:lkanren-merge}
+\enquote{When two terms are unified, one term's binders are replaced by the other's. Then
+α-equivalence is as simple as structural equivalence.} The paper says that it is \enquote{used in
+all pattern unification algorithms, except for those with de Bruijn numbers}.
+\end{definition}
+
+\begin{example}[binder-merging at work, p.\,4]
+\[
+  \abs{x}{\abs{y}{X\,x\,y}} \lkq \abs{a}{\abs{b}{a\,b}}
+  \;\longrightarrow\;
+  \abs{a}{\abs{b}{X\,a\,b}} \lkq \abs{a}{\abs{b}{a\,b}}
+\]
+This is solved by $\{X\mapsto \abs{a}{\abs{b}{a\,b}}\}$. Instantiating gives
+$\abs{a}{\abs{b}{((\abs{a}{\abs{b}{a\,b}})\,a\,b)}}$, which β-reduces to $\abs{a}{\abs{b}{a\,b}}$.
+\end{example}
+
+Now take a binder name that is reused, i.e.\ \emph{shadowing} (dashed box, p.\,4):
+
+\begin{scheme}
+> (run 1 X
+    (== (λ (a) (λ (a) X)) (λ (c) (λ (d) c))))
+\end{scheme}
+
+\noindent \enquote{With either binder-merging or de Bruijn syntax, the unification problem is
+effectively reduced to} $\abs{c}{\abs{d}{X}}\lkq\abs{c}{\abs{d}{c}}$. \enquote{Then it appears to be
+solvable by $\{X\mapsto c\}$, or equivalently $\{X\mapsto \texttt{d0}\}$, that associates $X$ with the
+outer-binder.} Naive reification, which writes each level back as the name of its binder, then gives
+
+\begin{scheme}
+(== (λ (a) (λ (a) a)) (λ (c) (λ (d) c)))
+\end{scheme}
+
+\noindent \enquote{which claims that the λ-encoded false is true!} With Church booleans
+$\cst{true}=\abs{t}{\abs{f}{t}}$ and $\cst{false}=\abs{t}{\abs{f}{f}}$, the left-hand side
+$\abs{a}{\abs{a}{a}}$ is α-equivalent to $\cst{false}$, because the occurrence $a$ refers to the inner
+binder. The right-hand side is $\cst{true}$.
+
+The paper argues that binder-merging goes wrong \enquote{even without lifting the scope
+restrictions}:
+\[
+  \abs{x}{\abs{y}{x\,y}} \lkq \abs{a}{\abs{a}{a\,a}}
+  \quad\text{is converted to}\quad
+  \abs{a}{\abs{a}{a\,a}} \lkq \abs{a}{\abs{a}{a\,a}},
+\]
+\enquote{which then ends up with another false positive}. The correct answer is failure:
+$\abs{a}{\abs{a}{a\,a}}\equiv_\alpha\abs{a}{\abs{b}{b\,b}}$ applies the \emph{inner} variable to itself.
+The paper's claim: \enquote{binder-merging does not handle the name shadowing problem. This is
+overlooked by all pattern unification algorithms. Algorithms that use what we call binder-merging state
+upfront that they don't consider name shadowing}. Nipkow--Prehofer and Qian are cited as examples. The
+existing remedies are \enquote{a pre-processor that adds gensyms to lambda variables to make each
+individual unique or a smart reifier that detects name shadowing} (p.\,4). Their downsides are
+unreadable gensyms and extra complexity. The related work gives a real case (p.\,8): Agda uses de Bruijn
+numbers in its core language, so it \enquote{must make all variable names unique in a “gensym” manner},
+which \enquote{bloats type checking with randomly generated symbols and makes the error messages painful to
+read}.
+
+\subsection{Static closures}\label{sec:lkanren-static}
+
+\enquote{We propose a simple and efficient alternative, static closures. Static closures are
+integrated into the unification process and they decide α-equivalence while correctly handling name
+shadowing. We obtain a new algorithm by extending traditional pattern unification with static
+closures} (p.\,5). No efficiency evidence or complexity bound is given.
+
+\begin{definition}[Terms, scopes, static closures {\cite[Fig.~1, p.\,5]{MaFriedman2021}}]\label{def:lkanren-closure}
+\[
+\begin{array}{rcll}
+t & ::= & X & \text{unification variable}\\
+  & \mid & t\;t & \text{function application}\\
+  & \mid & \abs{a}{t} & \text{named binder}\\
+  & \mid & a & \text{name}\\
+  & \mid & \lambda\,t & \text{nameless binder (derived)}\\
+  & \mid & \ell & \text{level (derived)}\\[2pt]
+\phi & ::= & \epsilon \mid a,\phi & \text{scope}\\
+\kappa & ::= & \lkclo{\phi}{t} & \text{static closure}
+\end{array}
+\]
+\enquote{The nameless syntax, i.e., nameless-binders and levels are derived during unification}
+(p.\,5): the user writes only $X$, $t\,t$, $\abs{a}{t}$ and $a$. \enquote{A static closure is a pair
+of a scope and a unification term. A scope is a list of binders. In essence, a static closure
+captures the surrounding binders of a term. E.g., the term λa.λb.X reduces to the static closure
+$\lkclo{a,b}{X}$.}
+\end{definition}
+
+Two remarks from our notes. First, the grammar has no constants, although the examples use them
+(\texttt{'cat}); read \enquote{name} as covering free constants too. Second, the grammar conses on
+the left ($a,\phi$), but the example writes the scope of $\abs{a}{\abs{b}{X}}$ as $a,b$, outermost
+first. We adopt \emph{outermost first}: then the level of a binder is its position in the scope.
+
+\begin{definition}[Operations on scopes {\cite[p.\,5]{MaFriedman2021}}]\label{def:lkanren-extdb}
+In the paper's words:
+\begin{itemize}
+  \item \enquote{$\mathrm{ext}(\phi,a)$ adds the name $a$ to the scope $\phi$. If $a$ has been
+    previously added to $\phi$, then this older one is shadowed and its corresponding level becomes
+    unusable.}
+  \item \enquote{$\mathrm{db}(\phi,a)$ is $\lkJust\;\ell$ where $\ell$ is the de Bruijn level of $a$
+    w.r.t.\ the scope $\phi$, if $a$ is not shadowed in $\phi$; otherwise, the result is
+    $\lkNothing$.}
+  \item \enquote{$\mathrm{db}(\phi,\ell)$ is $\lkJust\;\ell$, if $\ell$ is available in $\phi$;
+    otherwise, the result is $\lkNothing$.}
+\end{itemize}
+\end{definition}
+
+So $\mathrm{db}$ is overloaded. On a name it converts the name to a level; on a level it checks that
+the level is available. The notes make this precise. Write $\phi=a_0,\dots,a_{n-1}$ outermost first:
+\[
+  \mathrm{ext}(\phi,a)=\phi,a\qquad
+  \mathrm{avail}(\phi)=\{\ell<|\phi| \;:\; a_\ell\notin\{a_{\ell+1},\dots,a_{n-1}\}\}
+\]
+\[
+  \mathrm{db}(\phi,a)=\begin{cases}\lkJust\;\max\{\ell : a_\ell=a\} & a\in\phi\\ \lkNothing & a\notin\phi\end{cases}
+  \qquad
+  \mathrm{db}(\phi,\ell)=\begin{cases}\lkJust\;\ell & \ell\in\mathrm{avail}(\phi)\\ \lkNothing&\text{otherwise}\end{cases}
+\]
+In words: a level is \emph{available} if its binder's name is not rebound further in. The
+name-to-level case needs an interpretation. An \emph{occurrence} of a name always refers to its
+innermost binder, which is never shadowed, so the paper's \enquote{if $a$ is not shadowed} can only
+mean \enquote{the innermost $a$}. The other reading would make $\abs{a}{\abs{a}{a}}$ impossible to
+convert, which is absurd. This remains an interpretation.
+
+\begin{tutorial}[the three examples of §4, step by step]
+\textbf{Example 1} (p.\,5). Both sides are turned into closures:
+\[
+  \abs{a}{\abs{b}{X}} \lkq \abs{c}{\abs{d}{c}}
+  \;\longrightarrow\; \lkclo{a,b}{X} \lkq \lkclo{c,d}{c}.
+\]
+\enquote{We first apply db on the right-hand side}: $\mathrm{db}((c,d),c)=\lkJust\;0$, so the problem
+is $\lkclo{a,b}{X}\lkq\lkJust\;0$. \enquote{Then we try to solve X by applying db on the scope of the
+left-hand side and 0}: $\mathrm{db}((a,b),0)=\lkJust\;0$, because $a$ is not rebound. Then
+$\lkJust\;0\lkq\lkJust\;0$. \enquote{It works. So, the solution is $\{X\mapsto\texttt{d0}\}$.}
+
+\medskip
+\textbf{Example 2} (p.\,5--6), the shadowing case:
+\[
+  \abs{a}{\abs{a}{X}} \lkq \abs{c}{\abs{d}{c}}
+  \;\longrightarrow\; \lkclo{a,a}{X} \lkq \lkclo{c,d}{c}.
+\]
+As before, the right side gives $\lkJust\;0$. \enquote{This time, db($\langle a, a; 0\rangle$) is
+Nothing because the outer binder a is shadowed}. Here the paper puts the $0$ inside the closure
+brackets, an abuse of notation for $\mathrm{db}((a,a),0)$. We get $\lkNothing\lkq\lkJust\;0$,
+\enquote{and we know the unification fails}. True is not false any more.
+
+\medskip
+\textbf{Example 3} (p.\,6), two unknowns:
+\[
+  \abs{a}{\abs{b}{X}} \lkq \abs{c}{\abs{d}{Y}}
+  \;\longrightarrow\; \lkclo{a,b}{X} \lkq \lkclo{c,d}{Y}.
+\]
+\enquote{Here, the grafting itself is not able to describe the solution. Now our solution needs a
+context: the set of equations between static closures of unification variables. This problem has the
+solution: the grafting being empty and the context being $\{\lkclo{a,b}{X}\lkq\lkclo{c,d}{Y}\}$.}
+The paper adds that, in practice, \enquote{the accumulated equations between closures of one
+unification problem are usually solved and reduced to grafting, during the unification on other
+problems}.
+\end{tutorial}
+
+So a solution is a pair $(\theta,C)$: a grafting $\theta$ and a \emph{context} $C$ of postponed
+flex-flex equations between closures. This is analogous to the flex-flex pairs that Huet's procedure
+leaves unsolved (\cref{ch:hounif}).
+
+\subsection{A reconstruction of the rules (not in the paper)}\label{sec:lkanren-recon}
+
+To check that the three examples fit together, we wrote a minimal rule system that
+reproduces all of them. It was implemented as a standalone CHICKEN program of about 150 lines, which
+does not use \micro{}. We repeat that this is \textbf{our reconstruction, not the authors'
+algorithm}.
+
+\paragraph{Level form.} A surface term $t$ under scope $\phi$ is converted to internal syntax
+$⟦t⟧_\phi$:
+\[
+  ⟦X⟧_\phi=\lkclo{\phi}{X}\qquad
+  ⟦a⟧_\phi=\begin{cases}\ell & \mathrm{db}(\phi,a)=\lkJust\;\ell\\ a&\text{otherwise (a constant)}\end{cases}
+\]
+\[
+  ⟦\abs{a}{t}⟧_\phi=\lambda\,⟦t⟧_{\mathrm{ext}(\phi,a)}\qquad
+  ⟦t\,u⟧_\phi=⟦t⟧_\phi\,⟦u⟧_\phi
+\]
+Both sides of an equation are converted from $\epsilon$, so they are always compared at equal depth.
+A binding is $\theta(X)=(\phi_0,t)$, where $t$ is in level form at depth $|\phi_0|$. Levels below
+$|\phi_0|$ are \emph{free} (scope) levels; the others are bound inside $t$. To \emph{instantiate}
+$\theta(X)$ at an occurrence $\lkclo{\phi}{X}$:
+\begin{itemize}
+  \item a free level $\ell$ must satisfy $\mathrm{db}(\phi,\ell)=\lkJust\;\ell$, or else the
+    occurrence fails;
+  \item a local level $\ell\ge|\phi_0|$ is shifted to $\ell+|\phi|-|\phi_0|$;
+  \item a nested closure is re-rooted at $\phi$.
+\end{itemize}
+
+\paragraph{Rules.} The judgement is $\theta;C\vdash t\lkq u\Rightarrow\theta';C'$. Terms are walked
+first, i.e.\ a bound closure is replaced by its instance. Any pair of head constructors not listed
+fails.
+\begin{mathpar}
+\inferrule{ }{\theta;C\vdash \ell\lkq\ell \Rightarrow \theta;C}\;\rulename{Lvl}
+\and
+\inferrule{c\text{ a constant}}{\theta;C\vdash c\lkq c \Rightarrow \theta;C}\;\rulename{Const}
+\and
+\inferrule{\theta;C\vdash t\lkq u\Rightarrow\theta';C'}{\theta;C\vdash \lambda t\lkq\lambda u\Rightarrow\theta';C'}\;\rulename{Lam}
+\and
+\inferrule{\theta;C\vdash t_1\lkq u_1\Rightarrow\theta_1;C_1 \\ \theta_1;C_1\vdash t_2\lkq u_2\Rightarrow\theta_2;C_2}
+          {\theta;C\vdash t_1\,t_2\lkq u_1\,u_2\Rightarrow\theta_2;C_2}\;\rulename{App}
+\and
+\inferrule{X\notin\mathrm{dom}\,\theta \\ FL_{<|\phi|}(t)\subseteq\mathrm{avail}(\phi) \\ X\notin FV(t) \\
+           \theta[X\mapsto(\phi,t)];\emptyset\vdash C\Rightarrow\theta';C'}
+          {\theta;C\vdash\lkclo{\phi}{X}\lkq t\Rightarrow\theta';C'}\;\rulename{Graft}
+\and
+\inferrule{ }{\theta;C\vdash\lkclo{\phi}{X}\lkq\lkclo{\phi}{X}\Rightarrow\theta;C}\;\rulename{Refl}
+\and
+\inferrule{X,Y\notin\mathrm{dom}\,\theta \\ (X,\phi)\neq(Y,\psi)}
+          {\theta;C\vdash\lkclo{\phi}{X}\lkq\lkclo{\psi}{Y}\Rightarrow\theta;C\cup\{\lkclo{\phi}{X}\lkq\lkclo{\psi}{Y}\}}\;\rulename{Postpone}
+\end{mathpar}
+In \rulename{Graft}, $t$ is not an unbound closure. $FV(t)$ is the set of unification variables of
+$t$ (the occurs check). $FL_{<|\phi|}(t)$ is the set of levels below $|\phi|$ that occur in $t$: those
+that point into the scope $\phi$ rather than to a nameless binder inside $t$. The availability premise
+says that a solution may mention only scope binders that are visible, i.e.\ not shadowed, at the
+occurrence of $X$. The premise \enquote{$\vdash C$} means that every postponed equation is solved
+again, the \emph{wake-up}. Example~2 fails in the availability premise of \rulename{Graft}:
+$FL(0)=\{0\}\not\subseteq\mathrm{avail}(a,a)=\{1\}$.
+
+\begin{tutorial}[a wake-up, step by step]
+Take Example~3 and then bind $Y$, in two variants. Both start from
+$\abs{a}{\abs{b}{X}}\lkq\abs{c}{\abs{d}{Y}}$ (first variant) or
+$\abs{a}{\abs{a}{X}}\lkq\abs{c}{\abs{d}{Y}}$ (second variant).
+\begin{enumerate}
+  \item Conversion gives $\lambda\lambda\lkclo{a,b}{X}\lkq\lambda\lambda\lkclo{c,d}{Y}$. \rulename{Lam}
+    twice, then \rulename{Postpone}: $\theta=\emptyset$, $C=\{\lkclo{a,b}{X}\lkq\lkclo{c,d}{Y}\}$. This is the
+    line \texttt{(X ctx: 1)} below.
+  \item The second equation $\abs{c}{\abs{d}{Y}}\lkq\abs{c}{\abs{d}{c}}$ converts to
+    $\lambda\lambda\lkclo{c,d}{Y}\lkq\lambda\lambda\,0$. \rulename{Graft} checks
+    $FL(0)=\{0\}\subseteq\mathrm{avail}(c,d)=\{0,1\}$ and binds $Y\mapsto((c,d),0)$.
+  \item Wake-up: $C$ is solved again. Walking $\lkclo{c,d}{Y}$ instantiates $Y$'s solution at
+    $(c,d)$, giving $0$. The equation becomes $\lkclo{a,b}{X}\lkq 0$, and \rulename{Graft} checks
+    $0\in\mathrm{avail}(a,b)$. It holds, so $X\mapsto((a,b),0)$, printed \texttt{d0}.
+  \item In the second variant the same wake-up yields $\lkclo{a,a}{X}\lkq 0$, but
+    $\mathrm{avail}(a,a)=\{1\}$, so the whole conjunction fails.
+\end{enumerate}
+The second variant is \enquote{true = false} again, smuggled through the context. A wake-up that only
+re-unified, without the availability check, would accept it.
+\end{tutorial}
+
+Running the prototype gives the following results. In \texttt{(λ d1)} the level is printed absolute,
+at the depth where $X$ was solved.
+
+\begin{answers}
+X = cat                               => (cat ctx: 0)
+λa.a = λb.b                           => (X ctx: 0)
+λa.X = λb.b                           => (d0 ctx: 0)
+λa.X = λb.b ∧ λc.X = λd.d             => (d0 ctx: 0)
+λa.λa.X = λc.λd.c  (true=false)       => FAIL
+λx.λy.(x y) = λa.λa.(a a)             => FAIL
+Ex1 λa.λb.X = λc.λd.c                 => (d0 ctx: 0)
+Ex2 λa.λa.X = λc.λd.c                 => FAIL
+Ex3 λa.λb.X = λc.λd.Y                 => (X ctx: 1)
+Ex3 then λc.λd.Y = λc.λd.c            => (d0 ctx: 0)
+λa.λa.X = λc.λd.Y then Y = d0         => FAIL
+λa.X = λb.λc.c ; λa.λb.X = λ_.λ_.λc.c => ((λ d1) ctx: 0)
+λa.X = λb.λc.b                        => ((λ d0) ctx: 0)
+λa.X = λb.b ∧ X = cat                 => FAIL
+λa.X = λb.b ∧ λa.λa.X = λc.λd.d       => FAIL
+λa.λb.X = λa.λb.a ∧ λb.λa.X = λc.λd.c => (d0 ctx: 0)
+\end{answers}
+
+\noindent Three lines are worth reading closely. In \enquote{λa.λa.X = λc.λd.Y then Y = d0}, the
+wake-up must re-run the availability check, or the shadowing bug comes back through the context. In
+\enquote{λa.X = λb.λc.c ; …}, a binder \emph{inside} a grafted solution must be shifted when the
+solution is used at a different depth. The last line shows that the semantics is \emph{positional}:
+the binder names above $X$ are irrelevant as long as no level is shadowed.
+
+\subsection{The language: Horn clauses, \texttt{assume}, \texttt{all}}\label{sec:lkanren-mf21-lang}
+
+§5 of the paper (p.\,6--7) recalls the logic from the 2020 paper \cite{MaLuFriedman2020}. Its Fig.~2
+contrasts Horn clauses with hereditary Harrop formulas. In the figure the shared rows are
+$D::=G\imp D\mid D\wedge D\mid\forall x\,D$ and $G::=G\wedge G\mid G\vee G\mid\exists x\,G$, and the
+HH-only rows are $D\imp G$ and $\forall x\,G$ for goals. The atoms $A$ and $\top$ are missing from the
+figure. With them it is exactly the book's grammar (3.1) \book{91}:
+\[
+  G ::= \top \mid A \mid G\wedge G \mid G\vee G \mid \exists x\,G \mid D\imp G \mid \forall x\,G\qquad
+  D ::= A \mid G\imp D \mid D\wedge D \mid \forall x\,D .
+\]
+The four code boxes are these (all solid, p.\,6--7):
+
+\begin{scheme}
+> (run* (X Y)
+    (conde
+      [(== X Y) (== X 'cat)]
+      [(== X 'cat) (== Y 'dog)]))
+'((cat cat) (cat dog))
+
+(define (empty? X)
+  (== X '()))
+
+>(run 2 X
+   (assume (== 'apple 'orange)
+     (== 'apple X)))
+'(apple orange)
+
+>(run 1 F
+   (all (A)
+     (== A (F A))))
+'((lambda (_0) _0))
+\end{scheme}
+
+\noindent The paper prints \texttt{conde} with a superscript \textit{e}. The first box is
+$\exists X\exists Y((X=Y\wedge X=\texttt{'cat})\vee(X=\texttt{'cat}\wedge Y=\texttt{'dog}))$. The
+\texttt{define} is the clause $\forall X\,(X=\texttt{'()})\imp(\texttt{empty?}\;X)$. \texttt{assume}
+\enquote{introduces hypotheses in its clause. As an example, we may use the assume operator to
+temporarily extend the == relation}. Our reading, inferred because the paper gives no operational
+account: the first answer comes from ordinary unification, and the second from the hypothesis used as
+a clause whose head matches \scm{(== 'apple X)} with $X=\texttt{orange}$. For \texttt{all},
+\enquote{we may synthesize a function that yields whatever it takes in}. Also, \enquote{the ==
+operator recognizes β-equivalence. Indeed, it will be powered by the unification algorithm proposed
+in the last section and recognize αβ-equivalence} (p.\,7). Note that \scm{(F A)} is a Miller pattern
+(\cref{ch:hounif}): a variable applied to a distinct eigenvariable.
+
+% =====================================================================================================
+\section{A critical assessment of static closures}\label{sec:lkanren-assess}
+
+The paper attacks pattern unification. The fair comparison also includes nominal unification
+(\cref{sec:lkanren-nominal}), which the paper mentions only in related work. This section gives our own
+analysis. In the λProlog column, $X$ (and $Y$) are quantified outside the λ, as in the paper's
+queries.
+
+\begin{table}[ht]
+\centering\small
+\caption{The paper's examples under three semantics (our analysis, after \cite{MaFriedman2021}).}
+\label{tab:lkanren-three}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{4.1cm}>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
+\toprule
+problem & λProlog (patterns) & αKanren (nominal) & static closures\\
+\midrule
+$\abs{a}{a}\lkq\abs{b}{b}$ & \lkyes{} & \lkyes{} & \lkyes{}\\
+$\abs{a}{X}\lkq\abs{b}{b}$ & \lkno{} (scope) & \lkyes{} $X=a$ & \lkyes{} $X=\texttt{d0}$\\
+\dots\ $\wedge\ \abs{c}{X}\lkq\abs{d}{d}$ & \lkno{} & \lkno{} ($a\neq c$) & \lkyes{} \texttt{d0}\\
+$\abs{a}{\abs{a}{X}}\lkq\abs{c}{\abs{d}{c}}$ & \lkno{} & \lkno{} (needs $a\#a$) & \lkno{}\\
+$\abs{x}{\abs{y}{x\,y}}\lkq\abs{a}{\abs{a}{a\,a}}$ & \lkno{} & \lkno{} & \lkno{}\\
+$\abs{a}{\abs{b}{X}}\lkq\abs{c}{\abs{d}{Y}}$ & \lkyes{} $X=Y$ (neither may depend on $a,b,c,d$) &
+  $X=(a\,c)(b\,d)\cdot Y$ with $a\#Y$, $b\#Y$ & postponed\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{tutorial}[what λProlog offers the novice instead: make the dependency explicit]
+The paper calls the failure of $\abs{a}{X}\lkq\abs{b}{b}$ counter-intuitive. Miller's 1991 paper
+\cite[p.\,4--5]{Miller1991} explains why it is the intended behaviour, and how to get the novice's
+answer anyway. Its program is the usual \texttt{append}, and its goal is
+$\forall y\,(\mathtt{append}\;(\mathtt{cons}\;a\;(\mathtt{cons}\;b\;\mathtt{nil}))\;y\;X)$.
+\rulename{generic} replaces $y$ by a new constant $k$, and backchaining twice would need
+$X=\mathtt{cons}\;a\;(\mathtt{cons}\;b\;k)$. This is rejected, and Miller says why: \enquote{Such a failure
+here is quite sensible since the value of $X$ should be independent of the choice of the constant used
+to instantiate $\forall y$.} If we do want a value that depends on $y$, we must say so, by writing
+$(H\;y)$ instead of $X$. Then $(H\;k)$ must equal $\mathtt{cons}\;a\;(\mathtt{cons}\;b\;k)$. Two λ-terms
+would do, $\abs{w}{\mathtt{cons}\;a\;(\mathtt{cons}\;b\;k)}$ and
+$\abs{w}{\mathtt{cons}\;a\;(\mathtt{cons}\;b\;w)}$, but \enquote{since $H$ cannot contain $k$ free, only
+the second} is legal. Miller calls this \enquote{discharging the constant $k$}.
+
+The same move answers the novice. Write $\abs{a}{(X\;a)}\lkq\abs{b}{b}$: this is a pattern ($X$ applied
+to one bound variable), and its most general unifier is $X\mapsto\abs{x}{x}$. The conjunction with
+$\abs{c}{(X\;c)}\lkq\abs{d}{d}$ is solved by the same $X$, and a top-level $Q=X$ gets the closed term
+$\abs{x}{x}$, with nothing dangling. Both λKanren papers show this style of query:
+\scm{(== (tie (a b) (app a b)) (tie (x y) (app f x y)))} of 2020 and
+\scm{(all (A) (== A (F A)))} of 2021 (\cref{sec:lkanren-mf21-lang,sec:lkanren-mk20}). Static closures
+make this dependency \emph{implicit}: $\lkclo{\phi}{X}$ behaves like $X$ applied to the available
+levels of $\phi$ (observation~1 below).
+\end{tutorial}
+
+\subsection{Three counter-examples}\label{sec:lkanren-counter}
+
+The notes isolate three examples that pin down what static closures really are. They are worth
+keeping as regression tests for any implementation, whatever it chooses.
+
+\begin{tutorial}[Counter-example 1: the conjunction separates static closures from nominal unification]
+Problem: $\abs{a}{X}\lkq\abs{b}{b}\ \wedge\ \abs{c}{X}\lkq\abs{d}{d}$.
+
+\emph{Nominal}, using the rule $a.t\approx^? b.s\Rightarrow t\approx^?(a\,b)\cdot s,\ a\#^? s$ of
+\cref{sec:lkanren-nominal}. The first equation gives $X\approx^?(a\,b)\cdot b=a$ with $a\#b$, which
+holds, so $X:=a$. The second becomes $c.a\approx^?d.d$, i.e.\ $a\approx^?(c\,d)\cdot d=c$, which
+fails. Nominal unification thus agrees with static closures on the single equation ($X$ is the bound
+name) and disagrees on the conjunction.
+
+\emph{Pattern}: both equations fail at once, by the scope restriction.
+
+\emph{Static closures}: $X\mapsto\texttt{d0}$ satisfies both.
+
+So static closures are \emph{neither} pattern unification \emph{nor} nominal unification. $X$ denotes
+an open term \emph{relative to the binder depth}. This is grafting on de Bruijn terms \emph{without}
+the \enquote{pre-cooking} step of Dowek et al.\ (\cref{sec:lkanren-dhkp}).
+\end{tutorial}
+
+\begin{tutorial}[Counter-example 2: the same variable at two depths dangles]
+Problem: \scm{(== Q X)} together with \scm{(== (λ (a) X) (λ (b) b))}.
+
+Under static closures, $X\mapsto\texttt{d0}$, so the top-level answer is $Q=\texttt{d0}$. That is a
+level which is \emph{not available} in the empty scope where $Q$ lives. The answer is meaningful only
+relative to the occurrence of $X$ under one binder. The reading becomes incoherent as soon as the same
+variable occurs at different depths. Our \micro{} run above shows the same thing with indices. The
+prototype chooses to check availability inside unification, so \enquote{λa.X = λb.b then top-level
+Y = X} fails there. But it skips the check when printing, which is how the paper can print
+\texttt{'(d0)}. Dowek et al.\ fix this with $X[\uparrow^n]$; Teyjus and ELPI fix it with levels on
+variables. The 2021 paper does not address it. It also gives no rules for application and β, nor for
+flex-flex closures beyond postponing them.
+\end{tutorial}
+
+\begin{tutorial}[Counter-example 3: \enquote{true = false} is a bug of binder-merging, not of pattern unification]
+Problem: $\abs{a}{\abs{a}{X}}\lkq\abs{c}{\abs{d}{c}}$.
+
+\emph{Pattern}: $X$ cannot depend on the bound variables at all, so this fails.
+
+\emph{Nominal}: $a.(a.X)\approx^? c.(d.c)$ gives $a.X\approx^?(a\,c)\cdot(d.c)=d.a$, with
+$a\#(d.c)$, which holds. Then $a.X\approx^?d.a$ gives $X\approx^?(a\,d)\cdot a=d$, with
+\textbf{$a\#a$}, which is false. So it fails.
+
+\emph{Static closures}: fails (Example~2).
+
+All three agree. The \enquote{false = true} danger is specific to \emph{binder-merging}
+implementations that do not rename apart. The earlier λKanren paper renames apart: its ξ step uses
+gensyms (\cref{sec:lkanren-mk20}), so it does not have the bug.
+\end{tutorial}
+
+\subsection{Further observations}
+
+The notes add several observations that a porter must know. The paper does not say them.
+
+\begin{enumerate}
+  \item \textbf{The meaning of a unification variable changes.} In λProlog, $X$ in $\abs{a}{X}$
+    cannot mention $a$. With static closures, $X$ implicitly depends on the \emph{positions} of its
+    enclosing binders. Logically, $\lkclo{\phi}{X}$ behaves like Miller's raising
+    $X\,\ell_{i_1}\cdots\ell_{i_k}$ over the available levels of $\phi$, with one twist: the
+    \enquote{function} is indexed by absolute position, so occurrences under scopes of different
+    lengths share it. The paper's related work quotes Huet's \enquote{elementary substitution}:
+    \enquote{Each unification variable should capture all its visible bound variables} (p.\,8).
+    Static closures make that idea implicit, minus the shadowed binders.
+  \item \textbf{α-equivalence is no longer a congruence on open terms.} $\abs{a}{\abs{a}{X}}$ and
+    $\abs{a}{\abs{b}{X}}$ are α-equivalent in the usual sense, because $X$ is a metavariable with no
+    free names. Yet against the same $\abs{c}{\abs{d}{c}}$, Example~2 fails and Example~1 succeeds.
+    With grafting, the names of the binders above a metavariable matter. Nominal logic manages exactly
+    this with suspended permutations $\pi\cdot X$ and freshness $a\#X$. The paper's \enquote{names
+    don't matter} holds for the levels, not for the closures.
+  \item \textbf{Levels are stable for scope variables, not for binders inside solutions.} A grafted
+    $\lambda.\ell_1$ solved at depth~1 must become $\lambda.\ell_2$ at depth~2. A locally nameless
+    representation avoids the shift \cite{McBrideMcKinna2004,Chargueraud2012}: levels for scope
+    variables, indices for binders inside solutions.
+  \item \textbf{Flex-flex need not be postponed.} With levels, $\lkclo{\phi}{X}\lkq\lkclo{\psi}{Y}$
+    at equal depth has a most general solution: $X\mapsto Y$, plus the restriction that $Y$ may use
+    only levels in $\mathrm{avail}(\phi)\cap\mathrm{avail}(\psi)$. This is Miller-style pruning,
+    phrased as a freshness-like constraint.
+  \item \textbf{The trick must not reach \texttt{all}.} For ∀-goals the eigenvariable must respect the
+    scope restriction, or \scm{(run 1 X (all (A) (== X A)))} would succeed. That is unsound for ∀.
+    The level semantics is meant only for λ-binders inside terms.
+  \item \textbf{β brings undecidability back.} Once \scm{==} \enquote{recognizes αβ-equivalence},
+    unification outside the pattern fragment is undecidable (\cref{ch:hounif}). One must restrict to
+    patterns, delay, or enumerate.
+\end{enumerate}
+
+The paper's related work (p.\,8) recalls that \enquote{nominal unification and pattern unification are
+equally expressive}. Cheney reduces pattern unification to nominal unification \cite{Cheney2005}, and
+Levy and Villaret give the converse reduction \cite{LevyVillaret2008}. Pattern unification is linear
+(Qian, although the paper notes that Qian's algorithm \enquote{has not been implemented}); for nominal
+unification \enquote{$O(n^2)$ is the state-of-the-art} (p.\,8). The notes summarize the correspondence like this:
+the static closure $\lkclo{\phi}{X}$ is close to the nominal suspension $\pi\cdot X$ (both record the
+context around an unknown); $\mathrm{db}$ is close to the action of $\pi$ on names; and \enquote{level
+unavailable in $\phi$} is close to the freshness $\ell\#X$. But static closures are
+\emph{positional} where nominal terms are \emph{name-based}, as counter-example~1 shows. The design is
+closer to de Bruijn-level \enquote{contextual} metavariables than to nominal logic.
+
+\begin{kanren}[what static closures would demand of a miniKanren]
+The notes list what a static-closure layer on \micro{} would need. This is a requirements list, not a
+design (see \cref{ch:design}):
+\begin{itemize}
+  \item \textbf{New term kinds, dispatched early.} λ, level and closure records must be handled
+    \emph{before} the generic record branch. Today \scm{μkanren-structure?} matches any record
+    instance and unifies it slot by slot, names included. The same applies to every walker: the occurs
+    check, \scm{μkanren-state-find/value}, reification, \scm{μkanren-hasvar?}, and so on.
+  \item \textbf{Conversion at the boundary.} Converting both sides of \scm{=°} to level form under
+    $\epsilon$ leaves a unifier that is \enquote{practically first-order} except for closures.
+  \item \textbf{A walk that can fail.} Walking $\lkclo{\phi}{X}$ instantiates $X$ at $\phi$, which can
+    fail on an unavailable level. So the walk needs a third outcome besides \enquote{value} and
+    \enquote{unbound}. The first-order hot path should stay untouched.
+  \item \textbf{A context store with wake-up.} The postponed equations must be re-checked when their
+    variables get bound. The \scm{μkanren-verify-D/touched} idiom, which re-runs only the entries that
+    mention a just-bound variable, already does this for disequalities.
+  \item \textbf{Disequality.} With postponement, a tentative unification inside \scm{≠°} may succeed
+    by only adding a context equation, producing no bindings. An empty prefix in D means
+    \enquote{already equal}, so this would be wrong. A disequality entry would then have to carry
+    its postponed part as well.
+\end{itemize}
+\end{kanren}
+
+% =====================================================================================================
+\section{λKanren 2020: Miller's algorithm in a shallow embedding}\label{sec:lkanren-mk20}
+
+The earlier paper, \emph{Higher-order Logic Programming with λKanren} \cite{MaLuFriedman2020}, is the
+\enquote{[17]} of the 2021 paper. Its workshop title is \enquote{λKanren: Higher-order Logic
+Programming with Shallow Embedding}. It adds four operators to μKanren \cite{HemannFriedman2013}:
+\scm{tie} (a binder), \scm{app} (application), \scm{assume-rel} (an implication goal $D\imp G$) and
+\scm{all} (a universal goal $\forall x\,G$). In it, \scm{==} \enquote{recognizes αβ-conversions}. The
+paper claims \enquote{about 40 lines} added to μKanren (p.\,7); the repository's \texttt{unify.rkt}
+has 648 lines.
+
+\paragraph{Terms and state.} The terms are
+$\mathit{Term}::=\mathit{Constant}\mid\mathit{Var}\mid\mathsf{App}(\mathit{rator},\mathit{rand})\mid
+\mathsf{Tie}(\mathit{var},\mathit{body})\mid(\mathit{Term}\,.\,\mathit{Term})$. Pairs stay a separate
+first-order constructor. The state is the list \texttt{(qs es σ name->idx)}. Here \texttt{qs} is an
+\textbf{explicit quantifier prefix} of \texttt{(∃ x)} and \texttt{(∀ x)} entries, appended at the end
+by \texttt{fresh} and \texttt{all}. \texttt{es} holds postponed equations and σ is the substitution.
+
+\paragraph{The unifier} is a direct transcription of Miller 1991 §6 \cite{Miller1991}: ξ, rigid-rigid,
+raising, pruning, flex-flex and flex-rigid (\cref{sec:lkanren-miller}). Its ξ step strips the
+\texttt{Tie}s on both sides and renames both binder lists to the same \emph{fresh} gensyms by
+capture-avoiding substitution. It then pushes a \texttt{(∀ w)} onto the prefix for each name. So
+shadowing is handled by renaming apart, and the 2021 problem does not arise. Non-pattern applications
+are \textbf{not delayed}; they make the unifier fail.
+
+\begin{scheme}
+(define-syntax tie
+  (syntax-rules ()
+    [(_ () t) t]
+    [(_ (x0 x ...) body)
+     (let ([x0 (Var 'x0)])
+       (Tie x0 (tie (x ...) body)))]))
+
+(define-syntax app
+  (syntax-rules ()
+    [(_ rator rand) (App rator rand)]
+    [(_ rator rand0 rand ...)
+     (app (App rator rand0) rand ...)]))
+\end{scheme}
+
+\noindent (The paper prints \texttt{[(\_ () t) body]}; the repository has \texttt{t}.) The paper reports
+these unification queries (p.\,2--3):
+
+\begin{scheme}
+(run 1 q (== (tie (a b) (app a b)) (tie (x y) (app x y))))      ; ⇒ '(_0)
+(run 2 f (== (tie (a b) (app a b)) (tie (x y) (app f x y))))    ; ⇒ '((tie (_0) (tie (_1) (app _0 _1))))
+(run 1 f (== (tie (a) a) (tie (b) (app f b b))))                ; ⇒ '()   not a pattern
+(run 1 q (== (tie (a b) (app a b)) (tie (x y) (app x q))))      ; ⇒ '()   scope restriction
+\end{scheme}
+
+\noindent The second query is a pattern, so \scm{run 2} still finds one answer, the most general
+unifier: \enquote{There is only one instantiation} (p.\,3). Binders and unification variables are both
+reified as \texttt{\_}$n$ symbols. The third is not a pattern ($f$ is applied to $b$ twice) and fails,
+even though it has solutions ($\abs{x}{\abs{y}{x}}$ and $\abs{x}{\abs{y}{y}}$); in the paper's words,
+\enquote{we cannot decide which b takes control}. The fourth fails by the scope restriction, which the
+paper phrases as visibility: \enquote{A binding variable x is visible to a unification variable q if the
+introduction of x lexically precedes that of q} (p.\,3). Here $q$ would have to be the bound $y$, which
+is introduced after $q$.
+
+\paragraph{Implication and the shallow-embedding problem.} The motivating program is a curriculum:
+
+\begin{scheme}
+(defrel (taken name class)
+  (conde
+    [(== 'Josh name) (== 'B521 class)]
+    [(== 'Josh name) (== 'B522 class)]))
+(defrel (pl-major name)
+  (taken name 'B521)
+  (taken name 'B523)
+  (taken name 'B522))
+> (run 1 q
+    (assume-rel [(taken name class) (== 'Josh name) (== q class)]
+      (pl-major 'Josh)))
+'(B523)
+\end{scheme}
+
+\noindent The hypothetical clause extends \texttt{taken}, and \texttt{pl-major}, which was defined
+\emph{before}, must see it. In a shallow embedding, relation definitions live in the host language's
+lexical scope, so \texttt{pl-major} cannot see the new clause. The paper describes a
+\textbf{dynamic-scope layer}: a map \texttt{name->idx} threaded through the query, a global
+\texttt{idx->def}, and calls that go through both. (Our notes write \scm{(== q class)}; the extracted
+text has a quote, \texttt{'q}, which could not produce \texttt{B523}.) Concretely, before the query
+\texttt{name->idx} is \texttt{((pl-major . 2) (taken . 1))}; \texttt{assume-rel} pushes a new index, so
+inside it the map is \texttt{((taken . 3) (pl-major . 2) (taken . 1))}, and the newer pair shadows the
+older one when \texttt{pl-major} calls \texttt{taken} (p.\,5).
+
+The paper also offers \texttt{assume}, \enquote{a shorter version of the assume-rel operator} that
+\enquote{only takes an atomic hypothesis} (p.\,5), and uses it on a relation \texttt{eq} that is
+reflexive, transitive and symmetric. Plain \scm{(run 1 q (eq 'apple 'orange))} does not terminate in
+μKanren, because the recursive clauses never run out (p.\,5). With hypotheses (p.\,5--6):
+
+\begin{scheme}
+(defrel (eq x y)
+  (conde
+    [(== x y)]
+    [(fresh (z) (eq x z) (eq z y))]
+    [(eq y x)]))
+> (run 5 q (assume (eq 'orange 'apple) (assume (eq 'orange 'dog) (eq 'orange q))))
+'(dog apple orange orange dog)
+> (run 1 q (assume (eq 'orange q) (eq 'apple 'orange)))
+'(apple)
+\end{scheme}
+
+\noindent In the first query the answers come from the two hypotheses (\texttt{dog}, \texttt{apple}) and
+from reflexivity (\texttt{orange}); \texttt{run 5} reports repetitions, because the recursive clauses
+derive the same facts again along different paths. The second query \enquote{runs backward}: \enquote{the
+hypothesis can be inferred as well} (p.\,6). The hypothesis \scm{(eq 'orange q)} mentions the query
+variable $q$, and it is \emph{not} renamed when it is used. The goal \scm{(eq 'apple 'orange)} can use the
+symmetry clause to become \scm{(eq 'orange 'apple)}, which matches the hypothesis with $q=\texttt{apple}$.
+This is the book's semantics for a clause with a free logic variable (\cref{ch:hh}): only a clause's own
+∀-bound variables are freshened per use.
+
+\paragraph{Universal goals.} \enquote{the all operator effectively creates a constant \dots\ we create
+an all variable as a free binding variable. Thus, the all variable cannot be unified with anything
+but itself} (p.\,6). The scope restriction is enforced by the prefix. The examples (p.\,6--7):
+
+\begin{scheme}
+> (run 1 q (all (x)
+             (assume-rel (taken x 'B521)
+               (assume-rel (taken x 'B522)
+                 (assume-rel (taken x 'B523)
+                   (pl-major x))))))
+'(_0)
+> (run 1 f (all (x) (== x (app f x))))
+'((tie (_0) _0))
+(defrel (proved x) (== x 'trivial))
+> (run 1 g (all (p) (proved p)))            '()
+> (run 1 g (proved g))                      '(trivial)
+> (run 1 g (all (p q) (assume ((proved p) (proved q)) (proved q) (proved p))))   '(_0)
+> (run 1 goal (all (p q) (assume ((proved p)) (conde [(proved p)] [(proved q)]))))  '(_0)
+\end{scheme}
+
+\noindent The query \scm{(all (p) (proved p))} shows \rulename{generic} at work. \texttt{proved} holds only of
+\texttt{trivial}, and a generic $p$ is not \texttt{trivial}, so $\forall p.\,\texttt{proved}\;p$ is not
+provable, whereas the same goal without \scm{all} succeeds with $g=\texttt{trivial}$. The last two queries
+use λKanren \enquote{as a theorem prover} (§5, p.\,6--7). The first proves the commutativity of
+conjunction, $\forall p,q\,(p\wedge q)\imp(q\wedge p)$: \rulename{generic} makes $p$ and $q$ new
+constants, \rulename{augment} adds \scm{(proved p)} and \scm{(proved q)} as hypotheses, and the two
+conjuncts of the body are then proved by backchaining on them. The second proves disjunction introduction,
+$\forall p,q\;p\imp(p\vee q)$, by the first \scm{conde} branch. The answers \texttt{'(\_0)} only say that
+the query variable was left unconstrained: the information is in the success.
+
+\begin{pitfall}[hypotheses in a host dynamic parameter get lost]
+The repository's active code does not use the described state-threaded design. It uses Racket
+parameters: \texttt{defrel} makes each body a \texttt{make-parameter}, and \texttt{assume} is a
+\texttt{parameterize} that extends it. We reproduced this structure in CHICKEN. The body
+of \texttt{pl-major} is only \emph{constructed} when the goal is applied to a state, which happens
+after \texttt{parameterize} has returned. So the inner call to \texttt{taken} reads the
+\emph{original} parameter, and the output was \texttt{(orig Josh B523)}. Relation calls nested inside
+other relations' delayed bodies therefore lose the hypotheses. The described \texttt{name->idx} design
+does not have this problem.
+\end{pitfall}
+
+\begin{kanren}[hypotheses belong to the state]
+\micro{}'s \scm{define-relation} is inverse-η-delayed: it expands to
+\scm{(λ (s) (δ ((and° g ...) s)))}. This is exactly the situation of the experiment above. A
+hypothetical clause database for \rulename{augment} must therefore be a \emph{field of the state},
+pushed on entry to $G$ and invisible outside it. It can never be a host parameter. A further remark
+from the notes: a hypothetical clause $\forall\bar x(G\imp A)$ can be a host closure whose body runs
+\scm{fresh°}. Each use then renames the clause's own variables, while the variables captured from
+the enclosing scope stay shared. This is exactly λProlog's semantics for clauses with free logic
+variables. How the module does this is shown in \cref{sec:module-hh}.
+\end{kanren}
+
+% =====================================================================================================
+\section{Nominal unification and αKanren}\label{sec:lkanren-nominal}
+
+Nominal unification \cite{UrbanPittsGabbay2004} takes a different route to α-equivalence. Bound names
+stay names, called \emph{atoms}. Metavariables are holes, and substitution of a term for a
+metavariable is \emph{capturing}, i.e.\ grafting. Capture is controlled by two devices:
+\emph{permutations} suspended on variables, and \emph{freshness} constraints. Our presentation of the
+rules follows Urban's survey \cite{Urban2010}.
+
+\begin{definition}[Nominal terms and permutations]\label{def:lkanren-nominal}
+\[
+  t ::= \langle\rangle \mid \langle t_1,t_2\rangle \mid f\,t \mid a \mid a.t \mid \pi\cdot X
+\]
+where $a.t$ abstracts the atom $a$ in $t$, and $\pi\cdot X$ is a variable with a suspended
+permutation. A permutation $\pi$ is a list of swappings $(a\,b)$:
+\[
+  []\cdot a=a,\qquad ((a_1\,a_2)::\pi)\cdot a=\begin{cases}a_2 & \pi\cdot a=a_1\\ a_1 & \pi\cdot a=a_2\\ \pi\cdot a&\text{otherwise.}\end{cases}
+\]
+Composition is list append and the inverse is reversal. The \emph{disagreement set} is
+$ds(\pi,\pi')=\{a\mid \pi\cdot a\neq\pi'\cdot a\}$. A permutation acts on an abstraction on
+\emph{both} the binder and the body, and it suspends on variables:
+$\pi\cdot(\pi'\cdot X)=(\pi @ \pi')\cdot X$. Substitution is capturing: $\sigma(a.t)=a.\sigma(t)$ with
+no side condition, and $\sigma(\pi\cdot X)=\pi\cdot\sigma(X)$.
+\end{definition}
+
+\begin{definition}[Freshness and α-equality {\cite[Fig.~1]{Urban2010}}]\label{def:lkanren-fresh}
+With a freshness context $\nabla$, a set of pairs $a\#X$:
+\begin{mathpar}
+\inferrule{ }{\nabla\vdash a\#\langle\rangle}
+\and
+\inferrule{\nabla\vdash a\#t_1 \\ \nabla\vdash a\#t_2}{\nabla\vdash a\#\langle t_1,t_2\rangle}
+\and
+\inferrule{\nabla\vdash a\#t}{\nabla\vdash a\#f\,t}
+\and
+\inferrule{ }{\nabla\vdash a\#a.t}
+\and
+\inferrule{\nabla\vdash a\#t \\ a\neq b}{\nabla\vdash a\#b.t}
+\and
+\inferrule{a\neq b}{\nabla\vdash a\#b}
+\and
+\inferrule{(\pi^{-1}\cdot a,X)\in\nabla}{\nabla\vdash a\#\pi\cdot X}
+\\
+\inferrule{\nabla\vdash t_1\approx t_2}{\nabla\vdash a.t_1\approx a.t_2}
+\and
+\inferrule{a\neq b \\ \nabla\vdash a\# t_2 \\ \nabla\vdash t_1\approx(a\,b)\cdot t_2}{\nabla\vdash a.t_1\approx b.t_2}
+\and
+\inferrule{\forall c\in ds(\pi,\pi').\ (c,X)\in\nabla}{\nabla\vdash\pi\cdot X\approx\pi'\cdot X}
+\end{mathpar}
+plus the congruence rules for unit, pairs, function symbols and atoms.
+\end{definition}
+
+The intuition: $a\#t$ says that $a$ does not occur \emph{free} in $t$, also after any later
+instantiation of the variables of $t$. To compare $a.t_1$ with $b.t_2$, rename $b$ to $a$ in $t_2$ by
+a \emph{swapping}, which is always safe because it is a bijection, and require that $a$ was not
+already free in $t_2$.
+
+\begin{definition}[Nominal unification {\cite[p.\,9]{Urban2010}}]
+\[
+  \{\langle t_1,t_2\rangle\approx^?\langle s_1,s_2\rangle,\dots\}\Rightarrow\{t_1\approx^?s_1,\ t_2\approx^?s_2,\dots\}\qquad
+  \{a.t\approx^?a.s,\dots\}\Rightarrow\{t\approx^?s,\dots\}
+\]
+\[
+  \{a.t\approx^?b.s,\dots\}\Rightarrow\{t\approx^?(a\,b)\cdot s,\ a\#^?s,\dots\}\qquad
+  \{\pi\cdot X\approx^?\pi'\cdot X,\dots\}\Rightarrow\{a\#^?X\mid a\in ds(\pi,\pi')\}\cup\{\dots\}
+\]
+and $\pi\cdot X\approx^?t$, with $X$ not in $t$, gives $X:=\pi^{-1}\cdot t$. A solution is a pair
+$(\nabla,\sigma)$ with $\nabla\vdash\sigma(t_1)\approx\sigma(t_2)$. For example, $a.X\approx^?b.X$ has
+the solution $(\{a\#X,\,b\#X\},[\,])$.
+\end{definition}
+
+Most general solutions exist, and \textbf{no fresh names are ever generated}: every atom of a solution
+occurs in the problem. Naive rules are exponential; quadratic algorithms exist.
+
+\subsection{αKanren}
+
+αKanren \cite{ByrdFriedman2007,Byrd2009} embeds nominal unification in miniKanren. \scm{fresh}
+introduces \emph{noms}: \enquote{a nom behaves more like a constant than a variable, since it only
+unifies with itself or with an unassociated variable}. The constructor \scm{(tie a t)}, typeset
+$\bowtie$, binds the nom $a$ in $t$; it delimits scope and does not create noms. \scm{(# a t)},
+entered \scm{hash}, asserts that $a$ does not occur free in $t$. Ordinary logic variables are
+introduced by \scm{exist}. The thesis examples (ch.~9; \texttt{◃▹} is the thesis glyph for tie):
+
+\begin{scheme}
+(run* (q) (fresh (a b) (≡ (◃▹ a a) (◃▹ b b))))      ⇒ (_.0)
+(run* (q) (fresh (a b) (≡ (◃▹ a q) (◃▹ b b))))      ⇒ (a.0)
+(run* (q) (fresh (a b) (# a (◃▹ b a))))             ⇒ ()
+(run* (q) (fresh (a) (# a (◃▹ a a))))               ⇒ (_.0)
+(run* (q) (fresh (a b) (exist (x y) (≡ (◃▹ a (◃▹ a x)) (◃▹ a (◃▹ b y))) (≡ `(,x ,y) q))))
+  ⇒ ((((susp ((a.0 a.1)) _.0) _.0) : ((a.0 . _.0))))
+\end{scheme}
+
+\noindent The second line is counter-example~1's single equation: $q$ becomes the bound nom. The last
+line shows a suspension in an answer, with a freshness constraint printed after the colon. The
+capture-avoiding substitution relation shows the programming style:
+
+\begin{scheme}
+(define substo
+  (λ (e new a out)
+    (matche (e out)
+      (((var ,a) ,new))
+      (((var ,y) (var ,y)) (# a y))
+      (((app ,rator ,rand) (app ,rator-res ,rand-res))
+       (substo rator new a rator-res)
+       (substo rand new a rand-res))
+      (((lam ,(◃▹ @c body)) (lam ,(◃▹ c body-res)))
+       (# c a)
+       (# c new)
+       (substo body new a body-res)))))
+(run* (q) (fresh (a b) (substo `(lam ,(◃▹ a `(app (var ,a) (var ,b)))) `(var ,b) a q)))
+  ⇒ ((lam (tie a.0 (app (var a.0) (var a.1)))))     ; [b/a]λa.ab = λc.cb
+\end{scheme}
+
+\noindent (\texttt{@c} in a \texttt{matche} pattern introduces $c$ as a nom.) The unifier works in two
+phases. First the σ-rules turn equations into a substitution plus pending freshness constraints. Then
+the ∇-rules reduce freshness constraints until each is $a\#x$ with $x$ an unbound variable. Variables
+are suspensions with an empty permutation. A triangular-substitution version, due to Joe Near, is
+reported \enquote{as much as ten times faster}. The thesis states a limitation (p.\,178): \enquote{neither
+currently supports disequality constraints}. αKanren also powers αleanTAP \cite{NearByrdFriedman2008},
+where ∀-bound variables of the object logic are noms. There, \enquote{Universally quantified formulas
+are used as templates, rather than instantiated directly}.
+
+\begin{kanren}[what nominal unification asks of a miniKanren]
+It needs three new term kinds (nom, \scm{tie}, suspension $\pi\cdot X$) and a freshness store ∇ of
+$a\#X$ pairs, re-reduced after each unification. That re-reduction works like \micro{}'s
+post-\scm{=°} verification of D, A and T. Note that \scm{absent°} is \emph{not} freshness: freshness is
+about \emph{free} occurrences, so \scm{(# a (◃▹ a a))} succeeds, whereas absento forbids any
+occurrence. Nominal unification has no function variables and no β, so it is a different logic from
+λProlog's. Noms are distinct constants, not eigenvariables, and ∀-goals still need their own
+mechanism (see \cref{ch:design}).
+\end{kanren}
+
+% =====================================================================================================
+\section{Eigenvariables, negation and ∀ inside miniKanren}\label{sec:lkanren-eigen}
+
+\subsection{The scope-extrusion problem}
+
+\rulename{generic} proves $\forall x.G$ by proving $G[c/x]$ for a \emph{new} constant $c$. If the
+constant is only a gensym, nothing stops an older logic variable from being bound to it later. That
+\enquote{proves} $\exists X\forall y.\,X=y$, which must fail. Contrast $\forall y\exists X.\,X=y$,
+which must succeed. The fixes in the literature are exactly four:
+(i)~an explicit prefix \cite{Miller1991,MaLuFriedman2020}; (ii)~universe indices or levels \cite{NadathurJayaramanKwon1995,DunchevEtAl2015}; (iii)~an absento-like eigen constraint over the variables in scope \cite{HemannByrdFriedman2013}; (iv)~an end-of-scope check.
+The notes call (iv) the weakest. It is sound only if nothing created inside the scope survives it in a
+form that can be bound later, and its failures are detected late.
+
+\subsection{\texttt{eigen} in miniKanren with symbolic constraints}
+
+Hemann, Byrd and Friedman added \scm{eigen} to miniKanren-with-symbolic-constraints in 2013
+\cite{HemannByrdFriedman2013}. The header comment of \texttt{mk.scm} reads: \enquote{E = (e* . x*)*,
+where e* is a list of eigens and x* is a list of variables. Each e in e* is checked for any of its
+eigens be in any of its x*. Then it fails.} The state carries B, the list of all variables created so
+far. \scm{eigen} creates fresh eigen objects and installs an eigen-absento constraint $(e^*\,.\,B)$:
+\emph{none of the variables that existed before the eigen may ever walk to a term containing it}.
+
+\begin{scheme}
+(define-syntax eigen
+  (syntax-rules ()
+    ((_ (x ...) g0 g ...)
+     (lambdag@ (c : B E S)
+       (let ((x (eigen-var)) ...)
+         ((fresh () (eigen-absento `(,x ...) B) g0 g ...) c))))))
+
+(define eigen-absento
+  (lambda (e* x*)
+    (lambdag@ (c : B E S D Y N T)
+      (cond
+        ((eigen-occurs-check e* x* S) (mzero))
+        (else (unit `(,B ((,e* . ,x*) . ,E) ,S ,D ,Y ,N ,T)))))))
+\end{scheme}
+
+\noindent This is the universe-index check implemented with explicit sets instead of numbers. Its
+cost is $O(|B|\cdot|\text{term}|)$ per check. The README warns: \enquote{Beware: this implementation
+does \emph{not} support use of \texttt{eigen} with constraints other than \texttt{==}.}
+
+\begin{kanren}[the eigen-absento idea, by hand, on today's engine]
+\micro{} already has \scm{absent°}, which takes any datum as its tag, including a record. So the
+Hemann--Byrd--Friedman check can be written by hand. Here there is one outer variable $Q$, and the
+eigen is a fresh record that $Q$ may never contain. This illustrates the idea; it is not an API
+proposal.
+\begin{scheme}
+(import scheme (chicken base) (chicken pretty-print)
+        (aux base) (aux stream) (aux kanren micro))
+
+(define-syntax-rule (show label expr)
+  (begin (display ";; ") (display label) (newline)
+         (pretty-print expr)))
+
+;; A generic constant as a fresh, unique record: no scope check at all.
+(define-record eigen id)
+(show "naive: exists Q forall x. Q = x"
+  (°->list #f (fresh° (q) (=° q (make-eigen 1)))))
+
+;; The eigen-absento idea, by hand with absent°: the constant
+;; may never occur in a variable that existed before it.
+(show "with absent°: exists Q forall x. Q = x"
+  (°->list #f
+    (fresh° (q)
+      (let ((c (make-eigen 1)))
+        (and° (absent° c q) (=° q c))))))
+(show "with absent°: forall x exists Y. Y = x, then Q = ok"
+  (°->list #f
+    (fresh° (q)
+      (let ((c (make-eigen 1)))
+        (and° (absent° c q) (fresh° (y) (=° y c)) (=° q 'ok))))))
+(show "with absent°: escape through an alias is caught"
+  (°->list #f
+    (fresh° (q)
+      (let ((c (make-eigen 1)))
+        (and° (absent° c q)
+              (fresh° (y) (=° q (list y)) (=° y c)))))))
+\end{scheme}
+\begin{answers}
+;; naive: exists Q forall x. Q = x
+((λ () (make-record-instance 'eigen 1)))
+;; with absent°: exists Q forall x. Q = x
+()
+;; with absent°: forall x exists Y. Y = x, then Q = ok
+((λ () 'ok))
+;; with absent°: escape through an alias is caught
+()
+\end{answers}
+Three cautions come from the notes on \micro{}. First, \scm{μkanren-state-find/value} rebuilds records,
+so eigens must be compared by an identifier (with \scm{equal?}), never by \scm{eq?}; and two eigens
+must never share an identifier. Second, \micro{} binds the \emph{older} variable to the \emph{newer}
+one in a variable-variable equation. So \enquote{rank = creation index} is not a scope discipline by
+itself, and creation time is not scope depth. Third, the check is first-order only: there is no
+higher-order unification here.
+\end{kanren}
+
+\subsection{Moiseenko 2019: constructive negation}
+
+Moiseenko \cite{Moiseenko2019} builds the answers to $\neg g$ by collecting \emph{all} answers of $g$
+and negating them. To make this closed under negation, states become formulas (eq.~(1), p.\,6):
+\[
+  \exists\bar x.\Big(\bigwedge_i v_i=t_i\ \wedge\ \bigwedge_j\forall\bar y_j.\bigvee_k w_{jk}\neq u_{jk}\Big).
+\]
+This needs a solver for \emph{universally quantified disequalities}:
+\begin{lemma}[{\cite[Lemma 3, p.\,9]{Moiseenko2019}}]
+$t\neq u$ is satisfiable iff $\mathrm{mgu}(t,u)\neq\top$.
+\end{lemma}
+\noindent This is exactly what \micro{}'s \scm{≠°} implements.
+\begin{lemma}[{\cite[Def.~11, Lemma 4, p.\,10]{Moiseenko2019}}]
+Let $\theta=\mathrm{mgu}(t,u)$, oriented so that $\bar x\not\subseteq\mathrm{codom}\,\theta$. Then
+$\forall\bar x.\,t\neq u$ is satisfiable iff $\theta=\bot$ or $\mathrm{dom}(\theta)\not\subseteq\bar x$,
+and unsatisfiable iff $\mathrm{dom}(\theta)\subseteq\bar x$.
+\end{lemma}
+\noindent The orientation is a normalization: if the mgu maps an outer variable $v$ to some $x\in\bar x$,
+flip that binding to $x\mapsto v$. In words: $\forall\bar x.\,t\neq u$ is unsatisfiable exactly when $t$
+and $u$ can be made equal by choosing values for the universal variables alone. Example: for
+$\forall x.\,x\neq\alpha$, the mgu is $\{x\mapsto\alpha\}$, its domain is $\{x\}\subseteq\bar x$, so the
+constraint is unsatisfiable. For $\forall x.\,\alpha\neq(1,x)$ the mgu $\{\alpha\mapsto(1,x)\}$ binds the
+outer $\alpha$, so it is satisfiable (by any $\alpha$ that is not a pair with first component~$1$).
+\begin{lemma}[{\cite[Def.~12, Lemma 5, p.\,10--11]{Moiseenko2019}}]
+For $\forall\bar x\exists\bar y.\,t\equiv u$, let $\theta$ be idempotent and $\hat\theta$ its restriction
+to the non-$\bar y$ variables. The formula is satisfiable iff $\mathrm{dom}(\hat\theta)\cap\bar x=\emptyset$
+and no $p\in\mathrm{codom}(\hat\theta)$ has $\mathrm{Vars}(p)\cap\bar x\neq\emptyset$.
+\end{lemma}
+\noindent The notes observe that Lemma 5 is exactly the eigenvariable condition. Universal variables
+may not be bound, and they may not appear in the bindings of outer variables. With negation one gets
+$\mathit{ifte}\;c\;t\;e=(c\wedge t)\vee(\neg c\wedge e)$, $g_1\Rightarrow g_2=\neg g_1\vee(g_1\wedge g_2)$
+and $\mathit{forall}\;g=\neg\,\mathit{fresh}\,(x)\,(\neg\,g\,x)$. The price: \emph{stratification} is
+required, negating a goal with infinitely many answers diverges, and infinitely many constructors of
+each arity are assumed. A remark on p.\,4: \enquote{there is no sound implementation of eigen variables
+with the support of disequality constraints. We observed that our implementation of universal
+quantifications through double negation works nicely with disequalities}.
+
+\begin{pitfall}[eigen-constants and disequality]
+λProlog's generic ∀ is sound because λProlog has no negation. Add \scm{≠°} and consider
+$\forall x.\,x\neq\alpha$, with $\alpha$ an outer variable. It must \emph{fail}: take $x:=\alpha$.
+Moiseenko's Lemma~4 agrees, since the mgu $\{x\mapsto\alpha\}$ has domain $\subseteq\{x\}$. A naive
+eigen-constant $c$ makes $c\neq\alpha$ hold forever, because $\alpha$ can never be bound to $c$, and
+the query wrongly succeeds. The same issue arises for type constraints: $c$ stands for an arbitrary
+term, so \scm{symbol°} of $c$ should not be provable unless assumed. It also arises for
+\scm{absent°}.
+\end{pitfall}
+
+\subsection{Jin, Rosenblatt, Might and Zhang 2021: ∀ and ⇒ by relative complement}
+
+Jin et al.\ \cite{JinEtAl2021} build on the \emph{first-order miniKanren representation}
+\cite{RosenblattEtAl2019}, where goals are data that can be inspected. \scm{(forall (v) domain goal)}
+works in four steps: it checks the domain's satisfiability; it extracts candidates by running
+\scm{(exists (v) (conj domain body))} and splitting the states into disjunction-free ones; it
+computes a \emph{relative complement}, recursing on \scm{(forall (v) (conj relcomp domain) body)};
+and it applies a domain relative negation. This is an \emph{extensional} ∀ over the universe of
+literal values: the classical \enquote{for every value} reading, not λProlog's generic one.
+\scm{(implies A B)} combines \emph{semantic} solving, which rewrites to $\neg A\vee B$ when $A$ is
+negatable, with \emph{syntactic} solving. In the latter, an assumptions list is threaded through, a
+user-relation call can be solved by an assumed call, and relations are unfolded under a
+\emph{closed-world} reading. The paper's opening examples (p.\,1):
+
+\begin{scheme}
+> (run 1 (a) (forall (v) () (== v a)))                                   '()
+> (run 1 () (forall (a) () (exists (v) () (== v a))))                    '(())
+> (run 1 (a b) (forall (v) () (disj* (== v a) (=/= v b))))              '((_.0 _.0))
+> (run 1 (b) (forall (a) () (disj* (not-symbolo a) (=/= a b))))         '((#f))
+> (run 1 (f) (implies (evalo f 1) (exists (a) (evalo f a))))            '((_.0))
+\end{scheme}
+
+\noindent The third query is the instructive one. $\forall v.\,(v=a\vee v\neq b)$ holds when $a=b$.
+That is a classical case split on $v$, which λProlog's generic ∀ cannot do; λProlog has no $\neq$ at
+all. The authors list the limitations themselves (§7): the system is slow, produces duplicates, is
+incomplete, and soundness is unproven. Their related work notes that λKanren 2020 supports only
+relation calls and equalities in antecedents, with \enquote{no unfolding \dots\ consistent with an
+open-world interpretation}.
+
+\begin{pitfall}[three different ∀]
+λProlog's ∀ is \rulename{generic}: intuitionistic, proved by a new constant, with no case analysis
+(\cref{ch:hh}). Jin et al.'s ∀ is extensional: \enquote{for every value in the universe}, by relative
+complements. Moiseenko's ∀ is $\neg\exists\neg$: classical, stratified, and it needs finitely many
+answers. A query that succeeds in one may fail or diverge in another. For instance, Jin et al.'s §6.6
+shows that \scm{(forall (expr) () (disj (neg (halto expr)) (halto expr)))} does not terminate. Only the
+first ∀ is the book's.
+\end{pitfall}
+
+% =====================================================================================================
+\section{How λProlog systems do it}\label{sec:lkanren-impl}
+
+\subsection{Miller 1991: \texorpdfstring{$\Llam$}{L-lambda} by transitions over a mixed prefix}\label{sec:lkanren-miller}
+
+\Cref{ch:hounif} presents pattern unification as the book does. Here we recall only the shape of
+Miller's original formulation \cite{Miller1991}, because both λKanren 2020 and Nipkow transcribe it.
+The book's statement of the restriction is: \enquote{a program clause or goal formula $B$ is in
+$\Llam$ if all quantification in $B$ is over nonpredicate types and every subterm of $B$ of the form
+$(x\;t_1\dots t_n)$ in which $x$ is an essentially existentially quantified variable is such that
+$t_1,\dots,t_n$ are distinct variables that are universally quantified within the scope of the
+quantifier binding $x$} \book{220}. Then only β$_0$ is needed: $(\abs{y}{s})\,x=s[x/y]$ when $x$ is a
+variable not free in $\abs{y}{s}$.
+
+Miller's interpreter turns \rulename{generic} into a \emph{meta-level} universal quantifier, and
+\rulename{backchain} turns the clause's ∀s into ∃s placed at the point of use. This is why mixed
+prefixes $\forall\exists\forall\dots$ arise dynamically. The unification transitions are ξ (descend
+under binders, renaming apart), rigid-rigid, \emph{raising}, \emph{pruning}, flex-flex and flex-rigid.
+The algorithm terminates (Theorem 7.1), and when it succeeds it yields a most general unifier
+(Proposition 7.3). One of Miller's worked examples (p.\,14--15):
+\[
+  Q\exists u\exists v\forall y\,[f(\abs{x}{f(u\,x\,y)})=f(\abs{w}{v\,y})]
+  \xrightarrow{\text{rigid}}\abs{x}{f(u\,x\,y)}=\abs{w}{v\,y}
+  \xrightarrow{\xi}\forall y\forall x\,[f(u\,x\,y)=v\,y]
+\]
+\[
+  \xrightarrow{\text{pruning}}[u\mapsto\abs{x}{\abs{y}{u'\,y}}]
+  \xrightarrow{\text{flex-rigid}}[v\mapsto\abs{y}{f(u'\,y)}].
+\]
+Read the last two steps with the prefix in mind, which is now $Q\exists u\exists v\forall y\forall x$. The
+equation is flex-rigid: $v\,y$ against $f(u\,x\,y)$. The universal $x$ is quantified after $v$ and is not
+among $v$'s arguments, so $v$'s solution may not mention it. Every occurrence of $x$ sits under the
+flexible head $u$, so the problem is not hopeless: \emph{pruning} removes $u$'s dependency on its first
+argument, $u\mapsto\abs{x}{\abs{y}{u'\,y}}$. After that the rigid side is $f(u'\,y)$, and flex-rigid
+abstracts $v$'s argument: $v\mapsto\abs{y}{f(u'\,y)}$. Had $x$ occurred \emph{outside} any flexible
+head, pruning would fail and so would the equation.
+
+In the untyped version (§9.3), rigid-rigid with different arities fails, and η-expansion is used only
+on terms that must have functional type. This matters for an untyped Scheme term language. Miller also
+shows how to stay inside $\Llam$ by replacing meta-level β with \emph{copy clauses} and hypothetical
+reasoning, as in the book's Figure~7.10 \book{200}:
+
+\begin{lprolog}
+subst M T S :- pi x\ copy x T => copy (M x) S.
+\end{lprolog}
+
+\noindent The same trick encodes a \emph{non-pattern} problem inside $\Llam$ \cite[§10.3, p.\,30--31]{Miller1991}.
+With copy clauses \lp{copyterm a a}, \lp{copyterm (f X) (f U) :- copyterm X U.} and so on for the
+signature, define
+\begin{lprolog}
+substterm M T N :- pi c\(copyterm c T => copyterm (M c) N).
+\end{lprolog}
+\noindent The unifiers of $F\,a\lkq g\,a\,a$, which is not a pattern because $a$ is a constant, are exactly
+the $F$ that make \lp{substterm F a (g a a)} provable. Miller lists the four answers an $\Llam$
+interpreter should return: \lp{w\(g w w)}, \lp{w\(g w a)}, \lp{w\(g a w)}, \lp{w\(g a a)}. The choice
+\enquote{is this $a$ the argument or the constant?} is made by backchaining, either on the hypothesis
+\lp{copyterm c a} or on the clause \lp{copyterm a a}. Huet's branching has become ordinary proof
+search, which a miniKanren would interleave.
+
+\noindent The book's position on programs outside $\Llam$ is pragmatic. A common resolution is
+\enquote{to not impose the $\Llam$ restriction on program clauses statically but rather to expect the
+condition to be satisfied by the unification problems that are encountered dynamically}. One
+\enquote{might defer further consideration of this equation until such time that substitutions
+resulting from solving other parts of the problem have altered its status} \book{225--226}.
+
+\subsection{Nipkow 1993: functional pattern unification on de Bruijn terms}
+
+Nipkow \cite{Nipkow1993} restricts attention to $\forall\exists\forall$ problems, where raising is never
+needed. Existential variables are global (\texttt{V F}), outer universals are constants (\texttt{C c}),
+and inner universals are loose de Bruijn indices (\texttt{B i}). The substitution is triangular. From
+the author's ML code, the algorithm is:
+\begin{enumerate}
+  \item head-normalize both sides through the substitution, with β$_0$ done by renaming indices;
+  \item $\lambda s=\lambda t\Rightarrow s=t$; η on demand, $\lambda s=t\Rightarrow s=(\uparrow t)\,0$;
+  \item rigid-rigid: equal heads give pairwise unification, different heads fail;
+  \item flex-rigid $F\,\bar y=t$: occurs check, then \emph{invert} $t$ with respect to $\bar y$ and
+    prune the flexible subterms that mention indices outside $\bar y$;
+  \item flex-flex, same head: $F\,\bar y=F\,\bar z\Rightarrow F:=\lambda^{|\bar y|}.H\,(\text{positions where }y_i=z_i)$;
+  \item flex-flex, different heads: if $\bar\imath\subseteq\bar\jmath$ then $G:=\lambda\bar\jmath.F\,\bar\imath$,
+    symmetrically in the other case, and otherwise both are bound to a fresh $H$ applied to
+    $\bar\imath\cap\bar\jmath$.
+\end{enumerate}
+
+\subsection{Dowek, Hardin, Kirchner, Pfenning 1996: explicit substitutions}\label{sec:lkanren-dhkp}
+
+DHKP \cite{DowekHardinKirchnerPfenning1996} work in the λσ-calculus, where substitution $a[s]$ is
+syntax. Meta-variables are \emph{grafted}, i.e.\ replaced first-order. To recover the logical,
+capture-avoiding reading, terms are \textbf{pre-cooked}:
+$F(\lambda a,n)=\lambda F(a,n+1)$, $F(a\,b,n)=F(a,n)\,F(b,n)$, $F(k,n)=1[\uparrow^{k-1}]$,
+$F(X,n)=X[\uparrow^n]$. A metavariable under $n$ binders is explicitly \emph{shifted past them}. This
+is precisely the step that makes grafting agree with substitution, and that static closures omit
+(counter-example~1). In a λσ-pattern, every $X[s]\,b_1\dots b_q$ has $s=a_1\dots a_p\cdot\uparrow^n$
+with the $a$'s and $b$'s distinct indices. Pattern substitutions are injective and have a right
+inverse, so $X[s]=b$ is solved by $X:=b[s^{-1}]$ when every index of $b$ occurs in $s$ (Prop.~8,
+inversion). Unification of λσ-patterns is decidable and unitary (Theorem~17), and \enquote{our
+presentation does not need mixed prefixes}: raising is just a rule. Outside the fragment, §5.4 says
+that equations \enquote{should be postponed as constraints in the hope that they will be instantiated
+further}, which \enquote{avoids all branching during constraint simplification}. Empirically,
+\enquote{almost all dynamically arising equations fall within the pattern fragment} (p.\,2).
+
+\subsection{Universe indices: Nadathur, Jayaraman and Kwon 1995}
+
+The idea behind every efficient implementation of \rulename{generic} is numeric
+\cite{NadathurJayaramanKwon1995}: \enquote{Each time a universal quantifier is encountered, a new
+constant must be introduced, giving rise to the next universe in the hierarchy. This requirement can be
+accounted for by increasing the “universe index” by 1 and introducing a new constant tagged with this
+index. \dots\ When an existential quantifier is encountered, it is instantiated by a logic variable.
+This variable may be tagged with the current value of the universe index, the intended interpretation
+of the tag being that a term may be substituted for the variable only if all the constants appearing in
+the term have a smaller or identical tag} (p.\,15--16).
+
+\begin{definition}[Binding with universe indices {\cite[p.\,16]{NadathurJayaramanKwon1995}}]\label{def:lkanren-ui}
+To bind a variable $X$ with tag $i$ to $t$:
+(1)~perform the usual occurs check; (2)~check that $t$ contains no constant with tag $>i$; (3)~\emph{before binding}, change to $i$ the tags of the variables of $t$ whose tag is $>i$.
+\end{definition}
+
+Step (3) is \emph{lowering}. It is \enquote{required in order to prevent a later instantiation of
+these variables from violating the restrictions on instantiations for X}.
+
+\begin{tutorial}[why lowering is needed]
+Program: $\forall z(q(z)\imp p(d(z)))$. Goal: $\exists x\forall y(q(y)\imp p(x))$.
+\begin{enumerate}
+  \item $\exists x$ creates $X$ with tag~1. $\forall y$ raises the index to 2 and creates $c$ with
+    tag~2. \rulename{augment} adds $q(c)$. The goal is now $p(X^1)$.
+  \item \rulename{backchain} on the clause gives a new variable $Z$ tagged with the current index, 2.
+    Unifying $p(X^1)=p(d(Z^2))$ binds $X:=d(Z)$, and \textbf{lowers} $Z$ to tag~1.
+  \item The subgoal $q(Z^1)$ meets the hypothesis $q(c^2)$. Binding $Z^1:=c^2$ violates step~(2), so
+    it fails.
+\end{enumerate}
+Without lowering, $Z^2:=c$ would be accepted and $X$ would become $d(c)$. That smuggles the
+eigen-constant into a variable quantified outside its scope. The failure is correct: the goal would
+need $x=d(y)$, but $x$ is quantified before $y$.
+\end{tutorial}
+
+The abstract interpreter works on tuples $\langle G,P,I\rangle$. A ∃-goal tags its new variable with
+$I$; a ∀-goal goes to $\langle[c/x]G,P,I{+}1\rangle$; and backchaining instantiates the clause's
+variables with tag $I$. The interpreter is sound and complete with respect to intuitionistic
+provability, and goal selection order is irrelevant (Prop.~4.1). In the WAM, a \emph{UI register} is
+incremented on entering a universal goal and decremented on its completion, and choice points save
+it.
+
+\subsection{Teyjus: suspensions and on-the-fly raising}
+
+Teyjus represents term-bound variables by de Bruijn indices and logic variables by mutable cells
+\cite{Nadathur2005}. β-reduction is made lazy with the \emph{suspension notation}
+$[[t,ol,nl,e]]$: \enquote{a term $t$ that used to occur inside $ol$ abstractions but now appears within
+$nl$ of them}, with an environment $e$. Some of the rules:
+\begin{gather*}
+  (\beta_s)\ (\lambda t_1)\,t_2\to[[t_1,1,0,(t_2,0)::nil]]\qquad
+  (r_9)\ [[t,0,0,nil]]\to t\\
+  (r_7)\ [[\lambda t,ol,nl,e]]\to\lambda[[t,ol{+}1,nl{+}1,@nl::e]]
+\end{gather*}
+Terms also carry a closed/open annotation bit; empirically, substitution walks were reduced to
+\enquote{a third to an eighth}.
+
+Nadathur and Linnell \cite{NadathurLinnell2005} eliminate the explicit prefix. Each variable gets a
+tag $l(y)$, the number of ∃-followed-by-∀ alternations up to its quantifier, and \enquote{a universal
+variable $u$ is quantified within the scope of the quantifier for an existential variable $x$ just in
+case $l(x)<l(u)$}. Raising is restricted to the universals that actually appear as arguments. A single
+traversal of the rigid side (\texttt{mksubst}/\texttt{bnd}) computes the binding, i.e.\ the inversion,
+and does pruning and raising on the fly. A non-pattern subterm met during the traversal can be replaced
+by a fresh $h(\bar y)$ with the equation $h(\bar y)=t$ \textbf{deferred}. The book describes the same
+idea of \enquote{attaching numerical indices to the quantified variables} \book{225}. It also notes that
+Teyjus~2 implements only $\Llam$ unification \book{228}.
+
+\begin{example}[no mgu outside the fragment {\cite[p.\,5]{NadathurLinnell2005}}]\leavevmode\\
+The problem $\forall u_1\forall u_2\exists x\,(x(u_2)=u_1(u_2))$ is not a pattern: $u_2$ is quantified
+\emph{outside} the scope of $x$, so it is a constant for $x$. It has \enquote{two incomparable solutions},
+$x\mapsto\abs{w}{u_1(w)}$ and $x\mapsto\abs{w}{u_1(u_2)}$ (written $\lambda(1,u_1(1))$ and
+$\lambda(1,u_1(u_2))$ in the paper's de Bruijn notation), and no most general one. Move the quantifier,
+$\forall u_1\exists x\forall u_2\,(x(u_2)=u_1(u_2))$, and it becomes a pattern with the single solution
+$x\mapsto\abs{w}{u_1(w)}$. A unifier that must return one mgu can only defer the first problem. An
+enumerating one would return both answers, as Miller's \texttt{substterm} does for
+$F\,a\lkq g\,a\,a$ (\cref{sec:lkanren-miller}).
+\end{example}
+
+\subsection{ELPI: de Bruijn levels and a reduction-free fragment}
+
+ELPI \cite{DunchevEtAl2015} starts from an observation about the two roles of β:
+
+\begin{lprolog}
+of (lam F) (arr A B) :- pi x\ of x A => of (F x) B.
+cbn (app (lam F) N) M :- cbn (F N) M.
+\end{lprolog}
+
+\noindent In \lp{of}, β only replaces a bound name with a fresh constant. In \lp{cbn}, β is genuine
+object-level substitution. The design has three parts.
+
+\paragraph{Levels for the prefix.} \enquote{When a clause's head is unified with the goal in a context
+of length $n$, the universally quantified variables of the clause are instantiated to unification
+variables $X^n$ where the level $n$ records that $X$ has only visibility of the initial prefix of length
+$n$ of the context. If later a fresh constant is added by the pi rule, the constant occupies position
+$n+1$ \dots\ and it will not be allowed to occur in instances of the variable $X^n$} (p.\,4). Level
+lowering is done by pruning: the higher-level variable is bound to a fresh lower-level one.
+
+\paragraph{De Bruijn levels, not indices.} The example is $\abs{x}{(\abs{y}{\abs{z}{f\,x\,y\,z}})\,x}$:
+\begin{align*}
+  \text{indices:}\quad& \lambda x.(\lambda y.\lambda z.f\,x_2\,y_1\,z_0)\,x_0\to_\beta\lambda x.\lambda z.f\,x_1\,x_1\,z_0
+    && (x \text{ is renumbered}),\\
+  \text{levels:}\quad& \lambda x.(\lambda y.\lambda z.f\,x_0\,y_1\,z_2)\,x_0\to_\beta\lambda x.\lambda z.f\,x_0\,x_0\,z_1
+    && (x \text{ keeps its number}).
+\end{align*} Three properties follow. A variable bound in Γ keeps its name in any extension
+of Γ (DBL1) and in a β-reduct (DBL2), and pushing a binder into the context needs no lifting (DBL3).
+\enquote{variables already pushed in the context are treated exactly as constants, and \dots\ the two
+notions of level --- De Bruijn's and the position in the context --- coincide}. Terms are
+$t::=x_i\mid X^j\mid\lambda x_i.t\mid t\,t$, with global constants as negative $i$; $X^j$ sees the names
+below $j$.
+
+\begin{definition}[Reduction-free fragment $L^\beta_\lambda$ {\cite[Def.~1]{DunchevEtAl2015}}]
+Every occurrence of a unification variable $X^j$ is applied to $x_j\dots x_{j+k-1}$, for $k\ge0$: exactly
+the next $k$ context names, in order.
+\end{definition}
+
+\noindent This fragment is contained in $\Llam$ (Property 1). Head reductions of
+$(X^j\,x_j\dots x_{j+k-1})\sigma$ take constant time (Property 2), and so does solving
+$X^j\,x_j\dots x_{j+k-1}\equiv t$ when no occurs check is needed and the maximum level of $t$ is cached
+(Property 3). But $L^\beta_\lambda$ is \textbf{not stable under resolution} (p.\,7), so the fast path
+must fall back to general pattern unification. ELPI reports large speed-ups: typeof in 0.27\,s versus
+5.64\,s for Teyjus, reduce-cbv in 0.15\,s versus 11.11\,s.
+
+\paragraph{Outside the fragment,} ELPI's default is an \textbf{error}: \enquote{Unification problem
+outside the pattern fragment. \dots\ Pass -delay-problems-outside-pattern-fragment \dots\ in order to
+delay (deprecated, for Teyjus compatibility)}. Delay is offered instead through \emph{syntactic
+constraints}. \lp{declare_constraint (even X) [X]} suspends a goal on variables, and the goal is resumed
+when any of them is assigned, so \lp{declare_constraint (even X) [X], X = 1.} fails. Suspended goals keep
+their hypothetical context. The documentation's example (\texttt{ELPI.md}, \enquote{Syntactic
+constraints}):
+\begin{answers}
+goal> pi x\ sigma Y\ even x => declare_constraint (even Y) [Y].
+Success:
+Constraints:
+ {x} : even x ?- even (W x)  /* suspended on W */
+\end{answers}
+\noindent The residual constraint remembers the eigenvariable \texttt{x} and the hypothesis
+\lp{even x}. Note also the automatic raising: \texttt{Y} was created inside the scope of \texttt{x}, so
+it is printed as \texttt{W x}. Constraint Handling Rules can operate on suspended goals.
+
+\subsection{Makam}
+
+Makam \cite{StampoulisChlipala2018} is a λProlog dialect with polymorphism, used to prototype type
+systems. Two idioms are relevant for us. \texttt{bindmany} is a binder over a \emph{list} of
+variables, with \texttt{openmany}/\texttt{applymany} to open many binders at once. And reflective
+predicates such as \texttt{refl.isunif} test whether a term is an uninstantiated unification
+variable. That test is non-logical, and is the analogue of \micro{}'s \scm{project°}.
+
+\begin{kanren}[what the implementations ask of a miniKanren]
+The real systems agree on three mechanisms:
+(i)~a \emph{level} on every logic variable and eigen-constant, with the binding check and lowering
+    of \cref{def:lkanren-ui}; (ii)~pattern unification with inversion and pruning (Nipkow, Nadathur--Linnell, ELPI); (iii)~a store of \emph{delayed} equations or goals, woken on assignment (DHKP §5.4, Teyjus, ELPI's
+    syntactic constraints).
+\micro{} has no notion of level. Its creation index is a time stamp, not a scope depth: a variable
+created after a ∀-scope has closed has a larger index, but it must not see that scope's constant. On
+the other hand, the \scm{assocs}-driven re-verification of D is exactly the wake-up hook that a delay
+store needs. Search is unchanged: \scm{or°}'s fair interleaving can host Huet's branching. That fits
+Miller's remark that a breadth-first search could compute the converse of his \texttt{prenex}
+relation, which the depth-first interpretation cannot \cite{Miller1991}. The design itself is in \cref{ch:design}.
+\end{kanren}
+
+% =====================================================================================================
+\section{Comparison of the design options}\label{sec:lkanren-compare}
+
+\Cref{tab:lkanren-options} sets the four candidate meanings of \scm{=°} on λ-terms side by side. The
+rows summarize the analysis of \cref{sec:lkanren-mf21,sec:lkanren-assess,sec:lkanren-nominal,sec:lkanren-impl}. The table records trade-offs and does not rank the options: the choice,
+and the reasons for it, are the subject of \cref{ch:design}.
+
+\begin{table}[ht]
+\centering\footnotesize
+\caption{Design options for higher-order unification in a miniKanren. No option is
+chosen here; see \cref{ch:design}.}
+\label{tab:lkanren-options}
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}p{2.0cm}*{4}{>{\raggedright\arraybackslash}X}}
+\toprule
+& \textbf{A.\ Pattern unification, de Bruijn + levels} (Miller, Nipkow, Nadathur--Linnell, ELPI)
+& \textbf{B.\ Nominal} (Urban--Pitts--Gabbay, αKanren)
+& \textbf{C.\ Static closures} (Ma--Friedman 2021)
+& \textbf{D.\ Huet pre-unification, enumerated by the stream}\\
+\midrule
+Fidelity to the book & exact: $\Llam$ is what Teyjus~2 and ELPI run & a different logic (nominal); no
+function variables, no β & non-standard grafting semantics: $\abs{a}{X}\lkq\abs{b}{b}$ succeeds, unlike
+λProlog & exact for full higher-order unification (pre-unifiers)\\
+Decidable / unitary & yes / yes (mgu) & yes / yes, with a freshness context & claimed; no full
+algorithm published (a \enquote{preview}) & semi-decidable; possibly infinitely many pre-unifiers\\
+New term forms & λ node (indices), eigen-constant with level, flexible application $X\,\bar y$ & nom,
+\texttt{tie}, suspension $\pi\cdot X$ & named and nameless binders, levels, closures & as A, plus
+imitation and projection\\
+New state & a level per variable, current depth, delayed-equation store & freshness store ∇ of $a\#X$ &
+a \enquote{context} of closure equations & as A; branching via \texttt{or°}\\
+Cost of α & free (syntactic on indices) & swappings on the fly, suspensions & levels & free\\
+β & only β$_0$; general β via copy/subst relations, or delayed & none (write \texttt{substo}) &
+\enquote{will be powered} (not given) & full\\
+∀-goals (\rulename{generic}) & eigen-constant + level check + lowering & a separate mechanism is still
+needed: noms are distinct constants, not eigenvariables & \texttt{all} from λKanren 2020 (prefix) & as
+A\\
+With \texttt{≠°}, \texttt{absent°}, types & eigens need a ∀-aware check (Moiseenko) & αKanren has no
+disequality at all & not discussed & as A\\
+Effort in \aux{} & medium--high: a Nipkow-size core, plus levels and a delay store & medium: Byrd's
+ch.~11 is about 300 lines; a triangular version exists & unclear & high, plus control of infinite
+branching\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Some combinations are possible and appear in the literature. Option D can sit on top of A as a
+separate, explicitly nondeterministic relation; the book itself presents Huet's procedure as a
+search over a matching tree (\cref{ch:hounif}), and miniKanren's interleaving could explore it
+fairly. Option B can live beside A, for users who want names as data. Option C behaves differently
+from all the others on the three counter-examples of \cref{sec:lkanren-counter}; any implementation
+should state its answers to them explicitly. The smaller alternatives for ∀ alone are the explicit
+prefix of λKanren 2020 (simplest, but each check walks the prefix and the prefix only grows), the
+eigen-absento of Hemann--Byrd--Friedman (smallest change, $O(|B|)$ per check, first-order only), and
+the end-of-scope check (weakest). The constructive ∀/⇒/¬ of Moiseenko and Jin et al.\ is orthogonal:
+it has a classical, extensional reading and does not implement the book's \rulename{generic} and
+\rulename{augment}.
+
+% =====================================================================================================
+\clearpage
+\section{Summary}\label{sec:lkanren-summary}
+
+\begin{itemize}
+  \item Ma and Friedman 2021 \cite{MaFriedman2021} is a workshop \emph{preview}. It has two grammars,
+    the operations $\mathrm{ext}$ and $\mathrm{db}$, three examples, and no algorithm, rules or
+    theorems.
+  \item Its first complaint is that pattern unification rejects $\abs{a}{X}\lkq\abs{b}{b}$. That is
+    the scope restriction, which λProlog needs for the soundness of ∀. Its fix is to graft de Bruijn
+    levels, giving $X\mapsto\texttt{d0}$. λProlog's own answer is to make the dependency explicit:
+    $\abs{a}{(X\,a)}\lkq\abs{b}{b}$ is a pattern with mgu $X\mapsto\abs{x}{x}$ (Miller's
+    \enquote{discharging a constant}).
+  \item Its second complaint is that binder-merging plus naive reification makes
+    $\abs{a}{\abs{a}{X}}\lkq\abs{c}{\abs{d}{c}}$ succeed, so \enquote{true = false}. Static closures
+    $\lkclo{\phi}{t}$ make shadowed levels unavailable, and the equation fails. Flex-flex closure
+    equations are postponed in a \emph{context}.
+  \item The assessment uses three counter-examples. The conjunction separates static closures from
+    nominal unification. The dangling \texttt{d0} at top level shows that $X$ has no
+    depth-independent meaning. \enquote{True = false} also fails under pattern and nominal
+    unification, so it is a bug of binder-merging only. Static closures are grafting on de Bruijn
+    terms without DHKP's pre-cooking, and α is no longer a congruence on open terms.
+  \item λKanren 2020 transcribes Miller 1991 with an explicit prefix and gensym renaming. Non-patterns
+    fail. Hypotheses must be threaded in the state, because a host parameter loses them under delayed
+    relation bodies.
+  \item Nominal unification (αKanren) handles α with swappings and freshness, using capturing
+    substitution. It has no function variables, no β and no disequality, and noms are not
+    eigenvariables.
+  \item Eigenvariables in miniKanren: a fresh constant without a scope check is unsound. Hemann, Byrd
+    and Friedman implement the check as an absento over the earlier variables. Disequality and
+    eigen-constants conflict (Moiseenko). Jin et al.'s ∀ is extensional, not generic.
+  \item Real λProlog systems use universe indices or levels with lowering (Nadathur et al., Teyjus,
+    ELPI), pattern unification with inversion and pruning (Nipkow, Nadathur--Linnell), and delayed
+    non-pattern equations (DHKP, Teyjus, ELPI's syntactic constraints). Teyjus adds the suspension
+    calculus; ELPI uses de Bruijn levels and the $L^\beta_\lambda$ fast path.
+  \item The options are pattern+levels, nominal, static closures, and Huet enumerated by the stream
+    (\cref{tab:lkanren-options}). The choice is made in \cref{ch:design}.
+\end{itemize}

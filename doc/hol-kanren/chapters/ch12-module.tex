@@ -1,0 +1,1590 @@
+\chapter{The module \texorpdfstring{\texttt{(aux kanren lambda)}}{(aux kanren lambda)}}\label{ch:module}
+
+% ------------------------------------------------------------------------------------------------
+\section*{What and why}
+
+\Cref{ch:micro} took \micro{} apart and ended, in \cref{sec:micro-ext}, with the list of points an extension
+cannot reach from outside: the state has no free slot, and the unifier, the walkers and the reifier are closed.
+\Cref{ch:design} opened exactly those points with a small, λ-agnostic protocol of hooks and explained why the
+proposal is a client module of that protocol rather than a native engine. This chapter is about the client
+itself: the module \scm{(aux kanren lambda)}, which brings into \micro{} the three ingredients of Part~I,
+\begin{itemize}
+  \item λ-tree syntax (\cref{ch:lambdatree}): object-level binders are meta-level abstractions;
+  \item higher-order pattern unification, $\Llam$ (\cref{ch:hounif}), with universe levels in place of the
+        mixed prefix and with non-patterns suspended (\enquote{dynamic $\Llam$});
+  \item universal and hypothetical goals, \rulename{generic} and \rulename{augment}, over hereditary Harrop formulas (\cref{ch:hh}).
+\end{itemize}
+
+The chapter is the formal heart of the proposal. It states what the terms are (\cref{sec:module-terms}),
+what the module keeps in the state (\cref{sec:module-state}), the unification rules with their side
+conditions and the termination argument (\cref{sec:module-unif}), the rules for \scm{∀°} and \scm{⊃°} and
+why levels make them sound (\cref{sec:module-hh}), how micro's disequality, absence and type constraints
+read λ-terms (\cref{sec:module-stores}), how answers are printed (\cref{sec:module-reify}), and, as a
+reference, the exported API (\cref{sec:module-api}). The curated book examples are the subject of
+\cref{ch:examples}; the known limits, the costs and the merge plan are in \cref{ch:roadmap}.
+
+The module is 1255 lines, 885 of them neither blank nor comment. In the repository it lives, with its
+tests and examples, under \texttt{doc/hol-kanren/prototype/}, and after merging as
+\texttt{src/aux.kanren.lambda.scm}, with the suites \texttt{src/test/microkanren-lambda.scm} (83 cases, 320
+assertions) and \texttt{src/test/microkanren-lambda-limits.scm} (6 cases). Every Scheme snippet below was run
+against the module and micro with the protocol applied; its output is pasted verbatim under it. Before
+the imports below work, the edited micro must be built: \cref{sec:roadmap-run} shows how, without
+installing anything, and \cref{sec:roadmap-merge} how to merge it. The snippets
+import
+\begin{scheme}
+(import scheme (chicken base) (chicken pretty-print)
+        (chicken condition) (chicken memory representation)
+        (aux base) (aux stream) (aux kanren micro) (aux kanren micro show)
+        (aux kanren lambda))
+\end{scheme}
+Several of them use a \emph{probe}: a goal that prints part of the state and succeeds. A goal of \micro{} is a
+procedure from a state to a stream of states (\cref{def:micro-goal}), so a probe is three lines; each snippet
+shows the one it uses.
+
+% ------------------------------------------------------------------------------------------------
+\section{Terms}\label{sec:module-terms}
+
+\subsection{Four records}
+
+First-order structure stays Scheme data, exactly as in \micro: pairs, vectors, foreign records and atoms
+(\cref{def:micro-term}). The module adds four record types, defined at the top of the file:
+\begin{scheme}
+(define-record μkanren-lam hint body)        ; λ.body, locally nameless
+(define-record μkanren-app head args)        ; head applied to a list of arguments
+(define-record μkanren-eigen name level id)  ; a scoped constant of GENERIC
+(define-record μkanren-bvar index)           ; a de Bruijn index, only inside bodies
+\end{scheme}
+
+\begin{definition}[λ-terms of the module]\label{def:module-terms}
+Extend the terms of \micro{} (\cref{def:micro-term}) with
+\[
+  t \;::=\; \dots \;\mid\; c^{\ell} \;\mid\; \#i \;\mid\; \lambda^{h}.\,t \;\mid\; t\;@\;\langle t_1,\dots,t_n\rangle
+\]
+where $c^\ell$ is an eigenvariable of level $\ell\in\mathbb N\cup\{\infty\}$ (\scm{μkanren-eigen}), $\#i$ a
+bound variable with de Bruijn index $i\ge 0$ (\scm{μkanren-bvar}), $\lambda^h.t$ an abstraction whose binder
+carries the printing hint $h$, a symbol (\scm{μkanren-lam}), and $t\,@\,\bar t$ an application with $n\ge 1$
+(\scm{μkanren-app}). A term is \emph{locally closed} when every $\#i$ in it lies below at least $i+1$
+abstractions. Only locally closed terms are ever bound to variables or stored in constraints.
+\end{definition}
+
+The representation is \emph{locally nameless} \cite{Chargueraud2012}: bound variables are de Bruijn indices
+\cite{deBruijn1972}, free ones are names (logic variables and eigenvariables). Three design choices follow
+from it.
+\begin{itemize}
+  \item \textbf{The hint is only for printing}, and it is an \emph{interned} symbol. The binder's identity is
+    its position. Two terms built alike are therefore \scm{equal?}, so λ-terms can be grouped by
+    \scm{groupby°} and compared by the host.
+  \item \textbf{An eigenvariable's identity is its \texttt{id}}, an uninterned symbol, compared with \scm{eq?}.
+    Its \texttt{name} is a hint and its \texttt{level} is the universe it lives in (\cref{sec:module-state}).
+    Level $\infty$ (\scm{+inf.0}) marks the names that the unifier opens when it descends under binders and
+    the placeholders that \scm{ƛ} uses while building a body.
+  \item \textbf{The first 64 bound variables are preallocated} in a vector, so the common indices allocate
+    nothing.
+\end{itemize}
+The de Bruijn operations (shift, instantiate, close) never walk the substitution: a term bound to a variable
+is locally closed, so a binding never contributes a loose index. Instantiation shifts the substituted term
+only when it has loose indices itself, which is decided once per instantiation.
+
+\subsection{The constructors \texorpdfstring{\texttt{ƛ}}{ƛ} and \texorpdfstring{\texttt{@}}{@}}
+
+The user never builds these records by hand. Two constructors give the surface syntax of λ-tree terms:
+\begin{scheme}
+(define-syntax ƛ
+  (syntax-rules ()
+    ((_ () body) body)
+    ((_ (x y ...) body) (μkanren-abstract 'x (λ (x) (ƛ (y ...) body))))))
+
+; λ.(f p), with the placeholder p closed into #0
+(define (μkanren-abstract name f)
+  (let1 (p (μkanren-eigen* name +inf.0))
+    (μkanren-lam/η name (μkanren-close (f p) p))))
+
+(define (@ f . args) (μkanren-beta f args))   ; β at once on an abstraction
+\end{scheme}
+\scm{(ƛ (x) body)} binds the \emph{Scheme} variable \scm{x} to a fresh placeholder eigenvariable while
+\scm{body} is evaluated, then closes that placeholder into the index \#0. The object binder is thus a Scheme
+binder: shadowing, lexical scope and quasiquotation all behave as a Scheme programmer expects, which is the
+point of λ-tree syntax \book{177}. Two invariants are enforced at construction.
+\begin{itemize}
+  \item \textbf{η-short.} \scm{μkanren-lam/η} builds $\lambda x.\,(h\,\bar a\,x)$ as $h\,\bar a$ when $x$ is not
+    free in $h\,\bar a$. The unifier builds its abstractions the same way. This matters because micro's own
+    occurs check runs before any hook can see an equation: $\lambda x.\,(F\,x) = F$ holds by η, but in
+    η-long form micro would see $F$ inside the value it binds $F$ to and fail; built η-short, the left side
+    \emph{is} $F$ and the equation is trivial.
+  \item \textbf{β at construction.} \scm{@} applied to an abstraction β-reduces at once, and nested
+    applications are flattened: \scm{(@ (@ f a) b)} is \scm{(@ f a b)}.
+\end{itemize}
+
+\begin{example}[Construction and printing]\label{ex:module-construct}
+Every record has a printer that shows its term as data. The raw record of $\lambda x.\,(f\ x)$ shows the hint
+\texttt{x} and the index in the body:
+\begin{scheme}
+(ƛ (x y) (cons x y))
+(record->vector (ƛ (x) `(f ,x)))     ; from (chicken memory representation)
+(equal? (ƛ (x) `(f ,x)) (ƛ (x) `(f ,x)))
+(equal? (ƛ (x) x) (ƛ (y) y))
+(μkanren-α=? (ƛ (x) x) (ƛ (y) y))
+(@ (ƛ (x) `(g ,x ,x)) 'a)
+(ƛ (x) (@ 'g x))
+(ƛ (x) `(g ,x))
+(@ 'g 'a)
+(equal? (@ 'g 'a) '(g a))
+(ƛ (a) (ƛ (a) a))
+\end{scheme}
+\begin{answers}
+  => (ƛ (x y) (x . y))
+  => #(aux.kanren.lambda#μkanren-lam x (f #<aux.kanren.lambda#μkanren-bvar>))
+  => #t
+  => #f
+  => #t
+  => (g a a)
+  => g
+  => (ƛ (x) (g x))
+  => (@ g a)
+  => #f
+  => (ƛ (a a1) a1)
+\end{answers}
+Line by line: nested binders print merged, \scm{(ƛ (x y) ...)}; the body of a \texttt{μkanren-lam} holds an
+index, not the name; terms built alike are \scm{equal?}; α-variants with \emph{different} hints are not
+\scm{equal?} but are α-equal; \scm{@} reduced the redex; $\lambda x.\,(g\,x)$ written with \scm{@} is the
+η-redex of $g$ and was built as \texttt{g}; written with a quasiquoted list it is no η-redex (the list
+\scm{(g x)} is data, not an application), so it stays an abstraction; the λ-tree application of a constant
+prints with \texttt{@} and is not the list \scm{(g a)}; shadowing is lexical, and the printer renames the
+inner binder apart (\cref{sec:module-reify}).
+\end{example}
+
+\subsection{Three kinds of application}
+
+An application is classified by its head \emph{after walking it} in the current substitution:
+\begin{definition}[Flexible, β-redex, rigid; head normal form]\label{def:module-hnf}
+An application $h\,@\,\bar t$ is \emph{flexible} if $h$ walks to an unbound logic variable, a
+\emph{β-redex} if $h$ walks to an abstraction, and \emph{rigid} otherwise (a constant, an eigenvariable, a
+bound variable). The \emph{head normal form} $\mathrm{hnf}(t)$ (\scm{μkanren-hnorm}) walks $t$, flattens
+nested applications, contracts head β-redexes, and contracts an abstraction whose body has \emph{become} an
+η-redex through a binding (e.g.\ $\lambda x.\,F\,(G\,x)$ once $G:=\lambda z.z$).
+\end{definition}
+Under the $\Llam$ restriction every contraction hnf performs is a $\beta_0$ renaming
+(\cref{def:lambdatree-beta0}). On instantiated heads \scm{@} gives full β, which is what the book calls
+dynamic $\Llam$ \book{225--226}.
+\begin{scheme}
+(μkanren-hnorm (@ (ƛ (x) (@ x 'b)) (ƛ (y) `(g ,y ,y))) μkanren-state-empty)
+(°->list #f (fresh° (q F) (=° q (@ F 'a))))
+(°->list/datum (fresh° (q F) (=° q (list F (@ F 'a))) (=° F (ƛ (z) `(h ,z)))))
+\end{scheme}
+\begin{answers}
+(g b b)
+((λ (α) (@ α 'a)))
+(((ƛ (z) (h z)) (h a)))
+\end{answers}
+The second answer is a flexible term, printed as \scm{(@ α 'a)}; once $F$ is bound (third line) the same
+term is a β-redex and its value is \scm{(h a)}.
+
+\subsection{Scheme lists versus λ-tree application}
+
+The object language of the book's programs is written with Scheme lists, as \micro{} always did:
+$\mathtt{abs}\ M$ is \scm{`(abs ,M)}, $\mathtt{app}\ M\ N$ is \scm{`(app ,M ,N)}, with $M$ a meta-level
+abstraction for a binder. The λ-tree application \scm{(@ 'g 'a)} and the list \scm{'(g a)} are distinct terms
+and never unify:
+\begin{scheme}
+(°->list #f (fresh° (q) (=° (@ 'g 'a) '(g a))))
+\end{scheme}
+\begin{answers}
+  => ()
+\end{answers}
+This is deliberate. One of the three prototypes identified the two (a spine notation for lists) and lost
+commutativity of conjunction: with η, the same pair of goals gave different answers in the two orders. Keeping
+lists as data and \scm{@} as the only application keeps \micro's first-order unification untouched for lists,
+and confines the higher-order rules to terms that contain a λ-record.
+
+\begin{pitfall}[What is and is not an η-redex]
+η-contraction applies to λ-tree applications only. \scm{(ƛ (x) (@ 'g x))} \emph{is} \texttt{g}, but
+\scm{(ƛ (x) `(g ,x))} is an abstraction over a two-element list, and stays one. The module is untyped, so it
+cannot η-\emph{expand} a term against its type: η-expansion happens only on demand, when one side of an
+equation is an abstraction (rule \rulename{η} below), as in Miller's untyped treatment
+\cite[§9.3]{Miller1991}. A rigid list such as \scm{'(g a)} therefore equals an abstraction only when the
+abstraction's body equals the λ-tree application \scm{(@ '(g a) x)} of the list to the bound variable (and
+\scm{ƛ} already builds such an η-redex as the list itself); never when the body is a list such as
+\scm{`(g a ,x)}.
+\end{pitfall}
+
+% ------------------------------------------------------------------------------------------------
+\section{The extension's state}\label{sec:module-state}
+
+\subsection{The record in \texorpdfstring{\texttt{X}}{X}}
+
+The protocol gives \micro's state a seventh slot \texttt{X} that micro copies but never reads
+(\cref{ch:design}). The module keeps one record in it:
+\begin{scheme}
+(define-record μkanren-hh depth top L Ln Γ E N)
+(define μkanren-hh0 (make-μkanren-hh 0 0 empty/sbral 0 '() '() '()))
+(define (μkanren-hh s) (let1 (x (μkanren-state-X s)) (if (null? x) μkanren-hh0 x)))
+\end{scheme}
+\texttt{X} = \scm{'()}, the value in \scm{μkanren-state-empty}, reads as \enquote{everything empty}, so the
+initial state of every runner works unchanged.
+
+\begin{definition}[The λ state]\label{def:module-state}
+The record $\langle d,\ \mathit{top},\ L,\ L_n,\ \Gamma,\ E,\ N\rangle$ holds:
+\begin{description}[style=nextline,leftmargin=2.2em]
+  \item[$d$ (\texttt{depth})] the current universe level, raised by \scm{∀°} for the extent of its body;
+  \item[$\mathit{top}$] the highest level reached so far in this branch;
+  \item[$L,\,L_n$] the levels of the logic variables: $L$ is a skew-binary random-access list (\aux's
+    \texttt{sbral}) indexed like the substitution $S$, holding the levels of the variables with index
+    $<L_n$. The level of variable $i$ is
+    \[
+      \ell(i) \;=\; \begin{cases} 0 & i<0 \text{ (a reified variable)}\\
+                                   L[L_n-1-i] & 0\le i<L_n\\
+                                   d & i \ge L_n \end{cases}
+    \]
+    so a variable created since $L$ was last extended has the current depth. $L$ is padded with $d$ exactly
+    when the depth changes and whenever the unifier creates a variable of another level; lookup is
+    $O(\log n)$;
+  \item[$\Gamma$] the assumed clauses: an alist from a relation to its clauses, most recent first, one entry
+    per distinct relation;
+  \item[$E$] the suspended constraints: equations \scm{(= u v)} outside $\Llam$ (or bindings whose scope check
+    a non-pattern decides), types \scm{(tag tag u)} on flexible terms, and absentos \scm{(absent d u)} whose
+    datum outlived its eigenvariable's scope;
+  \item[$N$] the disequalities that involve λ-terms or eigenvariables, as \scm{(reading u . v)}. micro's D never
+    holds one (\cref{sec:module-stores}).
+\end{description}
+\end{definition}
+
+Levels are the module's whole account of quantifier order. A logic variable created at depth $d$ stands for
+an $\exists$ placed after the first $d$ universals of its branch; an eigenvariable created by the $(d{+}1)$-th
+\scm{∀°} has level $d+1$. The binding conditions of Nadathur, Jayaraman and Kwon \cite{NadathurJayaramanKwon1995}
+(\cref{def:rules-binding,def:lkanren-ui}) are then stated on levels: a variable of level $\ell$ may be bound
+only to a term whose eigenvariables have level $\le\ell$, and the variables of level $>\ell$ in that term are
+\emph{lowered} to $\ell$.
+
+\subsection{Copied, never mutated}
+
+The record is immutable. Every change builds a new one with \scm{μkanren-hh-with}, a keyword-argument copy, and
+installs it with \scm{(μkanren-state-with s X: x)}. Since a state is a value and \scm{or°} gives each branch the
+state it was given, two branches can never see each other's depth, Γ or suspended constraints. What needs
+care is the \emph{end} of a scope: \scm{∀°} and \scm{⊃°} change the record for their body only, and each
+answer of the body must give the change back. Both do so on every answer state (\cref{sec:module-hh}). The
+following probe shows depth and levels through two nested \scm{∀°}:
+\begin{scheme}
+(define ((probe label . vars) s)
+  (display label) (display ": depth ") (display (μkanren-λ-depth s))
+  (display ", levels ") (write (map (λ (v) (μkanren-λ-level v s)) vars))
+  (display ", E ") (write (μkanren-λ-delayed s))
+  (display ", N ") (write (μkanren-λ-disequalities s)) (newline)
+  (✓° s))
+(°->list #f
+  (fresh° (q)
+    (probe "start" q)
+    (∀° (x)
+      (fresh° (Y)
+        (probe "inside ∀x" q Y)
+        (∀° (z) (fresh° (W) (probe "inside ∀x∀z" q Y W)))
+        (probe "back in ∀x" q Y)
+        (=° (@ q x) (@ Y x x))
+        (probe "after q x = Y x x" q Y)))
+    (probe "after ∀x" q)))
+(°->list #f (fresh° (q) (or° (∀° (x) (probe "branch 1" q) (=° q 1))
+                              (and° (probe "branch 2" q) (=° q 2)))))
+\end{scheme}
+\begin{answers}
+start: depth 0, levels (0), E (), N ()
+inside ∀x: depth 1, levels (0 1), E (), N ()
+inside ∀x∀z: depth 2, levels (0 1 2), E (), N ()
+back in ∀x: depth 1, levels (0 1), E (), N ()
+after q x = Y x x: depth 1, levels (0 1), E (), N ()
+after ∀x: depth 0, levels (0), E (), N ()
+((λ (α) (ƛ (x) (@ α x x x))))
+branch 1: depth 1, levels (0), E (), N ()
+branch 2: depth 0, levels (0), E (), N ()
+((λ () 1) (λ () 2))
+\end{answers}
+
+\begin{tutorial}[Reading the probe]
+$q$ is created at depth~0, $Y$ inside \scm{∀° (x)} at depth~1, $W$ at depth~2; after each \scm{∀°} the depth
+is back where it was. Written as a mixed prefix, the goal is $\exists q\,\forall x\,\exists Y\,\forall z\,\exists W$,
+and each level is the number of universals to the left of the quantifier: $q{:}0$, $x{:}1$, $Y{:}1$, $z{:}2$,
+$W{:}2$. The equation $q\,x \doteq Y\,x\,x$ is solved inside the scope, and its answer shows the
+levels at work. $q$ has level~0 and its argument $x$ (level~1) is a pattern for it, so the unifier eliminates
+$q$: $q := \lambda x.\,t'$ where $t'$ is $Y\,x\,x$ with $x$ turned into the bound variable. But $Y$ has
+level~1 and $q$ level~0: $q$'s value may not mention a variable that could see $x$ unless $x$ is passed
+explicitly. $Y\,x\,x$ is no pattern ($x$ is repeated), but both its arguments are $q$'s own argument $x$,
+so none of them has to be dropped. $Y$ is therefore \emph{lowered} and \emph{raised} at once, $Y := \lambda a\,b.\,Y'\,a\,b\,x$ with
+$\ell(Y')=0$, and $q := \lambda x.\,Y'\,x\,x\,x$. The answer \scm{(ƛ (x) (@ α x x x))} is that binding; the
+rules responsible are \rulename{FR} and case~(6c) of variable elimination, \cref{def:module-elim}. The last
+two lines show the branches: \scm{∀°} raised the depth in branch~1 only.
+\end{tutorial}
+
+The module's hooks keep the two protocol invariants of \cref{def:design-invariants}; in particular, every
+function of the module that may leave the state unchanged is written to return it \scm{eq?}.
+
+% ------------------------------------------------------------------------------------------------
+\section{Unification}\label{sec:module-unif}
+
+\subsection{Where the rules run}
+
+\micro's unifier \scm{μkanren-state-unify} still does all first-order work: variables, pairs, vectors, foreign
+records and atoms. Through the protocol's \texttt{unify} hook it hands any pair with a walked λ-record on one
+side, neither side a variable, to \scm{μkanren-λ-unify}, which applies the rules of \cref{fig:module-rules}.
+The rules call back into \scm{μkanren-state-unify} for subterms, so the two unifiers interleave freely. After
+\scm{=°} has made its bindings, the \texttt{post} hook \scm{μkanren-λ-post} runs before micro verifies D, A
+and T:
+\begin{enumerate}
+  \item \emph{settle}: the scope check \textbf{Check} of every new binding, then the wake-up of $E$, in rounds
+    while a round binds (\cref{sec:module-wake});
+  \item \emph{migrate}: the prefixes of D that now hold a λ-term or an eigenvariable move to N, and the types of
+    A on variables just bound to λ-terms move to the \texttt{tag} hook (\cref{sec:module-stores});
+  \item \emph{verify N}: every λ-disequality is tried again.
+\end{enumerate}
+
+\subsection{Notation}
+
+Write $\ell(X)$ for the level of a logic variable and $\ell(c)$ for that of an eigenvariable; the names the
+unifier opens under binders have $\ell(c)=\infty$. A \emph{name} is an eigenvariable or, inside variable
+elimination, a bound variable of the term being walked.
+\begin{definition}[Pattern, read off levels]\label{def:module-pattern}
+A list of arguments $\bar a = a_1\dots a_n$ is a \emph{pattern for} a variable $F$ if every $\mathrm{hnf}(a_i)$
+is an eigenvariable, the $a_i$ are pairwise distinct, and $\ell(a_i) > \ell(F)$ for every $i$
+(\scm{μkanren-pattern?}). A flexible term $F\,\bar a$ is a pattern when $\bar a$ is a pattern for $F$.
+\end{definition}
+For example, inside \scm{(∀° (x y) ...)} with $\ell(F)=0$, $\ell(x)=1$, $\ell(y)=2$, the lists $\langle x,y\rangle$
+and $\langle y\rangle$ are patterns for $F$, while $\langle x,x\rangle$ (repeated), $\langle \mathtt{a}\rangle$ (a
+constant) and $\langle Y\rangle$ (a variable) are not. The same definition, with a bound variable of the
+term being walked counted as an eigenvariable of level $\infty$, is used inside variable elimination (case (6b)
+below).
+This is Miller's $\Llam$ condition (\cref{def:hounif-llambda}): the arguments are distinct variables
+\enquote{quantified inside the scope of $F$}. With a prefix, \enquote{inside the scope} means \enquote{to the
+right of $F$}; with levels it means \enquote{of a level above $F$'s}, which is how Nadathur and Linnell read the
+condition without a prefix \cite[§4]{NadathurLinnell2005}. An eigenvariable $F$ could already see is not a
+pattern argument: in $\forall x\,\exists F.\ F\,x = \dots$ the term $F\,x$ is no pattern, since $F$ may use
+$x$ directly and the equation has several incomparable solutions.
+
+Throughout, $\lambda.b$ is an abstraction with body $b$, $b[c/0]$ its body with \#0 instantiated to $c$,
+$h\,\bar u$ an application, and $F,G,H,X,Y$ logic variables. Both sides are put in hnf before a rule is
+chosen.
+
+\subsection{The rules}
+
+The rules of \cref{fig:module-rules} are transformations, read top-down as in \cref{fig:rules-fo,fig:rules-pattern}: the equation above the
+line is replaced by the equations, bindings or suspension below it. They are the rules of \cref{fig:rules-pattern}
+with the prefix erased into levels; \cref{sec:hounif-algo} gives the same rules under other names, recalled
+in parentheses. \rulename{ξ} is \rulename{abs} (\rulename{Abs}), \rulename{η} is \rulename{eta}
+(\rulename{Eta}), \rulename{Rigid} is \rulename{rr-dec} and \rulename{rr-clash} (\rulename{Dec} and
+\rulename{Clash}), \rulename{FF-same} is \rulename{ff-same} (the same-head case of \rulename{FlexFlex}),
+\rulename{Delay} is \rulename{delay}. \rulename{FR} covers \rulename{elim} (\rulename{Elim}) with its pruning,
+\rulename{occurs} and \rulename{scope}, and also \rulename{ff-diff} (\rulename{FlexFlex} with distinct heads): instead of binding both heads to a new $H$,
+it eliminates $F$ and prunes $G$ only where needed, which gives the same mgu up to the name of $H$
+(\cref{ex:module-ff}). \rulename{Var} and \rulename{Occurs} are \rulename{elim} and \rulename{occurs} for a
+variable with no arguments, a case that micro's first-order unifier meets first, and they are where the
+eager scope check, \textbf{Check}, enters; \rulename{FF-one} orients a flexible–flexible pair as
+\rulename{swap} orients a flexible–rigid one.
+
+\begin{figure}[!htb]
+\begin{mathpar}
+\inferrule{X \doteq t}{X := t\ \ \text{(micro, occurs check)}\quad\textbf{Check}(X := t)}\;\rulename{Var}
+\and
+\inferrule{\lambda.b \doteq \lambda.b'}{b[c/0] \doteq b'[c/0]\quad \textbf{Check}\ \text{its bindings}}\;\rulename{ξ}
+\and
+\inferrule{\lambda.b \doteq t}{b[c/0] \doteq t\;@\;c\quad \textbf{Check}\ \text{its bindings}}\;\rulename{η}
+\\
+\inferrule{h\,\bar u \doteq h'\,\bar v}{h \doteq h' \quad \bar u \doteq \bar v}\;\rulename{Rigid}
+\and
+\inferrule{F\,\bar a \doteq F\,\bar b}{F := \lambda\bar x.\,H\,\langle x_i \mid a_i = b_i\rangle}\;\rulename{FF-same}
+\\
+\inferrule{F\,\bar a \doteq t}{F := \lambda\bar x.\,t'\qquad t' = \mathrm{Elim}(\ell(F),F,\bar a,t)}\;\rulename{FR}
+\and
+\inferrule{F\,\bar a \doteq G\,\bar b}{G\,\bar b \doteq F\,\bar a\ \ \text{by \rulename{FR}}}\;\rulename{FF-one}
+\\
+\inferrule{u \doteq v}{E := E \cup \{\lambda L.\,u \doteq \lambda L.\,v\}}\;\rulename{Delay}
+\and
+\inferrule{X \doteq t \\ X \text{ occurs in } t}{\top\ \text{if } \mathrm{hnf}(t)=X;\ \text{else } X := \mathrm{Elim}(\ell(X),X,\langle\rangle,t)}\;\rulename{Occurs}
+\end{mathpar}
+\caption{The unification rules of \texttt{μkanren-λ-unify}, applied after hnf of both sides; above the line
+the equation, below what is done with it. In \rulename{ξ} and \rulename{η}, $c$ is a new eigenvariable of level
+$\infty$. In \rulename{FF-same} and \rulename{FR}, $\bar x$ are new binders, one per argument $a_i$, and Elim
+replaces each $a_i$ in $t$ by the bound variable of $x_i$. Variable elimination, Elim, is
+\cref{def:module-elim}; \textbf{Check} is \cref{def:module-check}. Each rule may also answer $\bot$ or suspend,
+as its side conditions say.}\label{fig:module-rules}
+\end{figure}
+
+The side conditions, in the order the code tests them (\scm{μkanren-λ-unify} and the functions it calls):
+\begin{description}[style=nextline,leftmargin=5.6em]
+  \item[\rulename{Var}] One side is an unbound variable. micro binds it, with its occurs check; the scope check
+    \textbf{Check} runs afterwards, in the \texttt{post} hook. Variable–variable pairs are micro's as well.
+  \item[\rulename{ξ}] Both sides are abstractions. $c$ is a new eigenvariable of level $\infty$, so no variable
+    can capture it except through its own pattern arguments. Because $c$ is local to this very unification,
+    the bindings made under it are checked at once (\scm{μkanren-scoped}), not at the end of \scm{=°}.
+  \item[\rulename{η}] One side is an abstraction and the other is not. The other side is applied to the new
+    $c$. This is the only η-expansion the module performs.
+  \item[\rulename{Rigid}] Both sides are rigid applications with the same number of arguments: heads and
+    argument lists are unified by micro. Two eigenvariables unify iff they are the same (\scm{eq?} ids), two
+    bound variables iff their indices agree. Any other pair with a λ-term on one side fails: different rigid
+    heads, different arities (untyped), a λ-record against a pair or an atom.
+  \item[\rulename{FF-same}] Same head on both sides, both argument lists patterns. Equal lists: success with
+    no binding. Different lengths: $\bot$. Otherwise $F$ keeps the positions where the arguments agree, with a
+    new $H$ of level $\ell(F)$ \book{222}. If $\bar b$ is no pattern, \rulename{Delay}.
+  \item[\rulename{FR}] One side is a pattern $F\,\bar a$; the other side $t$ is rigid, or flexible with another
+    head (\enquote{FF-diff}: variable elimination prunes $G$ as needed \book{222}). If Elim fails the rule
+    fails; if Elim suspends, \rulename{Delay}. The binding $\lambda\bar x.\,t'$ is built η-short, its binders
+    named after the eigenvariables $\bar a$.
+  \item[\rulename{FF-one}] Two flexible terms, only the right one a pattern: \rulename{FR} on $G$.
+  \item[\rulename{Delay}] No side is a usable pattern. The equation is pushed on $E$, closed over the names $L$
+    that the unifier had opened so far ($\lambda L.u \doteq \lambda L.v$, so no $\infty$-level name escapes the
+    unification that created it), \emph{unless} $u$ and $v$ are already α-equal, in which case it is dropped.
+  \item[\rulename{Occurs}] Not a rule of \scm{μkanren-λ-unify} but of the protocol's \texttt{occurs} hook: micro's
+    occurs check failed on $X := t$ and $t$ holds a λ-term. If $\mathrm{hnf}(t)$ is $X$ itself the equation
+    holds ($q = F\,q$ with $F := \lambda z.z$); otherwise $X$ is eliminated with no arguments, which may fail,
+    succeed, or suspend ($F = \lambda x.\,G\,(F\,x)$ holds with $G := \lambda z.z$). A first-order cycle,
+    $X = f\,X$, holds no λ-term and fails in micro as before.
+\end{description}
+
+\subsection{Variable elimination}
+
+\rulename{FR} is the book's variable elimination \book{223} (\cref{def:hounif-elim}) with levels in place of the
+prefix. It walks the right-hand side once and builds the body of $F$'s binding, pruning, lowering and raising the
+variables it meets on the way. Compared with \cref{def:hounif-elim}, three things are added: \emph{lowering}
+with delayed raising (case~(4)), where \cref{def:hounif-elim} assumes a prefix already raised into
+$\forall\exists$ form (the eager raising of \cref{ex:hounif-8k}); the treatment of \emph{non-patterns} inside the right-hand side (cases (6c) and (7)), which the book never meets since
+it stays in $\Llam$; and a finer \emph{occurs} test (case (6a)), since an occurrence of $F$ is fatal only when no
+instance can make it smaller. The contexts below exist to decide these three cases.
+
+\begin{definition}[Variable elimination]\label{def:module-elim}
+$\mathrm{Elim}(\ell, F, \bar a, t)$, with $\bar a$ a pattern for $F$ and $\ell=\ell(F)$ (or $F$ absent and
+$\bar a$ empty, for \textbf{Check}), walks $\mathrm{hnf}(t)$ at a local depth $k$ (the binders crossed inside
+$t$) and in a \emph{context}: \emph{strict} (\texttt{top}: below binders only; \texttt{rigid}: below a first rigid
+constructor that is an application headed by a bound variable or by an $a_i$; \texttt{firm}: below a first rigid
+constructor that is a constant, an eigenvariable not in $\bar a$, a pair, a vector or a record, a root no instance
+of $F$ can project onto) or \emph{soft} (inside an argument of a flexible term that is no pattern, or
+\texttt{weak}: below a flexible head inside such an argument). It answers a term $t'$ with new bindings,
+$\bot$, or \emph{suspend}. By cases on the walked subterm:
+\begin{enumerate}[label=(\arabic*)]
+  \item \emph{Eigenvariable $c$}: if $c = a_i$, the bound variable of $a_i$; else if $\ell(c)\le\ell$, $c$
+    itself; else $\bot$ (scope failure, \cref{ex:hounif-8j}). In a weak context the last case is trouble, not
+    $\bot$.
+  \item \emph{Bound variable}: itself.
+  \item \emph{Abstraction} $\lambda.b$: $\lambda.\mathrm{Elim}(b)$ at depth $k+1$.
+  \item \emph{Unbound variable $Y$}: if $Y=F$, $\bot$ when $\bar a$ is empty (the first-order occurs check) and
+    suspend otherwise; if $\ell(Y)\le\ell$, $Y$; in a soft context, trouble; otherwise \emph{lower and raise}:
+    $Y := Y'\,\bar a_Y$ with $\ell(Y')=\ell$ and $\bar a_Y = \langle a_i \mid \ell(a_i)\le\ell(Y)\rangle$, the
+    arguments of $F$ that $Y$ could see; the result is $Y'$ applied to their bound variables
+    (\enquote{delayed raising}, \cref{ex:hounif-8k}).
+  \item \emph{Rigid application, pair, vector, record}: homomorphic. A \texttt{top} context becomes
+    \texttt{rigid} below an application whose head is a bound variable or in $\bar a$, and \texttt{firm} below
+    any other head, a pair, a vector or a record; any other context is passed on unchanged.
+  \item \emph{Flexible $G\,\bar b$ in a strict context}:
+    \begin{enumerate}[label=(\alph*)]
+      \item if $G=F$: $\bot$ (occurs failure) when the context is not \texttt{top}, no $b_j$ is
+        \emph{functional} (an abstraction, a variable or a flexible term, which may become an abstraction), and
+        either the context is \texttt{firm} or $|\bar b| = |\bar a| + k_{\mathrm{top}}$, with $k_{\mathrm{top}}$
+        the binders on top of $t$; otherwise suspend;
+      \item if $\bar b$ is a pattern for $G$ (each $b_j$ a local bound variable or an eigenvariable of level
+        $>\ell(G)$, pairwise distinct): keep $b_j$ iff it is local, or in $\bar a$, or $\ell(b_j)\le\ell$; let
+        $\mathit{extra}=\langle a_i \mid \ell(a_i)\le\ell(G)\rangle$ if $\ell(G)>\ell$, else empty. If every
+        $b_j$ is kept, $\mathit{extra}$ is empty and $\ell(G)\le\ell$, $G\,\bar b$ is unchanged. Otherwise
+        \emph{prune}: $G := \lambda\bar y.\,G'\,\bar y|_{\mathit{keep}}\,\mathit{extra}$ with
+        $\ell(G')=\min(\ell,\ell(G))$, and the result is $G'$ applied to the images of the kept arguments and of
+        $\mathit{extra}$ (\cref{ex:hounif-8h});
+      \item if $\bar b$ is no pattern: each $b_j$ is walked on its own in a soft context, binding nothing; it is
+        \emph{kept}, as the walk rebuilt it (its $a_i$ turned into bound variables), if the walk succeeds, \emph{dropped} if it fails by scope on a rigid path (it holds a
+        forbidden eigenvariable that every instance keeps), and any other trouble suspends the whole equation.
+        Then, if nothing was dropped and $G$ needs no lowering, $G\,\bar b$ stays as it is; otherwise, if some
+        $b_j$ is functional, suspend; else prune and lower as in (b).
+    \end{enumerate}
+  \item \emph{Flexible $G\,\bar b$ in a soft context}: $G=F$ or $\ell(G)>\ell$ is trouble; otherwise the
+    arguments are walked in a weak context and kept as they are. Inside an argument, the application of a
+    variable bound inside that argument is treated as flexible too.
+\end{enumerate}
+Inside an argument of a non-pattern, case~(6c) reinterprets every failure: a scope failure of case~(1) in
+a soft, non-weak context drops the argument, and any other $\bot$ or \emph{trouble} suspends the equation.
+\end{definition}
+
+\begin{tutorial}[Reading the contexts]
+The context answers one question about the subterm being walked: \emph{will every instance of the right-hand
+side still contain it?} At \texttt{top} and below rigid constructors (\texttt{rigid}, \texttt{firm}) the answer is
+yes, because no substitution can remove a rigid constructor; so a forbidden eigenvariable there is a definite
+failure, and a variable there can be lowered or pruned without losing solutions. Inside an argument of a
+non-pattern $G\,\bar b$ the answer is \enquote{not necessarily}, since $G$ may become a function that ignores
+that argument; so nothing is bound there and doubts turn into a suspension. \texttt{firm} and \texttt{rigid}
+differ only in the occurs test (6a): below a constant, an eigenvariable outside $\bar a$ or a pair, $F$'s instance
+cannot be a projection, so an inner $F\,\bar b$ with rigid arguments is fatal whatever their number; below a
+bound variable or an $a_i$ at the head, the number matters. The next two tutorials give the reasons in detail.
+\end{tutorial}
+
+\begin{tutorial}[Strict and non-strict occurrences]
+Pruning removes an argument from a variable; lowering makes a variable forget the eigenvariables it could see.
+Both are sound only on \emph{strict} occurrences, those not inside an argument of a flexible term that is no
+pattern (Dowek, Hardin, Kirchner and Pfenning \cite{DowekHardinKirchnerPfenning1996}). The reason is that
+the flexible head $G$ may later turn out to drop that argument. Take
+$\exists q\,\exists G\,\forall y\,\exists Y.\ q = G\,Y \wedge Y = y \wedge G = \lambda a.\,k$: it has the solution
+$q=k$. If elimination of $q$ lowered $Y$ inside the argument of $G\,Y$, the later $Y=y$ would fail by scope
+and the answer would be lost in that goal order, which breaks the commutativity of conjunction. So nothing is
+bound inside such an argument: a variable to lower (case~(4)) or a flexible term to prune (case~(7)) is trouble
+there, and trouble suspends the equation. The exception of case
+(6c) is the one pruning that \emph{is} strict: an argument that holds, on a rigid path, an eigenvariable that $F$
+may not see is held by every instance of that argument, so $G$ must drop it. This makes
+$\exists q\,\exists F\,\forall x.\ q = F\,x\,x$ solvable as $F := \lambda a\,b.\,F'$, $q := F'$. Even that
+pruning waits when an argument is, or may become, an abstraction: $G$ could apply it to another argument and
+drop that one (\cref{sec:module-traces} shows $\exists q\,\forall x\,\exists G.\ q = G\,(\lambda w.\,k)\wedge G =
+\lambda y.\,y\,x$, solved in both orders).
+\end{tutorial}
+
+\begin{tutorial}[When an occurrence of $F$ is fatal]
+Case (6a) is Nipkow's size argument \cite{Nipkow1993}: $F\,\bar b$ inside the body of $F\,\bar a$ makes the
+equation unsolvable only if no instance of $F\,\bar b$ can be smaller than the instance of $F\,\bar a$. That
+holds when the $b_j$ are rigid (no substitution makes them reduce) and are as many as $\bar a$ plus the
+binders on top ($F\,\bar a = \lambda\bar y.\,t'$ is $F\,\bar a\,\bar y = t'$ by η), as in
+$F = \lambda x.\,g\,(F\,x)$ and \cref{ex:hounif-8i}. The count does not matter when the root of the body is a
+constant, an eigenvariable not in $\bar a$ or a pair (context \texttt{firm}): no instance $\lambda\bar x.M$ of
+$F$ can then be a projection, so $M$ has that root and $F\,\bar b$ sits strictly inside it. So the η-short
+$F = \lambda x\,y.\,g\,(F\,y)$ fails as Miller and Nipkow fail it. Otherwise the instance may shrink and the
+equation is outside $\Llam$: it is suspended. For instance $\forall x.\ F\,x = x\,(F\,(\lambda z.z))$ holds
+with $F := \lambda a.\,a\,c$, and $\forall x\,\forall y.\ F\,x\,y = x\,(F\,y)$ holds with $F := \lambda w.w$.
+\end{tutorial}
+
+\subsection{The eager scope check}
+
+\begin{definition}[Check]\label{def:module-check}
+For a binding $X := t$ that micro has just made, $\textbf{Check}(X:=t)$ is $\mathrm{Elim}(\ell(X), -,
+\langle\rangle, t)$ with no head to eliminate (\scm{μkanren-enforce}). If it answers $\bot$, \scm{=°} fails.
+If it suspends, the binding is \emph{taken back}: \scm{μkanren-state-forget} unbinds $X$ and the equation
+$X \doteq t$ is pushed on $E$. Otherwise its own bindings (lowerings, prunings) are kept.
+\end{definition}
+\textbf{Check} is NJK's binding rule with its lowering (\cref{def:rules-binding}): \enquote{$t$ contains no
+constant with tag $>i$; change to $i$ the tags of the variables in $t$ whose tag is $>i$}
+\cite[p.\,16]{NadathurJayaramanKwon1995}, extended from variables to flexible terms by pruning. Taking a binding
+back is what Teyjus does with a binding whose check depends on a non-pattern. Its effect is an invariant:
+\begin{proposition}[No captured eigenvariable]\label{prop:module-nocapture}
+After every \scm{=°}, no binding $X := t$ in the substitution has an eigenvariable of level $>\ell(X)$ in the
+value of $t$.
+\end{proposition}
+\noindent\emph{Argument.} Every binding made by micro goes through \textbf{Check} unless the fast paths of
+\cref{sec:module-fast} prove it unnecessary; \textbf{Check} either fails, or rewrites the variables of $t$ so
+that it holds, or unbinds $X$. The bindings that \textbf{Check} itself makes are lowerings and prunings,
+which by construction respect the levels. The remaining gap is host code (\scm{project°} and \scm{set!}),
+discussed in \cref{ch:roadmap}. \hfill\qedsymbol
+
+\subsection{Fast paths}\label{sec:module-fast}
+
+\textbf{Check} on every binding would be costly on first-order search, so three cheap tests come first.
+\begin{itemize}
+  \item \textbf{No \scm{∀°} yet.} While no \scm{∀°} has run, the depth is 0 and $L$ is empty
+    (\scm{μkanren-levels?} is false): every level is 0, no check can fail, none runs.
+  \item \textbf{Plain terms.} \scm{μkanren-plain?} is an allocation-free walk, like micro's occurs check. It
+    accepts $t$ when $t$ holds no eigenvariable or variable of a level above $\ell(X)$ and no application with a
+    variable or abstraction head (which Elim might prune, lower or reduce). Only otherwise does Elim run.
+  \item \textbf{Top-level variables.} A variable of level $\mathit{top}$, the highest level reached, can see
+    every eigenvariable and every variable there is, so its bindings are skipped. The bindings made under
+    \rulename{ξ} or \rulename{η} are checked anyway, by \scm{μkanren-scoped}.
+\end{itemize}
+The protocol's \texttt{atom?} hook belongs here as well: it tells micro's occurs check that an eigenvariable or
+a bound variable holds no variable, so micro does not rebuild it as a slot list. On the type inference of the
+Church numeral 400 these steps took the time from 463~ms to 330~ms (\scm{plain?}), 311~ms (the \texttt{top}
+skip) and 254~ms (\texttt{atom?}).
+
+\begin{pitfall}[The first \texttt{∀°} switches the check on for good]
+The first fast path is about the whole branch, not the current scope: once a \scm{∀°} has run, levels exist
+and every binding below \texttt{top} is checked, even after the \scm{∀°} has exited. First-order search that
+follows a \scm{∀°} pays for it, measured at $+66\%$ on \scm{append°} backwards and $+127\%$ on open
+\scm{append°}. Skipping the check at depth 0 would be unsound against host escapes; the fix planned is one walk
+for micro's occurs check and the scope check together (\cref{ch:roadmap}).
+\end{pitfall}
+
+\subsection{Wake-up and termination}\label{sec:module-wake}
+
+When \scm{=°} binds something and $E$ is not empty, \scm{μkanren-settle} retries every suspended item, oldest
+first (\scm{μkanren-wake}). An item is retried by its kind:
+\begin{itemize}
+  \item an equation $u\doteq v$: if one side is now an unbound variable $X$ and the other no variable, $X$ is
+    bound \emph{only once its check passes} (\scm{μkanren-retry/bind}); otherwise the equation is unified
+    again, which may solve it, fail, or suspend it again;
+  \item a type on a flexible term: decided if the head is now known, else suspended again;
+  \item an absento: decided, kept, or dropped when levels entail it (\cref{sec:module-stores}).
+\end{itemize}
+The new bindings of a round are checked like those of \scm{=°}, and rounds repeat while a round binds. A
+constraint still undecided is suspended again \emph{without} binding anything.
+
+\begin{proposition}[Wake-up terminates]\label{prop:module-wake}
+Suppose every hnf computed during the wake-up terminates. Then the loop of \scm{μkanren-settle} terminates.
+\end{proposition}
+\noindent\emph{Argument} (a sketch, not a mechanised proof). A round that binds nothing ends the loop, so it
+suffices that only finitely many rounds bind. A round that binds does so for good: the only binding ever taken back is the one
+that \textbf{Check} has just examined, and a retried $X \doteq t$ binds $X$ only after its check passed, so the
+retry does not bind and unbind the same variable forever. The variables a round may create come from lowering
+(case~(4)), whose new variable has a strictly smaller level than the one it replaces, and from pruning
+(cases~(6b) and~(6c)), whose new variable either has a strictly smaller level (when $G$ is lowered, possibly with
+\emph{extra} arguments) or the same level and strictly fewer arguments (\rulename{FF-same} likewise creates
+$H$ at the level of $F$ with fewer arguments). So every new variable \emph{replaces} exactly one variable that
+is bound for good, and is below it in the lexicographic order on (level, number of arguments), which is well
+founded. A chain of replacements (a variable, the one that replaces it, the one that replaces that, \dots) is
+therefore finite; with finitely many variables at the start, finitely many variables are ever created, each is
+bound at most once, and only finitely many rounds can bind. This is the decreasing measure the design relies on.
+One point a full proof would have to settle: the number of arguments is that of the occurrence being pruned,
+which an untyped term does not fix once and for all. \hfill\qedsymbol
+
+The hypothesis on hnf is not a formality: \scm{@} gives full β, and on untyped meta-terms full β may diverge
+(\cref{ch:roadmap}). On pattern problems no such reduction happens (every contraction is a $\beta_0$ renaming),
+and the rules are Miller's and Nipkow's algorithm with the prefix erased into levels: it terminates, fails only
+when there is no unifier, and otherwise computes a most general one \cite[Thm~7.1, Prop.~7.3]{Miller1991},
+\cite[Thm~2]{NadathurLinnell2005}. The suite checks the book's mgus verbatim: $U = \lambda x\,y.\,g\,(V'\,y)$ and
+$V = \lambda y\,w.\,V'\,y$ for \cref{ex:hounif-8h}, $U = \lambda x.\,f\,(V'\,x)$ for \cref{ex:hounif-8k}, and
+$G, H := \lambda w.\,T$ for $\lambda x\,\lambda y.\,G\,x = \lambda x\,\lambda y.\,H\,y$ (\cref{ex:hounif-ch4}).
+
+\begin{pitfall}[Suspended is not solved]
+Non-patterns are suspended, never enumerated: there is no Huet search \book{213}. An answer may therefore be
+conditional on residual equations that are jointly unsatisfiable. $F\,a = b$ and $F\,a = c$ ($a$ a constant,
+so no pattern) are both suspended, and the answer is printed with the two residuals; only a binding of $F$
+reveals the conflict:
+\begin{scheme}
+(°->list #f (fresh° (q F) (=° q F) (=° (@ F 'a) 'b) (=° (@ F 'a) 'c)))
+(°->list/datum (fresh° (q F) (=° q F) (=° (@ F 'a) 'b) (=° (@ F 'a) 'c)
+                        (=° F (ƛ (z) 'b))))
+\end{scheme}
+\begin{answers}
+((λ (α) (assert (≐ (@ α 'a) 'b)) (assert (≐ (@ α 'a) 'c)) α))
+()
+\end{answers}
+This is floundering reported, not detected. The residuals are the honest output: they say exactly which
+equations the search did not decide.
+\end{pitfall}
+
+\subsection{Worked traces}\label{sec:module-traces}
+
+Each trace below poses a problem, follows the rules, and ends with the module's actual output. The probe used
+here prints the depth, the levels of the given variables and $E$:
+\begin{scheme}
+(define ((probe label . vars) s)
+  (display label) (display ": depth ") (display (μkanren-λ-depth s))
+  (display ", levels ") (write (map (λ (v) (μkanren-λ-level v s)) vars))
+  (display ", E ") (write (μkanren-λ-delayed s)) (newline)
+  (✓° s))
+\end{scheme}
+
+\begin{example}[Warm-up: flexible–rigid, and \rulename{ξ}]\label{ex:module-warmup}
+Two equations that touch no pruning or lowering: $\exists q\,\forall x\,\forall y.\ q\,x\,y = g\,y\,x$, and
+$\exists q.\ \lambda x.\,(g\ x) = \lambda y.\,(g\ (q\,y))$, where both $(g\ \dots)$ are Scheme lists.
+\begin{scheme}
+(°->list/datum (fresh° (q) (∀° (x y) (=° (@ q x y) `(g ,y ,x)))))
+(°->list/datum (fresh° (q) (=° (ƛ (x) `(g ,x)) (ƛ (y) `(g ,(@ q y))))))
+\end{scheme}
+\begin{answers}
+((ƛ (x y) (g y x)))
+((ƛ (x) x))
+\end{answers}
+\emph{Trace of the first.} $\ell(q)=0$, $\ell(x)=1$, $\ell(y)=2$. The left side is flexible and $\langle x,y\rangle$
+is a pattern for $q$; the right side is the list \scm{(g y x)}, rigid: \rulename{FR}. Elim walks the list in
+context \texttt{firm}: \scm{g} is an atom and stays; $y$ is $a_2$ and becomes the bound variable of the second
+binder; $x$ is $a_1$ and becomes that of the first (case~(1)). Nothing was bound on the way, and
+$q := \lambda x\,y.\,(g\ y\ x)$, the binders named after the eigenvariables.
+
+\emph{Trace of the second.} Both sides are abstractions: \rulename{ξ} opens them with one new eigenvariable $c$
+of level $\infty$ (hint \texttt{x}), leaving \scm{(g c)} $\doteq$ \scm{(g (@ q c))}. These are lists, so micro
+decomposes them and hands $c \doteq q\,c$ back to the hook. $\langle c\rangle$ is a pattern for $q$
+($\infty > 0$), and Elim turns $c$ into the bound variable: $q := \lambda x.\,x$, a projection. The binding
+was made under \rulename{ξ}, so \scm{μkanren-scoped} checks it at once; it holds no eigenvariable and passes.
+\end{example}
+
+\begin{example}[Pruning: problem 8.H \book{223--224}, \cref{ex:hounif-8h}]\label{ex:module-8h}
+The problem (\cref{ex:hounif-8h}) is
+\[
+  \exists U\,\exists V\,\forall w\,\forall x\,\forall y.\ f\,(U\,x\,y) = f\,(g\,(V\,y\,w)).
+\]
+\begin{scheme}
+(°->list/datum (fresh° (q u v) (=° q (list u v))
+  (∀° (w x y) (probe "before" u v)
+              (=° `(f ,(@ u x y)) `(f (g ,(@ v y w))))
+              (probe "after" u v))))
+\end{scheme}
+\begin{answers}
+before: depth 3, levels (0 0), E ()
+after: depth 3, levels (0 0), E ()
+(((ƛ (x y) (g (@ α y))) (ƛ (y w) (@ α y))))
+\end{answers}
+\emph{Trace.} $U$, $V$ have level 0 and $w,x,y$ levels 1, 2, 3. Both sides are lists, so micro decomposes
+them: \scm{f} against \scm{f}, then $U\,x\,y \doteq g\,(V\,y\,w)$ with a λ-record on the left, handed to the
+hook. The left side is a pattern ($x$, $y$ distinct, levels $2,3>0$) and the right is rigid: \rulename{FR},
+$\mathrm{Elim}(0, U, \langle x,y\rangle, g\,(V\,y\,w))$. The root is the list \scm{(g ...)}: case (5),
+context \texttt{firm}. Inside, $V\,y\,w$ is flexible with a pattern for $V$ (levels $3,1>0$): case~(6b). Keep $y$
+(it is in $\bar a$, it becomes the bound variable of $y$); drop $w$ (not local, not in $\bar a$, and
+$\ell(w)=1>0$); $\mathit{extra}$ is empty since $\ell(V)=0$ is not above $\ell=0$. Something was dropped, so
+prune: $V := \lambda y\,w.\,V'\,y$, $\ell(V')=0$, and the body of $U$ is $g\,(V'\,y)$. Finally
+$U := \lambda x\,y.\,g\,(V'\,y)$. Both are the book's mgu, with \texttt{α} for $V'$. The binders of $V$ are
+named after the eigenvariables $y$, $w$ it was applied to.
+\end{example}
+
+\begin{example}[Flexible–flexible]\label{ex:module-ff}
+Different heads, $\forall x\,\forall y.\ F\,x\,y = G\,y\,x$, and the same head, $\forall x\,\forall y.\ F\,x\,y =
+F\,y\,x$:
+\begin{scheme}
+(°->list #f (fresh° (q f g) (=° q (list f g)) (∀° (x y) (=° (@ f x y) (@ g y x)))))
+(°->list #f (fresh° (q) (∀° (x y) (=° (@ q x y) (@ q y x)))))
+\end{scheme}
+\begin{answers}
+((λ (α) (cons (ƛ (x y) (@ α y x)) (cons α '()))))
+((λ (α) (ƛ (x y) α)))
+\end{answers}
+\emph{Trace.} In the first, both sides are patterns with different heads: \rulename{FR} on $F$. In Elim, $G\,y\,x$
+is case (6b) with both arguments in $\bar a$, kept; $\ell(G)=0$ is not above $\ell(F)=0$, so nothing is
+pruned or lowered and $G$ stays unbound: $F := \lambda x\,y.\,G\,y\,x$. That is the book's mgu for different
+heads \book{222} with the common variables listed as $y,x$: $F := \lambda x\,\lambda y.\,H\,y\,x$ and
+$G := \lambda y\,\lambda x.\,H\,y\,x$, which is $H$ by η, up to the name of $H$. In the second, \rulename{FF-same}: the
+positions where $x\,y$ and $y\,x$ agree are none, so $F := \lambda x\,y.\,H$ with $H$ new.
+\end{example}
+
+\begin{example}[A non-pattern, suspended and woken]\label{ex:module-nonpattern}
+$\exists F\,\forall x.\ F\,(g\,x) = h\,(g\,x)$ is not in $\Llam$: the argument $g\,x$ is not an eigenvariable. It
+has two solutions, $F := \lambda z.\,h\,z$ and $F := \lambda z.\,h\,(g\,x)$, but the second is illegal here
+because $F$ is quantified outside $x$. The module neither guesses nor fails:
+\begin{scheme}
+(°->list #f (fresh° (q) (∀° (x) (=° (@ q `(g ,x)) `(h (g ,x))) (probe "inside" q))
+                        (probe "after ∀" q)))
+(°->list/datum (fresh° (q) (∀° (x) (=° (@ q `(g ,x)) `(h (g ,x))))
+                           (probe "before F :=" q)
+                           (=° q (ƛ (z) `(h ,z)))
+                           (probe "after F :=" q)))
+(°->list/datum (fresh° (q) (∀° (x) (=° (@ q `(g ,x)) `(h (g ,x))))
+                           (=° q (ƛ (z) 'k))))
+(°->list/datum (fresh° (q) (=° q (ƛ (z) `(h ,z)))
+                           (∀° (x) (=° (@ q `(g ,x)) `(h (g ,x))))))
+\end{scheme}
+\begin{answers}
+inside: depth 1, levels (0), E ((= (@ _0 (g (eigen x))) (h (g (eigen x)))))
+after ∀: depth 0, levels (0), E ((= (ƛ (x) (@ _0 (g x))) (ƛ (x) (h (g x)))))
+((λ (α)
+    (assert
+      (≐ (ƛ (x) (@ α (cons 'g (cons x '()))))
+         (ƛ (x) (cons 'h (cons (cons 'g (cons x '())) '())))))
+    α))
+before F :=: depth 0, levels (0), E ((= (ƛ (x) (@ _0 (g x))) (ƛ (x) (h (g x)))))
+after F :=: depth 0, levels (0), E ()
+((ƛ (z) (h z)))
+()
+((ƛ (z) (h z)))
+\end{answers}
+\emph{Trace.} Inside the scope the left side is flexible but no pattern and the right is rigid:
+\rulename{Delay}, and $E$ holds the equation, with the eigenvariable $x$ in it. At the exit of \scm{∀° (x)}
+the equation mentions $x$, so it is \emph{discharged} (\cref{sec:module-discharge}): no variable in it has a
+level $\ge\ell(x)=1$, so nothing is raised, and the equation is closed into
+$\lambda x.\,F\,(g\,x) \doteq \lambda x.\,h\,(g\,x)$, equivalent by \rulename{ξ}. It is retried at once, opens
+$x$ again as an $\infty$-level name, is still no pattern, and is suspended again. The run ends with it, and
+the answer carries it as a residual \scm{(assert (≐ ...))}. In the second run the binding $F := \lambda z.\,h\,z$
+wakes it: \rulename{ξ}, then β turns the left side into $h\,(g\,c)$, which equals the right side, and $E$ is
+empty. In the third run $F := \lambda z.\,k$ makes the retry compare $k$ with $h\,(g\,c)$: a clash, so \scm{=°}
+fails and there is no answer. In the fourth run the binding comes first and the equation is a plain β-redex,
+solved with no suspension. The answer is the same in both goal orders.
+\end{example}
+
+\begin{example}[A binding taken back]\label{ex:module-forget}
+$\exists q\,\exists G\,\exists H\,\forall y.\ q = G\,(H\,y)$. micro binds $q := G\,(H\,y)$ at once, as
+\rulename{Var}. \textbf{Check} at level $\ell(q)=0$ then meets $G\,(H\,y)$, a flexible term whose argument
+$H\,y$ is no eigenvariable: case (6c), walking $H\,y$ in a soft context. There $y$ (level 1, not allowed for a
+level-0 variable) sits below the flexible head $H$, a weak context: trouble, not $\bot$, since $H$ may drop
+$y$, and $G$ may drop all of $H\,y$. So the check suspends, the binding is taken back, and $q \doteq G\,(H\,y)$
+waits in $E$:
+\begin{scheme}
+(°->list #f (fresh° (q G H) (∀° (y) (=° q (@ G (@ H y))) (probe "inside" q G H))))
+(°->list/datum (fresh° (q G H) (∀° (y) (=° q (@ G (@ H y)))) (=° G (ƛ (a) 'k))))
+\end{scheme}
+\begin{answers}
+inside: depth 1, levels (0 0 0), E ((= _0 (@ _1 (@ _2 (eigen y)))))
+((λ (α β γ) (assert (≐ (ƛ (y) α) (ƛ (y) (@ β (@ γ y))))) α))
+(k)
+\end{answers}
+At the exit of the scope the equation is closed over $y$ and reported, $q$ unbound, which is all one can say.
+With $G := \lambda a.\,k$ the retry binds $q := k$, a plain term, and the residual is gone. The same happens in
+every order of the goals.
+\end{example}
+
+\begin{example}[Occurs and scope failures, and a soft occurrence]\label{ex:module-occurs}
+\begin{scheme}
+(°->list #f (fresh° (q) (=° q `(f ,q))))                              ; X = f X
+(°->list #f (fresh° (q) (∀° (w x y) (=° (@ q x y) `(g ,(@ q y w))))))  ; 8.I
+(°->list #f (fresh° (q) (∀° (w x y) (=° (@ q x y) `(g ,w)))))          ; 8.J
+(°->list #f (fresh° (F) (=° F (ƛ (x) `(g ,(@ F x))))))         ; F = λx.g (F x)
+(°->list #f (fresh° (q F G) (=° q (list F G))
+              (∀° (x) (=° (@ F x) (@ G (@ F x))))))
+\end{scheme}
+\begin{answers}
+()
+()
+()
+()
+((λ (α β) (assert (≐ α (ƛ (x) (@ β (@ α x))))) (cons α (cons β '()))))
+\end{answers}
+The first is micro's occurs check, unchanged. In 8.I, $U\,y\,w$ occurs below the list \scm{(g ...)}, a
+\texttt{firm} context, and its arguments are rigid: case (6a), $\bot$ (\cref{ex:hounif-8i}); it also has as
+many arguments as $U\,x\,y$, so the count alone would fail it. In 8.J, $w$ has level~1, is not
+an argument of $U$, and $U$ has level~0: case (1), $\bot$ by scope (\cref{ex:hounif-8j}). The fourth fails
+micro's occurs check, the \texttt{occurs} hook passes it to Elim with no arguments, and $F\,x$ below \scm{g}
+is case (6a) again. The last is the \emph{soft} occurs check: $F\,x$ occurs inside the argument of $G$, which may
+be $\lambda z.z$, so the equation is suspended (and is closed over $x$ at the exit of the scope) instead of
+failing.
+\end{example}
+
+\begin{example}[An argument that may be an abstraction]\label{ex:module-functional}
+$\exists q\,\forall x\,\exists G.\ q = G\,(\lambda w.\,k) \wedge G = \lambda y.\,y\,x$ in both orders:
+\begin{scheme}
+(°->list/datum (fresh° (q) (∀° (x) (fresh° (G) (=° q (@ G (ƛ (w) 'k)))
+                                               (=° G (ƛ (y) (@ y x)))))))
+(°->list/datum (fresh° (q) (∀° (x) (fresh° (G) (=° G (ƛ (y) (@ y x)))
+                                               (=° q (@ G (ƛ (w) 'k)))))))
+\end{scheme}
+\begin{answers}
+(k)
+(k)
+\end{answers}
+In the first order, \textbf{Check} of $q := G\,(\lambda w.k)$ at level 0 finds $G$ of level 1, which must be
+lowered; but its argument is an abstraction that $G$ may apply to $x$ and so drop $G$'s own $x$. Lowering $G$
+would not be strict, so case (6c) suspends. Then $G := \lambda y.\,y\,x$ wakes the equation, β gives
+$(\lambda w.k)\,x = k$, and $q := k$. In the other order β happens at once. A version that lowered $G$ here
+lost the answer in the first order (third adversarial review).
+\end{example}
+
+% ------------------------------------------------------------------------------------------------
+\section{\texorpdfstring{\texttt{∀°}}{∀°} and \texorpdfstring{\texttt{⊃°}}{⊃°}}\label{sec:module-hh}
+
+The book's goal-directed search for hereditary Harrop formulas consists of the rules \rulename{and}, \rulename{or}, \rulename{instan},
+\rulename{generic}, \rulename{augment} and \rulename{backchain} \book{77}, \book{82}, \book{124} (\cref{fig:hh-rules}; the names are those of \cref{fig:rules-right}). Uniform proofs are
+complete for intuitionistic provability of these formulas \cite{MillerNadathurPfenningScedrov1991}
+(\cref{thm:hh-intuitionistic}), so implementing the rules faithfully \emph{is} the semantics. \rulename{and}, \rulename{or} and
+$\exists$ are micro's \scm{and°}, \scm{or°} (interleaving) and \scm{fresh°}. This section gives the other
+three as the module implements them.
+
+\subsection{\texorpdfstring{\rulename{generic}}{GENERIC}}
+
+\begin{mathpar}
+\inferrule{\seq{\Sigma\cup\{c\}}{\Prog}{G[c/x]}}{\seq{\Sigma}{\Prog}{\forall x.\,G}}\;\rulename{generic}\quad(c\notin\Sigma)
+\end{mathpar}
+\scm{(∀° (x) g ...)} expands into \scm{(∀ª 'x (λ (x) (and° g ...)))}, and \scm{(∀° (x y) g ...)} into one
+\scm{∀ª} per name, nested, so \scm{(∀° (w x y) ...)} gives $w,x,y$ the levels $d+1$, $d+2$, $d+3$. The Scheme
+variable \scm{x} is bound to the eigenvariable, as \scm{ƛ} binds its placeholder. \scm{∀ª} takes a state $s$
+whose λ record has depth $d$ and does the following.
+\begin{enumerate}
+  \item Record the level $d$ of every variable created so far (pad $L$ up to the variable count).
+  \item Run the body \scm{(f c)} for a new eigenvariable $c$ of level $d+1$, in the state with depth $d+1$ and
+    $\mathit{top} := \max(\mathit{top}, d+1)$.
+  \item For each answer state $s_1$ of the body: record the level $d+1$ of the variables created inside (pad
+    $L$ again), set the depth back to $d$, and \emph{discharge} the constraints on $c$
+    (\cref{sec:module-discharge}); if discharge fails, drop the answer.
+\end{enumerate}
+\begin{scheme}
+(define ((∀ª name f) s)
+  (let* ((x  (μkanren-hh s))
+         (d  (μkanren-hh-depth x))
+         (x* (μkanren-hh-with (μkanren-hh-pad x (μkanren-state-vars-count s))
+                              depth: (add1 d) top: (max (add1 d) (μkanren-hh-top x))))
+         (c  (μkanren-eigen* name (add1 d))))
+    (append-map§
+      (λ (s1)
+        (let1 (s2 (μkanren-with s1
+                    (μkanren-hh-with (μkanren-hh-pad (μkanren-hh s1)
+                                                     (μkanren-state-vars-count s1))
+                                     depth: d)))
+          (match/first (μkanren-discharge s2 c d)
+            (#f (✗° s2))
+            (,s3 (✓° s3)))))
+      (δ ((f c) (μkanren-with s x*))))))
+\end{scheme}
+The shape is that of micro's \scm{andª} (\cref{ch:micro}): the body's stream is delayed with \scm{δ}, and
+\scm{append-map§} post-processes it answer by answer, so the restoring step runs on every answer, however
+late the stream produces it. Steps 1 and 3 pad $L$ because a variable's level is \emph{implicit} (the current
+depth) until $L$ is extended past it: padding fixes it before the depth changes.
+
+The signature $\Sigma$ is not carried. What carries the quantifier structure is the level of each variable:
+a variable created at depth $d$ stands for an $\exists$ after the first $d$ universals of its branch (Miller's
+mixed prefix \cite{Miller1991}, linearised by creation), and \textbf{Check} forbids exactly the substitutions
+that would violate that prefix. NJK prove this tagging sound and complete (\cref{prop:rules-ui},
+\cite[Prop.\,4.1]{NadathurJayaramanKwon1995}).
+
+\begin{tutorial}[Why the depth must be restored on every answer]
+A creation timestamp would tell a variable created before $c$ from one created after it, and one might think
+that suffices: older variables may not see $c$. But a variable created \emph{after} the \scm{∀°} has exited
+may not see $c$ either. With the depth restored on every answer, such a variable gets level $d < \ell(c)$, so
+it cannot take $c$. This is λProlog's universe register \cite{NadathurJayaramanKwon1995}. The two classic
+cases, \book{85}:
+\begin{scheme}
+(list (°->list #f (fresh° (q) (∀° (x) (=° q x))))         ; ∃Y∀x. Y = x
+      (°->list #f (fresh° (q) (∀° (x) (fresh° (y) (=° y x)))
+                              (=° q 'ok))))                ; ∀x∃Y. Y = x
+\end{scheme}
+\begin{answers}
+(() ((λ () 'ok)))
+\end{answers}
+In the first, $q$ has level~0 and $x$
+level~1: \textbf{Check} fails by case (1). In the second, $y$ is created inside, at level~1, and may take $x$.
+\end{tutorial}
+
+\begin{example}[Lowering, seen from the state]\label{ex:module-lower}
+A variable created inside the scope and placed inside the value of an outer one must forget the scope:
+\begin{scheme}
+(define ((probe . vars) s)
+  (for-each (λ (v) (let1 (w (μkanren-state-find v s))
+                     (write v) (display " ↦ ") (write w)
+                     (when (μkanren-var? w)
+                       (display " level ") (display (μkanren-λ-level w s)))
+                     (display "; ")))
+            vars)
+  (newline) (✓° s))
+(°->list #f (fresh° (A) (∀° (x) (fresh° (B) (probe A B)
+                                             (=° A `(arr ,B c))
+                                             (probe A B)))))
+\end{scheme}
+\begin{answers}
+_0 ↦ _0 level 0; _1 ↦ _1 level 1;
+_0 ↦ (arr _1 c); _1 ↦ _2 level 0;
+((λ (α) (cons 'arr (cons α (cons 'c '())))))
+\end{answers}
+$A$ (\texttt{\_0}) has level~0 and $B$ (\texttt{\_1}) level~1. Binding $A := (\mathtt{arr}\ B\ c)$ triggers
+\textbf{Check} at level~0, which meets the unbound $B$ of level~$1>0$: case (4), lower. A new variable
+\texttt{\_2} of level~0 is created and $B := \mathtt{\_2}$; \textbf{Check} eliminates no head and has no
+arguments $\bar a$ to raise over, so the raising part is empty. This is NJK's \enquote{change to $i$ the tags of the variables in $t$ whose tag is $>i$}, done by a
+binding instead of a mutation, so that it is undone by backtracking for free.
+\end{example}
+
+\subsection{Discharge at the exit of a scope}\label{sec:module-discharge}
+
+When \scm{∀°} exits, some constraints may still mention $c$: suspended equations, generic disequalities of N,
+absentos of micro's T. A residual that mentions $c$ outside its scope would be meaningless, and the printer
+must never show an eigenvariable free. \scm{μkanren-discharge} closes them, back at depth $d$:
+\begin{enumerate}
+  \item \textbf{Raise.} Every unbound variable $Y$ of the equations and disequalities to be closed with
+    $\ell(Y)\ge\ell(c)$ is raised:
+    $Y := Y'\,c$ with $\ell(Y')=d$. Inside the scope $Y$ could depend on $c$; $Y'$ lives outside it, so the
+    dependency becomes an explicit argument: $\forall c\,\exists Y$ is turned into $\exists Y'\,\forall c$
+    with $Y = Y'\,c$. This is Miller's raising \book{107} (\cref{prop:lambda-raising}), a bijection
+    on solutions.
+  \item \textbf{Close.} A suspended equation $u \doteq v$ that mentions $c$ stands for
+    $\forall c\,(u = v)$ and becomes $\lambda c.u \doteq \lambda c.v$, equivalent by \rulename{ξ}. A generic
+    disequality is closed the same way, under \rulename{generic}'s reading of $c$ as a new name. An absento of T whose
+    \emph{term} mentions $c$ is closed too, since absence in $\lambda c.u$ is absence in $u$. An absento whose
+    \emph{datum} mentions $c$ moves to $E$ as \scm{(absent d u)}, unless the levels entail it: if $u$ does not
+    hold $c$ and all its variables have levels below $\ell(c)$, no instance of $u$ can ever hold $c$, and the
+    constraint is dropped.
+  \item \textbf{Retry.} The raise bindings go through \scm{μkanren-post-unify}, which wakes $E$, so the closed
+    constraints are retried. With no raise, the closed equations are retried anyway.
+  \item \textbf{Repeat.} A raise may bring $c$ into more constraints (an absento of T on a raised $Y$ now
+    watches $Y'\,c$; a prefix of D on $Y$ moves to N holding $c$). Discharge repeats until no raise is left.
+\end{enumerate}
+The constraints that cannot be closed by an abstraction (a type on $F\,x$; an absento whose datum is $c$ on a
+term that may still hold $c$) keep $c$ and print under a \scm{∀} (\cref{sec:module-reify}).
+
+\begin{example}[Discharge: raising, closing, retrying]\label{ex:module-discharge}
+\begin{scheme}
+(define ((probe label . vars) s)   ; prints values and the levels of unbound variables
+  (display label) (display ": depth ") (display (μkanren-λ-depth s))
+  (for-each (λ (v) (display ", ") (write v) (display " ↦ ")
+                   (write (μkanren-state-find/value v s))
+                   (let1 (w (μkanren-state-find v s))
+                     (when (μkanren-var? w)
+                       (display " level ") (display (μkanren-λ-level w s)))))
+            vars)
+  (display ", E ") (write (μkanren-λ-delayed s)) (newline)
+  (✓° s))
+(°->list #f (fresh° (q) (∀° (a) (fresh° (f) (=° (@ f a) `(g ,a ,a))
+                                             (probe "inside" f)))
+                        (=° q 'ok)))
+(°->list #f (fresh° (q) (∀° (x) (=° (@ q x) `(g ,q)) (probe "inside" q))))
+\end{scheme}
+\begin{answers}
+inside: depth 1, _1 ↦ _1 level 1, E ((= (@ _1 (eigen a)) (g (eigen a) (eigen a))))
+((λ (α)
+    (assert (≐ (ƛ (a) (@ α a a)) (ƛ (a) (cons 'g (cons a (cons a '()))))))
+    'ok))
+inside: depth 1, _0 ↦ _0 level 0, E ((= (@ _0 (eigen x)) (g _0)))
+()
+\end{answers}
+In the first, $f$ is created inside the scope of $a$ (level 1), so $f\,a$ is no pattern (the book's 8.A, four
+unifiers and no mgu, \book{213}) and is suspended. At the exit, $f$ has level $1\ge\ell(a)$: it is raised,
+$f := f'\,a$ with $\ell(f')=0$, and the equation closes into $\lambda a.\,f'\,a\,a \doteq \lambda a.\,g\,a\,a$. That is
+still no pattern (the argument $a$ is repeated), so it is reported. In the second, $F\,x \doteq g\,F$ is a pattern
+equation, but $F$ itself occurs with no argument in its own body, case (4) with $\bar a \neq \langle\rangle$:
+suspend. At the exit nothing needs raising ($\ell(F)=0$), the equation closes into
+$\lambda x.\,F\,x \doteq \lambda x.\,g\,F$, which by η is $F \doteq \lambda x.\,g\,F$, and the retry fails the occurs
+check: no answer, as it must be.
+\end{example}
+
+\subsection{\texorpdfstring{\rulename{augment}}{AUGMENT}}
+
+\begin{mathpar}
+\inferrule{\seq{\Sigma}{\Prog\cup\{D\}}{G}}{\seq{\Sigma}{\Prog}{D\imp G}}\;\rulename{augment}
+\end{mathpar}
+\scm{(⊃° (D ...) g ...)} expands into \scm{⊃ª}, which pushes the clauses on Γ for the body and gives the old Γ
+back to every answer of the body:
+\begin{scheme}
+(define ((⊃ª clauses g) s)
+  (let* ((x (μkanren-hh s))
+         (Γ (μkanren-hh-Γ x))
+         (Γ* (fold-right
+               (λ (c Γ*)
+                 (let1 (old (cond ((assq (car c) Γ*) => cdr) (else '())))
+                   (cons (cons (car c) (cons (cdr c) old))
+                         (if (null? old) Γ* (alist-delete (car c) Γ* eq?)))))
+               Γ clauses)))
+    (append-map§
+      (λ (s1) (✓° (μkanren-with s1 (μkanren-hh-with (μkanren-hh s1) Γ: Γ))))
+      (δ (g (μkanren-with s (μkanren-hh-with x Γ: Γ*)))))))
+\end{scheme}
+A clause is a pair \scm{(relation . procedure)}: the relation is the dynamic relation's own procedure, used
+as an \scm{eq?} key, and the procedure maps the list of a call's arguments to the goal that the clause makes of
+them. Since Γ lives in the state, \scm{or°} branches cannot interfere, and restoring it on every answer is the
+stack discipline of the book \book{78}, \book{83}. Assuming a clause for a relation already in Γ replaces that
+relation's entry by one with the new clause in front of the old ones, so a lookup costs the number of distinct
+assumed relations, not the number of clauses. The \scm{fold-right} puts the first clause of a list on top.
+
+\subsection{\texorpdfstring{\rulename{backchain}}{BACKCHAIN} and \texorpdfstring{\texttt{define-dynamic-relation}}{define-dynamic-relation}}
+
+In λProlog every predicate can be extended by an assumption. Here only relations made by
+\scm{define-dynamic-relation} can:
+\begin{scheme}
+(define-syntax define-dynamic-relation
+  (syntax-rules ()
+    ((_ (name arg ...))
+     (define name
+       (μkanren-dynamic
+         (λ (arg ...) (λ (s) (δ ((μkanren-hyps° name (list arg ...) #f) s)))))))
+    ((_ (name arg ...) g ...)
+     (define name
+       (μkanren-dynamic
+         (λ (arg ...)
+           (λ (s) (δ ((μkanren-hyps° name (list arg ...) (and° g ...)) s)))))))))
+
+(define ((μkanren-hyps° key args static) s)
+  (let* ((gs (map (λ (c) (c args))
+                  (cond ((assq key (μkanren-hh-Γ (μkanren-hh s))) => cdr) (else '()))))
+         (gs (if static (append gs (list static)) gs)))
+    (if (null? gs) '() ((reduce-right orª #f gs) s))))
+\end{scheme}
+A call disjoins, in one flat \scm{or°}, the assumed clauses for the relation, \emph{most recent first}, and then
+the static body. If $C_1,\dots,C_m$ are the clauses assumed for $r$ in the current Γ, in the order they were
+assumed, and $B_r$ is the static body of $r$ (absent when it has none), then
+\[
+  r\,\bar t \;\rightsquigarrow\; C_m(\bar t) \;\vee\; \dots \;\vee\; C_1(\bar t) \;\vee\; B_r(\bar t),
+\]
+where $C_i(\bar t)$ unifies $\bar t$ with the head of $C_i$, its own \scm{∀} variables renamed and its free
+variables shared (see the clause syntax below), and runs its body. This is
+\rulename{backchain} (\cref{fig:hh-rules}) with the choice of clause made by \scm{or°} instead of by a selection rule; a
+relation with neither hypotheses nor static body fails. When every clause answers at once, the answers come in λProlog's order; otherwise
+interleaving decides. The relation is tagged with CHICKEN's \scm{extend-procedure}, so \scm{μkanren-dynamic?}
+is an $O(1)$ test and no global registry is needed. Assuming a clause for a relation that is not dynamic is an
+error, not a silent no-op:
+\begin{scheme}
+(define-dynamic-relation (n° x) (=° x 1))
+(list (°->list/datum (fresh° (q) (⊃° ((n° 2)) (⊃° ((n° 3)) (n° q)))))
+      (°->list/datum (fresh° (q) (⊃° ((n° 2) (n° 3)) (n° q)))))
+(define (error-message thunk)     ; the message of the error `thunk` raises
+  (handle-exceptions exn ((condition-property-accessor 'exn 'message #f) exn)
+    (begin (thunk) #f)))
+(define-relation (r° x) (=° x 1))
+(error-message (λ () (°->list #f (fresh° (q) (⊃° ((r° 2)) (r° q))))))
+\end{scheme}
+\begin{answers}
+((3 2 1) (2 3 1))
+"not a dynamic relation, see define-dynamic-relation"
+\end{answers}
+The two orders are the book's \book{78}: \lp{p 2 => p 3 => p X} gives 3, 2, 1, and
+\lp{(p 2 & p 3) => p X} gives 2, 3, 1. In the first query the inner \scm{⊃°} runs last, so Γ maps \scm{n°} to
+the clauses for 3 and 2, in this order, and the call disjoins $q=3$, $q=2$ and the static $q=1$. In the second,
+\scm{fold-right} puts the first clause of the list on top, so the clause for 2 comes before the one for 3.
+
+\subsection{Clause syntax}
+
+\begin{longtable}{@{}p{0.36\textwidth}p{0.58\textwidth}@{}}
+\toprule
+clause $D$ & meaning and expansion \\
+\midrule
+\endhead
+\scm{(rel t ...)} & a fact; \scm{(λ (args) (fresh° (v ...) (=° args (list t ...))))} \\
+\scm{((rel t ...) ← g ...)} & a rule, infix \\
+\scm{(← (rel t ...) g ...)} & the same rule, prefix; rewritten to the infix form \\
+\scm{(∀ (w ...) D)} & $D$ with its own variables \scm{w ...}, accumulated into the \scm{fresh°} of the expansion \\
+\bottomrule
+\end{longtable}
+\noindent A rule expands to \scm{(μkanren-clause* rel (λ (args) (fresh° (v ...) (=° args (list t ...)) g ...)))},
+and \scm{μkanren-clause*} raises the error above when \scm{rel} is not dynamic. Two kinds of variables appear
+in a clause, as in the book \book{86--88}:
+\begin{itemize}
+  \item its \emph{free} logic variables are those of the closure: shared with the context, and among all uses of
+    the clause;
+  \item its \emph{own} \scm{∀} variables are made by the \scm{fresh°} inside the procedure, so they are renamed at
+    each use, at the current level. That is NJK's \enquote{new tagged instance} of a clause
+    \cite[p.\,14]{NadathurJayaramanKwon1995}.
+\end{itemize}
+\begin{scheme}
+(define-dynamic-relation (h° x))
+(list (°->list/datum (fresh° (q y) (⊃° ((h° `(,y ,y))) (h° '(1 1)) (h° '(2 2)))))
+      (°->list/datum (fresh° (q) (⊃° ((∀ (z) (h° `(,z ,z)))) (h° '(1 1)) (h° '(2 2)))
+                                 (=° q 'ok))))
+\end{scheme}
+\begin{answers}
+(() (ok))
+\end{answers}
+With the shared $y$, the first use binds $y:=1$ and the second use cannot match \scm{(2 2)}; with the clause's
+own $z$, each use gets a new $z$.
+
+\begin{example}[Levels reach into clauses {\cite[p.\,16]{NadathurJayaramanKwon1995}}]\label{ex:module-njk}
+With the program $\forall z\,(q\,z \imp p\,(d\,z))$, the goal $\exists x\,\forall y\,(q\,y \imp p\,x)$ must fail
+and $\forall y\,\exists x\,(q\,y \imp p\,x)$ must succeed (\cref{ex:rules-scope}):
+\begin{scheme}
+(define-dynamic-relation (q° z))
+(define-dynamic-relation (p° x) (fresh° (z) (=° x `(d ,z)) (q° z)))
+(list (°->list #f (fresh° (x) (∀° (y) (⊃° ((q° y)) (p° x)))))
+      (°->list #f (fresh° (r) (∀° (y) (fresh° (x) (⊃° ((q° y)) (p° x)))) (=° r 'ok))))
+\end{scheme}
+\begin{answers}
+(() ((λ () 'ok)))
+\end{answers}
+In the first goal, $x$ has level~0. Backchaining on \scm{p°} creates the clause variable $z$ inside the scope of
+$y$ (level~1) and binds $x := (d\ z)$; \textbf{Check} lowers $z$ to level~0. The hypothesis \scm{(q° y)} then
+asks $z = y$, a level-0 variable against a level-1 eigenvariable: scope failure. Without lowering, $z$ would
+keep level~1 and take $y$, and $x = (d\ y)$ would leak $y$ out of its scope.
+\end{example}
+
+\subsection{Worked example: type inference}\label{sec:module-typeof}
+
+The book's type inference for untyped λ-terms (\cref{sec:lambdatree-typeof}, \book{190--191}) uses all three
+rules at once:
+\begin{lprolog}
+typeof (app M N) A :- typeof M (arr B A), typeof N B.
+typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.
+\end{lprolog}
+In the module's syntax (\texttt{test/programs.scm} of \texttt{doc/hol-kanren/prototype/}):
+\begin{scheme}
+(define-dynamic-relation (typeof° m t)
+  (cond°
+    ((fresh° (M N B) (=° m `(app ,M ,N)) (typeof° M `(arr ,B ,t)) (typeof° N B)))
+    ((fresh° (R A B) (=° m `(abs ,R)) (=° t `(arr ,A ,B))
+       (∀° (x) (⊃° ((typeof° x A)) (typeof° (@ R x) B)))))))
+\end{scheme}
+The object term \lp{abs x\ M} is \scm{`(abs ,(ƛ (x) M))}; \lp{(M x)} is \scm{(@ R x)}, a β-redex once $R$ is
+bound. The answers for S, I and $\lambda x.\,x\,x$ (from \texttt{examples.out} in the same directory):
+\begin{answers}
+(((arr (arr α (arr β γ)) (arr (arr α β) (arr α γ)))) ((arr α α)) ())
+\end{answers}
+To see the rules at work, here is the same program with a trace goal that prints the depth and the walked
+arguments, with the level of each unbound variable after \texttt{@}. The trace in the static body runs only
+when the static clauses are tried, after the hypotheses:
+\begin{scheme}
+(define ((trace label . ts) s)
+  (display label) (display " [depth ") (display (μkanren-λ-depth s)) (display "]")
+  (for-each (λ (t) (display " ") (write (μkanren-state-find/value t s))
+                   (let1 (w (μkanren-state-find t s))
+                     (when (μkanren-var? w)
+                       (display "@") (display (μkanren-λ-level w s)))))
+            ts)
+  (newline) (✓° s))
+(define-dynamic-relation (typeof° m t)
+  (trace "static typeof°" m t)
+  (cond°
+    ((fresh° (M N B) (=° m `(app ,M ,N)) (trace " app" M N B)
+       (typeof° M `(arr ,B ,t)) (typeof° N B)))
+    ((fresh° (R A B) (=° m `(abs ,R)) (=° t `(arr ,A ,B)) (trace " abs" R A B)
+       (∀° (x) (⊃° ((typeof° x A)) (typeof° (@ R x) B)))))))
+(°->list/datum (fresh° (q) (typeof° `(abs ,(ƛ (x) `(abs ,(ƛ (y) x)))) q)))
+(°->list/datum (fresh° (q) (typeof° `(abs ,(ƛ (x) `(app ,x ,x))) q)))
+\end{scheme}
+\begin{answers}
+static typeof° [depth 0] (abs (ƛ (x) (abs (ƛ (y) x)))) _0@0
+ abs [depth 0] (ƛ (x) (abs (ƛ (y) x))) _2@0 _3@0
+static typeof° [depth 1] (abs (ƛ (y) (eigen x))) _3@0
+ abs [depth 1] (ƛ (y) (eigen x)) _7@0 _8@0
+static typeof° [depth 2] (eigen x) _8@0
+((arr α (arr β α)))
+static typeof° [depth 0] (abs (ƛ (x) (app x x))) _0@0
+ abs [depth 0] (ƛ (x) (app x x)) _2@0 _3@0
+static typeof° [depth 1] (app (eigen x) (eigen x)) _3@0
+ app [depth 1] (eigen x) (eigen x) _6@1
+static typeof° [depth 1] (eigen x) (arr _6 _3)
+static typeof° [depth 1] (eigen x) _7@0
+()
+\end{answers}
+
+\begin{tutorial}[$\lambda x.\lambda y.\,x$, step by step]
+\begin{enumerate}
+  \item \emph{Depth 0, Γ empty.} The query $T$ is \texttt{\_0}. No hypothesis for \scm{typeof°}, so the static
+    body runs. The \texttt{abs} clause creates $R,A,B$ (\texttt{\_1}, \texttt{\_2}, \texttt{\_3}, level~0),
+    binds $R := \lambda x.\,\mathtt{abs}\,(\lambda y.\,x)$ and $T := (\mathtt{arr}\ A\ B)$.
+  \item \rulename{generic}. \scm{∀° (x)} records levels, raises the depth to~1 and makes the eigenvariable $x$ of
+    level~1.
+  \item \rulename{augment}. \scm{⊃°} pushes $\langle\texttt{typeof°}, \lambda\mathit{args}.\ \mathit{args} \doteq (x\ A)\rangle$ on Γ.
+  \item \emph{β.} The goal is \scm{(typeof° (@ R x) B)}; \scm{@} reduces the redex to
+    $\mathtt{abs}\,(\lambda y.\,x)$, with $x$ now the eigenvariable, printed \scm{(eigen x)}.
+  \item \rulename{backchain}, depth 1. The hypothesis is tried first: $(\mathtt{abs}\ \dots) \doteq x$ clashes.
+    Then the static body: the \texttt{abs} clause creates $R',A',B'$ at level~1 and binds
+    $B := (\mathtt{arr}\ A'\ B')$. Here \textbf{Check} runs: $B$ has level~0, $A'$ and $B'$ level~1, so both are
+    \emph{lowered}, to new variables \texttt{\_7}, \texttt{\_8} of level~0 (the trace shows
+    \texttt{\_7@0 \_8@0}, the walked values). This is right: the type of the inner abstraction is part of the
+    outer type, which lives outside the scope of $x$.
+  \item \rulename{generic}, \rulename{augment} again. Depth~2, eigenvariable $y$ of level~2, Γ now holds two clauses for
+    \scm{typeof°}, $(y\ A')$ on top of $(x\ A)$.
+  \item \rulename{backchain}, depth 2. The goal is \scm{(typeof° x B')}. The most recent hypothesis gives
+    $x \doteq y$, a clash of two eigenvariables. The older one gives $B' \doteq A$: a level-0 variable bound to
+    another, fine. The static body is tried as well (the last trace line) and fails, since $x$ is neither an
+    application nor an abstraction.
+  \item \emph{Exits.} Each \scm{∀°} gives its answers back their depth and discharges nothing (no constraint
+    mentions $x$ or $y$); each \scm{⊃°} gives Γ back. The answer is
+    $T = \mathtt{arr}\ A\ (\mathtt{arr}\ A'\ A)$, printed \scm{(arr α (arr β α))}.
+\end{enumerate}
+\end{tutorial}
+
+\begin{tutorial}[$\lambda x.\,x\,x$ fails by the occurs check]
+At depth~1, with the hypothesis $\mathtt{typeof}\ x\ A$, the goal is
+$\mathtt{typeof}\ (\mathtt{app}\ x\ x)\ B$. The \texttt{app} clause binds $M,N := x$ and creates its $B''$
+(\texttt{\_6}) at level~1. The first subgoal $\mathtt{typeof}\ x\ (\mathtt{arr}\ B''\ B)$ uses the hypothesis:
+$A := (\mathtt{arr}\ B''\ B)$, and since $\ell(A)=0$, \textbf{Check} lowers $B''$ to the level-0
+\texttt{\_7}. The second subgoal $\mathtt{typeof}\ x\ B''$ (printed with $B''$ walked to \texttt{\_7}) asks
+$\mathtt{\_7} \doteq A = (\mathtt{arr}\ \mathtt{\_7}\ B)$: micro's occurs check fails, and since the term holds
+no λ-term, the \texttt{occurs} hook does not intervene. The static attempts fail too, and there is no answer,
+the book's \enquote{no} \book{191}.
+\end{tutorial}
+
+% ------------------------------------------------------------------------------------------------
+\section{micro's stores on λ-terms}\label{sec:module-stores}
+
+λProlog has no disequality, no absento and no type constraints such as \scm{symbol°} (its types are
+static). \micro{} has all three (\cref{sec:micro-stores}), and
+every relation built on them must keep working when its arguments are λ-terms. The readings adopted here extend
+micro's semantics over λProlog's term model: equality is $\alpha\beta\eta$-equality, a flexible term is
+undecided until its head is known, and an eigenvariable is, by default, a new name.
+
+\subsection{Disequality: the \texorpdfstring{\texttt{diseq}}{diseq} hook and the store N}
+
+\begin{definition}[Trial]\label{def:module-trial}
+The module \emph{claims} a disequality $u \neq v$ when either side, walked, holds a λ-record or an
+eigenvariable, and also, under the extensional reading once a \scm{∀°} has run, a first-order one (in D an
+absento of T could absorb it, and absence reads eigenvariables generically). Its \emph{trial} unifies $u \doteq v$ in the current state, with \textbf{Check}, and classifies
+the result (\scm{μkanren-trial}):
+\begin{description}[style=nextline,leftmargin=2.2em]
+  \item[\texttt{unsat}] no unifier: the disequality holds for good and is dropped;
+  \item[\texttt{entailed}] a unifier that binds no variable older than the trial (or binds older variables only
+    to distinct variables the trial itself created) and suspends nothing: $u=v$ already holds, and \scm{≠°}
+    fails;
+  \item[kept] otherwise: the pair is stored in N as \scm{(reading u . v)} and re-tried after every \scm{=°}.
+\end{description}
+\end{definition}
+The variables a trial creates (by pruning, by \rulename{FF-same}, by lowering) are \emph{existential inside the
+negation}: $\lambda x\,y.\,F\,x \neq \lambda x\,y.\,G\,y$ means $\neg\exists H.\ F = \lambda x.H \wedge G =
+\lambda y.H$. A prefix of micro's D would wrongly store them as free variables, which is one reason N is a
+separate store.
+\begin{scheme}
+(°->list #f (fresh° (q) (=° q (ƛ (x) x)) (≠° q (ƛ (y) y))))     ; entailed mod α
+(°->list #f (fresh° (q) (≠° (@ (ƛ (x) `(g ,x)) 'a) '(g a))))    ; entailed mod β
+(°->list #f (fresh° (q) (≠° (ƛ (x) x) (ƛ (x) 'k)) (=° q 'ok)))  ; holds for good
+(°->list/datum (fresh° (q F) (=° q F) (≠° (@ F 'a) 'a)
+                        (=° F (ƛ (z) z))))                 ; woken, violated
+(°->list/datum (fresh° (q F) (=° q F) (≠° (@ F 'a) 'a)
+                        (=° F (ƛ (z) 'b))))                ; woken, holds
+(°->list #f (fresh° (q f g) (=° q (list f g))
+              (≠° (ƛ (x y) (@ f x)) (ƛ (x y) (@ g y)))))
+\end{scheme}
+\begin{answers}
+()
+()
+((λ () 'ok))
+()
+((ƛ (z) b))
+((λ (α β)
+    (begin (deny (∃ (_3) (and (equal? α (ƛ (x) _3)) (equal? β (ƛ (y) _3))))))
+    (cons α (cons β '()))))
+\end{answers}
+Line by line: the first trial succeeds under \rulename{ξ} binding nothing, so it is \texttt{entailed} and
+\scm{≠°} fails; the second never reaches the module, since \scm{@} has already β-reduced its left side to the
+list \scm{(g a)} and micro's own \scm{≠°} fails on two equal terms; the third trial clashes ($x$ against $k$ under \rulename{ξ}), so the disequality is \texttt{unsat} and
+dropped. In the fourth and fifth the trial $F\,a \doteq a$ is no pattern ($a$ is a constant) and suspends, so the
+pair is kept in N; the binding of $F$ retries it, and it is violated by $\lambda z.z$ and holds for good
+with $\lambda z.b$. In the last, the trial is the flexible–flexible problem of \cref{ex:module-ff} under two
+binders: it binds the older $F$ and $G$ to $\lambda x.H$ and $\lambda y.H$ with a new $H$, so the pair is kept,
+and the answer denies exactly that mgu, with $H$ (\texttt{\_3}) existential inside the \scm{deny}.
+
+\paragraph{Migration from D to N.} A prefix of D born first-order may come to hold a λ-term or an eigenvariable
+later, at any depth below its variables. The \texttt{post} hook moves it to N, as the tuple disequality it
+stands for, \emph{before} micro re-verifies D. So D never holds a λ-term, and micro's plain trial never decides a
+λ-equation without the scope check and the reading. The probe prints N, D and E:
+\begin{scheme}
+(define ((probe label) s)
+  (display label) (display ": N ") (write (μkanren-λ-disequalities s))
+  (display ", D ") (write (μkanren-state-D s))
+  (display ", E ") (write (μkanren-λ-delayed s))
+  (newline) (✓° s))
+(°->list #f (fresh° (q Y) (≠° q (list Y)) (probe "before")
+                          (=° Y (ƛ (z) z)) (probe "after")))
+\end{scheme}
+\begin{answers}
+before: N (), D (((_0 _1))), E ()
+after: N ((generic (_0) (_1))), D (), E ()
+((λ (α) (begin (deny (equal? α (cons (ƛ (z) z) '())))) α))
+\end{answers}
+To keep first-order search cheap, the hook looks at no more than 64 nodes of the new bindings to decide whether
+they may hold a λ-term; past that bound it walks D and A instead (\cref{ch:roadmap} has the measurements).
+
+\paragraph{Subsumption by A.} A trial that binds a variable typed in A to a rigid λ-term or an eigenvariable
+of which the type's predicate is false has no solution; \scm{symbol°} and \scm{number°} hold of neither. So the disequality is dropped, as micro
+drops \scm{(≠° q 5)} under \scm{(symbol° q)}:
+\begin{scheme}
+(°->list #f (fresh° (q) (symbol° q) (≠° q (ƛ (x) x))))
+\end{scheme}
+\begin{answers}
+((λ (α) (assert (every (μ v (symbol? v)) (list α))) α))
+\end{answers}
+
+\paragraph{Two readings of $\forall$.} What does $\forall x.\ q \neq x$ mean? λProlog has no $\neq$, but it has
+\lp{pi x\ not (q = x)}, which succeeds: $x$ is a new name, distinct from everything. The parameter
+\scm{μkanren-λ-reading} chooses, and each disequality keeps the reading in force when it was posted.
+\begin{itemize}
+  \item \scm{'generic} (the default) reads an eigenvariable as \rulename{generic}'s new name, ∇-like, as αKanren's noms
+    \cite{ByrdFriedman2007}. At the exit of the scope the constraint is closed: $\forall x.\ F\,x \neq x$
+    becomes $F \neq \lambda x.x$, consistently whichever comes first, the binding or the $\neq$.
+  \item \scm{'extensional} reads an eigenvariable as any term of its universe, as in the miniKanren work on
+    universal quantification \cite{Moiseenko2019,JinEtAl2021}. The trial replaces each eigenvariable by a new
+    variable of its level, after raising the variables that may depend on it, and counts as entailed when it
+    binds older variables only to distinct such variables. Then $\forall x.\ q \neq x$ fails, since $x$ could
+    be $q$.
+\end{itemize}
+\begin{scheme}
+(°->list #f (fresh° (q) (∀° (x) (≠° q x))))
+(°->list #f (fresh° (q F) (=° q F) (∀° (x) (≠° (@ F x) x))))
+(°->list #f (fresh° (q F) (=° q F) (∀° (x) (≠° (@ F x) x)) (=° F (ƛ (z) z))))
+(°->list #f (fresh° (q F) (=° q F) (∀° (x) (≠° (@ F x) x)) (=° F (ƛ (z) 'c))))
+(parameterize ((μkanren-λ-reading 'extensional))
+  (list (°->list #f (fresh° (q) (∀° (x) (≠° q x))))
+        (°->list #f (fresh° (q F) (=° q F) (∀° (x) (≠° (@ F x) x))))
+        (°->list #f (fresh° (q F) (=° q F) (∀° (x) (≠° (@ F x) x))
+                                (=° F (ƛ (z) 'c))))))
+\end{scheme}
+\begin{answers}
+((λ (α) α))
+((λ (α) (begin (deny (equal? α (ƛ (x) x)))) α))
+()
+((λ () (ƛ (z) 'c)))
+(() ((λ (α) (∀ (x) (begin (deny (≐ (@ α x) x)))) α)) ())
+\end{answers}
+Under the generic reading,
+$\forall x.\ F\,x\neq x$ is the disequality $F \neq \lambda x.x$: violated by $F := \lambda z.z$, satisfied by
+$F:=\lambda z.c$. Under the extensional reading it says that $F\,t \neq t$ for \emph{every} $t$ of the
+universe, so $F := \lambda z.c$ violates it ($t = c$); since it cannot be closed by an abstraction, it is printed
+under a \scm{∀}.
+
+\paragraph{Projection.} micro drops a disequality over a variable that is out of the answer, since such a
+variable can always be chosen to keep the sides apart. That fails for a variable inside an argument of a flexible
+term: $\exists Y.\ G \neq F\,Y$ is $F \neq \lambda z.G$, since $F$ may ignore its argument. Such an entry is kept,
+and its variable prints as a working variable, read existentially:
+\begin{scheme}
+(°->pretty (fresh° (q) (fresh° (F G Y) (=° q (list F G)) (≠° G (@ F Y)))))
+\end{scheme}
+\begin{answers}
+(((α β) : (≠ β (@ α _3))))
+\end{answers}
+
+\subsection{Absence: the \texorpdfstring{\texttt{parts}}{parts} hook}
+
+\scm{absent°} looks for its datum in the \emph{parts} of a λ-term (\scm{μkanren-λ-parts}), never in binder names
+or indices. A flexible term has no parts yet: it is \scm{'stuck} and watched whole, like a variable, and decided
+once its head is known. Below a binder, the parts that mention the binder stay closed ($\lambda x.(a\,.\,b)$ is
+looked into as $\lambda x.a$ and $\lambda x.b$), so a watched term never has a loose index.
+\begin{scheme}
+(°->list #f (fresh° (q F) (=° q F) (absent° 'c (@ F 'c))))
+(°->list/datum (fresh° (q F) (=° q F) (absent° 'c (@ F 'c)) (=° F (ƛ (z) 'b))))
+(°->list #f (fresh° (q) (absent° 'x (ƛ (x) `(g ,x))) (=° q 'ok)))
+(°->list #f (fresh° (q F) (=° q F) (absent° 'c (ƛ (x) `(,(@ F x) c)))))
+(°->list #f (fresh° (q F) (=° q F) (∀° (x) (absent° x (@ F x)))))
+(°->list #f (fresh° (q) (∀° (x) (absent° x q))))
+\end{scheme}
+\begin{answers}
+((λ (α) (assert (absent? 'c (@ α 'c))) α))
+((ƛ (z) b))
+((λ () 'ok))
+()
+((λ (α) (∀ (x) (assert (absent? x (@ α x)))) α))
+((λ (α) α))
+\end{answers}
+In order: $c \notin F\,c$ waits; $F := \lambda z.b$ drops the argument, so it holds; the binder name \texttt{x}
+is not the symbol \scm{'x}; $c$ is found at once outside the flexible part; an absento of an eigenvariable on a
+term that may still hold it keeps $x$ and prints under \scm{∀}; and $\forall x.\ x \notin q$ is entailed by the
+levels ($q$ has level $0<1$, so no instance of $q$ can hold $x$) and dropped. The datum may itself be a λ-term,
+or reduce to an atom (\scm{(@ G 'b)} is \scm{a} once $G := \lambda z.a$): it is then unified, modulo βη, as micro
+unifies a compound datum.
+
+\subsection{Types: the \texorpdfstring{\texttt{tag}}{tag} hook}
+
+A type on a flexible term waits in E as \scm{(tag tag u)}; the \texttt{post} hook does the same for a variable of
+A just bound to one. A rigid λ-term or an eigenvariable is decided by the type's predicate: abstractions and
+eigenvariables are neither symbols nor numbers, while a type of the user's made with \scm{define-μkanren-tag}
+may hold of them. micro's types are disjoint, so two different types on the same flexible term fail at once:
+\begin{scheme}
+(°->list #f (fresh° (q F) (=° q (@ F 'a)) (symbol° q)))
+(°->list/datum (fresh° (q F) (=° q (@ F 'a)) (symbol° q) (=° F (ƛ (z) z))))
+(°->list #f (fresh° (q F) (=° q (@ F 'a)) (symbol° q) (number° q)))
+(°->list #f (fresh° (q) (∀° (x) (symbol° x))))
+(°->list #f (fresh° (q F) (=° q F) (∀° (x) (symbol° (@ F x)))))
+\end{scheme}
+\begin{answers}
+((λ (α) (assert (every (μ v (symbol? v)) (list (@ α 'a)))) (@ α 'a)))
+(a)
+()
+()
+((λ (α) (∀ (x) (assert (every (μ v (symbol? v)) (list (@ α x))))) α))
+\end{answers}
+
+\begin{pitfall}[Readings are per constraint, and only for $\neq$]
+The extensional reading applies to \scm{≠°} only; \scm{absent°} and the types always read an eigenvariable as
+\rulename{generic} does. A disequality keeps the reading in force when it was posted; a first-order disequality that
+migrates from D to N later takes the reading in force when it migrates, since D records none. The two can differ
+only if the program changes \scm{μkanren-λ-reading} between the two goals.
+\end{pitfall}
+
+% ------------------------------------------------------------------------------------------------
+\section{Reification}\label{sec:module-reify}
+
+micro reifies an answer as a λ-expression whose parameters name the answer's variables and whose body lists the
+constraints and ends with the value (\cref{sec:micro-reify}). The module plugs into that through the hooks
+\texttt{value}, \texttt{repr}, \texttt{terms}, \texttt{forms} and \texttt{environment} (\cref{ch:design}).
+
+\paragraph{Values.} Deep values are β-normal and η-short (\scm{μkanren-λ-value}). They are used by answers, by
+D, A and T, by \scm{project°} and by aggregation.
+
+\paragraph{Binders.} An abstraction prints as \scm{(ƛ (x y) body)}, nested binders merged. A binder is named
+after its hint, renamed apart from the binders around it, from every symbol of its body, and from the operators
+of the rebuilding code (\scm{cons}, \scm{quote}, \scm{vector}, \scm{make-record-instance}, \scm{ƛ}, \scm{@},
+\scm{eigen}, \scm{bvar}). So neither capture nor shadowing can mislead the reader (Ma and Friedman's
+\enquote{true = false}, \cref{sec:lkanren-merge}), and a ground answer evaluates back to the same term:
+\begin{scheme}
+(°->list/datum (fresh° (q) (=° q (ƛ (a) (ƛ (a) a)))))
+(μkanren-datum (μkanren-abstract 'cons (λ (c) `(a ,c))))
+\end{scheme}
+\begin{answers}
+((ƛ (a a1) a1))
+(ƛ (cons1) (a cons1))
+\end{answers}
+
+\paragraph{Applications} print as \scm{(@ h a ...)}, so a flexible application \scm{(@ α x)} cannot be mistaken
+for the list \scm{(α x)}.
+
+\paragraph{Residual forms.} The constraints of the λ layer print as Scheme forms that can be evaluated:
+\begin{center}\small
+\begin{tabular}{@{}p{0.36\textwidth}p{0.58\textwidth}@{}}
+\toprule
+constraint & form in the answer \\
+\midrule
+suspended equation (E) & \texttt{(assert (≐ u v))} \\
+type on a flexible term (E) & \texttt{(assert (every (μ v (symbol? v)) (list u)))} \\
+absento with a pending term (E, T) & \texttt{(assert (absent? d u))} \\
+disequality whose trial binds (N) & \texttt{(begin (deny (equal? α t)))}, with \texttt{(∃ (\_3) ...)} inside \texttt{deny} when the trial creates variables \\
+disequality whose trial only suspends (N) & \texttt{(begin (deny (≐ u v)))} \\
+any of them still holding an eigenvariable & wrapped in \texttt{(∀ (x) form)} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\scm{≐} is exported: it decides αβη-equality of closed terms by unifying them in the empty state, so the forms
+evaluate. Through the \texttt{terms} hook, the variables of residual equations are reified \emph{after} those of
+the answer, so they are named \texttt{α}, \texttt{β}, \dots{} rather than \texttt{\_2}
+(\cref{ex:module-forget}). micro's show module gives the αKanren-style view \scm{°->pretty}:
+\begin{scheme}
+(°->pretty (fresh° (q) (∀° (x) (=° (@ q `(g ,x)) `(h (g ,x))))))
+(°->pretty (fresh° (q) (∀° (x) (=° (@ q x x) x))))
+\end{scheme}
+\begin{answers}
+((α : (= (ƛ (x) (@ α (g x))) (ƛ (x) (h (g x))))))
+((α : (= (ƛ (x) (@ α x x)) (ƛ (x) x))))
+\end{answers}
+
+\paragraph{No free eigenvariable.} Every constraint that holds an eigenvariable past its scope is closed, by
+\scm{ƛ} or by \scm{∀}, so no eigenvariable ever appears free in an answer. The one value that could hold one is the
+answer itself, when the variable that \scm{°->list} reifies is created inside a \scm{∀°}. λProlog reports no binding
+for a variable quantified inside \lp{pi x\ }, and this answer cannot be told without $x$, so reifying it is an error:
+\begin{scheme}
+(error-message (λ () (°->list #f (∀° (x) (fresh° (q) (=° q x))))))
+\end{scheme}
+\begin{answers}
+"the answer holds the eigenvariable of a ∀° it was created in: create the variable it reifies outside every ∀°"
+\end{answers}
+
+\paragraph{Live ground answers.} \scm{ƛ}, \scm{@} and \scm{≐} are bound in the module's environment, which the
+\texttt{environment} hook hands to \scm{°->list/ground}. A ground answer is therefore a λ-term one can apply:
+\begin{scheme}
+(@ (car (°->list/ground (fresh° (q) (=° q (ƛ (x y) `(g ,x ,y)))))) 'b 'b)
+\end{scheme}
+\begin{answers}
+(g b b)
+\end{answers}
+\scm{°->list/datum} answers plain data instead, comparable with \scm{equal?} against quoted book answers; that is what
+the suite uses, and \scm{μkanren-repr->datum} turns micro's rebuilding code into such data.
+
+\begin{pitfall}[Hints are not part of equality]
+\scm{equal?} sees hints, the unifier does not. \scm{(ƛ (x) x)} and \scm{(ƛ (y) y)} unify and are \scm{μkanren-α=?},
+but they are not \scm{equal?}: \scm{equal?} compares records slot by slot, hint included, and the hint is
+kept in the record so that answers print the user's binder names. When comparing λ-terms in host code, use \scm{μkanren-α=?} or \scm{≐}.
+A related trap is Scheme's own: \scm{(ƛ (quote) 'a)} shadows \scm{quote} while the body is built; terms built through
+\scm{μkanren-abstract} with such a hint print and evaluate correctly.
+\end{pitfall}
+
+% ------------------------------------------------------------------------------------------------
+\section{API reference}\label{sec:module-api}
+
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.42\textwidth}>{\raggedright\arraybackslash}p{0.54\textwidth}@{}}
+\toprule
+name & meaning \\
+\midrule
+\endfirsthead
+\toprule
+name & meaning \\
+\midrule
+\endhead
+\multicolumn{2}{@{}l}{\emph{Terms}}\\
+\scm{(ƛ (x ...) body)} & λ-abstraction over Scheme binders, η-short \\
+\scm{(@ f a ...)} & application; β at once on an abstraction, nested applications flattened \\
+\scm{(≐ u v)} & αβη-equality of closed terms, for residual forms \\
+\scm{(μkanren-abstract name f)} & the abstraction of the term \scm{(f p)}, \scm{p} a placeholder; binder hinted \scm{name} \\
+\scm{(μkanren-apply f args)} & \scm{@} on a list of arguments \\
+\scm{(μkanren-hnorm t s)} & head normal form of \scm{t} in state \scm{s} (\cref{def:module-hnf}) \\
+\scm{(μkanren-α=? u v)} & α-equivalence of deep values, hints ignored \\
+\scm{(μkanren-datum t)} & a term as data, printed without a state \\
+\scm{μkanren-lam?}\newline \scm{μkanren-app?}\newline \scm{μkanren-eigen?}\newline \scm{μkanren-bvar?}\newline \scm{μkanren-λ-term?} & record predicates; the last is their union \\
+\scm{μkanren-lam-hint}\newline \scm{μkanren-eigen-name}\newline \scm{μkanren-eigen-level} & accessors \\
+\multicolumn{2}{@{}l}{\emph{Goals}}\\
+\scm{(∀° (x ...) g ...)} & \rulename{generic}; \scm{(∀ª name f)} its procedural form, \scm{f} taking the eigenvariable \\
+\scm{(⊃° (D ...) g ...)} & \rulename{augment}; \scm{(⊃ª clauses g)} its procedural form \\
+\scm{(define-dynamic-relation}\newline \scm{  (r a ...) g ...)} & a relation that hypotheses can extend; with no \scm{g}, no static clauses \\
+\scm{(μkanren-dynamic f)}\newline \scm{(μkanren-dynamic? f)} & tag a procedure as dynamic, test the tag \\
+\scm{μkanren-hyps°}\newline \scm{μkanren-clause}\newline \scm{μkanren-clause/vars}\newline \scm{μkanren-clause*} & what the macros expand to \\
+\multicolumn{2}{@{}l}{\emph{Clauses $D$}}\\
+\scm{(r t ...)}\newline \scm{((r t ...) ← g ...)}\newline \scm{(← (r t ...) g ...)}\newline \scm{(∀ (v ...) D)} & fact, rule (infix and prefix), own variables \\
+\multicolumn{2}{@{}l}{\emph{Answers}}\\
+\scm{(°->list/datum g)} & the answers of \scm{g} as plain data, constraints dropped \\
+\scm{(μkanren-repr->datum r)} & micro's rebuilding code as data \\
+\multicolumn{2}{@{}l}{\emph{Engine}}\\
+\scm{μkanren-λ-reading} & parameter, \scm{'generic} (default) or \scm{'extensional} \\
+\scm{(μkanren-λ-depth s)} & the current universe level \\
+\scm{(μkanren-λ-level α s)} & the level of variable \scm{α} \\
+\scm{(μkanren-λ-delayed s)} & the suspended constraints E \\
+\scm{(μkanren-λ-disequalities s)} & the λ-disequalities N \\
+\scm{μkanren-λ-extension} & the registered extension record \\
+\multicolumn{2}{@{}l}{\emph{In \texttt{(aux kanren micro show)}}}\\
+\scm{(°->pretty g)}\newline \scm{μkanren-answer->pretty} & αKanren-style answers, \scm{(value : constraint ...)} \\
+\bottomrule
+\end{longtable}
+
+% ------------------------------------------------------------------------------------------------
+\section{Summary}\label{sec:module-summary}
+
+\begin{itemize}
+  \item \textbf{Terms.} Four records, locally nameless: \texttt{μkanren-lam} (interned hint, body),
+    \texttt{μkanren-app}, \texttt{μkanren-eigen} (name, level, uninterned id), \texttt{μkanren-bvar}. \scm{ƛ} uses
+    Scheme binders and builds η-short; \scm{@} β-reduces at once. Terms built alike are \scm{equal?}; α-equality is
+    \scm{μkanren-α=?} and \scm{≐}. Lists remain data: \scm{(@ 'g 'a)} is not \scm{'(g a)}.
+  \item \textbf{State.} One immutable record in micro's slot \texttt{X}: depth, top, the levels $L$/$L_n$ (an
+    sbral, lazily padded), Γ (one entry per relation), E (suspended constraints), N (λ-disequalities). \scm{∀°}
+    and \scm{⊃°} restore depth and Γ on every answer; branches never share it.
+  \item \textbf{Unification.} micro does the first-order part; the hook applies \rulename{ξ}, \rulename{η},
+    \rulename{Rigid}, \rulename{FF-same}, \rulename{FR}/FF-diff by variable elimination, and suspends
+    non-patterns: the rules of \cref{fig:rules-pattern} with the prefix erased into levels. Patterns are read
+    off levels. Elim prunes and lowers only strict occurrences, fails an
+    occurrence of $F$ only by Nipkow's size argument, and suspends whatever a later binding could decide.
+  \item \textbf{Check.} Every binding is scope-checked at its variable's level (NJK's binding rule with pruning),
+    or taken back into E when a non-pattern decides it. Fast paths skip it before any \scm{∀°}, on plain terms and
+    for top-level variables. Wake-up retries E in rounds while a round binds, and terminates when hnf does.
+  \item \textbf{∀° and ⊃°.} \rulename{generic} runs its body one universe deeper with a new eigenvariable and discharges
+    the residuals on exit (raise, close by ξ, retry, repeat). \rulename{augment} pushes closures on Γ. Dynamic relations
+    backchain on hypotheses first, most recent first, then on their static body; a clause's free variables are
+    shared, its \scm{∀} variables renamed per use.
+  \item \textbf{Stores.} \scm{≠°} on λ-terms goes to N with a trial whose new variables are existential;
+    D never holds a λ-term; two readings of $\forall$, generic (default) and extensional. \scm{absent°} looks into
+    parts and watches flexible terms; types wait on flexible terms and are decided by their predicate.
+  \item \textbf{Answers.} β-normal, η-short, binders renamed apart; residuals as \scm{(assert (≐ u v))},
+    \scm{(deny ...)}, \scm{(absent? ...)}, closed with \scm{∀} when they keep an eigenvariable; never a free
+    eigenvariable; ground answers are live terms.
+\end{itemize}
