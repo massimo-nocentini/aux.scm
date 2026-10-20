@@ -107,6 +107,11 @@
     (let1 (T (μkanren-state-T/stored s))
       (if (μkanren-state-T-reversed s) (reverse T) T)))
 
+  ; `(reverse (μkanren-state-T s))`, which is free when T is stored backwards.
+  (define (μkanren-state-T/reversed s)
+    (let1 (T (μkanren-state-T/stored s))
+      (if (μkanren-state-T-reversed s) T (reverse T))))
+
   ; a copy of `s` with the given `vars-count` and `S`, which keeps the marks: only `freshª` and the
   ; unification inside =° call it, and =° verifies the stores of its answer, see `μkanren-state-unify`.
   (define (μkanren-state-with/S s vc S)
@@ -173,6 +178,9 @@
 
   ; whether the marks `m` of a variable hold `bit`.
   (define (μkanren-mark? m bit) (not (fx= 0 (fxand m bit))))
+
+  ; whether the working variable α may hold the mark `bit`: always so when M is #f, which knows nothing.
+  (define (μkanren-marked? M α bit) (or (not M) (μkanren-mark? (μkanren-marks M α) bit)))
 
   (define (μkanren-mark M α bit)
     (cond
@@ -545,17 +553,19 @@
         ((((,α* . ,tag*) . _) ⊣ (equal? (μkanren-state-find α* s) α)) (if (μkanren-tag-equal? tag tag*) '() #f))
         ((_ . ,A*) (L A*)))))
 
-  (define (μkanren-verify-A+ α tag s)
-    (μ A0
-      (let1 (α* (μkanren-state-find α s))
-        (cond
-          ((μkanren-var-working? α*)  (cond
-                                        ((μkanren-ext-A α* tag A0 s) => (μ A+ (append A+ A0)))
-                                        (else #f)))
-          (else (and (μkanren-tag-pred? tag α*) A0))))))
-
+  ; A is rebuilt from the right, each key replaced by its walk in `s`, as `μkanren-ext-A` would extend it. The
+  ; keys of the store A0 built so far are themselves walks in `s`, so the search of `μkanren-ext-A` for a key
+  ; whose walk is α* is a lookup of the index of α* in `keys`, a table from the index of each key of A0 to its
+  ; tag: the same tag leaves A0 as it is, so the right-most entry of a key survives, a different one fails.
   (define (μkanren-verify-A A s)
-    (μkanren-foldr/verify (λ (a A0) ((μkanren-verify-A+ (lhs a) (rhs a) s) A0)) A))
+    (define keys (and (pair? A) (make-hash-table eqv?)))
+    (define (step a A0)
+      (let ((α* (μkanren-state-find (lhs a) s)) (tag (rhs a)))
+        (cond
+          ((not (μkanren-var-working? α*)) (and (μkanren-tag-pred? tag α*) A0))
+          ((hash-table-ref/default keys (μkanren-var-index α*) #f) => (λ (tag*) (and (μkanren-tag-equal? tag tag*) A0)))
+          (else (hash-table-set! keys (μkanren-var-index α*) tag) (cons `(,α* . ,tag) A0)))))
+    (μkanren-foldr/verify step A))
 
   (define (μkanren-verify-D/post D A T s)
     (cond
@@ -626,20 +636,26 @@
                               #t (not (μkanren-state-T-reversed s*)))
         s*))
 
-  ; α is the key just added to A, whose absento tags become disequalities (`μkanren-update-D/T`).
+  ; α is the key just added to A, whose absento tags become disequalities (`μkanren-update-D/T`). An α
+  ; with no T mark is no key of T (I3, I4), and then the conversion only reverses T.
   (define (μkanren-subsume-A tag α D A s)
-    (match1/first ((,D* . ,T*) (μkanren-update-D/T α D A (μkanren-state-T s) s))
+    (match1/first ((,D* . ,T*) (if (μkanren-marked? (μkanren-state-M s) α μkanren-mark/T)
+                                   (μkanren-update-D/T α D A (μkanren-state-T s) s)
+                                   `(,D . ,(μkanren-state-T/reversed s))))
       (let1 (M (μkanren-mark (μkanren-state-M s) α μkanren-mark/A))
         (μkanren-state-with s D: D* A: A T: T* tags: (cons tag (μkanren-state-tags s))
                             M: (μkanren-mark-prefixes M D* D) dirty: (or (μkanren-state-dirty s) (not (eq? D* D)))))))
 
+  ; the unbound α is a key of A only if it has the A mark, and the left side of a pair of D only if it has
+  ; the D mark (I1, I2, I4): without them, neither the search of `μkanren-ext-A` nor `μkanren-subsume` can
+  ; find it, and both are spared.
   (define (μkanren-make-tag-A+ α tag s)
-    (let1 (A (μkanren-state-A s))
-      (match/first (μkanren-ext-A α tag A s)
+    (let ((A (μkanren-state-A s)) (M (μkanren-state-M s)))
+      (match/first (if (μkanren-marked? M α μkanren-mark/A) (μkanren-ext-A α tag A s) `((,α . ,tag)))
         (#f #f)
         (() s)
         (,A+  (let* ((D   (μkanren-state-D s))
-                     (D*  (μkanren-subsume A+ D))
+                     (D*  (if (μkanren-marked? M α μkanren-mark/D) (μkanren-subsume A+ D) D))
                      (A*  (append A+ A)))
                 (μkanren-subsume-A tag α D* A* s))))))
 
@@ -651,15 +667,19 @@
       ((,u* ⊣ (μkanren-tag-pred? tag u*)) (✓° s))
       (else (✗° s))))
 
-  ; the stores of `s` are read only by `watch`, so a ground `u` costs nothing more than its walk.
+  ; the stores of `s` are read only by `watch`, so a ground `u` costs nothing more than its walk. A variable
+  ; α is a key of T, and the left side of a pair of D, only if it has the T mark, and the D mark (I2–I4):
+  ; without them, the search of `μkanren-ext-T+` and `μkanren-subsume` are spared. The keys of A are
+  ; distinct (I1), but for a state built by hand, which has no marks.
   (define (μkanren-absento+ u tag s)
       (define (watch α)
-        (let* ((D (μkanren-state-D s)) (A (μkanren-state-A s)) (T (μkanren-state-T s))
-               (T+ (μkanren-ext-T+ α tag T s)))
-          (if (null? T+) s (let* ((D* (μkanren-subsume T+ D))
-                                  (vars (remove-duplicates (map lhs A)))
+        (let* ((D (μkanren-state-D s)) (A (μkanren-state-A s)) (T (μkanren-state-T s)) (M0 (μkanren-state-M s))
+               (var? (μkanren-var? α))
+               (T+ (if (and var? (not (μkanren-marked? M0 α μkanren-mark/T))) `((,α . ,tag)) (μkanren-ext-T+ α tag T s))))
+          (if (null? T+) s (let* ((D* (if (and var? (not (μkanren-marked? M0 α μkanren-mark/D))) D (μkanren-subsume T+ D)))
+                                  (vars (if M0 (map lhs A) (remove-duplicates (map lhs A))))
                                   (datum (μkanren-tag-name tag))
-                                  (M (μkanren-mark-T (μkanren-state-M s) α s))
+                                  (M (μkanren-mark-T M0 α s))
                                   ; the datum of a compound tag is walked by `μkanren-tag-unify` too.
                                   (M (if (μkanren-compound? datum) (μkanren-mark-T M datum s) M)))
                              (μkanren-subsume-T vars T+ D* A T M s)))))
