@@ -13,6 +13,8 @@
 ;; - `cons/sbral`, `car/sbral`, and `cdr/sbral` behave like their list
 ;;   counterparts on the front of the sequence.
 ;; - `sbral-ref` and `update/sbral` provide positional lookup and replacement.
+;; - `sbral-ref/back` and `update/sbral/back` do the same counting from the back,
+;;   where a missing slot reads a default and is filled on update.
 ;; - `list->sbral` and `sbral->list` convert to and from ordinary lists.
 ;; - `length/sbral`, `map/sbral`, `filter/sbral`, `exists?/sbral`, and
 (module (aux fds sbral) *
@@ -71,6 +73,17 @@
        `((,size . ,(sbral-tree-update size i y tree)) . ,sbral*))
       (((,entry . ,sbral*) ⊣ (and (fixnum? i) (fx<= (car entry) i))) `(,entry . ,(update/sbral (fx- i (car entry)) y sbral*)))
       (else (error "update/sbral: index out of bounds" i))))
+
+  ; the same, counting from the back: index j is the slot `(- (length/sbral sbral) 1 j)`, so an index
+  ; stays put while the sequence grows at its front (as a variable's slot in a substitution does).
+  ; A j beyond the sequence reads `default`; `update/sbral/back` first grows the front with `fill`.
+  (define (sbral-ref/back sbral j default)
+    (let1 (l (length/sbral sbral))
+      (if (and (fixnum? j) (fx>= j l)) default (sbral-ref sbral (- l 1 j)))))
+
+  (define (update/sbral/back j y fill sbral)
+    (let G ((l (length/sbral sbral)) (sbral sbral))
+      (if (and (fixnum? j) (fx>= j l)) (G (fx+ l 1) (cons/sbral fill sbral)) (update/sbral (- l 1 j) y sbral))))
 
   ; folds the tree of weight w whose root sits at index i, right subtree first, so that
   ; `f` sees the indices in decreasing order: O(w) instead of one `sbral-ref` per element.

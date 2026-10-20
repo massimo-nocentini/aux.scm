@@ -117,6 +117,26 @@
          (⊦= '((7 a (b (c) (d)) (e (f) (g)))) q)
          (⊦= '((7 a (b (c) (d)) (hello (f) (g)))) (update/sbral 4 'hello q))))
 
+  ((test-ref/back _)
+   (let1 (q (list->sbral '(e d c b a)))                   ; the front is the last index from the back
+         (⊦= '(a b c d e) (map (λ (j) (sbral-ref/back q j 'none)) (iota 5)))
+         (⊦= '(none none) (map (λ (j) (sbral-ref/back q j 'none)) '(5 100)))
+         (⊦= 'none (sbral-ref/back empty/sbral 0 'none))
+         (for-each (λ (j) (⊦= "sbral-ref: index out of bounds" (error-message (λ () (sbral-ref/back q j 'none)))))
+                   (list -1 1.5 (expt 2 100)))))
+
+  ((test-update/back _)
+   (let1 (q (list->sbral '(c b a)))
+         (⊦= '(c b z) (sbral->list (update/sbral/back 0 'z 0 q)))
+         (⊦= '(c y a) (sbral->list (update/sbral/back 1 'y 0 q)))
+         ; beyond the sequence: the front grows with the fill, the indices already there stay put
+         (⊦= '(x 0 c b a) (sbral->list (update/sbral/back 4 'x 0 q)))
+         (⊦= 'a (sbral-ref/back (update/sbral/back 4 'x 0 q) 0 'none))
+         (⊦= '(w) (sbral->list (update/sbral/back 0 'w 0 empty/sbral)))
+         (⊦= '(w 0 0) (sbral->list (update/sbral/back 2 'w 0 empty/sbral)))
+         (for-each (λ (j) (⊦= "update/sbral: index out of bounds" (error-message (λ () (update/sbral/back j 'v 0 q)))))
+                   (list -1 1.5 (expt 2 100)))))
+
   ((test-update-out-of-bounds _)
    (let1 (q (list->sbral '(a b c d e)))
          (⊦= '((1 a) (1 b) (3 c (d) (hello))) (update/sbral 4 'hello q))
