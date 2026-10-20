@@ -14,3 +14,5 @@ src/test/learning
 *.DS_Store
 # large generated test data
 src/test/users_*.json
+# test-suite reports written next to the sources
+src/testsuite-*.html
