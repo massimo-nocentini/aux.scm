@@ -367,13 +367,39 @@
   (define (μkanren-subsumed-T? x tag T)
     ((exists (λ1-match/first ((,y . ,tag*) (and (equal? x y) (μkanren-tag-equal? tag tag*))))) T))
 
-  ; drops from a store every element subsumed by another one (before or after it).
-  (define ((μkanren-rem-subsumed/by subsumed?) L0)
-    (let loop ((L L0) (L+ '()))
-      (match/first L
-        (() L+)
-        (((,x . ,L*) ⊣ (or (subsumed? x L*) (subsumed? x L+))) (loop L* L+))
-        ((,x . ,L*) (loop L* (cons x L+))))))
+  ; drops from a store every element subsumed by another one (before or after it). `subsumed?` must be an
+  ; `any` of pure trials over its list, and given `key` and `keys` an element y is tried for x only when
+  ; `(key y)` is one of `(keys x)`, which must hold whenever y subsumes x: see `μkanren-rem-subsumed/keyed`,
+  ; spared for fewer than two elements, which have nothing to try but empty lists.
+  (define ((μkanren-rem-subsumed/by subsumed? #!optional key keys) L0)
+    (if (and key (pair? L0) (pair? (cdr L0)))
+      (μkanren-rem-subsumed/keyed subsumed? key keys L0)
+      (let loop ((L L0) (L+ '()))
+        (match/first L
+          (() L+)
+          (((,x . ,L*) ⊣ (or (subsumed? x L*) (subsumed? x L+))) (loop L* L+))
+          ((,x . ,L*) (loop L* (cons x L+)))))))
+
+  ; the loop of `μkanren-rem-subsumed/by`, where the element x at position p is tried against those of L*
+  ; (the positions after p) and of L+ (the positions before p that are `kept`) whose key is one of `(keys x)`
+  ; only, found through a table from each key to its positions, in one call of `subsumed?` in place of two:
+  ; being an `any`, it answers the same on them as on the whole of L* and L+, the others failing anyway.
+  (define (μkanren-rem-subsumed/keyed subsumed? key keys L0)
+    (let* ((V (list->vector L0))
+           (kept (make-vector (vector-length V) #f))
+           (H (make-hash-table eqv?))
+           (others (λ (x p) (append-map (λ (k) (filter-map (λ (q) (and (not (fx= q p)) (or (fx> q p) (vector-ref kept q)) (vector-ref V q)))
+                                                           (hash-table-ref/default H k '())))
+                                        (keys x)))))
+      (let K ((q (fx- (vector-length V) 1)))
+        (unless (fx< q 0)
+          (hash-table-update!/default H (key (vector-ref V q)) (λ (qs) (cons q qs)) '())
+          (K (fx- q 1))))
+      (let loop ((L L0) (p 0) (L+ '()))
+        (match/first L
+          (() L+)
+          (((,x . ,L*) ⊣ (subsumed? x (others x p))) (loop L* (fx+ p 1) L+))
+          ((,x . ,L*) (vector-set! kept p #t) (loop L* (fx+ p 1) (cons x L+)))))))
 
   (define μkanren-rem-subsumed-T (μkanren-rem-subsumed/by (λ (t T) (μkanren-subsumed-T? (lhs t) (rhs t) T))))
 
@@ -408,6 +434,15 @@
       ((μkanren-structure? u) (any μkanren-hasvar? (μkanren-structure->list u)))
       (else #f)))
 
+  ; the distinct indices of the variables the term `u` holds, found as `μkanren-hasvar?` finds them.
+  (define (μkanren-var-indices u)
+    (let I ((w u) (is '()))
+      (cond
+        ((μkanren-var? w) (let1 (i (μkanren-var-index w)) (if (memv i is) is (cons i is))))
+        ((pair? w) (I (cdr w) (I (car w) is)))
+        ((μkanren-structure? w) (fold I is (μkanren-structure->list w)))
+        (else is))))
+
   ; whether the equations of some prefix of D already hold in the state built from the equations of `d`,
   ; so that `d` adds nothing; that state is built once, not once per prefix.
   (define (μkanren-subsumed? d D)
@@ -421,8 +456,20 @@
                      (#f #f)))
            D)))
 
+  ; `μkanren-subsumed?` finds that a prefix d* holds in the state s_d built from d only if every variable of d*
+  ; occurs in d. Since s_d binds variables of d only, to terms of d, a variable γ of d* that d lacks is unbound
+  ; in s_d and no binding reaches it; the left side of each pair of d* being a variable (I2), either γ is one
+  ; of them, and the trial binds it, or it sits inside a term whose walk holds γ, unlike the walk of the other
+  ; side, and the trial binds some variable or fails: either way it does not answer s_d itself. So d* needs
+  ; trying for d only when its key variable occurs in d, and the key is the variable of d* with the largest
+  ; index, not the left side of its first pair, often the same in all of D (as in `((_1 . _k))` for each k).
+  ; A prefix without variables, which I2 rules out, would key on -1, which every prefix lists (a reified
+  ; variable has index -1 too, but an index shared by two variables only adds trials).
+  (define (μkanren-prefix-key d) (fold fxmax -1 (μkanren-var-indices d)))
+  (define (μkanren-prefix-keys d) (cons -1 (μkanren-var-indices d)))
+
   ; it must come after `μkanren-subsumed?`, being evaluated at load time.
-  (define μkanren-rem-subsumed (μkanren-rem-subsumed/by μkanren-subsumed?))
+  (define μkanren-rem-subsumed (μkanren-rem-subsumed/by μkanren-subsumed? μkanren-prefix-key μkanren-prefix-keys))
 
   (define ((μkanren-project w) s)
     (let1 (w* (μkanren-state-find/value w s))

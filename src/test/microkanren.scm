@@ -64,7 +64,12 @@
 
   ((test/rem-subsumed/by _)
    (⊦= '(2 3 1) ((μkanren-rem-subsumed/by member?) '(1 2 1 3 2)))
-   (⊦= '() ((μkanren-rem-subsumed/by member?) '())))
+   (⊦= '() ((μkanren-rem-subsumed/by member?) '()))
+   ; keyed, an element is tried only against those whose key is among its keys: the same answer when they
+   ; hold every element that could subsume it, as the identity does for `member?`
+   (⊦= '(2 3 1) ((μkanren-rem-subsumed/by member? identity list) '(1 2 1 3 2)))
+   (⊦= '(6) ((μkanren-rem-subsumed/by (λ (x L) (pair? L))) '(1 2 3 4 6)))
+   (⊦= '(6 3) ((μkanren-rem-subsumed/by (λ (x L) (pair? L)) (μ x (modulo x 2)) (μ x (list (modulo x 2)))) '(1 2 3 4 6))))
 
   ((test/foldr/verify _)
    (define (step x acc) (and (odd? x) (cons x acc)))
@@ -213,6 +218,16 @@
         (°->list #f (fresh° (q x y) (=° q (list x y)) (symbol° x) (symbol° y) (≠° (list x y) (list 1 2)))))
     (⊦= '((λ (α β) (assert (every (μ v (symbol? v)) (list α β))) (cons α (cons β '()))))
         (°->list #f (fresh° (q x y) (=° q (list x y)) (symbol° x) (symbol° y) (≠° (list x y) (list 'a 2))))))
+
+  ((test/≠°/subsumed/keyed _)
+    ; a prefix of D subsumes another one through its variable of largest index, which is not the left side
+    ; of its first pair, whatever the order of the disequalities and of their pairs
+    (⊦= '((λ (α β γ) (begin (deny (equal? α β))) (cons α (cons β (cons γ '())))))
+        (°->list #f (fresh° (q x y z) (=° q (list x y z)) (≠° x y) (≠° (list x z) (list y 1)))))
+    (⊦= '((λ (α β γ) (begin (deny (equal? α β))) (cons α (cons β (cons γ '())))))
+        (°->list #f (fresh° (q x y z) (=° q (list x y z)) (≠° (list z x) (list 1 y)) (≠° y x))))
+    (⊦= '((λ (α β) (begin (deny (equal? β 2))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list x y) (list 1 2)) (≠° y 2)))))
 
   ((test/absent°/structure _)
     (⊦= '() (°->list #f (fresh° (q) (absent° 'a q) (=° q (vector 'a)))))
