@@ -338,9 +338,10 @@
         ((exists? D) D)
         (else (cons `((,α . ,name)) D)))))
 
+  ; turns the entries of T keyed by α into disequalities and keeps the others in their order.
   (define (μkanren-update-D/T+ α T+ D T s)
     (match/first T
-      (() `(,D . ,T+))
+      (() `(,D . ,(reverse T+)))
       ((((,α* . ,tag) . ,T*) ⊣ (equal? α α*)) (let1 (D* (μkanren-ext-D α tag D s)) (μkanren-update-D/T+ α T+ D* T* s)))
       ((,t . ,T*) (let1 (T+* (cons t T+)) (μkanren-update-D/T+ α T+* D T* s)))))
 
