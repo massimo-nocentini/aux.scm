@@ -1,29 +1,19 @@
 # Higher-order logic programming for `(aux kanren micro)`
 
-`hol-kanren.pdf` (411 pages, typeset with the `tufte-book` class) is a reading of Miller & Nadathur,
-*Programming with Higher-Order Logic* (CUP 2012), and of the higher-order miniKanren literature, Ma & Friedman's λKanren paper (miniKanren 2021)
-in particular. It ends with a proposal for `(aux kanren lambda)`, a module that brings λProlog's logic
-into `(aux kanren micro)`: ∀ and ⊃ goals, λ-tree syntax and higher-order pattern unification.
+This directory holds the prototype of `(aux kanren lambda)`: a module that brings λProlog's logic into
+`(aux kanren micro)`, with ∀ and ⊃ goals, λ-tree syntax and higher-order pattern unification.
+
+The document that motivates and describes it is a reading of Miller & Nadathur, *Programming with
+Higher-Order Logic* (CUP 2012), and of the higher-order miniKanren literature, Ma & Friedman's λKanren paper
+(miniKanren 2021) in particular, ending with the proposal. It is a 411-page `tufte-book` built with XeLaTeX,
+and lives in the Overleaf project `lambda-prolog-lambda-kanren` (working copy
+`../overleaf/lambda-prolog-lambda-kanren`, next to this repository's checkout). It was last in this repository
+at commit 09be875. The document cites this directory's paths as `doc/hol-kanren/prototype/`.
 
 - Part I (chapters 2–8): the book.
 - Part II (chapter 9): the literature.
 - Part III (chapters 10–14): the proposal, in this order: micro as it is today, the design and its extension
   protocol, the module, the book's examples run on it, then limitations, costs and a merge roadmap.
-
-Section 1.4 gives three reading paths. The fast path covers the minimum needed to follow the proposal.
-
-## Rebuilding the PDF
-
-It needs XeLaTeX, the `tufte-latex` classes, the Libertinus fonts and DejaVu Sans Mono. Either of these works:
-
-    tectonic --keep-intermediates hol-kanren.tex    # run it twice
-    latexmk -xelatex hol-kanren.tex
-
-Tectonic needs two runs with `--keep-intermediates`: the second reads the `.aux` and `.toc` of the first, and
-only then do the page breaks settle. A few figure and table captions sit in the margin at hand-tuned offsets
-(`\vspace` plus a raised `\caption`), so check them if the text around them changes.
-
-The sources are `hol-kanren.tex`, `preamble.tex`, `bibliography.tex` and `chapters/*.tex`.
 
 ## The prototype (`prototype/`)
 
