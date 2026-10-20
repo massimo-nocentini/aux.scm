@@ -227,7 +227,13 @@
     (⊦= '((λ (α β γ) (begin (deny (equal? α β))) (cons α (cons β (cons γ '())))))
         (°->list #f (fresh° (q x y z) (=° q (list x y z)) (≠° (list z x) (list 1 y)) (≠° y x))))
     (⊦= '((λ (α β) (begin (deny (equal? β 2))) (cons α (cons β '()))))
-        (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list x y) (list 1 2)) (≠° y 2)))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list x y) (list 1 2)) (≠° y 2))))
+    ; every prefix shares x, introduced after the variables it must differ from, and is keyed on another one
+    (⊦= '((λ (α β γ δ) (begin (deny (equal? α δ))) (begin (deny (equal? β δ))) (cons α (cons β (cons γ (cons δ '()))))))
+        (°->list #f (fresh° (q a b c x) (=° q (list a b c x)) (≠° x a) (≠° x b) (≠° (list x c) (list b 1)))))
+    (⊦= '((λ (α β γ δ) (begin (deny (equal? α δ))) (begin (deny (equal? β δ))) (begin (deny (equal? γ δ)))
+            (cons α (cons β (cons γ (cons δ '()))))))
+        (°->list #f (fresh° (q a b c) (fresh° (x) (=° q (list a b c x)) (≠° x a) (≠° (list c x) (list 1 b)) (≠° x b) (≠° x c))))))
 
   ((test/absent°/structure _)
     (⊦= '() (°->list #f (fresh° (q) (absent° 'a q) (=° q (vector 'a)))))

@@ -367,6 +367,13 @@
   (define (μkanren-subsumed-T? x tag T)
     ((exists (λ1-match/first ((,y . ,tag*) (and (equal? x y) (μkanren-tag-equal? tag tag*))))) T))
 
+  ; a table keyed by the index of a variable, or by #f. srfi-69 salts every table built on one of its own hash
+  ; functions with a draw of libc's rand(), so each such table would move the salt of every table built after
+  ; it, and with it the order in which set° and groupby° fold theirs into answers: the tables of the stores
+  ; hash with a procedure of their own, which draws nothing, and leave that order as it is without them.
+  (define (μkanren-index-hash k bound) (if (fixnum? k) (modulo k bound) 0))
+  (define (μkanren-index-table) (make-hash-table eqv? μkanren-index-hash))
+
   ; drops from a store every element subsumed by another one (before or after it). `subsumed?` must be an
   ; `any` of pure trials over its list, and given `key` and `keys` an element y is tried for x only when
   ; `(key y)` is one of `(keys x)`, which must hold whenever y subsumes x: see `μkanren-rem-subsumed/keyed`,
@@ -387,7 +394,7 @@
   (define (μkanren-rem-subsumed/keyed subsumed? key keys L0)
     (let* ((V (list->vector L0))
            (kept (make-vector (vector-length V) #f))
-           (H (make-hash-table eqv?))
+           (H (μkanren-index-table))
            (others (λ (x p) (append-map (λ (k) (filter-map (λ (q) (and (not (fx= q p)) (or (fx> q p) (vector-ref kept q)) (vector-ref V q)))
                                                            (hash-table-ref/default H k '())))
                                         (keys x)))))
@@ -461,15 +468,25 @@
   ; in s_d and no binding reaches it; the left side of each pair of d* being a variable (I2), either γ is one
   ; of them, and the trial binds it, or it sits inside a term whose walk holds γ, unlike the walk of the other
   ; side, and the trial binds some variable or fails: either way it does not answer s_d itself. So d* needs
-  ; trying for d only when its key variable occurs in d, and the key is the variable of d* with the largest
-  ; index, not the left side of its first pair, often the same in all of D (as in `((_1 . _k))` for each k).
+  ; trying for d only when its key variable occurs in d, whichever variable of d* the key is: it is the one
+  ; occurring in the fewest prefixes of D (the first of `μkanren-var-indices` among equals), since a variable
+  ; that many prefixes share, as the left side of their first pair in `((_1 . _k))` for each k or as x in
+  ; `((_k . x))` when x comes after the variables it must differ from, would put them all in one bucket.
   ; A prefix without variables, which I2 rules out, would key on -1, which every prefix lists (a reified
   ; variable has index -1 too, but an index shared by two variables only adds trials).
-  (define (μkanren-prefix-key d) (fold fxmax -1 (μkanren-var-indices d)))
+  (define (μkanren-prefix-key/rarest D)
+    (let1 (C (μkanren-index-table))
+      (for-each (λ (d) (for-each (λ (i) (hash-table-update!/default C i add1 0)) (μkanren-var-indices d))) D)
+      (let1 (count (λ (i) (hash-table-ref/default C i 0)))
+        (λ (d) (fold (λ (i k) (if (or (fx= k -1) (fx< (count i) (count k))) i k)) -1 (μkanren-var-indices d))))))
+
   (define (μkanren-prefix-keys d) (cons -1 (μkanren-var-indices d)))
 
-  ; it must come after `μkanren-subsumed?`, being evaluated at load time.
-  (define μkanren-rem-subsumed (μkanren-rem-subsumed/by μkanren-subsumed? μkanren-prefix-key μkanren-prefix-keys))
+  ; the counts of the keys are spared for fewer than two prefixes, as the table of `μkanren-rem-subsumed/keyed`.
+  (define (μkanren-rem-subsumed D)
+    (if (and (pair? D) (pair? (cdr D)))
+      ((μkanren-rem-subsumed/by μkanren-subsumed? (μkanren-prefix-key/rarest D) μkanren-prefix-keys) D)
+      ((μkanren-rem-subsumed/by μkanren-subsumed?) D)))
 
   (define ((μkanren-project w) s)
     (let1 (w* (μkanren-state-find/value w s))
@@ -543,7 +560,7 @@
 
   ; a table from the index of each variable key of the store `L` (A or T) to the entries of `L` keyed on it.
   (define (μkanren-store-table L)
-    (let1 (H (make-hash-table eqv?))
+    (let1 (H (μkanren-index-table))
       (for-each (λ (e) (when (μkanren-var? (lhs e))
                          (hash-table-update!/default H (μkanren-var-index (lhs e)) (λ (es) (cons e es)) '())))
                 L)
@@ -631,7 +648,7 @@
   ; at the entries in `keys`, a table from the index of a variable key, or #f for every compound one, to
   ; the entries of T₀ under it, filled as T₀ grows.
   (define (μkanren-verify-T T s)
-    (define keys (and (pair? T) (make-hash-table eqv?)))
+    (define keys (and (pair? T) (μkanren-index-table)))
     (define (ext u tag T₀ s)
       (let* ((k (and (μkanren-var? u) (μkanren-var-index u)))
              (us (hash-table-ref/default keys k '())))
@@ -659,7 +676,7 @@
   ; whose walk is α* is a lookup of the index of α* in `keys`, a table from the index of each key of A0 to its
   ; tag: the same tag leaves A0 as it is, so the right-most entry of a key survives, a different one fails.
   (define (μkanren-verify-A A s)
-    (define keys (and (pair? A) (make-hash-table eqv?)))
+    (define keys (and (pair? A) (μkanren-index-table)))
     (define (step a A0)
       (let ((α* (μkanren-state-find (lhs a) s)) (tag (rhs a)))
         (cond
