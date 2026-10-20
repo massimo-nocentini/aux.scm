@@ -52,6 +52,16 @@
      (⊦= '() (μkanren-state-tags s*))
      (⊦= '((d)) (μkanren-state-D (μkanren-state-with s)))))
 
+  ((test/state-unify/stores _)
+   ; a goal that binds through the exported unifier leaves the stores to the next =° that changes the state,
+   ; which verifies them as a whole, whether the goal answers the unifier's state or only its substitution.
+   (define ((raw=° u v) s) (let1 (r (μkanren-state-unify u v s '())) (if r (list (car r)) '())))
+   (define ((rawS=° u v) s) (let1 (r (μkanren-state-unify u v s '())) (if r (list (μkanren-state-with s S: (μkanren-state-S (car r)))) '())))
+   (⊦= '() (°->list #f (fresh° (q) (fresh° (x y) (=° q (list x y)) (number° x) (raw=° x 'a) (=° y 1)))))
+   (⊦= '() (°->list #f (fresh° (q) (fresh° (x y) (=° q (list x y)) (absent° 'a x) (raw=° x 'a) (=° y 1)))))
+   (⊦= '() (°->list #f (fresh° (q) (fresh° (x y) (=° q (list x y)) (number° x) (rawS=° x 'a) (=° y 1)))))
+   (⊦= '() (°->list #f (fresh° (q) (fresh° (x y) (=° q (list x y)) (absent° 'a x) (rawS=° x 'a) (=° y 1))))))
+
   ((test/rem-subsumed/by _)
    (⊦= '(2 3 1) ((μkanren-rem-subsumed/by member?) '(1 2 1 3 2)))
    (⊦= '() ((μkanren-rem-subsumed/by member?) '())))
