@@ -65,7 +65,7 @@
   ; by variable with the most recent variable first; `D` the disequality store (a list of failed-unification
   ; prefixes, each a list of `(α . u)` pairs); `A` the type store and `T` the absento store (lists of
   ; `(α . tag)` pairs, where T's α may also be a compound term, see `μkanren-tag-unify`); `tags` the tags
-  ; asserted so far through `A`. D, A and T are plain lists, only S is a real sbral.
+  ; asserted so far through `A`. D, A and T are plain lists; besides S, only the marks `M` below are an sbral.
   ;
   ; `M` marks the variables the stores mention, so that a =° binding none of them can skip verifying the
   ; stores (see `μkanren-quiet?`): an sbral indexed like S (see `sbral-ref/back`, a missing slot reads 0) of bitmasks, where
@@ -79,7 +79,8 @@
   ; `μkanren-ext-D`) leaves a prefix like `((α . 5))` under `(symbol° α)`, which the next =° removes.
   ; `A-odd` tells whether A has an odd number of keys, and `T-reversed` whether the list in the T field
   ; holds the absento store backwards (`μkanren-state-T` reads it the right way round): together they let
-  ; a quiet =° keep the order of T in O(1), see `μkanren-verify/quiet`. `A-odd` means nothing when M is #f.
+  ; a quiet =° keep the order of T in O(1), see `μkanren-verify/quiet`, and so does `T-reversed` for a type
+  ; tag on a variable that T does not mention, see `μkanren-subsume-A`. `A-odd` means nothing when M is #f.
   ; Past the quiet test, the marks spare the searches of the stores for a variable they do not mention, see
   ; `μkanren-make-tag-A+`, `μkanren-absento+`, `μkanren-subsume` and `μkanren-subsume-T`; within one
   ; verification, `μkanren-verify-A` and `μkanren-verify-T` find the keys of the store they rebuild in a table.
@@ -110,11 +111,6 @@
     (let1 (T (μkanren-state-T/stored s))
       (if (μkanren-state-T-reversed s) (reverse T) T)))
 
-  ; `(reverse (μkanren-state-T s))`, which is free when T is stored backwards.
-  (define (μkanren-state-T/reversed s)
-    (let1 (T (μkanren-state-T/stored s))
-      (if (μkanren-state-T-reversed s) T (reverse T))))
-
   ; a copy of `s` with the given `vars-count` and `S`, which keeps the marks: only `freshª` and the
   ; unification inside =° call it, and =° verifies the stores of its answer, see `μkanren-state-unify`.
   (define (μkanren-state-with/S s vc S)
@@ -127,6 +123,8 @@
 
   ; a copy of `s` where the given fields are replaced. A new substitution or new stores given without `M:`
   ; may break the marks, so the copy drops them, unless `M:` is given too, as it is by every call in here.
+  ; `A-odd:` spares counting a new A whose parity the caller knows; `T-reversed:` tells how a new T is
+  ; stored, as it is (#f, the default) or backwards (#t).
   (define (μkanren-state-with s #!key
                               (vars-count (μkanren-state-vars-count s))
                               (S μkanren-state-keep)
@@ -135,7 +133,9 @@
                               (T μkanren-state-keep)
                               (tags (μkanren-state-tags s))
                               (M μkanren-state-keep)
-                              (dirty μkanren-state-keep))
+                              (dirty μkanren-state-keep)
+                              (A-odd μkanren-state-keep)
+                              (T-reversed #f))
     (let* ((kept? (λ (v) (eq? v μkanren-state-keep)))
            (field (λ (v get) (if (kept? v) (get s) v)))
            (blind? (and (kept? M) (not (and (kept? S) (kept? D) (kept? A) (kept? T)))))
@@ -144,8 +144,8 @@
       (make-μkanren-state/M vars-count (field S μkanren-state-S) (field D μkanren-state-D) A* (field T μkanren-state-T/stored) tags
                             M*
                             (cond ((not (kept? dirty)) dirty) (blind? #t) (else (μkanren-state-dirty s)))
-                            (cond ((not M*) #f) ((kept? A) (μkanren-state-A-odd s)) (else (odd? (length A*))))
-                            (and (kept? T) (μkanren-state-T-reversed s)))))
+                            (cond ((not M*) #f) ((not (kept? A-odd)) A-odd) ((kept? A) (μkanren-state-A-odd s)) (else (odd? (length A*))))
+                            (if (kept? T) (μkanren-state-T-reversed s) T-reversed))))
 
   ; the position of the working variable α in the sbral `sbral` (which stores the most recent variable first).
   (define (μkanren-var-index/sbral sbral α) (- (length/sbral sbral) 1 (μkanren-var-index>=0 α)))
@@ -470,8 +470,9 @@
   ; of T. An α with no T mark keys no entry of T+ (I3, I4) and would only reverse it: such reversals are
   ; owed, by parity in `owed`, and done before the next conversion and at the end. An α with no D mark is
   ; on the left side of no prefix of D, and `μkanren-ext-D` needs not search for it. A conversion that
-  ; adds a prefix to D marks it in `M` and leaves D dirty, see the state record.
-  (define (μkanren-subsume-T vars T+ D A T M s)
+  ; adds a prefix to D marks it in `M` and leaves D dirty, see the state record. The answer has the A of
+  ; `s`, unless `A:` gives the one just rebuilt.
+  (define (μkanren-subsume-T vars T+ D T M s #!key (A μkanren-state-keep))
     (let U ((vars vars) (T+ T+) (D D) (M M) (dirty (μkanren-state-dirty s)) (owed #f))
       (let1 (paid (τ (if owed (reverse T+) T+)))
         (match/first vars
@@ -501,28 +502,36 @@
                 L)
       H))
 
-  ; D without the prefixes that A-or-T subsumes. `=°` calls it on the whole D after every binding, so an
-  ; empty store (the usual case) costs nothing. Given the marks `M`, a pair of D whose right side is no
-  ; working variable is tested only when the variable on its left side has the mark `bit` (I4), and
-  ; against the entries of A-or-T keyed on that variable only, from a table built when first needed: the
-  ; others cannot match it under `equal?`.
+  ; D without the prefixes that A-or-T subsumes: the verification of a =° that is not quiet calls it on the
+  ; whole D, `≠°` on its new prefix only, so an empty store (the usual case) costs nothing. Given the marks
+  ; `M`, a pair of D whose right side is no working variable is tested only when the variable on its left
+  ; side has the mark `bit` (I4), and against the entries of A-or-T keyed on that variable only, which a
+  ; table holds from the second such test on (the first one, often the only one, scans A-or-T instead,
+  ; for less than building the table): the others cannot match it under `equal?`.
   (define (μkanren-subsume A-or-T D #!optional M bit)
     (cond
       ((null? A-or-T) D)
       ((not M) (remove (exists (μkanren-subsumed-pr? A-or-T)) D))
       (else (let* ((H (delay (μkanren-store-table A-or-T)))
+                   (scanned #f)
+                   (entries (λ (α) (cond
+                                     (scanned (hash-table-ref/default (force H) (μkanren-var-index α) '()))
+                                     (else (set! scanned #t) A-or-T))))
                    (subsumed? (λ (p) (let1 (α (lhs p))
                                        (cond
                                          ((μkanren-var-working? (rhs p)) #f)
                                          ((not (μkanren-var? α)) ((μkanren-subsumed-pr? A-or-T) p))
                                          ((and (μkanren-var-working? α) (not (μkanren-marked? M α bit))) #f)
-                                         (else ((μkanren-subsumed-pr? (hash-table-ref/default (force H) (μkanren-var-index α) '())) p)))))))
+                                         (else ((μkanren-subsumed-pr? (entries α)) p)))))))
               (remove (exists subsumed?) D)))))
 
-  ; the keys of A, just rebuilt by `μkanren-verify-A`, are distinct.
+  ; the keys of A, just rebuilt by `μkanren-verify-A`, are distinct. An empty T, just rebuilt by
+  ; `μkanren-verify-T`, subsumes nothing and has nothing to convert or to reverse.
   (define (μkanren-verify-T/post D A s)
     (let1 (M (μkanren-state-M s))
-      (μ T (μkanren-subsume-T (map lhs A) T (μkanren-subsume T D M μkanren-mark/T) A '() M s))))
+      (μ T (if (null? T)
+               (μkanren-state-with s D: D A: A T: '() M: M dirty: (μkanren-state-dirty s))
+               (μkanren-subsume-T (map lhs A) T (μkanren-subsume T D M μkanren-mark/T) '() M s A: A)))))
 
   ; the absento store T holds `(α . tag)` pairs where α is a variable or, for a compound tag datum, a compound
   ; term that may still become that datum: such a term is kept whole, since walking into its parts would lose
@@ -681,16 +690,19 @@
                               #t (not (μkanren-state-T-reversed s*)))
         s*))
 
-  ; α is the key just added to A, whose absento tags become disequalities (`μkanren-update-D/T+`). An α
-  ; with no T mark is no key of T (I3, I4), and then the conversion only reverses T.
+  ; α is the key just added to A, one more key than `s` has, whose absento tags become disequalities
+  ; (`μkanren-update-D/T+`). An α with no T mark is no key of T (I3, I4), and then the conversion only
+  ; reverses T, which flipping `T-reversed` does in O(1), as `μkanren-verify/quiet` does.
   (define (μkanren-subsume-A tag α D A s)
-    (match1/first ((,D* . ,T*) (let1 (M (μkanren-state-M s))
-                                 (if (μkanren-marked? M α μkanren-mark/T)
-                                     (μkanren-update-D/T+ α '() D (μkanren-state-T s) s (μkanren-marked? M α μkanren-mark/D))
-                                     `(,D . ,(μkanren-state-T/reversed s)))))
+    (match1/first ((,D* ,T* ,T*-reversed) (let1 (M (μkanren-state-M s))
+                                            (if (μkanren-marked? M α μkanren-mark/T)
+                                                (match1/first ((,D* . ,T*) (μkanren-update-D/T+ α '() D (μkanren-state-T s) s (μkanren-marked? M α μkanren-mark/D)))
+                                                  `(,D* ,T* #f))
+                                                `(,D ,(μkanren-state-T/stored s) ,(not (μkanren-state-T-reversed s))))))
       (let1 (M (μkanren-mark (μkanren-state-M s) α μkanren-mark/A))
-        (μkanren-state-with s D: D* A: A T: T* tags: (cons tag (μkanren-state-tags s))
-                            M: (μkanren-mark-prefixes M D* D) dirty: (or (μkanren-state-dirty s) (not (eq? D* D)))))))
+        (μkanren-state-with s D: D* A: A T: T* T-reversed: T*-reversed tags: (cons tag (μkanren-state-tags s))
+                            M: (μkanren-mark-prefixes M D* D) dirty: (or (μkanren-state-dirty s) (not (eq? D* D)))
+                            A-odd: (not (μkanren-state-A-odd s))))))
 
   ; the unbound α is a key of A only if it has the A mark, and the left side of a pair of D only if it has
   ; the D mark (I1, I2, I4): without them, neither the search of `μkanren-ext-A` nor `μkanren-subsume` can
@@ -715,20 +727,25 @@
 
   ; the stores of `s` are read only by `watch`, so a ground `u` costs nothing more than its walk. A variable
   ; α is a key of T, and the left side of a pair of D, only if it has the T mark, and the D mark (I2–I4):
-  ; without them, the search of `μkanren-ext-T+` and `μkanren-subsume` are spared. The keys of A are
-  ; distinct (I1), but for a state built by hand, which has no marks.
+  ; without them, the search of `μkanren-ext-T+` and `μkanren-subsume` are spared. The new entry T+ is a
+  ; single one, which reversing leaves as it is, so the only key of A that `μkanren-subsume-T` needs is
+  ; the first one equal to α, which converts it: there is none for a compound α, nor for a variable with
+  ; no A mark (I1, I4), but in a state built by hand, which has no marks.
   (define (μkanren-absento+ u tag s)
       (define (watch α)
-        (let* ((D (μkanren-state-D s)) (A (μkanren-state-A s)) (T (μkanren-state-T s)) (M0 (μkanren-state-M s))
+        (let* ((D (μkanren-state-D s)) (T (μkanren-state-T s)) (M0 (μkanren-state-M s))
                (var? (μkanren-var? α))
                (T+ (if (and var? (not (μkanren-marked? M0 α μkanren-mark/T))) `((,α . ,tag)) (μkanren-ext-T+ α tag T s))))
           (if (null? T+) s (let* ((D* (if (and var? (not (μkanren-marked? M0 α μkanren-mark/D))) D (μkanren-subsume T+ D)))
-                                  (vars (if M0 (map lhs A) (remove-duplicates (map lhs A))))
+                                  (vars (cond
+                                          ((and M0 (not (and var? (μkanren-marked? M0 α μkanren-mark/A)))) '())
+                                          ((assoc α (μkanren-state-A s)) => (λ1-match/first ((,β . _) `(,β))))
+                                          (else '())))
                                   (datum (μkanren-tag-name tag))
                                   (M (μkanren-mark-T M0 α s))
                                   ; the datum of a compound tag is walked by `μkanren-tag-unify` too.
                                   (M (if (μkanren-compound? datum) (μkanren-mark-T M datum s) M)))
-                             (μkanren-subsume-T vars T+ D* A T M s)))))
+                             (μkanren-subsume-T vars T+ D* T M s)))))
       (define (absento* us s*)
         (match/first us
           (() s*)

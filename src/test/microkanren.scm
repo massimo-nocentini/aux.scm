@@ -202,7 +202,17 @@
     (⊦= '() (°->list #f (fresh° (q) (symbol° q) (absent° 'closure q) (=° q 'closure))))
     (⊦= '() (°->list #f (fresh° (q) (absent° 'closure q) (symbol° q) (=° q 'closure))))
     (⊦= '((λ (α) (begin (deny (equal? α 'closure))) (assert (every (μ v (symbol? v)) (list α))) α))
-        (°->list #f (fresh° (q) (symbol° q) (absent° 'closure q)))))
+        (°->list #f (fresh° (q) (symbol° q) (absent° 'closure q))))
+    ; among other keys of A: only the key equal to the absento's variable converts it
+    (⊦= '((λ (α β γ) (begin (deny (equal? β 'a))) (assert (every (μ v (symbol? v)) (list α β γ))) (cons α (cons β (cons γ '())))))
+        (°->list #f (fresh° (q x y z) (=° q (list x y z)) (symbol° x) (symbol° y) (symbol° z) (absent° 'a y)))))
+
+  ((test/≠°/subsumed _)
+    ; a type tag subsumes a prefix of D through any of its pairs, the first or a later one
+    (⊦= '((λ (α β) (assert (every (μ v (symbol? v)) (list α β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (symbol° x) (symbol° y) (≠° (list x y) (list 1 2)))))
+    (⊦= '((λ (α β) (assert (every (μ v (symbol? v)) (list α β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (symbol° x) (symbol° y) (≠° (list x y) (list 'a 2))))))
 
   ((test/absent°/structure _)
     (⊦= '() (°->list #f (fresh° (q) (absent° 'a q) (=° q (vector 'a)))))
