@@ -292,17 +292,18 @@
       ((μkanren-structure? u) (any μkanren-hasvar? (μkanren-structure->list u)))
       (else #f)))
 
+  ; whether the equations of some prefix of D already hold in the state built from the equations of `d`,
+  ; so that `d` adds nothing; that state is built once, not once per prefix.
   (define (μkanren-subsumed? d D)
     (let* ((f (λ-match/non-overlapping
                 (((,α . ,u) (,s* ,assocs*)) (μkanren-state-update α u s* assocs*))
                 ((_ #f) #f)))
            (s+assocs (foldr f `(,μkanren-state-empty ()) d))
            (s (car s+assocs)))
-      (match/first D
-        (() #f)
-        ((,d* . ,D*)  (match/non-overlapping (μkanren-state-unify/assoc d* s '())
-                        ((,s* ,d**) (or (μkanren-state-equal? s s*) (μkanren-subsumed? d D*)))
-                        (#f (μkanren-subsumed? d D*)))))))
+      (any (λ (d*) (match/non-overlapping (μkanren-state-unify/assoc d* s '())
+                     ((,s* _) (μkanren-state-equal? s s*))
+                     (#f #f)))
+           D)))
 
   ; it must come after `μkanren-subsumed?`, being evaluated at load time.
   (define μkanren-rem-subsumed (μkanren-rem-subsumed/by μkanren-subsumed?))
@@ -453,7 +454,7 @@
       (else #f)))
 
   (define (μkanren-state-unify/assoc associations s assocs)
-    (μkanren-state-unify (map lhs associations) (map rhs associations) s assocs))
+    (fold (λ (p r) (and r (μkanren-state-unify (lhs p) (rhs p) (car r) (cadr r)))) `(,s ,assocs) associations))
 
   (define (μkanren-verify-D+ d D s)
     (cond
