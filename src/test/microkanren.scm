@@ -247,6 +247,43 @@
             (cons α (cons β (cons γ (cons δ '()))))))
         (°->list #f (fresh° (q a b c) (fresh° (x) (=° q (list a b c x)) (≠° x a) (≠° (list c x) (list 1 b)) (≠° x b) (≠° x c))))))
 
+  ((test/≠°/subsumed/disjoint _)
+    ; two disjoint type tags subsume a prefix of D with a pair between their variables, typed before or after
+    ; the disequality, on either side of the pair, through any pair of the prefix, or handed on by =°
+    (⊦= '((λ (α β) (assert (every (μ v (symbol? v)) (list α))) (assert (every (μ v (number? v)) (list β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (symbol° x) (number° y) (≠° x y))))
+    (⊦= '((λ (α β) (assert (every (μ v (symbol? v)) (list α))) (assert (every (μ v (number? v)) (list β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° y x) (number° y) (symbol° x))))
+    (⊦= '((λ (α β γ δ) (assert (every (μ v (symbol? v)) (list α))) (assert (every (μ v (number? v)) (list β))) (cons α (cons β (cons γ (cons δ '()))))))
+        (°->list #f (fresh° (q x y z w) (=° q (list x y z w)) (symbol° x) (number° y) (≠° (list z x) (list w y)))))
+    (⊦= '((λ (α β) (assert (every (μ v (symbol? v)) (list α))) (assert (every (μ v (number? v)) (list β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (fresh° (z) (=° q (list x y)) (≠° x z) (symbol° x) (number° z) (=° y z)))))
+    ; and so they do when the prefix joins their variables through a third one, which no pair of it relates to
+    ; both, also next to the prefix of the pair that subsumes it
+    (⊦= '((λ (α β γ) (assert (every (μ v (symbol? v)) (list α))) (assert (every (μ v (number? v)) (list β))) (cons α (cons β (cons γ '())))))
+        (°->list #f (fresh° (q x y z) (=° q (list x y z)) (symbol° x) (number° y) (≠° (list x y) (list z z)))))
+    (⊦= '((λ (α β γ) (assert (every (μ v (symbol? v)) (list α))) (assert (every (μ v (number? v)) (list β))) (cons α (cons β (cons γ '())))))
+        (°->list #f (fresh° (q x y z) (=° q (list x y z)) (symbol° x) (number° y) (≠° x y) (≠° (list x y) (list z z)))))
+    ; a tag of the user's under the name of a library tag is that tag, as `μkanren-post-A` takes it, whichever
+    ; of the two the variable took first
+    (let ((sym° (μkanren-make-tag-A (make-μkanren-tag (μkanren-tag-name μkanren-tag/sym) '(μ v (symbol? v)) symbol?)))
+          (answer '((λ (α β) (assert (every (μ v (symbol? v)) (list α))) (assert (every (μ v (number? v)) (list β))) (cons α (cons β '()))))))
+      (⊦= answer (°->list #f (fresh° (q x y) (=° q (list x y)) (sym° x) (number° y) (≠° x y))))
+      (⊦= answer (°->list #f (fresh° (q x y) (=° q (list x y)) (sym° x) (symbol° x) (number° y) (≠° x y))))
+      (⊦= answer (°->list #f (fresh° (q x y) (=° q (list x y)) (symbol° x) (sym° x) (number° y) (≠° x y))))))
+
+  ((test/≠°/subsumed/user _)
+    ; the same tag keeps a prefix between its variables, and so does a tag of the user's, even one disjoint from the
+    ; others as `define-μkanren-tag` asks, since nothing checks it: string° keeps its deny against symbol° and number°
+    (⊦= '((λ (α β) (begin (deny (equal? α β))) (assert (every (μ v (symbol? v)) (list α β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (symbol° x) (symbol° y) (≠° x y))))
+    (⊦= '((λ (α β) (begin (deny (equal? α β))) (assert (every (μ v (string? v)) (list α))) (assert (every (μ v (symbol? v)) (list β)))
+            (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (string° x) (symbol° y) (≠° x y))))
+    (⊦= '((λ (α β) (begin (deny (equal? α β))) (assert (every (μ v (string? v)) (list α))) (assert (every (μ v (number? v)) (list β)))
+            (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (string° x) (number° y) (≠° y x)))))
+
   ((test/stores/order _)
     ; an answer does not depend on the order in which its constraints were posted, nor on what a record holds
     (⊦= (°->list #f (fresh° (q) (absent° 'a q) (absent° '(b) q) (absent° 'c q)))

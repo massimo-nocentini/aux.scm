@@ -540,9 +540,39 @@
                          (else #f))
                        A/T))))
 
-  ; D without the prefixes that A-or-T subsumes, for `μkanren-project`.
-  (define (μkanren-subsume A-or-T D)
-    (if (null? A-or-T) D (remove (exists (μkanren-subsumed-pr? A-or-T)) D)))
+  ; whether the tags of A, all of them in `μkanren-tags/disjoint`, rule out the equations of the prefix d as a
+  ; whole: d equates two variables of different such tags, by a pair between them, as `((x . y))`, or by binding
+  ; both to a third one, as z in `((x . z) (y . z))`. faster-miniKanren finds the first pair by pair
+  ; (`d-subsumed-by-T?`); looking each variable up in d finds the second too. One lookup is a walk through d:
+  ; posting the prefix again in the order it was stored, `μkanren-verify-D` leaves no variable on a right side
+  ; that a left side binds. (An answer that `μkanren-state-unify` hands on unverified may still chain its pairs,
+  ; and then keeps such a prefix, as `μkanren-subsumed-pr?` keeps one.) A term on a right side is left to
+  ; `μkanren-subsumed-pr?`.
+  (define ((μkanren-subsumed/disjoint? A) d)
+    (let loop ((is (μkanren-prefix-indices d)) (seen '()))
+      (match/first is
+        (() #f)
+        ((,i . ,is*)
+          (match/first (find (λ (a) (fx= (μkanren-var-index (lhs a)) i)) A)
+            (#f (loop is* seen))
+            ((,α . ,tag)
+              (let1 (w (cond ((find (λ (p) (equal? (lhs p) α)) d) => rhs) (else α)))
+                (cond
+                  ((not (μkanren-var-working? w)) (loop is* seen))
+                  ((any (λ1-match/first ((,w* . ,tag*) (and (equal? w w*) (not (μkanren-tag-equal? tag tag*))))) seen) #t)
+                  (else (loop is* (cons `(,w . ,tag) seen)))))))))))
+
+  ; D without the prefixes that the type tags of A subsume, for `μkanren-project`: those that a pair of theirs
+  ; rules out, as the pearl finds them, and, when A holds two different tags of the library's own, those that
+  ; these rule out as a whole.
+  (define (μkanren-subsume A D)
+    (if (null? A)
+      D
+      (let* ((pr? (exists (μkanren-subsumed-pr? A)))
+             (A* (filter (λ (a) (member (rhs a) μkanren-tags/disjoint μkanren-tag-equal?)) A)))
+        (if (and (pair? A*) (any (λ (a) (not (μkanren-tag-equal? (rhs a) (rhs (car A*))))) (cdr A*)))
+          (let1 (disjoint? (μkanren-subsumed/disjoint? A*)) (remove (λ (d) (or (pr? d) (disjoint? d))) D))
+          (remove pr? D)))))
 
   ; the absento store T holds `(α . tag)` pairs where α is a variable or, for a compound tag datum, a compound
   ; term that may still become that datum: such a term is kept whole, since walking into its parts would lose
@@ -920,6 +950,13 @@
 
   (define-μkanren-tag (μkanren-tag/sym v) (symbol? v))
   (define-μkanren-tag (μkanren-tag/num v) (number? v))
+
+  ; the library's own type tags, which `μkanren-subsume` knows to be pairwise disjoint, R7RS making `symbol?` and
+  ; `number?` so. `define-μkanren-tag` asks a tag of the user's to be disjoint from the others too, but nothing
+  ; checks it: dropping a deny on the strength of a tag that breaks the rule would let the answer accept the very
+  ; values the deny rules out, while keeping one only repeats what the types imply. So only these count, known by
+  ; name, as `μkanren-tag-equal?` knows every tag: a tag of the user's is taken for one only under its name.
+  (define μkanren-tags/disjoint (list μkanren-tag/sym μkanren-tag/num))
   
   (define symbol° (μkanren-make-tag-A μkanren-tag/sym))
   (define number° (μkanren-make-tag-A μkanren-tag/num))
