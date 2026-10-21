@@ -174,6 +174,14 @@
     (⊦= '((λ (α) (begin (deny (equal? α (cons 1 '())))) (cons α (cons 1 '()))))
         (°->list #f (fresh° (q b x) (=° q (list b x)) (≠° b (list x)) (=° x 1)))))
 
+  ((test/≠°/hidden _)
+    ; a disequality holding a variable hidden from the answer is dropped from it, also when it holds that variable
+    ; through another, bound after or before it was posted
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (fresh° (e f) (≠° q (list e)) (=° e (cons 1 f))))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (fresh° (e f) (=° e (cons 1 f)) (≠° q (list e))))))
+    (⊦= '((λ (α) (begin (deny (equal? α (cons (cons 1 2) '())))) α))
+        (°->list #f (fresh° (q) (fresh° (e f) (≠° q (list e)) (=° e (cons 1 f)) (=° f 2))))))
+
   ((test/=°/structure _)
     (define-record person name age)
     (define p (make-person 'alice 30))

@@ -407,10 +407,14 @@
 
   (define μkanren-rem-subsumed-T (μkanren-rem-subsumed/by (λ (t T) (μkanren-subsumed-T? (lhs t) (rhs t) T))))
 
+  ; whether a term holds a working variable once walked in `s` all the way down, one that the reification of the
+  ; answer left unreachable: a variable bound to a compound is walked into, since the right side of a prefix may
+  ; hold variables bound after the prefix was posted (I2 is about its top only).
   (define (μkanren-anyvar? s)
     (define anyvar? (λ1-match/first
                       ((,a . ,d) (or (anyvar? a) (anyvar? d)))
-                      ((,α ⊣ (μkanren-var-working? α)) (μkanren-var-working? (μkanren-state-find α s)))
+                      ((,α ⊣ (μkanren-var-working? α)) (let1 (α* (μkanren-state-find α s))
+                                                         (if (μkanren-var? α*) (μkanren-var-working? α*) (anyvar? α*))))
                       ((,v ⊣ (μkanren-structure? v)) (anyvar? (μkanren-structure->list v)))
                       (else #f)))
     anyvar?)
