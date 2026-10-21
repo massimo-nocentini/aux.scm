@@ -67,6 +67,13 @@
       ((pair? s) (f (car s) (foldr§ f init (cdr s))))
       (else init)))
 
+  ; the left fold, as `fold` of srfi-1: `(f x acc)` for each element x, from the first on, in constant stack.
+  (define (fold§ f acc s)
+    (cond
+      ((promise? s) (fold§ f acc (force s)))
+      ((pair? s) (fold§ f (f (car s) acc) (cdr s)))
+      (else acc)))
+
   (define (cdr§ s)
     (cond
       ((promise? s) (δ (cdr§ (force s))))

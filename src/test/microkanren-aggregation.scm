@@ -1,7 +1,7 @@
 
 (import 
   scheme (chicken base) (chicken memory representation) (chicken sort)
-  srfi-1
+  srfi-1 srfi-69
   (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux fds sbral))
 
 ; The following is a sample database of employees and their salaries in various departments.
@@ -50,31 +50,53 @@ END
    (code/lang pgsql "SELECT depname, empno, salary, avg(salary) OVER (PARTITION BY depname) FROM empsalary;" )
    )))
 
+  ; the groups come in the order of the first state of their key, here the order of the rows, since each body answers at once.
   ((test/groupby°/one-column _)
-    (⊦= '((personnel 7400) (sales 14600) (develop 25100))
-      (sort
-        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*))))))
-        (λ (a b) (< (cadr a) (cadr b))))))
+    (⊦= '((develop 25100) (personnel 7400) (sales 14600))
+        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*))))))))
+
+  ; and the values of a group in the order of its states.
+  ((test/groupby°/first-state _)
+    (⊦= '((4200 (7)) (6000 (8)) (4500 (9)) (5200 (10 11)) (3900 (2)) (3500 (5)) (5000 (1)) (4800 (3 4)))
+        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((es (λ (l) l)) e)) over (s) from (empsalary° d e s) => (=° r `(,s ,es))))))))
+
+  ; the first state of a key, not the last: b, a, b, c, a groups as b, a, c.
+  ((test/groupby°/interleaved _)
+    (⊦= '((b 2) (a 2) (c 1))
+        (°->list/ground (fresh° (r) (fresh° (x) (groupby° (((n length) x)) over (x) from (or° (=° x 'b) (=° x 'a) (=° x 'b) (=° x 'c) (=° x 'a)) => (=° r `(,x ,n))))))))
+
+  ; srfi-69 salts each table with a draw of rand(), so the tables built before must not move the order.
+  ((test/groupby°/salt _)
+    (let1 (answers (map (λ (n)
+                          (for-each (λ (i) (make-hash-table)) (iota n))
+                          (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((es (λ (l) l)) e)) over (s) from (empsalary° d e s) => (=° r `(,s ,es)))))))
+                        (iota 4)))
+      (⊨ (every (λ (a) (equal? a (car answers))) answers))))
 
   ; a variable aggregated twice gives each aggregation the values of its own column, once each.
   ((test/groupby°/same-column _)
-    (⊦= '((personnel 7400 2) (sales 14600 3) (develop 25100 5))
-      (sort
-        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s) ((n length) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s* ,n))))))
-        (λ (a b) (< (cadr a) (cadr b))))))
+    (⊦= '((develop 25100 5) (personnel 7400 2) (sales 14600 3))
+        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s) ((n length) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s* ,n))))))))
 
   ; the aggregated value can be a term, not only a variable.
   ((test/groupby°/term _)
-    (⊦= '((personnel ((2 3900) (5 3500))) (sales ((1 5000) (3 4800) (4 4800))) (develop ((7 4200) (8 6000) (9 4500) (10 5200) (11 5200))))
-      (sort
-        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((es (λ (l) l)) `(,e ,s))) over (d) from (empsalary° d e s) => (=° r `(,d ,es))))))
-        (λ (a b) (< (length (cadr a)) (length (cadr b)))))))
+    (⊦= '((develop ((7 4200) (8 6000) (9 4500) (10 5200) (11 5200))) (personnel ((2 3900) (5 3500))) (sales ((1 5000) (3 4800) (4 4800))))
+        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((es (λ (l) l)) `(,e ,s))) over (d) from (empsalary° d e s) => (=° r `(,d ,es))))))))
   
   ((test/set° _)
-    (⊦= '((personnel 2) (sales 3) (develop 5))
-      (sort
-        (°->list/ground (fresh° (r) (fresh° (d e s) (set° (c (λ (k v) (add1 v)) 0) over ((d* d)) from (empsalary° d e s) => (=° r `(,d* ,c))))))
-        (λ (a b) (< (cadr a) (cadr b))))))
+    (⊦= '((develop 5) (personnel 2) (sales 3))
+        (°->list/ground (fresh° (r) (fresh° (d e s) (set° (c (λ (k v) (add1 v)) 0) over ((d* d)) from (empsalary° d e s) => (=° r `(,d* ,c))))))))
+
+  ((test/set°/interleaved _)
+    (⊦= '((b 2) (a 2) (c 1))
+        (°->list/ground (fresh° (r) (fresh° (x) (set° (n (λ (k v) (add1 v)) 0) over ((x* x)) from (or° (=° x 'b) (=° x 'a) (=° x 'b) (=° x 'c) (=° x 'a)) => (=° r `(,x* ,n))))))))
+
+  ((test/set°/salt _)
+    (let1 (answers (map (λ (n)
+                          (for-each (λ (i) (make-hash-table)) (iota n))
+                          (°->list/ground (fresh° (r) (fresh° (d e s) (set° (c (λ (k v) (add1 v)) 0) over ((s* s)) from (empsalary° d e s) => (=° r `(,s* ,c)))))))
+                        (iota 4)))
+      (⊨ (every (λ (a) (equal? a (car answers))) answers))))
 
   ((test/enumerate° _)
     (⊦= '(((0 (develop))

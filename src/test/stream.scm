@@ -27,6 +27,14 @@
    (let1 (ones (take§ 20 (thunk§ 1)))
          (⊦= '(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1) (§->list ones))))
 
+  ((test/stream/fold§ _) ; the left fold, through promises and plain pairs, is fold of srfi-1 over the elements
+   (define $ (δ (cons 1 (δ (cons 2 (cons 3 (cons§ 4 '())))))))
+   (⊦= '(4 3 2 1) (fold§ cons '() $))
+   (⊦= (reverse (§->list $)) (fold§ cons '() $))
+   (⊦= '(acc) (fold§ cons '(acc) '()))
+   (⊦= '(acc) (fold§ cons '(acc) (δ '())))
+   (⊦= 4999950000 (fold§ + 0 (take§ 100000 ℕ))))
+
 
   )
 

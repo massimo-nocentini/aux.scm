@@ -1623,8 +1623,9 @@
       (δ (let1 (ev (anthropic-sse/read port))
            (if (eof-object? ev) (begin (finish) '()) (cons ev (F)))))))
 
-  ; consumption style 2: a strict, tail-recursive left fold.  (aux stream) has only foldr§, a
-  ; non-tail RIGHT fold, which cannot drive a state machine over a live socket.
+  ; consumption style 2: a strict, tail-recursive left fold, the fold§ of (aux stream), which this
+  ; module does not import.  Its foldr§, a non-tail RIGHT fold, cannot drive a state machine over a
+  ; live socket.
   (define (anthropic-sse/fold f seed §)
     (let F ((§ §) (acc seed))
       (cond

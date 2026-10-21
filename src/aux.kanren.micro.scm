@@ -9,8 +9,8 @@
     define-μkanren-tag make-μkanren-tag μkanren-tag? μkanren-tag-name μkanren-tag-def μkanren-tag-pred? μkanren-tag-equal? μkanren-tag/sym μkanren-tag/num μkanren-make-tag-A
     ; goals — freshª andª orª ✓° ✗° =° must stay exported: the exported macros expand to them at the importer's site
     ✓° ✗° freshª andª orª =° ≠° fresh° fresh°/record and° or° if° take° null° boolean° cons° symbol° number° absent° project° cond°
-    ; aggregation — μkanren-group§ is expanded to by groupby° and window°
-    μkanren-group§ groupby° window° set° enumerate°
+    ; aggregation — μkanren-fold/key§ and μkanren-group§ are expanded to by set°, groupby° and window°
+    μkanren-fold/key§ μkanren-group§ groupby° window° set° enumerate°
     ; api
     define-relation °->§ °->list °->list/ground μkanren-run
     ; internals exercised directly by the unit tests
@@ -383,9 +383,11 @@
     ((exists (λ1-match/first ((,y . ,tag*) (and (equal? x y) (μkanren-tag-equal? tag tag*))))) T))
 
   ; a table keyed by the index of a variable, or by #f. srfi-69 salts every table built on one of its own hash
-  ; functions with a draw of libc's rand(), so each such table would move the salt of every table built after
-  ; it, and with it the order in which set° and groupby° fold theirs into answers: the tables of the stores
-  ; hash with a procedure of their own, which draws nothing, and leave that order as it is without them.
+  ; functions with a draw of libc's rand(), so each such table moves the salt of every table built after it:
+  ; the tables of the stores hash with a procedure of their own, which draws nothing, because the stores build
+  ; them at every step of a query, and the order of a walk of any table built after the query, the user's own ones
+  ; included, would hang on how many steps the query took. (No salt reaches the answers of set° and groupby°,
+  ; which fold their keys, not their tables, into answers, see `μkanren-fold/key§`.)
   (define (μkanren-index-hash k bound) (if (fixnum? k) (modulo k bound) 0))
   (define (μkanren-index-table) (make-hash-table eqv? μkanren-index-hash))
 
@@ -989,48 +991,66 @@
   ; the values of `vars` in the state `s`, as a list (the key of a group).
   (define (μkanren-state-find/values vars s) (map (λ (v) (μkanren-state-find/value v s)) vars))
 
-  ; folds the stream `§` into a hash table `key → group`, where a group lists, for each of `vars` in turn, the values
-  ; of that variable in the states of the key. A group is positional, not a table `var → values`: two of `vars`
-  ; that are `equal?`, as when the same variable is aggregated twice, keep a list each instead of sharing one
-  ; that collects their values twice, and the macros need no lookup by the value expression they evaluated.
+  ; folds the stream `§`, from its first state on, into an entry `(key . acc)` for each key `(key-of s*)`, where
+  ; `acc` is the fold of `(f s* key acc)` over the states of that key from `init` (the same object for every key),
+  ; and answers a hash table from each key to its entry and the entries in the order of their first state.
+  ; set° and groupby° fold the entries into a disjunction whose leftmost disjunct is the first key, so their
+  ; groups answer in that order when their bodies answer at once; otherwise the interleaving of `orª` decides,
+  ; as in any or°. A walk of the table would answer them in the order of its buckets, which hangs on the salt
+  ; srfi-69 draws from libc's rand() for every table, that is on how many tables the process built before.
+  ; Each state hashes its key once, and the entries need no lookup afterwards: the thunk of `hash-table-update!`
+  ; runs only for a key not seen yet, and records its entry, which the later states of the key update in place.
+  (define (μkanren-fold/key§ key-of f init §)
+    (let* ((H (make-hash-table))
+           (F (λ (s* entries)
+                (let* ((key (key-of s*))
+                       (entries* entries))
+                  (hash-table-update! H key
+                    (λ (entry) (set-cdr! entry (f s* key (cdr entry))) entry)
+                    (λ () (let1 (entry (cons key init)) (set! entries* (cons entry entries)) entry)))
+                  entries*))))
+      (values H (reverse (fold§ F '() §)))))
+
+  ; folds the stream `§` into a hash table `key → (key . group)` and its entries, as `μkanren-fold/key§` does,
+  ; where a group lists, for each of `vars` in turn, the values of that variable in the states of the key, in
+  ; the order of the states. A group is positional, not a table `var → values`: two of `vars` that are `equal?`,
+  ; as when the same variable is aggregated twice, keep a list each instead of sharing one that collects their
+  ; values twice, and the macros need no lookup by the value expression they evaluated.
   (define (μkanren-group§ key-of vars §)
-    (foldr§ (λ (s* H)
-              (hash-table-update!/default H (key-of s*)
-                (λ (group) (map (λ (v vs) (cons (μkanren-state-find/value v s*) vs)) vars group))
-                (map (λ (v) '()) vars))
-              H)
-            (make-hash-table) §))
+    (let1 (F (λ (s* key group) (map (λ (v vs) (cons (μkanren-state-find/value v s*) vs)) vars group)))
+      (receive (H entries) (μkanren-fold/key§ key-of F (map (λ (v) '()) vars) §)
+        (for-each (λ (entry) (set-cdr! entry (map reverse (cdr entry)))) entries)
+        (values H entries))))
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
-        (let* ((ht (μkanren-group§ (λ (s*) (μkanren-state-find/values (list k ...) s*)) (list v ...) (g s)))
-               (G (λ (key group folded) (or° (receive (v* ...) (apply values (map (λ (A vs) (A vs)) (list aggr ...) group)) (receive (k ...) (apply values key) (and° f ...))) folded)))
-               (g* (hash-table-fold ht G ✗°)))
-          (δ (g* s)))))
+        (receive (_ entries) (μkanren-group§ (λ (s*) (μkanren-state-find/values (list k ...) s*)) (list v ...) (g s))
+          (let* ((G (λ (entry folded) (or° (receive (v* ...) (apply values (map (λ (A vs) (A vs)) (list aggr ...) (cdr entry)))
+                                             (receive (k ...) (apply values (car entry)) (and° f ...)))
+                                           folded)))
+                 (g* (fold-right G ✗° entries))) ; the first key is the leftmost disjunct
+            (δ (g* s))))))
 
   (define-syntax-rule (literal over from =>) (window° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
         (let* ((§ (δ (g s))) ; the stream to fold over
-               (key-of (λ (s*) (μkanren-state-find/values (list k ...) s*)))
-               (ht (μkanren-group§ key-of (list v ...) §))
-               (G (λ (s*) (receive (v* ...) (apply values (map (λ (A vs) (A vs)) (list aggr ...) (hash-table-ref ht (key-of s*))))
-                            ((and° f ...) s*)))))
-          (append-map§ G §))))
+               (key-of (λ (s*) (μkanren-state-find/values (list k ...) s*))))
+          (receive (ht entries) (μkanren-group§ key-of (list v ...) §) ; the answers follow `§`, not `entries`
+            (let1 (G (λ (s*) (receive (v* ...) (apply values (map (λ (A vs) (A vs)) (list aggr ...) (cdr (hash-table-ref ht (key-of s*)))))
+                               ((and° f ...) s*))))
+              (append-map§ G §))))))
 
   (define-syntax-rule (literal over from =>) 
     (set° (v aggr init₀) over ((k* k) ...) from g => f ...)
       (λ (s)
         (let* ((§ (δ (g s))) ; the stream to fold over
-              (A aggr) ; to evaluate `aggr` only once
-              (init init₀) ; to evaluate `init` only once
-              (F (λ (s* H)
-                    (let1 (key (μkanren-state-find/values (list k ...) s*))
-                      (hash-table-update!/default H key (λ (u) (apply A `(,@key ,u))) init))
-                    H))
-              (ht (foldr§ F (make-hash-table) §))
-              (G (λ (key v folded) (or° (receive (k* ...) (apply values key) (and° f ...)) folded)))
-              (g* (hash-table-fold ht G ✗°)))
-          (δ (g* s)))))
+               (A aggr) ; to evaluate `aggr` only once
+               (init init₀) ; to evaluate `init` only once: every key starts from it, so `A` must not mutate it
+               (F (λ (s* key u) (apply A `(,@key ,u))))) ; from the first state of a key to the last, which only an `A` with side effects can tell
+          (receive (_ entries) (μkanren-fold/key§ (λ (s*) (μkanren-state-find/values (list k ...) s*)) F init §)
+            (let* ((G (λ (entry folded) (or° (let1 (v (cdr entry)) (receive (k* ...) (apply values (car entry)) (and° f ...))) folded)))
+                   (g* (fold-right G ✗° entries))) ; the first key is the leftmost disjunct
+              (δ (g* s)))))))
 
   (define-syntax-rule (literal over from =>) 
     (enumerate° (v aggr) over (k ...) from g => f ...)
