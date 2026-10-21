@@ -21,6 +21,8 @@
           (chicken memory representation)
           (chicken eval)
           (chicken fixnum)
+          (only (chicken sort) sort)
+          (only (chicken string) ->string)
           srfi-1 srfi-69
           (aux base)
           (aux stream)
@@ -339,12 +341,29 @@
           (cons `(,tag . ,(remove-duplicates (map lhs same))) (μkanren-partition* others))))))
 
   (define (μkanren-form v D A T s)
-    (let* ((fd (μkanren-drop-dot-D (sort/lex<=? (map sort/lex<=? D)) s))
+    (let* ((fd (μkanren-drop-dot-D (μkanren-sort-D D s) s))
            (FA (λ1-match/first ((,tag . ,vars) `(assert (every ,(μkanren-tag-def tag) (list ,@(map μkanren-var->symbol vars)))))))
            (fa (map FA (sort/lex<=? (map μkanren-sort-part (μkanren-partition* A)))))
            (FT (λ1-match/first ((,tag ,u) `(assert (absent? (quote ,(μkanren-tag-name tag)) ,(μkanren-state-find/repr u s))))))
-           (ft (map FT (μkanren-drop-dot-T (sort/lex<=? T)))))
+           (ft (map FT (μkanren-drop-dot-T (μkanren-sort-T T s)))))
         `(,@fd ,@fa ,@ft ,v)))
+
+  ; sorts L as `sort/lex<=?` does, breaking its ties by the printed `(repr x)`, which spells out what `->string`
+  ; leaves out: the slots of a record, and the datum of a tag.
+  (define (μkanren-sort/repr repr L)
+    (let ((decorated (map (λ (x) (list (->string x) (->string (repr x)) x)) L))
+          (<=? (λ (a b) (or (string<? (car a) (car b)) (and (string=? (car a) (car b)) (string<=? (cadr a) (cadr b)))))))
+      (map caddr (sort decorated <=?))))
+
+  ; the answers do not depend on the order of the stores: the pairs of each prefix of D and the prefixes are
+  ; sorted, before `μkanren-rem-subsumed` chooses which of two prefixes that subsume each other to keep as
+  ; much as when they are printed, and so is T, by key and then by the datum of the tag.
+  (define (μkanren-sort-D D s)
+    (let1 (R (λ1-match/first ((,α . ,u) `(,α . ,(μkanren-state-find/repr u s)))))
+      (μkanren-sort/repr (λ (d) (map R d)) (map (λ (d) (μkanren-sort/repr R d)) D))))
+
+  (define (μkanren-sort-T T s)
+    (μkanren-sort/repr (λ1-match/first ((,u . ,tag) `(,(μkanren-state-find/repr u s) . ,(μkanren-tag-name tag)))) T))
 
   (define (μkanren-subsumed-T? x tag T)
     ((exists (λ1-match/first ((,y . ,tag*) (and (equal? x y) (μkanren-tag-equal? tag tag*))))) T))
@@ -480,7 +499,7 @@
                (D     (μkanren-verify-D (μkanren-state-D s) s))
                (A     (μkanren-state-A s*))
                (T     (μkanren-state-T s*))
-               (D*    (μkanren-rem-subsumed (remove (μkanren-anyvar? s*) D))) ; needs more revision the stuff with T.
+               (D*    (μkanren-rem-subsumed (μkanren-sort-D (remove (μkanren-anyvar? s*) D) s*))) ; needs more revision the stuff with T.
                (A*    (remove R A))
                (D**   (μkanren-state-find/value (μkanren-subsume A* D*) s*))
                (A**   (μkanren-state-find/value A* s*))
