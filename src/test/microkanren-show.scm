@@ -81,7 +81,10 @@
                                                                            (equal? β (quote quote)))))))
    (⊦= '(symbol? α) (μkanren-form->constraint '(assert (every (μ v (symbol? v)) (list α)))))
    (⊦= '(absento closure α) (μkanren-form->constraint '(assert (absent? (quote closure) α))))
-   (⊦= '(absento (1 2) (1 . α)) (μkanren-form->constraint '(assert (absent? (quote (1 2)) (cons 1 α))))))
+   (⊦= '(absento (1 2) (1 . α)) (μkanren-form->constraint '(assert (absent? (quote (1 2)) (cons 1 α)))))
+   ; a datum with variables is built, not quoted
+   (⊦= '(absento α β) (μkanren-form->constraint '(assert (absent? α β))))
+   (⊦= '(absento (1 α) β) (μkanren-form->constraint '(assert (absent? (cons 1 (cons α '())) β)))))
 
   ((test/string/short _)
    ; whitespace runs between tokens collapse, those inside strings and |symbols| are content
@@ -153,6 +156,21 @@
                 "stay, under the term and as chips on the variable they restrict. "
                 "The bar chart counts the suspensions the engine forced before handing out the answer.")
              ,@(μkanren-answers->sxml answers profile: profile)))))
+
+  ((test/cells/absento _)
+   ; a datum with variables hangs off its absento as the term does, its variables shared with the answer; a quoted
+   ; datum does not, even a symbol that a variable of the answer prints as
+   (define (cells g) (string-split (μkanren-answers->mermaid (°->answers g) view: 'cells) "\n"))
+   (define (node lines label) (car (string-split (find (λ (l) (substring-index (conc "\"" label "\"") l)) lines) " [({")))
+   (define (edges lines arrow id) (filter-map (λ (l) (let1 (ws (string-split l " ")) (and (equal? (cdr ws) (list arrow id)) (car ws)))) lines))
+   (let* ((g (cells (fresh° (q) (fresh° (x u) (=° q (list x u)) (absent° (list 1 x) u)))))
+          (from (edges g "-.->" (node g "absento (1 α)"))))
+     (⊦= 2 (length from))
+     (⊨ (and (member (node g "β") from) #t))                                          ; from the term β
+     (⊨ (and (any (λ (id) (member (conc "    " id "[[\"cons\"]]") g)) from) #t))       ; and from the datum (1 α)
+     (⊦= 2 (length (edges g "-->|car|" (node g "α")))))                               ; whose α is the answer's
+   (let1 (g (cells (fresh° (q) (fresh° (x u) (=° q (list x u)) (absent° 'α u)))))
+     (⊦= (list (node g "β")) (edges g "-.->" (node g "absento α")))))
 
   ((test/blocks _)
    (let1 (md (°->markdown (take° 1 (fresh° (q) (eval-exp° q '() q))) title: "quine" var: 'q diagram: #f))

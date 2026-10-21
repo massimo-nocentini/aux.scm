@@ -33,6 +33,10 @@
 
   (define-record μkanren-tag name def pred)
 
+  ; a type tag must hold atoms only, infinitely many of them, and none that another tag holds: a variable with a
+  ; type tag takes its absento tags as disequalities (I3) and fails a second, different tag, and the answers drop
+  ; the constraints on hidden variables, for some value apart from all the others can always be chosen for them.
+  ; `string?` makes such a tag; `pair?` holds compounds, `boolean?` two values only, and `integer?` overlaps `number?`.
   (define-syntax-rule (define-μkanren-tag (name s) body ...)
     (define name (make-μkanren-tag (gensym 'name) '(μ s body ...) (μ s body ...))))
   
@@ -69,9 +73,10 @@
   ; The constraints are kept by variable, as faster-miniKanren keeps them: `C` is an sbral indexed like S
   ; (see `sbral-ref/back`, a missing slot reads `μkanren-c-empty`) of the records of the variables, each with
   ; - `A`, the type tag of the variable, if any;
-  ; - `T`, the absento tags keyed on the variable;
+  ; - `T`, the absento tags keyed on the variable, whose datum may hold variables, see `μkanren-absento/term+`;
   ; - `D`, the ids of the prefixes of the disequality store with the variable on either side of a pair;
-  ; - `t`, whether the variable is reachable from a compound key of T, or from the compound datum of its tag.
+  ; - `t`, whether the variable is reachable from a compound key of T, or from the compound datum of its tag;
+  ; - `W`, the variables keying an absento tag whose datum holds the variable, see `μkanren-repost-datum`.
   ; `P` is an sbral of the prefixes by id, each a list of `(α . u)` pairs or #f once dropped, and `Tc` the list
   ; of the `(u . tag)` entries of T keyed on a compound u, see `μkanren-tag-unify`. The disequality store D, the
   ; type store A and the absento store T, which `μkanren-state-D`, `μkanren-state-A` and `μkanren-state-T`
@@ -82,8 +87,10 @@
   ; I2. the left sides of the pairs of a prefix are unbound, and their right sides are non-variables or unbound;
   ; I3. a variable with a type tag has no absento tags, which become disequalities, see `μkanren-convert-T`;
   ; I4. no tag of a variable subsumes a prefix with the variable on the left side of a pair;
-  ; I5. the answer of `μkanren-tag-unify` on a compound key of T changes only when a variable with `t` is bound.
-  ; An id in `D` may be of a dropped prefix, and `t` may be stale: both cost time, not answers.
+  ; I5. the answer of `μkanren-tag-unify` on a compound key of T changes only when a variable with `t` is bound;
+  ; I6. the datum of an absento tag of a variable holds neither that variable nor a bound one, and each variable
+  ;     it holds lists that variable in `W`.
+  ; An id in `D` may be of a dropped prefix, `t` may be stale, and so may a variable in `W`: all cost time, not answers.
   ;
   ; `raw` is #f, or the list `(D A T)` of stores given as lists, by `make-μkanren-state` or `μkanren-state-with`,
   ; or left unverified by the exported `μkanren-state-unify`: the next goal verifies and indexes them first.
@@ -154,18 +161,18 @@
 
   ; the records of the variables, see the comment of the state record.
   (define-record-type μkanren-c
-    (make-μkanren-c A T D t)
+    (make-μkanren-c A T D t W)
     μkanren-c?
-    (A μkanren-c-A) (T μkanren-c-T) (D μkanren-c-D) (t μkanren-c-t))
+    (A μkanren-c-A) (T μkanren-c-T) (D μkanren-c-D) (t μkanren-c-t) (W μkanren-c-W))
 
-  (define μkanren-c-empty (make-μkanren-c #f '() '() #f))
+  (define μkanren-c-empty (make-μkanren-c #f '() '() #f '()))
 
   (define (μkanren-c-empty? c)
     (or (eq? c μkanren-c-empty)
-        (and (not (μkanren-c-A c)) (null? (μkanren-c-T c)) (null? (μkanren-c-D c)) (not (μkanren-c-t c)))))
+        (and (not (μkanren-c-A c)) (null? (μkanren-c-T c)) (null? (μkanren-c-D c)) (not (μkanren-c-t c)) (null? (μkanren-c-W c)))))
 
-  (define (μkanren-c-with c #!key (A (μkanren-c-A c)) (T (μkanren-c-T c)) (D (μkanren-c-D c)) (t (μkanren-c-t c)))
-    (make-μkanren-c A T D t))
+  (define (μkanren-c-with c #!key (A (μkanren-c-A c)) (T (μkanren-c-T c)) (D (μkanren-c-D c)) (t (μkanren-c-t c)) (W (μkanren-c-W c)))
+    (make-μkanren-c A T D t W))
 
   ; the record of the working variable α in `s`, and `s` with the record `c` in its place.
   (define (μkanren-c-ref s α) (sbral-ref/back (μkanren-state-C s) (μkanren-var-index α) μkanren-c-empty))
@@ -340,7 +347,9 @@
     (let* ((fd (μkanren-drop-dot-D (μkanren-sort-D D s) s))
            (FA (λ1-match/first ((,tag . ,vars) `(assert (every ,(μkanren-tag-def tag) (list ,@(map μkanren-var->symbol vars)))))))
            (fa (map FA (sort/lex<=? (map μkanren-sort-part (μkanren-partition* A)))))
-           (FT (λ1-match/first ((,tag ,u) `(assert (absent? (quote ,(μkanren-tag-name tag)) ,(μkanren-state-find/repr u s))))))
+           ; a datum with variables is built as the term is, since `absent?` evaluates it.
+           (FD (λ (tag) (if (μkanren-tag-term? tag) (μkanren-state-find/repr (μkanren-tag-name tag) s) `(quote ,(μkanren-tag-name tag)))))
+           (FT (λ1-match/first ((,tag ,u) `(assert (absent? ,(FD tag) ,(μkanren-state-find/repr u s))))))
            (ft (map FT (μkanren-drop-dot-T (μkanren-sort-T T s)))))
         `(,@fd ,@fa ,@ft ,v)))
 
@@ -358,13 +367,17 @@
 
   ; the answers do not depend on the order of the stores: the pairs of each prefix of D and the prefixes are
   ; sorted, before `μkanren-rem-subsumed` chooses which of two prefixes that subsume each other to keep as
-  ; much as when they are printed, and so is T, by key and then by the datum of the tag.
+  ; much as when they are printed, and so is T, by key and then by the datum of the tag, a datum with variables
+  ; after the ground ones: it prints as a term, which may display and write as a ground datum quoted does.
   (define (μkanren-sort-D D s)
     (let1 (R (λ1-match/first ((,α . ,u) `(,α . ,(μkanren-state-find/repr u s)))))
       (μkanren-sort/repr (λ (d) (map R d)) (map (λ (d) (μkanren-sort/repr R d)) D))))
 
   (define (μkanren-sort-T T s)
-    (μkanren-sort/repr (λ1-match/first ((,u . ,tag) `(,(μkanren-state-find/repr u s) . ,(μkanren-tag-name tag)))) T))
+    (let1 (R (λ1-match/first ((,u . ,tag) (if (μkanren-tag-term? tag)
+                                              `(,(μkanren-state-find/repr u s) 1 . ,(μkanren-state-find/repr (μkanren-tag-name tag) s))
+                                              `(,(μkanren-state-find/repr u s) 0 . ,(μkanren-tag-name tag))))))
+      (μkanren-sort/repr R T)))
 
   (define (μkanren-subsumed-T? x tag T)
     ((exists (λ1-match/first ((,y . ,tag*) (and (equal? x y) (μkanren-tag-equal? tag tag*))))) T))
@@ -429,11 +442,13 @@
   ; variable is broken into its parts instead, since the unreachable variable can always be chosen to keep the
   ; compound apart from the tag datum, while the constraints its parts put on the reachable variables must stay.
   ; A part with no variable at all is dropped: it could never be the datum, being part of a term that still could.
+  ; A datum holding an unreachable variable, which only a variable key has (I6), is dropped as well: that variable
+  ; can always be chosen to keep the datum out of the key, as the prefixes holding it are, which are dropped too.
   (define (μkanren-project-T T s)
     (let1 (anyvar? (μkanren-anyvar? s))
       (define (P u tag)
         (cond
-          ((μkanren-var? u) (if (anyvar? u) '() `((,u . ,tag))))
+          ((μkanren-var? u) (if (or (anyvar? u) (and (μkanren-tag-term? tag) (anyvar? (μkanren-tag-name tag)))) '() `((,u . ,tag))))
           ((not (anyvar? u)) (if (μkanren-hasvar? u) `((,u . ,tag)) '()))
           ((μkanren-compound? u) (append-map (λ (v) (P v tag)) (μkanren-compound->list u)))
           (else '())))
@@ -562,7 +577,8 @@
         (() init)
         ((,x . ,L*) (cond ((F L*) => (μ acc (step x acc))) (else #f))))))
 
-  ; `ext` extends the store T₀ rebuilt so far, as `μkanren-ext-T+` does by default.
+  ; `ext` extends the store T₀ rebuilt so far, as `μkanren-ext-T+` does by default. The tag must have a ground
+  ; datum: one with variables is posted by `μkanren-absento/term+` only.
   (define (μkanren-verify-T+ α tag s #!optional (ext μkanren-ext-T+))
     (define ((watch u) T₀) (append (ext u tag T₀ s) T₀))
     (define ((verify* us) T₀) (fold (λ (u T) (and T ((μkanren-verify-T+ u tag s ext) T))) T₀ us))
@@ -618,7 +634,7 @@
         (let* ((P (μkanren-state-P s))
                (i (length/sbral P))
                (L (λ (j C) (let1 (c (sbral-ref/back C j μkanren-c-empty))
-                             (update/sbral/back j (make-μkanren-c (μkanren-c-A c) (μkanren-c-T c) (cons i (μkanren-c-D c)) (μkanren-c-t c))
+                             (update/sbral/back j (make-μkanren-c (μkanren-c-A c) (μkanren-c-T c) (cons i (μkanren-c-D c)) (μkanren-c-t c) (μkanren-c-W c))
                                                 μkanren-c-empty C)))))
           (μkanren-state-with/stores s (fold L (μkanren-state-C s) (μkanren-prefix-indices d)) (cons/sbral d P) (μkanren-state-Tc s)))))
 
@@ -645,12 +661,18 @@
                               (else #f))))
           (if (any same? ids) s (μkanren-add-prefix `((,α . ,name)) s))))))
 
-  ; turns the absento tags of α, which has just taken a type tag, into disequalities (I3).
+  ; turns the absento tags of α, which has just taken a type tag, into disequalities (I3): a datum with variables
+  ; is unified with α, since =° may have bound some of them while it hands on the constraints of another variable.
   (define (μkanren-convert-T α s)
     (let1 (c (μkanren-c-ref s α))
-      (fold (λ (tag s) (μkanren-ext-D α tag s)) (μkanren-c-set s α (μkanren-c-with c T: '())) (μkanren-c-T c))))
+      (μkanren-fold/and (λ (tag s) (if (μkanren-tag-term? tag)
+                                       (μkanren-repost-prefix `((,α . ,(μkanren-tag-name tag))) s)
+                                       (μkanren-ext-D α tag s)))
+                        (μkanren-c-set s α (μkanren-c-with c T: '()))
+                        (μkanren-c-T c))))
 
-  ; gives the working variable α the type tag `tag`: a different one fails, the same one leaves `s` as it is.
+  ; gives the working variable α the type tag `tag`: a different one fails, the same one leaves `s` as it is, and
+  ; the disequalities that its absento tags become may fail too, see `μkanren-convert-T`.
   (define (μkanren-post-A α tag s)
     (let1 (c (μkanren-c-ref s α))
       (cond
@@ -680,6 +702,7 @@
   ; the absento tag `tag` on the term u, as `μkanren-verify-T+` verifies it: a variable keys an entry of T,
   ; which becomes a disequality at once if the variable has a type tag (I3), and so does a compound term that
   ; could still become the datum of the tag, kept whole, while the parts of one that cannot are verified.
+  ; A datum with variables is posted by `μkanren-absento/term+` instead.
   (define (μkanren-absento+ u tag s)
       (define (watch α)
         (if (μkanren-var? α)
@@ -701,13 +724,59 @@
           (() s*)
           ((,u . ,us*) (let1 (s** (μkanren-absento+ u tag s*))
                          (and s** (absento* us* s**))))))
-      (match/first (μkanren-state-find u s)
-        ((,α ⊣ (μkanren-var-working? α)) (watch α))
-        ((,u* ⊣ (μkanren-compound? u*))  (case (μkanren-tag-unify u* tag s)
-                                            ((present) #f)
-                                            ((maybe) (watch u*))
-                                            (else (absento* (μkanren-compound->list u*) s))))
-        (,u* (and (μkanren-tag-pred? tag u*) s))))
+      (if (μkanren-tag-term? tag)
+          (μkanren-absento/term+ u tag s)
+          (match/first (μkanren-state-find u s)
+            ((,α ⊣ (μkanren-var-working? α)) (watch α))
+            ((,u* ⊣ (μkanren-compound? u*))  (case (μkanren-tag-unify u* tag s)
+                                                ((present) #f)
+                                                ((maybe) (watch u*))
+                                                (else (absento* (μkanren-compound->list u*) s))))
+            (,u* (and (μkanren-tag-pred? tag u*) s)))))
+
+  ; the absento tag `tag`, whose datum held variables when posted, on the term u, as faster-miniKanren's absento
+  ; posts it: once the walk of the datum is ground, the tag is posted as `absent°` posts that datum. Until then the
+  ; datum must differ from every node of the term: a compound or an atom takes a disequality, and a variable the
+  ; tag, listed in the records of the variables of the datum (I6), so that binding either posts it again. A variable
+  ; with a type tag takes a disequality instead (I3); a variable that is the datum fails, and one that the datum
+  ; holds takes nothing, since no term holds a term that holds it.
+  (define (μkanren-absento/term+ u tag s)
+    (let1 (datum (μkanren-state-find/value (μkanren-tag-name tag) s))
+      (if (μkanren-hasvar? datum)
+          (let ((tag (μkanren-absento-tag/term datum)) (is (μkanren-var-indices datum)))
+            (let N ((w u) (s s))
+              (match/first (μkanren-state-find w s)
+                ((,α ⊣ (μkanren-var-working? α))
+                  (let1 (c (μkanren-c-ref s α))
+                    (cond
+                      ((equal? α datum) #f)
+                      ((memv (μkanren-var-index α) is) s)
+                      ((μkanren-c-A c) (μkanren-repost-prefix `((,α . ,datum)) s))
+                      ((any (λ (tag*) (μkanren-tag-equal? tag tag*)) (μkanren-c-T c)) s)
+                      (else (μkanren-list-key α is (μkanren-c-set s α (μkanren-c-with c T: (cons tag (μkanren-c-T c)))))))))
+                ((,w* ⊣ (μkanren-compound? w*))
+                  (let1 (s (μkanren-repost-prefix `((,datum . ,w*)) s))
+                    (and s (μkanren-fold/and N s (μkanren-compound->list w*)))))
+                (,w* (μkanren-repost-prefix `((,datum . ,w*)) s)))))
+          (μkanren-absento+ u (μkanren-absento-tag datum) s))))
+
+  ; `s` where the records of the variables with the indices `is` list α in `W`, unless they do (I6).
+  (define (μkanren-list-key α is s)
+    (let1 (L (λ (j C) (let1 (c (sbral-ref/back C j μkanren-c-empty))
+                        (if (member α (μkanren-c-W c)) C (update/sbral/back j (μkanren-c-with c W: (cons α (μkanren-c-W c))) μkanren-c-empty C)))))
+      (μkanren-state-with/stores s (fold L (μkanren-state-C s) is) (μkanren-state-P s) (μkanren-state-Tc s))))
+
+  ; the absento tags of α whose datum holds β, which the unification leading to `s` bound, posted again on α (I6).
+  ; An α bound by an earlier unification has no record left (I1); one bound by the same unification has the tags
+  ; posted on its walk here, and the others handed on with its record.
+  (define (μkanren-repost-datum α β s)
+    (let* ((c (μkanren-c-ref s α))
+           (i (μkanren-var-index β))
+           (held? (λ (tag) (and (μkanren-tag-term? tag) (memv i (μkanren-var-indices (μkanren-tag-name tag)))))))
+      (receive (held others) (partition held? (μkanren-c-T c))
+        (if (null? held)
+            s
+            (μkanren-fold/and (λ (tag s) (μkanren-absento/term+ α tag s)) (μkanren-c-set s α (μkanren-c-with c T: others)) held)))))
 
   ; the prefix d posted again in `s`, where some of its variables may have been bound: `s` when one of its
   ; equations can no longer hold, #f when they all hold, else `s` with the bindings they still need.
@@ -741,8 +810,9 @@
 
   ; hands on the constraints of the variables that the unification leading to `s` bound, `assocs`: the record
   ; of each is emptied (I1), and its prefixes, its type tag and its absento tags are posted again in `s`, on
-  ; its walk; the compound keys of T are verified again when one of them is marked with `t` (I5). A variable
-  ; without a record costs nothing more than its lookup.
+  ; its walk, as are the absento tags whose datum holds it, on their keys (I6); the compound keys of T are
+  ; verified again when one of them is marked with `t` (I5). A variable without a record costs nothing more
+  ; than its lookup.
   (define (μkanren-repost s assocs)
     (let R ((assocs assocs) (s s) (Tc? #f))
       (cond
@@ -753,7 +823,8 @@
                     (R (cdr assocs) s Tc?)
                     (let* ((s (μkanren-repost-prefixes β (μkanren-c-D c) s))
                            (s (if (and s (μkanren-c-A c)) (μkanren-post-type β (μkanren-c-A c) s) s))
-                           (s (μkanren-fold/and (λ (tag s) (μkanren-absento+ β tag s)) s (μkanren-c-T c))))
+                           (s (μkanren-fold/and (λ (tag s) (μkanren-absento+ β tag s)) s (μkanren-c-T c)))
+                           (s (μkanren-fold/and (λ (α s) (μkanren-repost-datum α β s)) s (μkanren-c-W c))))
                       (R (cdr assocs) s (or Tc? (μkanren-c-t c))))))))))
 
   ; `s` with its stores indexed: given as lists (`raw`), they are posted anew on the substitution of `s`, so
@@ -853,10 +924,22 @@
   (define symbol° (μkanren-make-tag-A μkanren-tag/sym))
   (define number° (μkanren-make-tag-A μkanren-tag/num))
 
+  ; the absento tag of the ground datum `datum`: an atomic datum is found at the leaves, comparing numbers as
+  ; unification does, so a NaN datum is found in a NaN.
+  (define (μkanren-absento-tag datum)
+    (let1 (pred? (λ (v) (not (if (and (number? datum) (number? v)) (μkanren-number-eqv? datum v) (equal? datum v)))))
+      (make-μkanren-tag datum 'no-def pred?)))
+
+  ; the absento tag of a datum with variables, which `μkanren-absento/term+` walks before it compares anything. Its
+  ; `def`, a symbol that no other tag has, tells it apart (the walks of `μkanren-state-find/value` keep a symbol),
+  ; and its predicate denies no disequality (I4).
+  (define μkanren-tag-def/term (gensym 'term))
+  (define (μkanren-absento-tag/term datum) (make-μkanren-tag datum μkanren-tag-def/term (K #t)))
+  (define (μkanren-tag-term? tag) (eq? (μkanren-tag-def tag) μkanren-tag-def/term))
+
+  ; the tag is any term: one with variables is walked whenever the constraint is posted, see `μkanren-absento/term+`.
   (define ((absent° tag u) s)
-    ; an atomic tag is found at the leaves: compare numbers as unification does, so a NaN tag is found in a NaN.
-    (let* ((pred? (λ (v) (not (if (and (number? tag) (number? v)) (μkanren-number-eqv? tag v) (equal? tag v)))))
-           (tag* (make-μkanren-tag tag 'no-def pred?)))
+    (let1 (tag* (if (μkanren-hasvar? tag) (μkanren-absento-tag/term tag) (μkanren-absento-tag tag)))
       (cond
         ((let1 (s* (μkanren-state-index s)) (and s* (μkanren-absento+ u tag* s*))) => ✓°)
         (else (✗° s)))))

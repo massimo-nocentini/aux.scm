@@ -18,6 +18,10 @@
         (and° (=° depname 'sales)     (=° empno 3)  (=° salary 4800))
         (and° (=° depname 'sales)     (=° empno 4)  (=° salary 4800))))
 
+; a third type tag, defined as a user would, through the exported API.
+(define-μkanren-tag (string-tag v) (string? v))
+(define string° (μkanren-make-tag-A string-tag))
+
 (define-suite microkanren-suite
 
   ((test/find _)
@@ -314,6 +318,109 @@
     (⊦= '((λ (α) (assert (absent? '(1 2) α)) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (vector z q))))))
     (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (cons z z))))))
     (⊦= '() (°->list #f (fresh° (q) (fresh° (z) (absent° '(1 2) (cons q z)) (=° q '(1 2)))))))
+
+  ((test/absent°/variable-tag _)
+    ; a tag with variables is walked whenever the constraint is posted, so it is the datum it is bound to, before or after
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (t) (=° t 'a) (absent° t q) (=° q 'a)))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (t) (absent° t q) (=° t 'a) (=° q 'a)))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (t) (=° q '(b a)) (absent° t q) (=° t 'a)))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (t u) (absent° t q) (=° t u) (=° u 'a) (=° q 'a)))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (x) (absent° (list 1 x) q) (=° q '(0 1 2)) (=° x 2)))))
+    (⊦= (°->list #f (fresh° (q) (absent° 'a q))) (°->list #f (fresh° (q) (fresh° (t) (absent° t q) (=° t 'a)))))
+    (⊦= (°->list #f (fresh° (q) (absent° 'a q))) (°->list #f (fresh° (q) (fresh° (t u) (absent° t q) (=° t u) (=° u 'a)))))
+    (⊦= (°->list #f (fresh° (q) (absent° '(1 2) q))) (°->list #f (fresh° (q) (fresh° (x) (absent° (list 1 x) q) (=° x 2)))))
+    ; the answer is the same in either order once the datum is ground before a compound node of the term is taken
+    ; apart, as an atomic datum always is; otherwise that node is printed as the disequalities of its nodes
+    (⊦= (°->list #f (fresh° (q) (fresh° (r t) (=° t 'a) (absent° t q) (=° q (cons 1 r)))))
+        (°->list #f (fresh° (q) (fresh° (r t) (absent° t q) (=° q (cons 1 r)) (=° t 'a)))))
+    (⊦= '((λ (α) (assert (absent? '(1 . 5) (cons 1 α))) (cons 1 α)))
+        (°->list #f (fresh° (q) (fresh° (r t) (=° t '(1 . 5)) (absent° t q) (=° q (cons 1 r))))))
+    (⊦= '((λ (α) (begin (deny (equal? α 5))) (assert (absent? '(1 . 5) α)) (cons 1 α)))
+        (°->list #f (fresh° (q) (fresh° (r t) (absent° t q) (=° q (cons 1 r)) (=° t '(1 . 5))))))
+    ; unbound, it differs from every node of the term, as faster-miniKanren's absento has it
+    (⊦= '() (°->list #f (fresh° (q t) (absent° t q) (=° q t))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (t u) (absent° t u) (=° u t)))))
+    (⊦= '() (°->list #f (fresh° (q t) (absent° t q) (=° q (list 1 t)))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (x) (absent° x q) (=° q (/ 0. 0.)) (=° x (/ 0. 0.))))))
+    (⊦= '((λ (α β) (assert (absent? α β)) (cons α (cons β '()))))
+        (°->list #f (fresh° (q t u) (=° q (list t u)) (absent° t u))))
+    (⊦= '((λ (α β) (assert (absent? (cons 1 (cons α '())) β)) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x u) (=° q (list x u)) (absent° (list 1 x) u))))
+    (⊦= '((λ (α) (begin (deny (equal? α 1))) (begin (deny (equal? α 2))) (begin (deny (equal? α (cons 1 2)))) (cons α (cons (cons 1 2) '()))))
+        (°->list #f (fresh° (q t u) (=° q (list t u)) (absent° t u) (=° u '(1 . 2)))))
+    ; it is printed after a ground datum of the same variable, even one that prints alike, in either order
+    (⊦= '((λ (α β) (assert (absent? 'β α)) (assert (absent? β α)) (cons α (cons β '()))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (absent° 'β x) (absent° y x))))
+    (⊦= (°->list #f (fresh° (q x y) (=° q (list x y)) (absent° 'β x) (absent° y x)))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (absent° y x) (absent° 'β x))))
+    (⊦= (°->list #f (fresh° (q x y) (=° q (list x y)) (absent° '(β) x) (absent° (list y) x)))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (absent° (list y) x) (absent° '(β) x))))
+    ; the answer runs: its clause evaluates the datum
+    (let1 (answer (eval (car (°->list #f (fresh° (q t u) (=° q (list t u)) (absent° t u))))))
+      (⊦= '(a (b c)) (answer 'a '(b c)))
+      (⊦= 'failed (condition-case (answer 'a '(b a)) (_ () 'failed))))
+    ; on a variable with a type tag it is a disequality, in either order and through =° (I3)
+    (⊦= '((λ (α β) (begin (deny (equal? α β))) (assert (every (μ v (symbol? v)) (list β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q t u) (=° q (list t u)) (absent° t u) (symbol° u))))
+    (⊦= '((λ (α β) (begin (deny (equal? α β))) (assert (every (μ v (symbol? v)) (list β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q t u) (=° q (list t u)) (symbol° u) (absent° t u))))
+    (⊦= '((λ (α β) (begin (deny (equal? α β))) (assert (every (μ v (symbol? v)) (list β))) (cons α (cons β '()))))
+        (°->list #f (fresh° (q t u) (=° q (list t u)) (fresh° (x) (absent° t x) (symbol° u) (=° x u)))))
+    (⊦= '((λ (α) (begin (deny (equal? α 'a))) (assert (every (μ v (symbol? v)) (list α))) (cons 'a (cons α '()))))
+        (°->list #f (fresh° (q t u) (=° q (list t u)) (fresh° (x) (absent° x u) (symbol° u) (=° x t) (=° t 'a)))))
+    ; a datum holding the term can never occur in it, and one holding a hidden variable can always be kept out of it,
+    ; unless the term holds that variable too
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (absent° (list q) q))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (fresh° (t) (absent° t q)))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (fresh° (h) (absent° (list h) q)))))
+    (⊦= '((λ (α) (begin (deny (equal? α 1))) α)) (°->list #f (fresh° (q) (fresh° (h) (absent° (cons 1 h) (cons q h))))))
+    ; of the disequalities it posts on the nodes of the term, those holding a hidden variable, here through e, are dropped
+    (⊦= '((λ (α) (begin (deny (equal? α 1))) (begin (deny (equal? α '()))) α))
+        (°->list #f (fresh° (q) (fresh° (e f) (=° e (cons 1 f)) (absent° q (list e)))))))
+
+  ((test/string° _)
+    ; a third type tag, alone, twice, and at reification
+    (⊦= '((λ (α) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (string° q))))
+    (⊦= (°->list #f (fresh° (q) (string° q))) (°->list #f (fresh° (q) (string° q) (string° q))))
+    (⊦= '(α) (°->list/ground (fresh° (q) (string° q))))
+    ; disjoint from symbol° and number°, in either order, and from the values of other types
+    (⊦= '() (°->list #f (fresh° (q) (string° q) (symbol° q))))
+    (⊦= '() (°->list #f (fresh° (q) (symbol° q) (string° q))))
+    (⊦= '() (°->list #f (fresh° (q) (number° q) (string° q))))
+    (⊦= '() (°->list #f (fresh° (q) (string° q) (=° q 'a))))
+    (⊦= '() (°->list #f (fresh° (q) (=° q 5) (string° q))))
+    (⊦= '((λ () "a")) (°->list #f (fresh° (q) (string° q) (=° q "a"))))
+    (⊦= '((λ () "a")) (°->list #f (fresh° (q) (=° q "a") (string° q))))
+    ; on a compound or a bound term
+    (⊦= '() (°->list #f (fresh° (q) (string° (list q)))))
+    (⊦= '((λ () (cons "b" '()))) (°->list #f (fresh° (q) (fresh° (x) (=° q (list x)) (string° x) (=° x "b")))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (x) (=° q (list x)) (string° x) (=° x 1)))))
+    ; with the two built-in tags: one clause per tag
+    (⊦= '((λ (α β γ) (assert (every (μ v (string? v)) (list α))) (assert (every (μ v (symbol? v)) (list β))) (assert (every (μ v (number? v)) (list γ)))
+            (cons α (cons β (cons γ '())))))
+        (°->list #f (fresh° (q x y z) (=° q (list x y z)) (number° z) (symbol° y) (string° x))))
+    ; ≠°: a disequality that the tag implies is dropped (I4), in either order, and one that it does not is kept
+    (⊦= '((λ (α) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (string° q) (≠° q 'a))))
+    (⊦= '((λ (α) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (≠° q 'a) (string° q))))
+    (⊦= '((λ (α) (begin (deny (equal? α "a"))) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (≠° q "a") (string° q))))
+    (⊦= '() (°->list #f (fresh° (q) (string° q) (≠° q "a") (=° q "a"))))
+    ; absent°: on a string variable the absento becomes a disequality (I3), which the tag drops if it implies it
+    (⊦= '((λ (α) (begin (deny (equal? α "a"))) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (absent° "a" q) (string° q))))
+    (⊦= '((λ (α) (begin (deny (equal? α "a"))) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (string° q) (absent° "a" q))))
+    (⊦= '((λ (α) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (absent° 'a q) (string° q))))
+    (⊦= '((λ (α) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (absent° '(1) q) (string° q))))
+    (⊦= '() (°->list #f (fresh° (q) (string° q) (absent° "a" q) (=° q "a"))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (x) (string° x) (absent° "a" q) (=° q (list 1 x)) (=° x "a")))))
+    (⊦= '((λ () (cons 1 (cons "b" '())))) (°->list #f (fresh° (q) (fresh° (x) (string° x) (absent° "a" q) (=° q (list 1 x)) (=° x "b")))))
+    ; =° hands it on, and the answer drops it on a hidden variable
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (x y) (string° x) (=° x y) (symbol° y)))))
+    (⊦= '() (°->list #f (fresh° (q) (fresh° (x y) (string° x) (symbol° y) (=° x y)))))
+    (⊦= '((λ (α) (assert (every (μ v (string? v)) (list α))) α)) (°->list #f (fresh° (q) (fresh° (x) (string° x) (=° x q)))))
+    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (fresh° (x) (string° x)))))
+    ; the answer runs: its clause holds on a string and fails on a symbol
+    (let1 (answer (eval (car (°->list #f (fresh° (q) (string° q))))))
+      (⊦= "zz" (answer "zz"))
+      (⊦= 'failed (condition-case (answer 'zz) (_ () 'failed)))))
 
 )
 

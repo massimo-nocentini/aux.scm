@@ -67,7 +67,7 @@
         (let1 (b (cadr c))
           (cond
             ((μkanren-tagged? b 'every) (cons (μkanren-tag-def->name (cadr b)) (cdr (caddr b))))
-            ((μkanren-tagged? b 'absent?) `(absento ,(cadr (cadr b)) ,(μkanren-repr->datum (caddr b))))  ; a variable or a term.
+            ((μkanren-tagged? b 'absent?) `(absento ,(μkanren-repr->datum (cadr b)) ,(μkanren-repr->datum (caddr b))))  ; a variable or a term.
             (else c))))
       (else c)))
 
@@ -323,20 +323,23 @@
                           (else (decl! "[" (->string/write v) "]" "atom"))))
                 (hash-table-set! ids key id)   ; hash-consing: an equal subterm is drawn once.
                 id)))))
-      (define ((constraint i vars) c)
+      (define ((constraint i vars) f)   ; `f` is a form of the answer, as `μkanren-answer-forms` gives it.
         (let1 (N (node i vars))
-          (match/first c
+          (match/first (μkanren-form->constraint f)
             ((≠ ,ls ,rs) (cond   ; a tuple disequality denies the *conjunction* of its equalities.
                            ((list? ls) (for-each (λ (l r) (dashed! (N l) "≠ (tuple)" (N r))) ls rs))
                            (else (dashed! (N ls) "≠" (N rs)))))
-            ((absento ,tag ,α) (dashed! (N α) "" (decl! "{{" (conc "absento " tag) "}}" "constraint")))
+            ((absento ,tag ,α) (dashed! (N α) "" (let1 (id (decl! "{{" (conc "absento " tag) "}}" "constraint"))
+                                                   ; a datum built, not quoted, holds variables.
+                                                   (unless (μkanren-tagged? (cadr (cadr f)) 'quote) (dashed! (N tag) "" id))
+                                                   id)))
             ((,pred . ,αs) (let1 (id (decl! "{{" (->string pred) "}}" "constraint"))
                              (for-each (λ (α) (dashed! (N α) "" id)) αs)))
             (else (void)))))
       (define (answer! i a)
         (let1 (vars (μkanren-answer-vars a))
           (let1 (root ((node i vars) (μkanren-answer->datum a)))
-            (for-each (constraint i vars) (μkanren-answer->constraints a))
+            (for-each (constraint i vars) (μkanren-answer-forms a))
             (when (eq? share 'all) (edge! (decl! "(" (conc "answer " i) ")" "answer") "" root))
             root)))
       (define (subgraph! i a)
