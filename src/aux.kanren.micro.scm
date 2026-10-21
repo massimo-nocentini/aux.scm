@@ -989,21 +989,22 @@
   ; the values of `vars` in the state `s`, as a list (the key of a group).
   (define (μkanren-state-find/values vars s) (map (λ (v) (μkanren-state-find/value v s)) vars))
 
-  ; folds the stream `§` into a hash table `key → hash table (var → values)`, collecting the value of each of `vars`.
+  ; folds the stream `§` into a hash table `key → group`, where a group lists, for each of `vars` in turn, the values
+  ; of that variable in the states of the key. A group is positional, not a table `var → values`: two of `vars`
+  ; that are `equal?`, as when the same variable is aggregated twice, keep a list each instead of sharing one
+  ; that collects their values twice, and the macros need no lookup by the value expression they evaluated.
   (define (μkanren-group§ key-of vars §)
     (foldr§ (λ (s* H)
               (hash-table-update!/default H (key-of s*)
-                (λ (group)
-                  (for-each (λ (v) (hash-table-update!/default group v (λ (vs) (cons (μkanren-state-find/value v s*) vs)) '())) vars)
-                  group)
-                (make-hash-table))
+                (λ (group) (map (λ (v vs) (cons (μkanren-state-find/value v s*) vs)) vars group))
+                (map (λ (v) '()) vars))
               H)
             (make-hash-table) §))
 
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
         (let* ((ht (μkanren-group§ (λ (s*) (μkanren-state-find/values (list k ...) s*)) (list v ...) (g s)))
-               (G (λ (key group folded) (or° (let ((v* (aggr (hash-table-ref group v))) ...) (receive (k ...) (apply values key) (and° f ...))) folded)))
+               (G (λ (key group folded) (or° (receive (v* ...) (apply values (map (λ (A vs) (A vs)) (list aggr ...) group)) (receive (k ...) (apply values key) (and° f ...))) folded)))
                (g* (hash-table-fold ht G ✗°)))
           (δ (g* s)))))
 
@@ -1012,8 +1013,7 @@
         (let* ((§ (δ (g s))) ; the stream to fold over
                (key-of (λ (s*) (μkanren-state-find/values (list k ...) s*)))
                (ht (μkanren-group§ key-of (list v ...) §))
-               (G (λ (s*) (let* ((group (hash-table-ref ht (key-of s*)))
-                                 (v* (aggr (hash-table-ref group v))) ...)
+               (G (λ (s*) (receive (v* ...) (apply values (map (λ (A vs) (A vs)) (list aggr ...) (hash-table-ref ht (key-of s*))))
                             ((and° f ...) s*)))))
           (append-map§ G §))))
 

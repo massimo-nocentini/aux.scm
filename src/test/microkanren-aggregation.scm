@@ -55,6 +55,20 @@ END
       (sort
         (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s*))))))
         (λ (a b) (< (cadr a) (cadr b))))))
+
+  ; a variable aggregated twice gives each aggregation the values of its own column, once each.
+  ((test/groupby°/same-column _)
+    (⊦= '((personnel 7400 2) (sales 14600 3) (develop 25100 5))
+      (sort
+        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((s* foldr/add) s) ((n length) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,s* ,n))))))
+        (λ (a b) (< (cadr a) (cadr b))))))
+
+  ; the aggregated value can be a term, not only a variable.
+  ((test/groupby°/term _)
+    (⊦= '((personnel ((2 3900) (5 3500))) (sales ((1 5000) (3 4800) (4 4800))) (develop ((7 4200) (8 6000) (9 4500) (10 5200) (11 5200))))
+      (sort
+        (°->list/ground (fresh° (r) (fresh° (d e s) (groupby° (((es (λ (l) l)) `(,e ,s))) over (d) from (empsalary° d e s) => (=° r `(,d ,es))))))
+        (λ (a b) (< (length (cadr a)) (length (cadr b)))))))
   
   ((test/set° _)
     (⊦= '((personnel 2) (sales 3) (develop 5))
@@ -104,6 +118,32 @@ END
            (sales 3 4800 4710)
            (sales 4 4800 4710))
       (°->list/ground (fresh° (r) (fresh° (d e s) (window° (((s* foldr/avg) s)) over () from (empsalary° d e s) => (=° r `(,d ,e ,s ,s*))))))))
+
+  ((test/window°/same-column _)
+    (⊦= '((develop 7 25100 5)
+           (develop 8 25100 5)
+           (develop 9 25100 5)
+           (develop 10 25100 5)
+           (develop 11 25100 5)
+           (personnel 2 7400 2)
+           (personnel 5 7400 2)
+           (sales 1 14600 3)
+           (sales 3 14600 3)
+           (sales 4 14600 3))
+      (°->list/ground (fresh° (r) (fresh° (d e s) (window° (((s* foldr/add) s) ((n length) s)) over (d) from (empsalary° d e s) => (=° r `(,d ,e ,s* ,n))))))))
+
+  ((test/window°/term _)
+    (⊦= '((7 (7 8 9 10 11))
+           (8 (7 8 9 10 11))
+           (9 (7 8 9 10 11))
+           (10 (7 8 9 10 11))
+           (11 (7 8 9 10 11))
+           (2 (2 5))
+           (5 (2 5))
+           (1 (1 3 4))
+           (3 (1 3 4))
+           (4 (1 3 4)))
+      (°->list/ground (fresh° (r) (fresh° (d e s) (window° (((es (λ (l) (map car l))) `(,e ,s))) over (d) from (empsalary° d e s) => (=° r `(,e ,es))))))))
 
 )
 
