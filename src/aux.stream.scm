@@ -102,11 +102,23 @@
                             ((pair? choices) (cons§ (car choices) (apply append§/interleaved (append rest-of-choices (list (cdr choices))))))
                             (else '())))))))
 
+  ; keep in step with `append-map§/fold`, which relies on how it walks a promise.
   (define (append-map§ f $)
     (cond
       ((null? $) '())
       ((promise? $) (δ (append-map§ f (force $))))
       (else (append§/interleaved/2 (δ (f (car $))) (append-map§ f (cdr $))))))
+
+  ; `(fold append-map§ $ fs)`, a chain of binds nested to the left with the first of fs innermost, step by step: since
+  ; `(append-map§ f $)` of a promise `$` is a promise forced to `(append-map§ f (force $))`, the chain of a promise is
+  ; a promise forced to the chain of its value, so one promise stands for the whole chain, where the nest of binds
+  ; would wrap it once per bind. A pair enters the first bind, which keeps the rest of `$` as `append-map§` does.
+  (define (append-map§/fold fs $)
+    (cond
+      ((null? fs) $)
+      ((null? $) '())
+      ((promise? $) (δ (append-map§/fold fs (force $))))
+      (else (append-map§/fold (cdr fs) (append-map§ (car fs) $)))))
 
   (define (const§ s) (rec N (cons§ s N)))
   (define (nats§ s) (cons§ s (nats§ (add1 s)))) ; linear, whereas (rec N (cons§ s (map§ add1 N))) stacks a map§ per element

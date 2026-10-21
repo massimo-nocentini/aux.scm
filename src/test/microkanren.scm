@@ -204,6 +204,56 @@
     (⊦= '((λ () (vector 1 2))) (°->list #f (fresh° (q) (=° q (vector 1 2)))))
     (⊦= '((λ (α) (vector 1 α))) (°->list #f (fresh° (q r) (=° q (vector 1 r))))))
 
+  ((test/=°/occurs _)
+    ; the occurs check walks a value through S, the slots of a vector or a record and chains of variables, whether
+    ; the bound variable is older or newer than those that S holds, in the window of M or below it; a part of a
+    ; value of S is bound without the check only to a variable that no value of S holds.
+    (define-record box v)
+    (⊦= '() (°->list #f (fresh° (q x y) (=° y (list x)) (=° x (vector y)) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q x y) (=° y (list x)) (=° x (make-box y)) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q x y) (=° x (list y)) (=° y x) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q x y z) (=° x (list z)) (=° z y) (=° y x) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q x a b c d e) (=° x (list a b c d e)) (=° a x) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q x a b c d e) (=° x (list a b c d e)) (=° e x) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q x y l d) (=° l (list 1 2 x)) (=° l (cons y d)) (=° x d) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q l a d) (=° l (list 1 a)) (=° l (cons 1 d)) (=° a d) (=° q 'bad))))
+    (⊦= '() (°->list #f (fresh° (q x) (=° x (list x)) (=° q 'bad))))
+    (⊦= '((λ () (cons 2 (cons 3 '())))) (°->list #f (fresh° (q l a) (=° l '(1 2 3)) (=° l (cons a q)))))
+    (⊦= '((λ (α) (cons α '()))) (°->list #f (fresh° (q x a d) (=° x (vector a (list d))) (=° x (vector a q))))))
+
+  ((test/=°/occurs/state _)
+    ; a substitution given from outside, here `_1 ↦ (_0)` and `_0 ↦ _2`, tells nothing of the variables its values
+    ; hold, so every binding is checked.
+    (let* ((v0 (make-μkanren-var 0)) (v1 (make-μkanren-var 1))
+           (S (cons/sbral (list v0) (cons/sbral (make-μkanren-var 2) empty/sbral)))
+           (s (make-μkanren-state 2 S '() '() '() '())))
+      (⊦= '() (§->list ((=° v0 v1) s)))
+      (⊦= '() (§->list ((=° v0 v1) (μkanren-state-with μkanren-state-empty vars-count: 2 S: S))))
+      (⊦= 1 (length (§->list ((=° v0 'a) s))))))
+
+  ((test/andª/chain _)
+    ; a chain of andª nested to the left, as fold builds it, has the stream of the nest of append-map§, promise by
+    ; promise, also when its inner stream has many answers, and when the chain or a prefix of it is applied to
+    ; many states or extended in two ways.
+    (define ((andª/plain f g) s) (append-map§ g (δ (f s))))
+    (define-relation (nat° n) (or° (=° n 'z) (fresh° (m) (=° n (list 's m)) (nat° m))))
+    (define (steps g k)
+      (let L (($ ((fresh° (q) (g q)) μkanren-state-empty)) (k k))
+        (cond
+          ((zero? k) '())
+          ((null? $) '(end))
+          ((promise? $) (cons '• (L (force $) (sub1 k))))
+          (else (cons (μkanren-state-find/value (make-μkanren-var 0) (car $)) (L (cdr $) (sub1 k)))))))
+    (define (chain and f gs) (fold (λ (g f) (and f g)) f gs))
+    (define (gs q) (list (or° (=° q 'z) (nat° q)) (or° (nat° q) (=° q '(s z))) ✓° (or° ✓° (nat° q))))
+    (⊦= (steps (λ (q) (chain andª/plain (nat° q) (gs q))) 300) (steps (λ (q) (chain andª (nat° q) (gs q))) 300))
+    (⊦= (steps (λ (q) (andª/plain (nat° q) (chain andª/plain ✓° (gs q)))) 300)
+        (steps (λ (q) (andª (nat° q) (chain andª ✓° (gs q)))) 300))
+    (⊦= (steps (λ (q) (let1 (c (chain andª/plain (nat° q) (gs q))) (orª (andª/plain c (=° q 'z)) (andª/plain c ✓°)))) 300)
+        (steps (λ (q) (let1 (c (chain andª (nat° q) (gs q))) (orª (andª c (=° q 'z)) (andª c ✓°)))) 300))
+    ; and a chain of 4000 goals nested to the left, each binding a fresh variable, runs; its cost is left to the benchmarks.
+    (⊦= '((λ () 'ok)) (°->list #f (fresh° (q) (fold (λ (i g) (and° g (fresh° (v) (=° v i)))) (=° q 'ok) (iota 4000))))))
+
   ((test/var->symbol/overflow _)
     (⊦= '((α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω α1 β1))
         (°->list/ground (fresh° r ← (a b c d e f g h i j k l m n o p q s t u v w x y z aa)))))

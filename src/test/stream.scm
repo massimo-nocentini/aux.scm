@@ -1,5 +1,5 @@
 
-(import (aux unittest) (aux base) (aux stream))
+(import srfi-1 (aux unittest) (aux base) (aux stream))
 
 (define-suite stream-suite
 
@@ -34,6 +34,22 @@
    (⊦= '(acc) (fold§ cons '(acc) '()))
    (⊦= '(acc) (fold§ cons '(acc) (δ '())))
    (⊦= 4999950000 (fold§ + 0 (take§ 100000 ℕ))))
+
+  ((test/stream/append-map§/fold _) ; the stream of fold over append-map§, promises included
+   (define (shape $ k)
+     (cond
+       ((zero? k) '())
+       ((null? $) '())
+       ((promise? $) (cons '• (shape (force $) (sub1 k))))
+       (else (cons (car $) (shape (cdr $) (sub1 k))))))
+   (define (twice x) (δ (list x (* 10 x))))
+   (define (odd x) (if (odd? x) (cons§ x '()) '()))
+   (define fs (list twice odd (λ (x) (list x x)) twice))
+   (define $ (δ (cons 1 (δ (cons 2 (δ (cons 3 '())))))))
+   (⊦= (shape (fold append-map§ $ fs) 100) (shape (append-map§/fold fs $) 100))
+   (⊦= (shape (fold append-map§ (nats§ 0) fs) 100) (shape (append-map§/fold fs (nats§ 0)) 100))
+   (⊦= '() (append-map§/fold fs '()))
+   (⊦= $ (append-map§/fold '() $)))
 
 
   )

@@ -70,6 +70,11 @@
   ; `vars-count` is the number of variables introduced so far; `S` is the substitution, an sbral indexed
   ; by variable with the most recent variable first; `tags` the type tags asserted so far.
   ;
+  ; `M` admits the unbound variables written in the values of S: it is a pair `(m . X)`, where X lists at most four
+  ; indices greater than m, and every unbound variable written in a value of S has index at most m or is in X. It
+  ; admits no variable in the empty state, every variable when S comes from outside, and spares occurs checks, see
+  ; `μkanren-state-update`.
+  ;
   ; The constraints are kept by variable, as faster-miniKanren keeps them: `C` is an sbral indexed like S
   ; (see `sbral-ref/back`, a missing slot reads `μkanren-c-empty`) of the records of the variables, each with
   ; - `A`, the type tag of the variable, if any;
@@ -95,24 +100,27 @@
   ; `raw` is #f, or the list `(D A T)` of stores given as lists, by `make-μkanren-state` or `μkanren-state-with`,
   ; or left unverified by the exported `μkanren-state-unify`: the next goal verifies and indexes them first.
   (define-record-type μkanren-state
-    (make-μkanren-state/C vars-count S C P Tc tags raw)
+    (make-μkanren-state/C vars-count S M C P Tc tags raw)
     μkanren-state?
-    (vars-count μkanren-state-vars-count) (S μkanren-state-S) (C μkanren-state-C) (P μkanren-state-P)
+    (vars-count μkanren-state-vars-count) (S μkanren-state-S) (M μkanren-state-M) (C μkanren-state-C) (P μkanren-state-P)
     (Tc μkanren-state-Tc) (tags μkanren-state-tags) (raw μkanren-state-raw))
 
+  (define μkanren-M-none '(-1))                     ; the `M` of the empty substitution
+  (define μkanren-M-any (list most-positive-fixnum)) ; the `M` of a substitution given from outside
+
   (define (make-μkanren-state vars-count S D A T tags)
-    (make-μkanren-state/C vars-count S empty/sbral empty/sbral '() tags (list D A T)))
+    (make-μkanren-state/C vars-count S μkanren-M-any empty/sbral empty/sbral '() tags (list D A T)))
 
-  (define μkanren-state-empty (make-μkanren-state/C 0 empty/sbral empty/sbral empty/sbral '() '() #f))
+  (define μkanren-state-empty (make-μkanren-state/C 0 empty/sbral μkanren-M-none empty/sbral empty/sbral '() '() #f))
 
-  ; a copy of `s` with the given `vars-count` and `S`, which keeps the stores: only `freshª` and the
+  ; a copy of `s` with the given `vars-count`, `S` and `M`, which keeps the stores: only `freshª` and the
   ; unification inside =° call it, and =° hands on the constraints of the variables it binds.
-  (define (μkanren-state-with/S s vc S)
-    (make-μkanren-state/C vc S (μkanren-state-C s) (μkanren-state-P s) (μkanren-state-Tc s) (μkanren-state-tags s)
+  (define (μkanren-state-with/S s vc S M)
+    (make-μkanren-state/C vc S M (μkanren-state-C s) (μkanren-state-P s) (μkanren-state-Tc s) (μkanren-state-tags s)
                           (μkanren-state-raw s)))
 
   (define (μkanren-state-with/stores s C P Tc)
-    (make-μkanren-state/C (μkanren-state-vars-count s) (μkanren-state-S s) C P Tc (μkanren-state-tags s) #f))
+    (make-μkanren-state/C (μkanren-state-vars-count s) (μkanren-state-S s) (μkanren-state-M s) C P Tc (μkanren-state-tags s) #f))
 
   (define (μkanren-state-equal? s s*) (eq? s s*))
 
@@ -130,9 +138,11 @@
     (let* ((kept? (λ (v) (eq? v μkanren-state-keep)))
            (field (λ (v get) (if (kept? v) (get s) v))))
       (if (and (kept? S) (kept? D) (kept? A) (kept? T))
-          (make-μkanren-state/C vars-count (μkanren-state-S s) (μkanren-state-C s) (μkanren-state-P s) (μkanren-state-Tc s)
-                                tags (μkanren-state-raw s))
-          (make-μkanren-state/C vars-count (field S μkanren-state-S) empty/sbral empty/sbral '() tags
+          (make-μkanren-state/C vars-count (μkanren-state-S s) (μkanren-state-M s) (μkanren-state-C s) (μkanren-state-P s)
+                                (μkanren-state-Tc s) tags (μkanren-state-raw s))
+          (make-μkanren-state/C vars-count (field S μkanren-state-S)
+                                (if (or (kept? S) (eq? S (μkanren-state-S s))) (μkanren-state-M s) μkanren-M-any)
+                                empty/sbral empty/sbral '() tags
                                 (list (field D μkanren-state-D) (field A μkanren-state-A) (field T μkanren-state-T))))))
 
   ; the position of the working variable α in the sbral `sbral` (which stores the most recent variable first).
@@ -205,27 +215,46 @@
   (define (μkanren-structure? v) (or (vector? v) (record-instance? v)))
   (define (μkanren-structure->list v) (vector->list (if (vector? v) v (record->vector v))))
 
-  (define (μkanren-state-update α v s assocs #!key (unsafe #f))
-    
-    (define (occur? v*)
+  ; binds the unbound α to the walked v, unless α occurs in the walk of v. When v is `held`, a part of a value of S,
+  ; the walk visits only terms written in the values of S, so it cannot reach an α that `M` does not admit: the
+  ; occurs check is spared, and the binding writes no new variable into S. Otherwise the walk looks for α, and `M`
+  ; admits the unbound variables it meets, which the binding writes into S. A new index joins the window X, and a
+  ; full X folds into m first (the index then joins only if it is greater than the new m), so that m stays below the
+  ; variables of the last few `fresh°`: with m alone, a newer variable written into S before an older one is bound
+  ; to a part of S would make that binding walk again.
+  (define (μkanren-state-update α v s assocs #!optional held)
+
+    (define (admits? M i) (or (fx<= i (car M)) (memv i (cdr M))))
+
+    (define (admit i M)
+      (let ((m (car M)) (X (cdr M)))
+        (cond
+          ((admits? M i) M)
+          ((fx< (length X) 4) (cons m (cons i X)))
+          (else (let1 (m* (fold fxmax m X)) (cons m* (if (fx<= i m*) '() (list i))))))))
+
+    (define (walk M) ; `M` that admits the walk of v too, or #f if α occurs in it
       (cond
-        ((μkanren-var? v*) (equal? α v*))
-        ((μkanren-compound? v*)
+        ((μkanren-var? v) (and (not (equal? α v)) (admit (μkanren-var-index v) M)))
+        ((μkanren-compound? v)
           (let* ((S (μkanren-state-S s)) (l (length/sbral S)))
-            (let O ((w v*))
+            (let O ((w v) (M M))
               (cond
-                ((μkanren-var? w) (equal? α w))
-                ((pair? w) (or (O (μkanren-state-find/SL (car w) S l)) (O (μkanren-state-find/SL (cdr w) S l))))
-                ((μkanren-structure? w) (O (μkanren-structure->list w)))
-                (else #f)))))
-        (else #f)))
-    
-    (and
-      (or unsafe (not (occur? v)))
-      (let* ((S* (μkanren-update/sbral α v (μkanren-state-S s)))
-             (s* (μkanren-state-with/S s (μkanren-state-vars-count s) S*))
-             (assocs* (cons `(,α . ,v) assocs)))
-        `(,s* ,assocs*))))
+                ((not M) #f)
+                ((μkanren-var? w) (and (not (equal? α w)) (admit (μkanren-var-index w) M)))
+                ((pair? w) (O (μkanren-state-find/SL (cdr w) S l) (O (μkanren-state-find/SL (car w) S l) M)))
+                ((μkanren-structure? w) (O (μkanren-structure->list w) M))
+                (else M)))))
+        (else M)))
+
+    (let* ((M (μkanren-state-M s))
+           (M* (if (and held (not (admits? M (μkanren-var-index α)))) M (walk M))))
+      (and
+        M*
+        (let* ((S* (μkanren-update/sbral α v (μkanren-state-S s)))
+               (s* (μkanren-state-with/S s (μkanren-state-vars-count s) S* M*))
+               (assocs* (cons `(,α . ,v) assocs)))
+          `(,s* ,assocs*)))))
 
   ; the walk of α in the substitution S of length l: a variable beyond S (deferred) or unbound is
   ; answered as is. `(length/sbral S)` folds over the whole spine, so a walk over every node of a
@@ -253,10 +282,16 @@
 
   ; the unification inside the module: its answer keeps the stores of `s`, which only =° may rely on,
   ; since it hands on the constraints of the variables it binds.
-  (define (μkanren-unify u v s assocs)
-    (let ((return (τ `(,s ,assocs)))
-          (u* (μkanren-state-find u s))
-          (v* (μkanren-state-find v s)))
+  (define (μkanren-unify u v s assocs) (μkanren-unify/held u #f v #f s assocs))
+
+  ; `u-held` (`v-held`) tells that u (v) is a part of a value of S, as its walk is when it differs from it, and so
+  ; are the car and the cdr of a held pair: `μkanren-state-update` needs it to spare the occurs check.
+  (define (μkanren-unify/held u u-held v v-held s assocs)
+    (let* ((return (τ `(,s ,assocs)))
+           (u* (μkanren-state-find u s))
+           (v* (μkanren-state-find v s))
+           (u-held (or u-held (not (eq? u u*))))
+           (v-held (or v-held (not (eq? v v*)))))
       (cond
         ((eq? u* v*) (return))
         ((and (string? u*) (string? v*) (string=? u* v*)) (return))
@@ -265,15 +300,16 @@
           (let ((i (μkanren-var-index>=0 u*)) (j (μkanren-var-index>=0 v*)))
             (cond
               ((= i j) (return))
-              ((< i j) (μkanren-state-update u* v* s assocs))
-              (else (μkanren-state-update v* u* s assocs)))))
-        ((μkanren-var-working? u*) (μkanren-state-update u* v* s assocs))
-        ((μkanren-var-working? v*) (μkanren-state-update v* u* s assocs))
+              ((< i j) (μkanren-state-update u* v* s assocs v-held))
+              (else (μkanren-state-update v* u* s assocs u-held)))))
+        ((μkanren-var-working? u*) (μkanren-state-update u* v* s assocs v-held))
+        ((μkanren-var-working? v*) (μkanren-state-update v* u* s assocs u-held))
+        ; the slot lists are new, but their slots are parts of u* and v*, and their tails are never bound.
         ((and (μkanren-structure? u*) (μkanren-structure? v*))
-          (μkanren-unify (μkanren-structure->list u*) (μkanren-structure->list v*) s assocs))
+          (μkanren-unify/held (μkanren-structure->list u*) u-held (μkanren-structure->list v*) v-held s assocs))
         ; the hottest path: a unification answers `(s* assocs*)` or #f, no need for a checked match.
-        ((and (pair? u*) (pair? v*))  (let1 (r (μkanren-unify (car u*) (car v*) s assocs))
-                                        (and r (μkanren-unify (cdr u*) (cdr v*) (car r) (cadr r)))))
+        ((and (pair? u*) (pair? v*))  (let1 (r (μkanren-unify/held (car u*) u-held (car v*) v-held s assocs))
+                                        (and r (μkanren-unify/held (cdr u*) u-held (cdr v*) v-held (car r) (cadr r)))))
         (else #f))))
 
   ; the exported unification: a goal may hand its answer on without the constraints of the variables it
@@ -864,8 +900,8 @@
   (define (μkanren-state-index s)
     (match/first (μkanren-state-raw s)
       (#f s)
-      ((,D ,A ,T) (let* ((s (make-μkanren-state/C (μkanren-state-vars-count s) (μkanren-state-S s) empty/sbral empty/sbral '()
-                                                   (μkanren-state-tags s) #f))
+      ((,D ,A ,T) (let* ((s (make-μkanren-state/C (μkanren-state-vars-count s) (μkanren-state-S s) (μkanren-state-M s)
+                                                   empty/sbral empty/sbral '() (μkanren-state-tags s) #f))
                          (s (μkanren-fold/and (λ (a s) (μkanren-post-type (lhs a) (rhs a) s)) s A))
                          (s (μkanren-fold/and (λ (t s) (μkanren-absento+ (lhs t) (rhs t) s)) s T)))
                     (μkanren-fold/and μkanren-repost-prefix s D)))))
@@ -887,7 +923,7 @@
     (let* ((vc  (μkanren-state-vars-count s))
            (α   (make-μkanren-var vc))
            (g   (f α))
-           (s*  (μkanren-state-with/S s (add1 vc) (μkanren-state-S s))))
+           (s*  (μkanren-state-with/S s (add1 vc) (μkanren-state-S s) (μkanren-state-M s))))
       (δ (g s*))))
 
   (define ((=° u v) s)
@@ -909,7 +945,30 @@
         (else (✓° s)))))
 
   (define ((orª f g) s) (append§/interleaved/2 (δ (f s)) (δ (g s))))
-  (define ((andª f g) s) (append-map§ g (δ (f s))))
+  ; `((andª f g) s)` is `(append-map§ g (δ (f s)))`. In a chain nested to the left, as `and°` and `fold` build it,
+  ; each bind would wrap again every promise of the binds inside it, so a chain goal keeps the innermost goal f
+  ; and its gᵢ, last first, as its procedure data, and runs them as `μkanren-and/fold`. A chain of n bindings then
+  ; costs n, not n², up to the first answer that reaches a bind with a promise pending behind it: the binds it
+  ; crosses nest again over that promise, so the answers behind it cost n² as before. A disjunction of three goals
+  ; or more early in a long chain, as a `cond°` or a relation of three clauses, is enough for that. A chain that a
+  ; goal hides, as `define-relation` or `fresh°` around the left argument do, is not seen either. A goal of `andª`
+  ; is thus an extended procedure: `extend-procedure` and `set-procedure-data!` change it in place, and a chain
+  ; whose data they replace nests again, with the same answers.
+  (define-record μkanren-binds goal gs)
+
+  (define (andª f g)
+    (let1 (c (procedure-data f))
+      (if (μkanren-binds? c)
+          (let* ((c* (make-μkanren-binds (μkanren-binds-goal c) (cons g (μkanren-binds-gs c))))
+                 (gs (δ (reverse (μkanren-binds-gs c*))))) ; once, at the first application
+            (extend-procedure (λ (s) (μkanren-and/fold (μkanren-binds-goal c*) (force gs) s)) c*))
+          (extend-procedure (λ (s) (append-map§ g (δ (f s)))) (make-μkanren-binds f (list g))))))
+
+  ; the stream of the chain of f and gs on `s`: a promise for each δ of an inner `andª`, one per goal of gs but
+  ; the first, then `(append-map§/fold gs (δ (f s)))`, whose steps are those of the binds nested to the left.
+  (define (μkanren-and/fold f gs s)
+    (let D ((gs* (cdr gs)))
+      (if (null? gs*) (append-map§/fold gs (δ (f s))) (δ (D (cdr gs*))))))
 
   ; `(fresh° (α ...) g ...)` introduces fresh variables; `(fresh° α ← (β ...) g ...)` moreover binds α to the list `(β ...)`.
   ; the `←` keeps the latter apart from the typo `(fresh° x (g x) ...)`, which is an expansion error instead of a goal
