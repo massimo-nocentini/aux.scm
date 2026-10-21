@@ -235,6 +235,28 @@
             (cons α (cons β (cons γ (cons δ '()))))))
         (°->list #f (fresh° (q a b c) (fresh° (x) (=° q (list a b c x)) (≠° x a) (≠° (list c x) (list 1 b)) (≠° x b) (≠° x c))))))
 
+  ((test/stores/order _)
+    ; an answer does not depend on the order in which its constraints were posted, nor on what a record holds
+    (⊦= (°->list #f (fresh° (q) (absent° 'a q) (absent° '(b) q) (absent° 'c q)))
+        (°->list #f (fresh° (q) (absent° 'c q) (absent° '(b) q) (absent° 'a q))))
+    (⊦= (°->list #f (fresh° (q) (≠° q (make-record-instance 'box 1)) (≠° q (make-record-instance 'box 2))))
+        (°->list #f (fresh° (q) (≠° q (make-record-instance 'box 2)) (≠° q (make-record-instance 'box 1)))))
+    (⊦= (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list x y) '(1 2)) (≠° (list y x) '(3 4))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list y x) '(3 4)) (≠° (list x y) '(1 2))))))
+
+  ((test/=°/hands-on _)
+    ; =° hands the constraints of a variable it binds on to the variable's walk, whatever it is
+    (⊦= '() (°->list #f (fresh° (q x y) (symbol° x) (=° x y) (=° y 5))))
+    (⊦= '() (°->list #f (fresh° (q x y) (symbol° x) (number° y) (=° x y))))
+    (⊦= '() (°->list #f (fresh° (q x y) (≠° x 1) (=° x y) (=° y 1))))
+    (⊦= '() (°->list #f (fresh° (q x y) (absent° 'z x) (=° x (list y)) (=° y 'z))))
+    (⊦= '() (°->list #f (fresh° (q x y z) (absent° '(1 2) (cons x y)) (=° y (list z)) (=° x 1) (=° z 2))))
+    ; an absento handed on to a variable with a type tag becomes a disequality
+    (⊦= '((λ (α) (begin (deny (equal? α 'a))) (assert (every (μ v (symbol? v)) (list α))) α))
+        (°->list #f (fresh° (q) (fresh° (x) (absent° 'a x) (symbol° q) (=° x q)))))
+    (⊦= '((λ (α) (begin (deny (equal? α 'a))) (assert (every (μ v (symbol? v)) (list α))) α))
+        (°->list #f (fresh° (q) (fresh° (x) (absent° 'a q) (symbol° x) (=° x q))))))
+
   ((test/absent°/structure _)
     (⊦= '() (°->list #f (fresh° (q) (absent° 'a q) (=° q (vector 'a)))))
     (⊦= '() (°->list #f (fresh° (q x) (=° q (vector x)) (absent° 'a q) (=° x 'a))))
