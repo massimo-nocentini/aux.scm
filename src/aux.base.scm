@@ -325,6 +325,7 @@
 
   (define (load/string str) (with-input-from-string str read))
   (define (->string/pretty-print v) (call-with-output-string (λ (p) (pretty-print v p))))
+  (define (->string/write v) (call-with-output-string (λ (p) (write v p))))
   (define (pretty-printer/port f) (λ (v port) (pretty-print (f v) port)))
   (define (display/pp . args) (for-each (μ v (display (->string/pretty-print v))) args))
   (define (display/port port) (λ (v) (display v port)))

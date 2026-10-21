@@ -250,7 +250,12 @@
     (⊦= (°->list #f (fresh° (q) (≠° q (make-record-instance 'box 1)) (≠° q (make-record-instance 'box 2))))
         (°->list #f (fresh° (q) (≠° q (make-record-instance 'box 2)) (≠° q (make-record-instance 'box 1)))))
     (⊦= (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list x y) '(1 2)) (≠° (list y x) '(3 4))))
-        (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list y x) '(3 4)) (≠° (list x y) '(1 2))))))
+        (°->list #f (fresh° (q x y) (=° q (list x y)) (≠° (list y x) '(3 4)) (≠° (list x y) '(1 2)))))
+    ; nor on data that `display` prints alike
+    (⊦= (°->list #f (fresh° (q) (≠° q 1) (≠° q "1")))
+        (°->list #f (fresh° (q) (≠° q "1") (≠° q 1))))
+    (⊦= (°->list #f (fresh° (q) (absent° 'a q) (absent° "a" q) (absent° #\a q)))
+        (°->list #f (fresh° (q) (absent° #\a q) (absent° "a" q) (absent° 'a q)))))
 
   ((test/=°/hands-on _)
     ; =° hands the constraints of a variable it binds on to the variable's walk, whatever it is

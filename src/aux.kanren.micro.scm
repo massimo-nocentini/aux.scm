@@ -345,11 +345,16 @@
         `(,@fd ,@fa ,@ft ,v)))
 
   ; sorts L as `sort/lex<=?` does, breaking its ties by the printed `(repr x)`, which spells out what `->string`
-  ; leaves out: the slots of a record, and the datum of a tag.
+  ; leaves out: the slots of a record, and the datum of a tag; and those ties by the written `(repr x)`, since
+  ; `->string` displays 1 and "1" alike, and so 'a, "a" and #\a.
   (define (μkanren-sort/repr repr L)
-    (let ((decorated (map (λ (x) (list (->string x) (->string (repr x)) x)) L))
-          (<=? (λ (a b) (or (string<? (car a) (car b)) (and (string=? (car a) (car b)) (string<=? (cadr a) (cadr b)))))))
-      (map caddr (sort decorated <=?))))
+    (let* ((decorated (map (λ (x) (let1 (r (repr x)) (list (->string x) (->string r) r x))) L))
+           (written (λ (a) (->string/write (caddr a))))
+           (<=? (λ (a b) (or (string<? (car a) (car b))
+                             (and (string=? (car a) (car b))
+                                  (or (string<? (cadr a) (cadr b))
+                                      (and (string=? (cadr a) (cadr b)) (string<=? (written a) (written b)))))))))
+      (map cadddr (sort decorated <=?))))
 
   ; the answers do not depend on the order of the stores: the pairs of each prefix of D and the prefixes are
   ; sorted, before `μkanren-rem-subsumed` chooses which of two prefixes that subsume each other to keep as

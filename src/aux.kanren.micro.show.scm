@@ -101,8 +101,6 @@
 
   (define (μkanren-show-lines . ls) (string-intersperse (μkanren-show-flatten ls) "\n"))
 
-  (define (->string/write v) (call-with-output-string (λ (p) (write v p))))
-
   ; The datum on one line, but with the reader's abbreviations: `(quote quote)` shows up as `'quote`,
   ; which is how a Schemer reads a term.  A run of whitespace between tokens becomes one space; inside
   ; a string or a |symbol| (`in` is its closing delimiter) it is content, and is kept as is.
