@@ -19,6 +19,10 @@
 (μkanren-extension-register! (make-μkanren-extension 'twin post: (λ (s assocs) #f)))
 (μkanren-extension-register! (make-μkanren-extension 'twin post: twin-post))
 
+; an extension with a `watch` hook only, which records each prefix that D takes, as its id and its right sides.
+(define told '())
+(μkanren-extension-register! (make-μkanren-extension 'watcher watch: (λ (d i s) (set! told (cons (list i (map rhs d)) told)) s)))
+
 (define-suite microkanren-extension-suite
 
   ((test/extension/post _)
@@ -73,6 +77,33 @@
     (let1 (s (make-μkanren-state 0 (μkanren-state-S μkanren-state-empty) '() '() '() '() '(k)))
       (⊦= '(k) (μkanren-state-X s))
       (⊦= '((k)) (map μkanren-state-X (§->list ((fresh° (q) (≠° q 1) (=° q 2)) s))))))
+
+  ; the records read by id, for an extension that looks only at the prefixes that a binding reaches: `watch` is
+  ; told of each prefix that D takes, under its id, which the records list under the variables of its sides,
+  ; newest first, and keep listing once the prefix is dropped and reads #f. A prefix that a type tag subsumes is
+  ; not taken; a raw state is not indexed, and the next goal indexes it again, telling its prefixes anew.
+  ((test/extension/watch _)
+    (define ((read° q out) s)
+      (set-car! out (list (μkanren-state-indexed? s) (μkanren-state-prefix-ids q s)
+                          (let1 (d (μkanren-state-prefix 0 s)) (and d (map rhs d)))))
+      (list s))
+    (define ((drop° i) s) (list (μkanren-state-drop-prefix i s)))
+    (define ((raw° m) s) (list (μkanren-state-with s S: (μkanren-state-S s) X: m)))
+    (let ((before (list 'unset)) (after (list 'unset)))
+      (set! told '())
+      (⊦= '((λ (α) (begin (deny (equal? α 2))) α))
+          (°->list #f (fresh° (q) (≠° q 1) (≠° q 2) (read° q before) (drop° 0) (read° q after))))
+      (⊦= '((0 (1)) (1 (2))) (reverse told))
+      (⊦= '(#t (1 0) (1)) (car before))
+      (⊦= '(#t (1 0) #f) (car after)))
+    (set! told '())
+    (⊦= '((λ (α) (assert (every (μ v (symbol? v)) (list α))) α)) (°->list #f (fresh° (q) (symbol° q) (≠° q 1))))
+    (⊦= '() told)
+    (let1 (raw (list 'unset))
+      (⊦= '((λ (α) (begin (deny (equal? α 1))) (begin (deny (equal? α 2))) α))
+          (°->list #f (fresh° (q) (≠° q 1) (raw° '()) (read° q raw) (≠° q 2))))
+      (⊦= #f (car (car raw)))
+      (⊦= '((0 (1)) (0 (1)) (1 (2))) (reverse told))))
 
 )
 

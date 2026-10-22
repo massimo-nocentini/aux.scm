@@ -16,6 +16,7 @@
     ; extensions, see `μkanren-extension`
     μkanren-state-X make-μkanren-extension μkanren-extension-register!
     μkanren-unify μkanren-post-unify μkanren-state-forget μkanren-state-remove-D μkanren-state-no-D?
+    μkanren-state-indexed? μkanren-state-prefix μkanren-state-prefix-ids μkanren-state-drop-prefix
     ; internals exercised directly by the unit tests
     μkanren-var-index/sbral μkanren-sbral-ref/var μkanren-rem-subsumed/by μkanren-partition* μkanren-foldr/verify μkanren-verify-T+)
 
@@ -112,7 +113,10 @@
   ;     that the bindings they add are handed on too;
   ; E4. D holds no prefix whose terms hold an extension's term: such a prefix goes to the `diseq` hook, see
   ;     `μkanren-extension/prefix`, since such a term may unify only up to constraints of the extension, which a
-  ;     trial of D would not keep;
+  ;     trial of D would not keep; a binding that brings such a term into a prefix already in D is the `post`
+  ;     hook's to find, before =° hands the constraints on: the records list the prefix under its left sides and
+  ;     its right sides that are variables, and the `watch` hook is told of each new prefix, for the variables
+  ;     below its right sides;
   ; E5. a copy that replaces `X` alone keeps the stores indexed, see `μkanren-state-with`;
   ; E6. every constructor of a state carries `X` along, which the engine never reads.
   ;
@@ -190,6 +194,9 @@
   ;            then tells the extension to read them as it reads absence;
   ;   `tag`    (u tag s) → the state where the type `tag` holds of its term `u`, or #f, wherever a type is
   ;            posted on a term, see `μkanren-post-type`;
+  ;   `watch`  (d i s) → `s`, or `s` with a new `X`, told of each prefix d that D takes, under the id i, see
+  ;            `μkanren-state-prefix`: the variables below the right sides of d, which no record lists, may be
+  ;            bound later to its terms (E4);
   ;   `parts`  (u s [projecting]) → `'stuck` when its term `u` cannot be looked into yet (`absent°` then
   ;            watches it as a whole, like a variable), else the list of terms in which `absent°` looks for
   ;            the datum; when `projecting`, `s` is reified and the parts are those whose constraints an
@@ -202,16 +209,16 @@
   ; A hook keeps E1–E4 of the records. With no extension registered a hook site costs a test of the empty registry,
   ; `pair?` or `null?`, or a map over it, on paths that are not the hottest one.
   (define-record-type μkanren-extension
-    (make-μkanren-extension/all name term? atom? unify occurs post diseq tag parts value repr terms forms environment)
+    (make-μkanren-extension/all name term? atom? unify occurs post diseq tag watch parts value repr terms forms environment)
     μkanren-extension?
     (name μkanren-extension-name) (term? μkanren-extension-term?) (atom? μkanren-extension-atom?) (unify μkanren-extension-unify)
     (occurs μkanren-extension-occurs) (post μkanren-extension-post) (diseq μkanren-extension-diseq) (tag μkanren-extension-tag)
-    (parts μkanren-extension-parts) (value μkanren-extension-value) (repr μkanren-extension-repr)
+    (watch μkanren-extension-watch) (parts μkanren-extension-parts) (value μkanren-extension-value) (repr μkanren-extension-repr)
     (terms μkanren-extension-terms) (forms μkanren-extension-forms) (environment μkanren-extension-environment))
 
-  (define (make-μkanren-extension name #!key (term? #f) (atom? #f) (unify #f) (occurs #f) (post #f) (diseq #f) (tag #f) (parts #f)
-                                             (value #f) (repr #f) (terms #f) (forms #f) (environment #f))
-    (make-μkanren-extension/all name term? atom? unify occurs post diseq tag parts value repr terms forms environment))
+  (define (make-μkanren-extension name #!key (term? #f) (atom? #f) (unify #f) (occurs #f) (post #f) (diseq #f) (tag #f) (watch #f)
+                                             (parts #f) (value #f) (repr #f) (terms #f) (forms #f) (environment #f))
+    (make-μkanren-extension/all name term? atom? unify occurs post diseq tag watch parts value repr terms forms environment))
 
   (define μkanren-extensions '())
 
@@ -285,6 +292,9 @@
              (μkanren-extension/diseq (lhs (car d)) (rhs (car d)) s absento)
              (μkanren-extension/diseq (map lhs d) (map rhs d) s absento))))
 
+  (define (μkanren-extension/watch d i s)
+    (fold (λ (e s) (let1 (watch (μkanren-extension-watch e)) (if watch (watch d i s) s))) s μkanren-extensions))
+
   (define (μkanren-extension/forms s s*)
     (append-map (λ (e) (let1 (forms (μkanren-extension-forms e)) (if forms (forms s s*) '()))) μkanren-extensions))
 
@@ -357,6 +367,16 @@
   ; whether `s` holds no prefix, cheaply, for an extension that would read D: a P that ever held one is not `'()`,
   ; since dropped prefixes leave #f, so `#f` is only "maybe".
   (define (μkanren-state-no-D? s) (match/first (μkanren-state-raw s) ((,D _ _) (null? D)) (#f (null? (μkanren-state-P s)))))
+
+  ; the records, for an extension that keeps D free of its terms (E4) and looks at the prefixes a binding reaches
+  ; rather than at all of D: whether `s` keeps its stores indexed, so that they are read by id (a state whose
+  ; stores are given as lists is indexed again as a whole, under new ids); the prefix with the id i, #f once
+  ; dropped; the ids of the prefixes listing the working variable α, newest first, some of them maybe dropped;
+  ; `s` without the prefix with the id i, which the records keep listing, as any dropped prefix.
+  (define (μkanren-state-indexed? s) (not (μkanren-state-raw s)))
+  (define (μkanren-state-prefix i s) (μkanren-prefix-ref s i))
+  (define (μkanren-state-prefix-ids α s) (μkanren-c-D (μkanren-c-ref s α)))
+  (define (μkanren-state-drop-prefix i s) (μkanren-drop-prefix s i))
 
   (define (μkanren-state-A s)
     (match/first (μkanren-state-raw s)
@@ -902,7 +922,8 @@
   (define (μkanren-drop-prefix s i)
     (μkanren-state-with/stores s (μkanren-state-C s) (update/sbral/back i #f #f (μkanren-state-P s)) (μkanren-state-Tc s)))
 
-  ; `s` with the new prefix d under the next id, which the records of its variables list, unless a tag subsumes it.
+  ; `s` with the new prefix d under the next id, which the records of its variables list, unless a tag subsumes it;
+  ; the extensions are told of it, see their `watch` hook.
   (define (μkanren-add-prefix d s)
     (if (μkanren-prefix-subsumed? d s)
         s
@@ -910,8 +931,9 @@
                (i (length/sbral P))
                (L (λ (j C) (let1 (c (sbral-ref/back C j μkanren-c-empty))
                              (update/sbral/back j (make-μkanren-c (μkanren-c-A c) (μkanren-c-T c) (cons i (μkanren-c-D c)) (μkanren-c-t c) (μkanren-c-W c))
-                                                μkanren-c-empty C)))))
-          (μkanren-state-with/stores s (fold L (μkanren-state-C s) (μkanren-prefix-indices d)) (cons/sbral d P) (μkanren-state-Tc s)))))
+                                                μkanren-c-empty C))))
+               (s* (μkanren-state-with/stores s (fold L (μkanren-state-C s) (μkanren-prefix-indices d)) (cons/sbral d P) (μkanren-state-Tc s))))
+          (if (pair? μkanren-extensions) (μkanren-extension/watch d i s*) s*))))
 
   ; `(ids . s*)`: the ids of the prefixes listing α that are not dropped, and `s*`, where the record of α
   ; lists them only.

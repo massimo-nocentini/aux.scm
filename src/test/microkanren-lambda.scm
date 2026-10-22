@@ -533,6 +533,29 @@
    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (via-D q))))
    (⊦= '() (parameterize ((μkanren-λ-reading 'extensional)) (°->list #f (fresh° (q) (via-D q))))))
 
+  ((test/R/D-migration-reach _)
+   ; the prefix q ≠ (Y) moves when a binding reaches it below Y, through the variables that earlier bindings
+   ; put there, and through a state whose stores were indexed again under new ids (the ∀ leaves its absento
+   ; of T closed, micro indexes D again at the next ≠°), below a vector and a record, and at the end of an open
+   ; tail that bindings extend one pair at a time.
+   (define-record pt x y)
+   (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (fresh° (Y Z) (≠° q (list Y)) (=° Y (list Z)) (=° Z x))))))
+   (⊦= '((λ () (cons (cons 'k (cons 'b '())) '())))
+       (°->list #f (fresh° (q F Y Z) (≠° q (list Y)) (=° Y (list 'k Z)) (=° Z (@ F 'a)) (=° q '((k b))))))
+   (⊦= '() (°->list #f (fresh° (q F Y Z) (≠° q (list Y)) (=° Y (list 'k Z)) (=° Z (@ F 'a)) (=° F (ƛ (u) 'b)) (=° q '((k b))))))
+   (⊦= '((λ () (cons (cons (cons 'b '()) '()) '())))
+       (°->list #f (fresh° (q F Y Z V) (≠° (list q 1) (list (list Y) 1)) (=° Y (list Z)) (=° Z (list V)) (=° V (@ F 'a)) (=° q '(((b)))))))
+   (⊦= '((λ (α β) (begin (deny (equal? α (cons (@ β 'a) '())))) (cons α (cons β '()))))
+       (°->list #f (fresh° (q r F Y W) (=° q (list r F)) (≠° r (list Y)) (≠° W 1) (∀° (x) (absent° x W)) (≠° W 2) (=° Y (@ F 'a)))))
+   (⊦= '((λ () (cons 'b '())))
+       (°->list #f (fresh° (q F Y W) (≠° q (list Y)) (≠° W 1) (∀° (x) (absent° x W)) (≠° W 2) (=° Y (@ F 'a)) (=° q '(b)))))
+   (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (fresh° (Y) (≠° q (vector Y)) (=° Y x))))))
+   (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (fresh° (Y Z) (≠° q (list Y)) (=° Y (vector Z)) (=° Z x))))))
+   (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (fresh° (Y) (≠° q (make-pt Y 1)) (=° Y x))))))
+   (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (fresh° (Y Z) (≠° q (list Y)) (=° Y (make-pt 1 Z)) (=° Z x))))))
+   (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (fresh° (l m) (≠° q (cons 'a l)) (chain° l 5 m) (=° m x))))))
+   (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (fresh° (l m) (≠° q (cons 'a l)) (chain° l 5 m) (=° m (list (vector x)))))))))
+
   ((test/R/absent-entailed _)
    ; x is newer than every variable of the term: no instance can hold it.
    (⊦= '((λ (α) α)) (°->list #f (fresh° (q) (∀° (x) (absent° x q)))))

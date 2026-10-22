@@ -17,9 +17,8 @@
 ;;; The extension is registered when the module is loaded, for the whole process and for good: micro's
 ;;; registry is global and takes nothing back, so every query run after the import, a first-order one too,
 ;;; goes through the hooks. Its answers stay the same, micro's own suites pass with the module loaded
-;;; (`make test-microkanren-with-lambda`), but every binding pays the `post` hook, which walks the prefixes
-;;; of D whenever the new bindings are too long to tell at a glance that they hold no λ-term, see
-;;; `μkanren-λ-post`.
+;;; (`make test-microkanren-with-lambda`), but every binding pays the `post` hook, which walks the value of
+;;; each new binding of a variable that a prefix of D reaches, see `μkanren-λ-post`.
 ;;;
 ;;; ==================== TERMS ====================
 ;;;   abstraction     `μkanren-lam`    (hint body), locally nameless: the body refers to its binder by the de
@@ -229,16 +228,18 @@
 
   ; `depth` the universe level, `top` the highest one reached so far, `L`/`Ln` the levels of the variables
   ; below `Ln`, `Γ` the hypothetical clauses as an alist `(relation . clauses)`, most recent first, `E` the
-  ; suspended constraints, `N` the disequalities that involve λ-terms or eigenvariables.
-  (define-record μkanren-hh depth top L Ln Γ E N)
+  ; suspended constraints, `N` the disequalities that involve λ-terms or eigenvariables, `W` an sbral indexed
+  ; like S of the ids of the prefixes of D that reach each variable where micro's records do not list them,
+  ; below a compound side or through a binding, see `μkanren-migrate`.
+  (define-record μkanren-hh depth top L Ln Γ E N W)
 
-  (define μkanren-hh0 (make-μkanren-hh 0 0 empty/sbral 0 '() '() '()))
+  (define μkanren-hh0 (make-μkanren-hh 0 0 empty/sbral 0 '() '() '() empty/sbral))
 
   (define (μkanren-hh s) (let1 (x (μkanren-state-X s)) (if (null? x) μkanren-hh0 x)))
 
   (define (μkanren-hh-with x #!key (depth (μkanren-hh-depth x)) (top (μkanren-hh-top x)) (L (μkanren-hh-L x)) (Ln (μkanren-hh-Ln x))
-                                   (Γ (μkanren-hh-Γ x)) (E (μkanren-hh-E x)) (N (μkanren-hh-N x)))
-    (make-μkanren-hh depth top L Ln Γ E N))
+                                   (Γ (μkanren-hh-Γ x)) (E (μkanren-hh-E x)) (N (μkanren-hh-N x)) (W (μkanren-hh-W x)))
+    (make-μkanren-hh depth top L Ln Γ E N W))
 
   (define (μkanren-with s x) (μkanren-state-with s X: x))
   (define (μkanren-with-E s E) (μkanren-with s (μkanren-hh-with (μkanren-hh s) E: E)))
@@ -822,7 +823,7 @@
 
   ; whether the new bindings `as` may hold a λ-term or an eigenvariable, walked in `s`: `#f` only when they
   ; hold none, looking at a few nodes only, since first-order search often binds long ground data at each
-  ; step (the tails of append°); past them `'unknown`, and the migration walks D instead.
+  ; step (the tails of append°); past them `'unknown`, and the migration looks at the prefixes they reach.
   (define (μkanren-new-terms? as s)
     (let1 (n 64)
       (call-with-current-continuation
@@ -839,28 +840,128 @@
                           (else #f))))
                as)))))
 
+  ; the prefix d of D as the tuple disequality it stands for in N, read as disequalities posted now are.
+  (define (μkanren-prefix->N d) `(,(μkanren-λ-reading) ,(map car d) . ,(map cdr d)))
+
+  ; `Ys` with the unbound variables that the term u reaches, walked in `s`, or `(k #t)` as soon as it holds a
+  ; λ-term or an eigenvariable.
+  (define (μkanren-reach u Ys s k)
+    (let H ((u u) (Ys Ys))
+      (cond
+        ((μkanren-var? u) (let1 (u* (μkanren-state-find u s))
+                            (cond
+                              ((not (μkanren-var? u*)) (H u* Ys))
+                              ((μkanren-var-working? u*) (cons u* Ys))
+                              (else Ys))))
+        ((pair? u) (H (cdr u) (H (car u) Ys)))
+        ((μkanren-λ-term? u) (k #t))
+        ((vector? u) (fold H Ys (vector->list u)))
+        ((μkanren-other-record? u) (fold H Ys (cdr (vector->list (record->vector u)))))
+        (else Ys))))
+
+  ; `#t` when the term u holds a λ-term or an eigenvariable, walked in `s`, else the unbound variables it reaches.
+  (define (μkanren-term-reach u s) (call-with-current-continuation (λ (k) (μkanren-reach u '() s k))))
+
+  ; `#t` when the prefix d of D holds a λ-term or an eigenvariable, walked in `s`, else the unbound variables
+  ; it reaches that the records of micro do not list, below the left and right sides of its pairs (the records
+  ; list those sides that are variables).
+  (define (μkanren-prefix-reach d s)
+    (call-with-current-continuation
+      (λ (k)
+        (let1 (side (λ (u Ys) (let1 (u* (μkanren-state-find u s)) (if (μkanren-var? u*) Ys (μkanren-reach u* Ys s k)))))
+          (fold (λ (p Ys) (side (cdr p) (side (car p) Ys))) '() d)))))
+
+  ; `W` where each of the variables `Ys` lists the ids `is` too, which a variable that lists none shares.
+  (define (μkanren-W+ W Ys is)
+    (fold (λ (Y W) (let* ((j (μkanren-var-index Y)) (js (sbral-ref/back W j '())))
+                     (if (null? js)
+                         (update/sbral/back j is '() W)
+                         (let1 (js* (fold (λ (i js) (if (memv i js) js (cons i js))) js is))
+                           (if (eq? js* js) W (update/sbral/back j js* '() W))))))
+          W Ys))
+
+  ; micro's `watch` hook: the variables below the right sides of the new prefix d with the id i, which are
+  ; unbound (I2) when its right sides are, go to `W`.
+  (define (μkanren-λ-watch d i s)
+    (if (every (λ (p) (let1 (u (cdr p)) (not (or (pair? u) (vector? u) (μkanren-other-record? u))))) d)
+        s
+        (let1 (Ys (μkanren-prefix-reach d s))
+          (if (or (eq? Ys #t) (null? Ys))
+              s
+              (let1 (x (μkanren-hh s)) (μkanren-with s (μkanren-hh-with x W: (μkanren-W+ (μkanren-hh-W x) Ys (list i)))))))))
+
   ; the prefixes of D that now involve λ-terms or eigenvariables, anywhere below their variables, move to N
   ; as the tuple disequality they stand for, before micro hands D on: D never holds one, so micro's plain
   ; trial never meets a λ-term nor an eigenvariable. (A type of A on a variable just bound to a λ-term goes
   ; to `μkanren-λ-tag`, micro's `tag` hook, when micro hands the type on.)
-  (define (μkanren-migrate s assocs)
+  ; Since D held none before, only a prefix that reaches a variable just bound in `assocs` can hold one now:
+  ; one that micro lists under it, as a side of a pair, or one that `W` lists under it. The first are looked
+  ; at only when `terms?`, the bindings maybe holding a λ-term, since micro posts them again right after,
+  ; telling `μkanren-λ-watch` of them. Every binding is in `assocs` (E2), so such a prefix holds one now
+  ; exactly when the value of a binding that reaches it does: that value alone is walked, once for all the
+  ; prefixes listed under its variable, never the prefixes themselves, which a recursion that extends the
+  ; open tail of a prefix one pair at a time would walk again at each step. When the value holds none, the
+  ; prefixes that `W` lists and that are not dropped stay in D and now reach its variables, which go to `W`
+  ; under their ids. When it holds one, each prefix is walked once, to move: the ids in `W` of a state indexed
+  ; again under new ids may be of other prefixes, or of dropped ones, which cost time, not answers. The
+  ; prefixes move in the order of D, newest first, as `μkanren-migrate/D` moves them.
+  (define (μkanren-migrate s assocs terms?)
+    (if (and (not terms?) (null? (μkanren-hh-W (μkanren-hh s)))) s (μkanren-migrate/ids s assocs terms?)))
+
+  (define (μkanren-migrate/ids s assocs terms?)
+    (let1 (x (μkanren-hh s))
+      (let loop ((as assocs) (W (μkanren-hh-W x)) (is '()))
+        (match/first as
+          (() (μkanren-migrate/moves s x W (fold-right (λ (i is) (if (and (pair? is) (= i (car is))) is (cons i is))) '() (sort is >))))
+          ((,p . ,as*) (let* ((α (car p))
+                              (listed (if terms? (μkanren-state-prefix-ids α s) '()))
+                              (watched (sbral-ref/back (μkanren-hh-W x) (μkanren-var-index α) '())))
+                         (if (and (null? listed) (null? watched))
+                             (loop as* W is)
+                             (let1 (r (μkanren-term-reach (cdr p) s))
+                               (cond
+                                 ((eq? r #t) (loop as* W (append listed watched is)))
+                                 ((or (null? r) (null? watched)) (loop as* W is))
+                                 (else (let1 (live (filter (λ (i) (μkanren-state-prefix i s)) watched))
+                                         (loop as* (if (null? live) W (μkanren-W+ W r live)) is))))))))))))
+
+  ; the prefixes with the ids `is`, newest first, that hold a λ-term or an eigenvariable move to N.
+  (define (μkanren-migrate/moves s x W is)
+    (let loop ((is is) (s s) (W W) (moved '()))
+      (match/first is
+        (() (if (and (null? moved) (eq? W (μkanren-hh-W x)))
+                s
+                (μkanren-with s (μkanren-hh-with x W: W N: (append (reverse moved) (μkanren-hh-N x))))))
+        ((,i . ,is*) (let* ((d (μkanren-state-prefix i s))
+                            (r (and d (μkanren-prefix-reach d s))))
+                       (cond
+                         ((not d) (loop is* s W moved))
+                         ((eq? r #t) (loop is* (μkanren-state-drop-prefix i s) W (cons (μkanren-prefix->N d) moved)))
+                         (else (loop is* s (μkanren-W+ W r (list i)) moved))))))))
+
+  ; the same over the whole of D, for a state whose stores are given as lists, which micro indexes again
+  ; right after the hook.
+  (define (μkanren-migrate/D s)
     (let* ((D (μkanren-state-D s))
            (moves? (λ (d) (μkanren-has-term? d s))))
       (if (any moves? D)
           (let1 (x (μkanren-hh s))
             (μkanren-with (μkanren-state-remove-D moves? s)
-                          (μkanren-hh-with x N: (append (map (λ (d) `(,(μkanren-λ-reading) ,(map car d) . ,(map cdr d))) (filter moves? D))
-                                                        (μkanren-hh-N x)))))
+                          (μkanren-hh-with x N: (append (map μkanren-prefix->N (filter moves? D)) (μkanren-hh-N x)))))
           s)))
 
-  ; D, a fold over the prefixes in micro, is looked at only when the new bindings may hold a λ-term, and
-  ; `μkanren-state-no-D?` spares even that look at the bindings when D holds no prefix.
+  ; `μkanren-state-no-D?` spares every look at D and at `W` when D never held a prefix; when the bindings hold
+  ; no λ-term, as `μkanren-new-terms?` tells, only the values bound to the variables that `W` lists are walked,
+  ; and none when `W` is empty. A state whose stores are lists has no records: D is walked whole, as micro
+  ; indexes it again right after the hook.
   (define (μkanren-λ-post s assocs)
     (match/first (μkanren-settle s assocs assocs)
       (#f #f)
-      ((,s1 ,as1) (let* ((s2 (if (or (μkanren-state-no-D? s1) (not (μkanren-new-terms? as1 s1)) (null? (μkanren-state-D s1)))
-                                 s1
-                                 (μkanren-migrate s1 as1)))
+      ((,s1 ,as1) (let* ((s2 (cond
+                               ((or (null? as1) (μkanren-state-no-D? s1)) s1)
+                               ((μkanren-state-indexed? s1) (μkanren-migrate s1 as1 (μkanren-new-terms? as1 s1)))
+                               ((or (not (μkanren-new-terms? as1 s1)) (null? (μkanren-state-D s1))) s1)
+                               (else (μkanren-migrate/D s1))))
                          (s3 (and s2 (if (null? (μkanren-hh-N (μkanren-hh s2))) s2 (μkanren-verify-N s2)))))
                     (and s3 (list s3 as1))))))
 
@@ -1135,6 +1236,7 @@
   (define μkanren-λ-extension
     (make-μkanren-extension 'λProlog
       term?: μkanren-λ-term? atom?: (λ (u) (or (μkanren-eigen? u) (μkanren-bvar? u))) unify: μkanren-λ-unify occurs: μkanren-λ-occurs post: μkanren-λ-post diseq: μkanren-λ-diseq
+      watch: μkanren-λ-watch
       tag: μkanren-λ-tag parts: μkanren-λ-parts value: μkanren-λ-value repr: μkanren-λ-repr
       terms: μkanren-λ-terms forms: μkanren-λ-forms environment: μkanren-λ-environment))
 
