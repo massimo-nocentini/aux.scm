@@ -2,9 +2,14 @@
 (import
   scheme (chicken base) (chicken sort) (chicken string) (chicken condition) (chicken memory representation)
   srfi-1
-  (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux kanren lambda))
+  (aux unittest) (aux base) (aux stream) (aux kanren micro) (aux kanren lambda)
+  (only (aux kanren micro show) °->answers °->pretty μkanren-answers->mermaid μkanren-answers->markdown
+                                make-μkanren-show-extension μkanren-show-extension-register!))
 
 (include "microkanren-lambda-programs.scm")
+
+; a record, for the cells view to draw under a binder.
+(define-record box content)
 
 ; a sorted copy of the answers, to compare a set of answers whose order interleaving decides.
 (define (answers-sorted l) (sort l (λ (a b) (string<? (->string a) (->string b)))))
@@ -789,6 +794,12 @@
    (⊦= '((λ () (cons (ƛ (x) x) '()))) (°->list #f (fresh° (q Y) (≠° q (list Y)) (symbol° Y) (=° q (list (ƛ (x) x))))))
    (⊦= '() (°->list #f (fresh° (q Y Z) (≠° q (list Y)) (=° Y (list Z)) (=° Z (ƛ (x) x)) (=° q (list (list (ƛ (y) y))))))))
 
+  ((test/R3/show-cells-binders _)
+   ; r3-2-show-cells-binders: the cells view draws a ƛ node whose bound variable is no constant.
+   (define lines (string-split (μkanren-answers->mermaid (°->answers (fresh° (q) (=° q (list (ƛ (x) x) 'x)))) view: 'cells) "\n"))
+   (⊦= #t (and (member "    n1[[\"ƛ x\"]]" lines) #t))
+   (⊦= #t (and (member "    n1 -->|binds| n2" lines) (member "    n1 -->|body| n2" lines) (member "    n4[\"'x\"]" lines) #t)))
+
   ;; R4 occurs checks under ∀, handover in every goal order, discharge at the exit of ∀, aggregation, sorted forms
 
   ((test/R4/occurs-under-forall _)
@@ -917,6 +928,67 @@
    ; 1 and "1" display alike: their written forms tell them apart, and order them in every order of the goals.
    (⊦= '(((λ (α) (begin (deny (equal? α (ƛ (x) "1")))) (begin (deny (equal? α (ƛ (x) 1)))) α)))
        (in-every-order (λ (g) (°->list #f g)) (q) (≠° q (ƛ (x) 1)) (≠° q (ƛ (x) "1")))))
+
+  ;; S reading λ-terms in (aux kanren micro show), through the `μkanren-λ-show-extension` this module registers
+
+  ((test/S/show-forms _)
+   ; the answers αKanren-style: ƛ and @ read as data, with their parts, and each form of this module as a constraint.
+   (⊦= '((α (ƛ (x) (x 1 2)))) (°->pretty (fresh° (q F) (=° q (list F (ƛ (x) (cons x '(1 2))))))))
+   (⊦= '((α : (≠ α (ƛ (x) x)))) (°->pretty (fresh° (q) (≠° q (ƛ (x) x)))))
+   (⊦= '((α : (= (@ α a) (g a a)))) (°->pretty (fresh° (q) (=° (@ q 'a) '(g a a)))))
+   (⊦= '((α : (≠ (@ α a) a))) (°->pretty (fresh° (q F) (=° q F) (≠° (@ F 'a) 'a))))
+   (⊦= '(((α β) : (∀ (_3) (≠ (α β) ((ƛ (x) _3) (ƛ (y) _3))))))       ; ¬∃ is ∀¬
+       (°->pretty (fresh° (q f g) (=° q (list f g)) (≠° (ƛ (x y) (@ f x)) (ƛ (x y) (@ g y))))))
+   (⊦= '(((@ α a) : (symbol? (@ α a)))) (°->pretty (fresh° (q F) (=° q (@ F 'a)) (symbol° q))))
+   (⊦= '((α : (∀ (x) (symbol? (@ α x))))) (°->pretty (fresh° (q F) (=° q F) (∀° (x) (symbol° (@ F x))))))
+   (⊦= '((α : (∀ (x) (absento x (@ α x))))) (°->pretty (fresh° (q F) (=° q F) (∀° (x) (absent° x (@ F x))))))
+   (parameterize ((μkanren-λ-reading 'extensional))
+     (⊦= '((α : (∀ (x) (≠ (@ α x) x)))) (°->pretty (fresh° (q F) (=° q F) (∀° (x) (≠° (@ F x) x))))))
+   ; first-order answers read as without this module.
+   (⊦= '(((α list) : (≠ α list) (symbol? α))) (°->pretty (fresh° (q x) (=° q (list x 'list)) (≠° x 'list) (symbol° x)))))
+
+  ((test/S/show-cells _)
+   ; ⟦ƛ⟧ and ⟦@⟧ nodes, with an edge to the binder wherever it occurs, also in a vector or a record; a
+   ; disequality to a λ-term hangs off that term's node; the printer renames the binder x, since the term
+   ; holds the constant x.
+   (define (cells g) (string-split (μkanren-answers->mermaid (°->answers g) view: 'cells) "\n"))
+   (define (drawn? lines . ls) (every (λ (l) (and (member l lines) #t)) ls))
+   (⊦= #t (drawn? (cells (fresh° (q F) (=° q (list (ƛ (x y) (@ F x (vector y 'x))))) (≠° F (ƛ (z) z))))
+                  "    n1[[\"ƛ x1 y\"]]" "    n1 -->|binds| n2" "    n1 -->|binds| n3" "    n2((\"x1\"))"
+                  "    n4[[\"@\"]]" "    n4 -->|head| n5" "    n5((\"α\"))" "    n4 -->|1| n2" "    n4 -->|2| n6"
+                  "    n6 -->|0| n3" "    n6 -->|1| n7" "    n7[\"'x\"]" "    n1 -->|body| n4"
+                  "    n9[[\"ƛ z\"]]" "    n9 -->|body| n10" "    n5 -. ≠ .-> n9"))
+   ; a subterm that mentions a binder is never shared with the same datum outside its scope.
+   (⊦= #t (drawn? (cells (fresh° (q) (=° q (list (ƛ (x) (list x)) '(x)))))
+                  "    n3 -->|car| n2" "    n1 -->|body| n3" "    n6 -->|car| n7" "    n5 -->|car| n6"))
+   (⊦= #t (drawn? (cells (fresh° (q) (=° q (list (ƛ (x) (vector x)) (vector 'x)))))
+                  "    n3 -->|0| n2" "    n1 -->|body| n3" "    n5 -->|0| n6" "    n4 -->|car| n5"))
+   (⊦= #t (drawn? (cells (fresh° (q) (=° q (list (ƛ (x) (make-box x)) (make-box 'x)))))
+                  "    n3 --> n2" "    n1 -->|body| n3" "    n5[[\"record box\"]]" "    n5 --> n6" "    n6[\"'x\"]"))
+   ; nor when every ground subterm is shared by the whole answer set.
+   (⊦= #t (drawn? (string-split (μkanren-answers->mermaid (°->answers (fresh° (q) (=° q (list (ƛ (x) (list x)) '(x)))))
+                                                          view: 'cells share: 'all) "\n")
+                  "    n3 -->|car| n2" "    n1 -->|body| n3" "    n6 -->|car| n7" "    n7[\"'x\"]" "    n5 -->|car| n6"))
+   ; a disequality whose left side is a λ-term, a list or not, is one edge from that term's node, no tuple.
+   (⊦= #t (drawn? (cells (fresh° (q F) (=° q F) (≠° (@ F 'a) 'a))) "    n1[[\"@\"]]" "    n2[\"'a\"]" "    n1 -. ≠ .-> n2"))
+   (⊦= #f (any (λ (l) (substring-index "tuple" l)) (cells (fresh° (q F) (=° q F) (≠° (@ F 'a) '(p q r))))))
+   (⊦= #t (drawn? (cells (fresh° (q x y z F) (=° q (list x y z F)) (≠° (list x y z) (@ F 'a))))
+                  "    n9[[\"cons\"]]" "    n12[[\"@\"]]" "    n9 -. ≠ .-> n12"))
+   (⊦= #f (any (λ (l) (substring-index "tuple" l)) (cells (fresh° (q x y z F) (=° q (list x y z F)) (≠° (list x y z) (@ F 'a))))))
+   ; micro's own tuple, for contrast.
+   (⊦= #t (drawn? (cells (fresh° (q x y) (=° q (list x y)) (≠° (list x y) '(1 2)))) "    n1 -. ≠ (tuple) .-> n5" "    n3 -. ≠ (tuple) .-> n6"))
+   (⊦= #t (string? (μkanren-answers->markdown (°->answers (fresh° (q F) (=° q F) (≠° (@ F 'a) 'a)))))))
+
+  ((test/S/show-register _)
+   ; registering a show extension again under its name replaces it; an extension with no hooks reads nothing.
+   (define (cells g) (string-split (μkanren-answers->mermaid (°->answers g) view: 'cells) "\n"))
+   (define ((marked label) v) (and (pair? v) (eq? (car v) 'mark) `(,label ())))
+   (μkanren-show-extension-register! (make-μkanren-show-extension 'probe cell: (marked "one")))
+   (μkanren-show-extension-register! (make-μkanren-show-extension 'probe cell: (marked "two")))
+   (⊦= '("    n0[[\"two\"]]") (filter (λ (l) (substring-index "[[" l)) (cells (fresh° (q) (=° q '(mark))))))
+   (μkanren-show-extension-register! (make-μkanren-show-extension 'probe))
+   (⊦= '("    n0[[\"cons\"]]") (filter (λ (l) (substring-index "[[" l)) (cells (fresh° (q) (=° q '(mark))))))
+   (⊦= '((α (ƛ (x) x))) (°->pretty (fresh° (q F) (=° q (list F (ƛ (x) x)))))))
 
   ;; A9 micro alone is unchanged: `make test-microkanren-with-lambda` runs micro's own suites with this module loaded.
 

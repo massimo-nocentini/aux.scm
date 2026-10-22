@@ -18,7 +18,8 @@
 ;;; registry is global and takes nothing back, so every query run after the import, a first-order one too,
 ;;; goes through the hooks. Its answers stay the same, micro's own suites pass with the module loaded
 ;;; (`make test-microkanren-with-lambda`), but every binding pays the `post` hook, which walks the value of
-;;; each new binding of a variable that a prefix of D reaches, see `μkanren-λ-post`.
+;;; each new binding of a variable that a prefix of D reaches, see `μkanren-λ-post`. It registers too how
+;;; (aux kanren micro show) reads its answers, see `μkanren-λ-show-extension`.
 ;;;
 ;;; ==================== TERMS ====================
 ;;;   abstraction     `μkanren-lam`    (hint body), locally nameless: the body refers to its binder by the de
@@ -48,7 +49,7 @@
     ; goals; `μkanren-hyps°`, `μkanren-clause` & co. are expanded to by `define-dynamic-relation` and `⊃°`
     ∀° ∀ª ⊃° ⊃ª define-dynamic-relation μkanren-dynamic μkanren-dynamic? μkanren-hyps° μkanren-clause μkanren-clause/vars μkanren-clause*
     ; answers
-    °->list/datum μkanren-datum
+    °->list/datum μkanren-datum μkanren-λ-show-extension
     ; engine
     μkanren-λ-reading μkanren-λ-depth μkanren-λ-level μkanren-λ-delayed μkanren-λ-disequalities μkanren-λ-extension)
 
@@ -57,13 +58,14 @@
           (chicken eval)
           (only (scheme base) make-parameter)
           (only (chicken sort) sort)
-          (only (chicken string) ->string)
+          (only (chicken string) ->string conc string-intersperse)
           (chicken memory representation)
           srfi-1
           (aux base)
           (aux stream)
           (aux fds sbral)
-          (aux kanren micro))
+          (aux kanren micro)
+          (only (aux kanren micro show) make-μkanren-show-extension μkanren-show-extension-register!))
 
   ;;; ==================== TERMS ====================
 
@@ -1244,6 +1246,31 @@
 
   ; the answers of `g` as data: `(ƛ (x) (g x))` rather than records, constraints dropped as by `°->list/ground`.
   (define (°->list/datum g) (map (λ (a) (μkanren-repr->datum (last a))) (°->list #f g)))
+
+  ; how (aux kanren micro show) reads the answers: `(ƛ (x ...) body)` and `(@ h a ...)` stay as they are
+  ; printed, as by `°->list/datum`, and the cells view draws them as nodes ⟦ƛ x ...⟧, with a node per
+  ; binder, and ⟦@⟧; `(assert (≐ u v))` is the suspended equation `(= u v)`, `(begin (deny (≐ u v)))` its
+  ; denial `(≠ u v)`, a disequality denied under `∃ x̄` is `(∀ x̄ (≠ ...))`, and `(∀ (c ...) form)` closes
+  ; a constraint over the eigenvariables that outlived their scope.
+  (define μkanren-λ-show-extension
+    (make-μkanren-show-extension 'λProlog
+      datum: (λ (r D) (match/first r
+                        ((ƛ ,xs ,body) `(ƛ ,xs ,(D body)))
+                        ((@ . ,rs) `(@ ,@(map D rs)))
+                        (_ #f)))
+      constraint: (λ (c C R) (match/first c
+                               ((assert (≐ ,u ,v)) `(= ,(R u) ,(R v)))
+                               ((begin (deny (≐ ,u ,v))) `(≠ ,(R u) ,(R v)))
+                               ((begin (deny (∃ ,xs ,e))) `(∀ ,xs ,(C `(begin (deny ,e)))))   ; ¬∃x̄.e is ∀x̄.¬e
+                               ((∀ ,xs ,c*) `(∀ ,xs ,(C c*)))
+                               (_ #f)))
+      cell: (λ (v) (match/first v
+                     (((ƛ ,xs ,body) ⊣ (and (list? xs) (every symbol? xs)))
+                       `(,(conc "ƛ " (string-intersperse (map ->string xs) " ")) ,xs ("body" . ,body)))
+                     (((@ ,h . ,as) ⊣ (list? as)) `("@" () ("head" . ,h) ,@(map (λ (j a) (cons (->string j) a)) (ι (length as) 1) as)))
+                     (_ #f)))))
+
+  (μkanren-show-extension-register! μkanren-λ-show-extension)
 
   ; α-βη-equality of closed terms, for the residual forms `(assert (≐ u v))` to evaluate.
   (define (≐ u v)

@@ -37,6 +37,38 @@
 
   (define (μkanren-tagged? r tag) (and (pair? r) (eq? (car r) tag)))
 
+  ; An extension of the engine, see `μkanren-extension` in (aux kanren micro), prints its terms and its
+  ; constraints in forms of its own, as (aux kanren lambda) prints `(ƛ (x) x)`; it teaches them to this
+  ; module with a `μkanren-show-extension`, whose fields are procedures or #f:
+  ;   `datum`      (r D) → the datum of the rebuilding expression `r`, `D` reading the expressions in it, or
+  ;                #f when `r` is none of its own;
+  ;   `constraint` (c C R) → the constraint of the form `c`, `C` reading the forms in it and `R` the
+  ;                expressions, or #f when `c` is none of its own; it is asked before micro's forms are;
+  ;   `cell`       (v) → `(label binders (edge . w) ...)` when the datum `v` is one of its terms, which the
+  ;                cells view draws as a node `label` with a node of its own per binder and an edge to each
+  ;                part `w`, where a binder's name stands for the binder; or #f.
+  ; With no extension registered a reading costs a test of the empty registry.
+  (define-record-type μkanren-show-extension
+    (make-μkanren-show-extension/all name datum constraint cell)
+    μkanren-show-extension?
+    (name μkanren-show-extension-name) (datum μkanren-show-extension-datum)
+    (constraint μkanren-show-extension-constraint) (cell μkanren-show-extension-cell))
+
+  (define (make-μkanren-show-extension name #!key (datum #f) (constraint #f) (cell #f))
+    (make-μkanren-show-extension/all name datum constraint cell))
+
+  (define μkanren-show-extensions '())
+
+  ; registering an extension again under the same name replaces it, as micro's registry does.
+  (define (μkanren-show-extension-register! e)
+    (let1 (others (remove (λ (e*) (eq? (μkanren-show-extension-name e*) (μkanren-show-extension-name e))) μkanren-show-extensions))
+      (set! μkanren-show-extensions (append others (list e)))))
+
+  ; the first answer, not #f, of the hook `field` of the extensions to `args`.
+  (define (μkanren-show-extension/first field . args)
+    (and (pair? μkanren-show-extensions)
+         (any (λ (e) (let1 (hook (field e)) (and hook (apply hook args)))) μkanren-show-extensions)))
+
   ; `(cons α (cons 'z '()))` ↦ `(α z)`, without `eval`uating anything.
   (define (μkanren-repr->datum r)
     (let D ((r r))
@@ -46,6 +78,7 @@
         ((μkanren-tagged? r 'cons) (cons (D (cadr r)) (D (caddr r))))
         ((μkanren-tagged? r 'vector) (list->vector (map D (cdr r))))
         ((μkanren-tagged? r 'make-record-instance) (apply make-record-instance (map D (cdr r))))
+        ((μkanren-show-extension/first μkanren-show-extension-datum r D) => identity)
         (else r))))
 
   ; `(μ v (symbol? v))` ↦ `symbol?`, ie. the name of the predicate carried by a tag.
@@ -57,6 +90,7 @@
   ; `(begin (deny (equal? α 'list)))` ↦ `(≠ α list)`, `(assert (every ...))` ↦ `(symbol? α)`, ...
   (define (μkanren-form->constraint c)
     (cond
+      ((μkanren-show-extension/first μkanren-show-extension-constraint c μkanren-form->constraint μkanren-repr->datum) => identity)
       ((μkanren-tagged? c 'begin)
         (let* ((denied (cadr (cadr c)))                                    ; (equal? α repr) | (and (equal? ...) ...)
                (equalities (if (μkanren-tagged? denied 'and) (cdr denied) (list denied)))
@@ -66,7 +100,7 @@
       ((μkanren-tagged? c 'assert)
         (let1 (b (cadr c))
           (cond
-            ((μkanren-tagged? b 'every) (cons (μkanren-tag-def->name (cadr b)) (cdr (caddr b))))
+            ((μkanren-tagged? b 'every) (cons (μkanren-tag-def->name (cadr b)) (map μkanren-repr->datum (cdr (caddr b)))))  ; variables, or an extension's terms.
             ((μkanren-tagged? b 'absent?) `(absento ,(μkanren-repr->datum (cadr b)) ,(μkanren-repr->datum (caddr b))))  ; a variable or a term.
             (else c))))
       (else c)))
@@ -75,9 +109,15 @@
   (define (μkanren-answer->constraints a) (map μkanren-form->constraint (μkanren-answer-forms a)))
   (define (μkanren-answer-ground? a) (and (null? (μkanren-answer-vars a)) (null? (μkanren-answer-forms a))))
 
+  ; an answer as one datum, αKanren-style: the term alone, or `(term : constraint ...)`.
+  (define (μkanren-answer->pretty a)
+    (let1 (cs (μkanren-answer->constraints a))
+      (if (null? cs) (μkanren-answer->datum a) `(,(μkanren-answer->datum a) : ,@cs))))
+
   ; running -------------------------------------------------------------------------
 
   (define (°->answers g) (°->list #f g))
+  (define (°->pretty g) (map μkanren-answer->pretty (°->answers g)))
 
   ; Consume the answer stream by hand, timing each answer and counting how many suspensions the
   ; engine had to force to produce it: a cheap profile of *where* the search spends its time.
@@ -271,7 +311,8 @@
   ; The low-level picture: the answer term drawn as the DAG it really is, where cons cells are
   ; ⟦cons⟧ nodes, logic variables are circles, atoms are boxes, and *sharing is visible* because
   ; equal subterms are hash-consed to a single node.  Constraints hang off the variables they
-  ; restrict as dashed edges.
+  ; restrict as dashed edges.  An extension's term is a node of its own, see `μkanren-show-extension`,
+  ; with a node per binder, never shared with a constant of the same name.
   ;
   ; `share` says how far hash-consing goes: with `answer` (the default) each answer is a subgraph of
   ; its own; with `all` every *ground* subterm is shared by the whole answer set, so a family of
@@ -298,13 +339,31 @@
           ((vector? v) (ground? vars (vector->list v)))
           ((and (record-instance? v) (not (μkanren-var? v))) (ground? vars (record->vector v)))
           (else #t)))
-      (define ((node i vars) v)
-        (let* ((N (node i vars))
-               (key (if (and (eq? share 'all) (ground? vars v)) (cons 'ground v) (cons i v))))
+      ; `bound` maps the names of the binders around `v` to their nodes; a subterm that mentions one is
+      ; hash-consed apart from the rest, since `x` there is no constant `x`.
+      (define (mentions? x v)
+        (cond
+          ((symbol? v) (eq? x v))
+          ((pair? v) (or (mentions? x (car v)) (mentions? x (cdr v))))
+          ((vector? v) (mentions? x (vector->list v)))
+          ((and (record-instance? v) (not (μkanren-var? v))) (mentions? x (record->vector v)))
+          (else #f)))
+      (define ((node i vars #!optional (bound '())) v)
+        (let* ((N (node i vars bound))
+               (scope (if (any (λ (b) (mentions? (car b) v)) bound) bound '()))
+               (key (if (and (eq? share 'all) (null? scope) (ground? vars v)) (cons 'ground v) (cons (cons i scope) v))))
           (cond
+            ((and (symbol? v) (assq v bound)) => cdr)
             ((hash-table-exists? ids key) (hash-table-ref ids key))
             (else
               (let1 (id (cond
+                          ((μkanren-show-extension/first μkanren-show-extension-cell v)
+                            => (λ1-match/first ((,label ,xs . ,parts)
+                                                 (let* ((id (decl! "[[" label "]]" "cell"))
+                                                        (xs* (map (λ (x) (let1 (b (decl! "((" (->string x) "))" "atom")) (edge! id "binds" b) (cons x b))) xs))
+                                                        (N* (node i vars (append xs* bound))))
+                                                   (for-each (λ1-match/first ((,edge . ,w) (edge! id edge (N* w)))) parts)
+                                                   id))))
                           ((and (symbol? v) (member? v vars)) (decl! "((" (->string v) "))" "var"))
                           ((null? v) (decl! "([" "()" "])" "atom"))
                           ((pair? v) (let1 (id (decl! "[[" "cons" "]]" "cell"))
@@ -326,8 +385,10 @@
       (define ((constraint i vars) f)   ; `f` is a form of the answer, as `μkanren-answer-forms` gives it.
         (let1 (N (node i vars))
           (match/first (μkanren-form->constraint f)
-            ((≠ ,ls ,rs) (cond   ; a tuple disequality denies the *conjunction* of its equalities.
-                           ((list? ls) (for-each (λ (l r) (dashed! (N l) "≠ (tuple)" (N r))) ls rs))
+            ((≠ ,ls ,rs) (cond   ; a tuple disequality denies the *conjunction* of its equalities; micro's form
+                                 ; tells it, not the datum, since an extension's `(≠ u v)` may have lists both sides.
+                           ((and (list? ls) (match/first f ((begin (deny (and . ,_))) #t) (_ #f)))
+                             (for-each (λ (l r) (dashed! (N l) "≠ (tuple)" (N r))) ls rs))
                            (else (dashed! (N ls) "≠" (N rs)))))
             ((absento ,tag ,α) (dashed! (N α) "" (let1 (id (decl! "{{" (conc "absento " tag) "}}" "constraint"))
                                                    ; a datum built, not quoted, holds variables.
