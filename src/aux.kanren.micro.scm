@@ -13,6 +13,9 @@
     μkanren-fold/key§ μkanren-group§ μkanren-key-of/counting groupby° window° set° enumerate°
     ; api
     define-relation °->§ °->list °->list/ground μkanren-run
+    ; extensions, see `μkanren-extension`
+    μkanren-state-X make-μkanren-extension μkanren-extension-register!
+    μkanren-unify μkanren-post-unify μkanren-state-forget μkanren-state-remove-D μkanren-state-no-D?
     ; internals exercised directly by the unit tests
     μkanren-var-index/sbral μkanren-sbral-ref/var μkanren-rem-subsumed/by μkanren-partition* μkanren-foldr/verify μkanren-verify-T+)
 
@@ -101,53 +104,199 @@
   ;     it holds lists that variable in `W`.
   ; An id in `D` may be of a dropped prefix, `t` may be stale, and so may a variable in `W`: all cost time, not answers.
   ;
+  ; With an extension registered, see `μkanren-extension`, micro and the extension keep these too:
+  ; E1. a hook that changes nothing answers the very state it was given: `≠°` and the trials of D decide entailment by `eq?`;
+  ; E2. the assocs that a `unify`, `occurs` or `post` hook answers list every binding it made, since =° hands on the
+  ;     constraints of those only (I1); a binding taken back by `μkanren-state-forget` is left out;
+  ; E3. the `post` hooks run before =° hands the constraints on or indexes the stores, see `μkanren-post-unify`, so
+  ;     that the bindings they add are handed on too;
+  ; E4. D holds no prefix whose terms hold an extension's term: such a prefix goes to the `diseq` hook, see
+  ;     `μkanren-extension/prefix`, since such a term may unify only up to constraints of the extension, which a
+  ;     trial of D would not keep;
+  ; E5. a copy that replaces `X` alone keeps the stores indexed, see `μkanren-state-with`;
+  ; E6. every constructor of a state carries `X` along, which the engine never reads.
+  ;
   ; `raw` is #f, or the list `(D A T)` of stores given as lists, by `make-μkanren-state` or `μkanren-state-with`,
   ; or left unverified by the exported `μkanren-state-unify`: the next goal verifies and indexes them first.
+  ;
+  ; `X` is the slot of the extensions, see `μkanren-extension`: the engine never reads it and copies it along,
+  ; so an extension keeps its data of the branch there; it is `'()` until an extension writes it.
   (define-record-type μkanren-state
-    (make-μkanren-state/C vars-count S M C P Tc tags raw)
+    (make-μkanren-state/C vars-count S M C P Tc tags raw X)
     μkanren-state?
     (vars-count μkanren-state-vars-count) (S μkanren-state-S) (M μkanren-state-M) (C μkanren-state-C) (P μkanren-state-P)
-    (Tc μkanren-state-Tc) (tags μkanren-state-tags) (raw μkanren-state-raw))
+    (Tc μkanren-state-Tc) (tags μkanren-state-tags) (raw μkanren-state-raw) (X μkanren-state-X))
 
   (define μkanren-M-none '(-1))                     ; the `M` of the empty substitution
   (define μkanren-M-any (list most-positive-fixnum)) ; the `M` of a substitution given from outside
 
-  (define (make-μkanren-state vars-count S D A T tags)
-    (make-μkanren-state/C vars-count S μkanren-M-any empty/sbral empty/sbral '() tags (list D A T)))
+  (define (make-μkanren-state vars-count S D A T tags #!optional (X '()))
+    (make-μkanren-state/C vars-count S μkanren-M-any empty/sbral empty/sbral '() tags (list D A T) X))
 
-  (define μkanren-state-empty (make-μkanren-state/C 0 empty/sbral μkanren-M-none empty/sbral empty/sbral '() '() #f))
+  (define μkanren-state-empty (make-μkanren-state/C 0 empty/sbral μkanren-M-none empty/sbral empty/sbral '() '() #f '()))
 
   ; a copy of `s` with the given `vars-count`, `S` and `M`, which keeps the stores: only `freshª` and the
   ; unification inside =° call it, and =° hands on the constraints of the variables it binds.
   (define (μkanren-state-with/S s vc S M)
     (make-μkanren-state/C vc S M (μkanren-state-C s) (μkanren-state-P s) (μkanren-state-Tc s) (μkanren-state-tags s)
-                          (μkanren-state-raw s)))
+                          (μkanren-state-raw s) (μkanren-state-X s)))
 
   (define (μkanren-state-with/stores s C P Tc)
-    (make-μkanren-state/C (μkanren-state-vars-count s) (μkanren-state-S s) (μkanren-state-M s) C P Tc (μkanren-state-tags s) #f))
+    (make-μkanren-state/C (μkanren-state-vars-count s) (μkanren-state-S s) (μkanren-state-M s) C P Tc (μkanren-state-tags s) #f
+                          (μkanren-state-X s)))
 
   (define (μkanren-state-equal? s s*) (eq? s s*))
 
   (define μkanren-state-keep (list 'keep)) ; the default of the keys of `μkanren-state-with`, unique under `eq?`.
 
   ; a copy of `s` where the given fields are replaced. Given a new substitution or a store, the copy holds its
-  ; stores as lists (`raw`), since they may no longer hold: the next goal verifies them as a whole.
+  ; stores as lists (`raw`), since they may no longer hold: the next goal verifies them as a whole. The slot
+  ; `X` of the extensions is no store: a copy that replaces it alone keeps the stores as they are.
   (define (μkanren-state-with s #!key
                               (vars-count (μkanren-state-vars-count s))
                               (S μkanren-state-keep)
                               (D μkanren-state-keep)
                               (A μkanren-state-keep)
                               (T μkanren-state-keep)
-                              (tags (μkanren-state-tags s)))
+                              (tags (μkanren-state-tags s))
+                              (X (μkanren-state-X s)))
     (let* ((kept? (λ (v) (eq? v μkanren-state-keep)))
            (field (λ (v get) (if (kept? v) (get s) v))))
       (if (and (kept? S) (kept? D) (kept? A) (kept? T))
           (make-μkanren-state/C vars-count (μkanren-state-S s) (μkanren-state-M s) (μkanren-state-C s) (μkanren-state-P s)
-                                (μkanren-state-Tc s) tags (μkanren-state-raw s))
+                                (μkanren-state-Tc s) tags (μkanren-state-raw s) X)
           (make-μkanren-state/C vars-count (field S μkanren-state-S)
                                 (if (or (kept? S) (eq? S (μkanren-state-S s))) (μkanren-state-M s) μkanren-M-any)
                                 empty/sbral empty/sbral '() tags
-                                (list (field D μkanren-state-D) (field A μkanren-state-A) (field T μkanren-state-T))))))
+                                (list (field D μkanren-state-D) (field A μkanren-state-A) (field T μkanren-state-T))
+                                X))))
+
+  ; extensions ----------------------------------------------------------------------
+
+  ; an extension teaches the engine new kinds of terms and constraints. Its terms are records, recognized by
+  ; `term?`; every other field is a procedure or #f:
+  ;   `unify`  (u v s assocs) → (s* assocs*) | #f, given a pair of walked terms one of which is its own and
+  ;            neither a working variable; it unifies their parts with `μkanren-unify`, which keeps the stores,
+  ;            since =° hands on the constraints of every binding of assocs* (E2);
+  ;   `post`   (s* assocs) → (s** assocs**) | #f, run by `=°` on the bindings `assocs` it just made, before it
+  ;            hands on their constraints: it enforces the extension's invariants and wakes its suspended
+  ;            constraints, possibly binding more, and assocs** lists every binding still made;
+  ;   `atom?`  (u) → whether its term `u` holds no variable, so that the occurs check need not look into it;
+  ;   `occurs` (α v s assocs) → (s* assocs*) | #f, when the occurs check fails on binding α to v, which may
+  ;            hold its terms: an occurrence of α in them need not be fatal (λx.(F x) is F);
+  ;   `diseq`  (u v s absento) → #f to leave `u ≠ v` to the store D, else the state that keeps it, or `'fail`;
+  ;            it is asked too for the disequalities that an absento would add to D and that hold one of its
+  ;            terms, of the datum and a part of the term, or of a typed variable and the datum (I3): `absento`
+  ;            then tells the extension to read them as it reads absence;
+  ;   `tag`    (u tag s) → the state where the type `tag` holds of its term `u`, or #f, wherever a type is
+  ;            posted on a term, see `μkanren-post-type`;
+  ;   `parts`  (u s [projecting]) → `'stuck` when its term `u` cannot be looked into yet (`absent°` then
+  ;            watches it as a whole, like a variable), else the list of terms in which `absent°` looks for
+  ;            the datum; when `projecting`, `s` is reified and the parts are those whose constraints an
+  ;            answer keeps, a working variable being out of the answer;
+  ;   `value`, `repr` (u walk s) → the deep value or the rebuilding expression of its term `u` in `s`,
+  ;            `walk` being the walk itself, to recurse on the parts;
+  ;   `terms`  (s) → the terms of its constraints in `s` that an answer reports, whose variables it names;
+  ;   `forms`  (s s*) → the forms its constraints in `s` add to an answer, `s*` naming the reified variables;
+  ;   `environment` () → where `°->list/ground` evaluates answers, when its `repr` needs more than micro's.
+  ; A hook keeps E1–E4 of the records. With no extension registered a hook site costs a test of the empty registry,
+  ; `pair?` or `null?`, or a map over it, on paths that are not the hottest one.
+  (define-record-type μkanren-extension
+    (make-μkanren-extension/all name term? atom? unify occurs post diseq tag parts value repr terms forms environment)
+    μkanren-extension?
+    (name μkanren-extension-name) (term? μkanren-extension-term?) (atom? μkanren-extension-atom?) (unify μkanren-extension-unify)
+    (occurs μkanren-extension-occurs) (post μkanren-extension-post) (diseq μkanren-extension-diseq) (tag μkanren-extension-tag)
+    (parts μkanren-extension-parts) (value μkanren-extension-value) (repr μkanren-extension-repr)
+    (terms μkanren-extension-terms) (forms μkanren-extension-forms) (environment μkanren-extension-environment))
+
+  (define (make-μkanren-extension name #!key (term? #f) (atom? #f) (unify #f) (occurs #f) (post #f) (diseq #f) (tag #f) (parts #f)
+                                             (value #f) (repr #f) (terms #f) (forms #f) (environment #f))
+    (make-μkanren-extension/all name term? atom? unify occurs post diseq tag parts value repr terms forms environment))
+
+  (define μkanren-extensions '())
+
+  ; registering an extension again under the same name replaces it, so reloading its module is harmless.
+  (define (μkanren-extension-register! e)
+    (let1 (others (remove (λ (e*) (eq? (μkanren-extension-name e*) (μkanren-extension-name e))) μkanren-extensions))
+      (set! μkanren-extensions (append others (list e)))))
+
+  ; the extension owning `u` or `v`, if any.
+  (define (μkanren-extension/term u v)
+    (let loop ((E μkanren-extensions))
+      (cond
+        ((null? E) #f)
+        ((let1 (term? (μkanren-extension-term? (car E))) (and term? (or (term? u) (term? v)))) (car E))
+        (else (loop (cdr E))))))
+
+  ; whether the datum `u` holds an extension's term, at any depth of its structure.
+  (define (μkanren-extension/holds-term? u)
+    (and (pair? μkanren-extensions)
+         (let H ((u u))
+           (cond
+             ((μkanren-extension/term u u) #t)
+             ((pair? u) (or (H (car u)) (H (cdr u))))
+             ((μkanren-structure? u) (any H (μkanren-structure->list u)))
+             (else #f)))))
+
+  (define (μkanren-extension/atom? u)
+    (and (pair? μkanren-extensions)
+         (any (λ (e) (let1 (atom? (μkanren-extension-atom? e)) (and atom? (atom? u)))) μkanren-extensions)))
+
+  ; the hook `field` of the extension owning the term `u`, if any.
+  (define (μkanren-extension/hook u field)
+    (and (pair? μkanren-extensions)
+         (let1 (e (μkanren-extension/term u u))
+           (and e (field e)))))
+
+  ; the `post` hooks of the extensions, threaded, then the constraints of the variables bound handed on, or the
+  ; stores indexed if given as lists: what `=°` does after a unification that bound something, exported for
+  ; the goals of the extensions that unify on their own.
+  (define (μkanren-post-unify s* assocs)
+    (let loop ((E μkanren-extensions) (s* s*) (assocs assocs))
+      (cond
+        ((null? E) (if (μkanren-state-raw s*) (μkanren-state-index s*) (μkanren-repost s* assocs)))
+        ((μkanren-extension-post (car E)) => (λ (post)
+                                                (match/first (post s* assocs)
+                                                  (#f #f)
+                                                  ((,s** ,assocs*) (loop (cdr E) s** assocs*)))))
+        (else (loop (cdr E) s* assocs)))))
+
+  (define (μkanren-extension/occurs α v s assocs)
+    (let loop ((E μkanren-extensions))
+      (cond
+        ((null? E) #f)
+        ((and (μkanren-extension-occurs (car E)) ((μkanren-extension-occurs (car E)) α v s assocs)) => identity)
+        (else (loop (cdr E))))))
+
+  (define (μkanren-extension/diseq u v s #!optional absento)
+    (let loop ((E μkanren-extensions))
+      (cond
+        ((null? E) #f)
+        ((and (μkanren-extension-diseq (car E)) ((μkanren-extension-diseq (car E)) u v s absento)) => identity)
+        (else (loop (cdr E))))))
+
+  ; the prefix d, whose terms hold an extension's term, as the disequality of its two sides, or of the tuple of
+  ; its left sides and that of its right sides, which the extension keeps, since D holds no such term: the
+  ; state that keeps it, `'fail` when it is violated, or #f to leave d to D.
+  (define (μkanren-extension/prefix d s #!optional absento)
+    (and (pair? μkanren-extensions)
+         (μkanren-extension/holds-term? (μkanren-state-find/value d s))
+         (if (null? (cdr d))
+             (μkanren-extension/diseq (lhs (car d)) (rhs (car d)) s absento)
+             (μkanren-extension/diseq (map lhs d) (map rhs d) s absento))))
+
+  (define (μkanren-extension/forms s s*)
+    (append-map (λ (e) (let1 (forms (μkanren-extension-forms e)) (if forms (forms s s*) '()))) μkanren-extensions))
+
+  (define (μkanren-extension/terms s)
+    (if (null? μkanren-extensions)
+        '()
+        (append-map (λ (e) (let1 (terms (μkanren-extension-terms e)) (if terms (terms s) '()))) μkanren-extensions)))
+
+  ; the environment of the last extension that names one, else micro's own.
+  (define (μkanren-extension/environment)
+    (let1 (envs (filter-map μkanren-extension-environment μkanren-extensions))
+      (if (null? envs) (μkanren-answer-environment) ((last envs)))))
 
   ; the position of the working variable α in the sbral `sbral` (which stores the most recent variable first).
   (define (μkanren-var-index/sbral sbral α) (- (length/sbral sbral) 1 (μkanren-var-index>=0 α)))
@@ -205,6 +354,10 @@
       ((,D _ _) D)
       (#f (foldr/sbral (λ (i d D) (if d (cons d D) D)) '() (μkanren-state-P s)))))
 
+  ; whether `s` holds no prefix, cheaply, for an extension that would read D: a P that ever held one is not `'()`,
+  ; since dropped prefixes leave #f, so `#f` is only "maybe".
+  (define (μkanren-state-no-D? s) (match/first (μkanren-state-raw s) ((,D _ _) (null? D)) (#f (null? (μkanren-state-P s)))))
+
   (define (μkanren-state-A s)
     (match/first (μkanren-state-raw s)
       ((_ ,A _) A)
@@ -219,6 +372,23 @@
   (define (μkanren-structure? v) (or (vector? v) (record-instance? v)))
   (define (μkanren-structure->list v) (vector->list (if (vector? v) v (record->vector v))))
 
+  ; `s` with the working variable α unbound again, for a `post` hook that takes a binding just made back into
+  ; a constraint of its own; the assocs it answers then leave that binding out, so that =° hands nothing on from
+  ; α, whose record stays on it (I1). α may be written unrecorded in a value of S, which another binding of the
+  ; same unification wrote while α was bound: `M` admits it now.
+  (define (μkanren-state-forget α s)
+    (let1 (S (μkanren-state-S s))
+      (μkanren-state-with/S s (μkanren-state-vars-count s) (update/sbral (μkanren-var-index/sbral S α) *μkanren-unbound* S)
+                            (μkanren-M-admit (μkanren-state-M s) (μkanren-var-index α)))))
+
+  ; `s` without the prefixes of D, as `μkanren-state-D` lists them, that satisfy `drop?`, for an extension that
+  ; takes them over: the records keep their ids, as of any dropped prefix.
+  (define (μkanren-state-remove-D drop? s)
+    (if (μkanren-state-raw s)
+        (μkanren-state-with s D: (remove drop? (μkanren-state-D s)))
+        (let1 (l (length/sbral (μkanren-state-P s)))
+          (foldr/sbral (λ (i d s*) (if (and d (drop? d)) (μkanren-drop-prefix s* (- l 1 i)) s*)) s (μkanren-state-P s)))))
+
   ; binds the unbound α to the walked v, unless α occurs in the walk of v. When v is `held`, a part of a value of S,
   ; the walk visits only terms written in the values of S, so it cannot reach an α that `M` does not admit: the
   ; occurs check is spared, and the binding writes no new variable into S. Otherwise the walk looks for α, and `M`
@@ -226,39 +396,42 @@
   ; full X folds into m first (the index then joins only if it is greater than the new m), so that m stays below the
   ; variables of the last few `fresh°`: with m alone, a newer variable written into S before an older one is bound
   ; to a part of S would make that binding walk again.
+  (define (μkanren-M-admits? M i) (or (fx<= i (car M)) (memv i (cdr M))))
+
+  (define (μkanren-M-admit M i)
+    (let ((m (car M)) (X (cdr M)))
+      (cond
+        ((μkanren-M-admits? M i) M)
+        ((fx< (length X) 4) (cons m (cons i X)))
+        (else (let1 (m* (fold fxmax m X)) (cons m* (if (fx<= i m*) '() (list i))))))))
+
   (define (μkanren-state-update α v s assocs #!optional held)
-
-    (define (admits? M i) (or (fx<= i (car M)) (memv i (cdr M))))
-
-    (define (admit i M)
-      (let ((m (car M)) (X (cdr M)))
-        (cond
-          ((admits? M i) M)
-          ((fx< (length X) 4) (cons m (cons i X)))
-          (else (let1 (m* (fold fxmax m X)) (cons m* (if (fx<= i m*) '() (list i))))))))
 
     (define (walk M) ; `M` that admits the walk of v too, or #f if α occurs in it
       (cond
-        ((μkanren-var? v) (and (not (equal? α v)) (admit (μkanren-var-index v) M)))
+        ((μkanren-var? v) (and (not (equal? α v)) (μkanren-M-admit M (μkanren-var-index v))))
         ((μkanren-compound? v)
           (let* ((S (μkanren-state-S s)) (l (length/sbral S)))
             (let O ((w v) (M M))
               (cond
                 ((not M) #f)
-                ((μkanren-var? w) (and (not (equal? α w)) (admit (μkanren-var-index w) M)))
+                ((μkanren-var? w) (and (not (equal? α w)) (μkanren-M-admit M (μkanren-var-index w))))
                 ((pair? w) (O (μkanren-state-find/SL (cdr w) S l) (O (μkanren-state-find/SL (car w) S l) M)))
-                ((μkanren-structure? w) (O (μkanren-structure->list w) M))
+                ; an extension's term that holds no variable is not looked into.
+                ((μkanren-structure? w) (if (μkanren-extension/atom? w) M (O (μkanren-structure->list w) M)))
                 (else M)))))
         (else M)))
 
     (let* ((M (μkanren-state-M s))
-           (M* (if (and held (not (admits? M (μkanren-var-index α)))) M (walk M))))
-      (and
-        M*
-        (let* ((S* (μkanren-update/sbral α v (μkanren-state-S s)))
-               (s* (μkanren-state-with/S s (μkanren-state-vars-count s) S* M*))
-               (assocs* (cons `(,α . ,v) assocs)))
-          `(,s* ,assocs*)))))
+           (M* (if (and held (not (μkanren-M-admits? M (μkanren-var-index α)))) M (walk M))))
+      (cond
+        (M* (let* ((S* (μkanren-update/sbral α v (μkanren-state-S s)))
+                   (s* (μkanren-state-with/S s (μkanren-state-vars-count s) S* M*))
+                   (assocs* (cons `(,α . ,v) assocs)))
+              `(,s* ,assocs*)))
+        ; an occurrence inside an extension's term may be only apparent: the extension decides.
+        ((pair? μkanren-extensions) (μkanren-extension/occurs α v s assocs))
+        (else #f))))
 
   ; the walk of α in the substitution S of length l: a variable beyond S (deferred) or unbound is
   ; answered as is. `(length/sbral S)` folds over the whole spine, so a walk over every node of a
@@ -284,8 +457,9 @@
              (μkanren-number-eqv? (real-part u) (real-part v))
              (μkanren-number-eqv? (imag-part u) (imag-part v)))))
 
-  ; the unification inside the module: its answer keeps the stores of `s`, which only =° may rely on,
-  ; since it hands on the constraints of the variables it binds.
+  ; the unification inside the module, and inside the hooks of an extension: its answer keeps the stores of `s` as
+  ; they are, so a goal of an extension must pass it to `μkanren-post-unify`, which hands on the constraints of the
+  ; variables it binds (I1), as =° does with what its hooks answer; only a trial whose answer is thrown away may not.
   (define (μkanren-unify u v s assocs) (μkanren-unify/held u #f v #f s assocs))
 
   ; `u-held` (`v-held`) tells that u (v) is a part of a value of S, as its walk is when it differs from it, and so
@@ -310,10 +484,14 @@
         ((μkanren-var-working? v*) (μkanren-state-update v* u* s assocs u-held))
         ; the slot lists are new, but their slots are parts of u* and v*, and their tails are never bound.
         ((and (μkanren-structure? u*) (μkanren-structure? v*))
-          (μkanren-unify/held (μkanren-structure->list u*) u-held (μkanren-structure->list v*) v-held s assocs))
+          (cond
+            ((and (pair? μkanren-extensions) (μkanren-extension/term u* v*)) => (λ (e) ((μkanren-extension-unify e) u* v* s assocs)))
+            (else (μkanren-unify/held (μkanren-structure->list u*) u-held (μkanren-structure->list v*) v-held s assocs))))
         ; the hottest path: a unification answers `(s* assocs*)` or #f, no need for a checked match.
         ((and (pair? u*) (pair? v*))  (let1 (r (μkanren-unify/held (car u*) u-held (car v*) v-held s assocs))
                                         (and r (μkanren-unify/held (cdr u*) u-held (cdr v*) v-held (car r) (cadr r)))))
+        ; an extension's term against a pair or an atom.
+        ((and (pair? μkanren-extensions) (μkanren-extension/term u* v*)) => (λ (e) ((μkanren-extension-unify e) u* v* s assocs)))
         (else #f))))
 
   ; the exported unification: a goal may hand its answer on without the constraints of the variables it
@@ -330,7 +508,10 @@
           (cond
             ((pair? w*) (cons (A (car w*)) (A (cdr w*))))
             ((vector? w*) (list->vector (map A (μkanren-structure->list w*))))
-            ((and (record-instance? w*) (not (μkanren-var? w*))) (apply make-record-instance (map A (μkanren-structure->list w*))))
+            ((and (record-instance? w*) (not (μkanren-var? w*)))
+              (cond
+                ((and (pair? μkanren-extensions) (μkanren-extension/term w* w*)) => (λ (e) ((μkanren-extension-value e) w* A s)))
+                (else (apply make-record-instance (map A (μkanren-structure->list w*))))))
             (else w*))))))
 
   (define (μkanren-state-find/repr v s)
@@ -343,7 +524,10 @@
             ((null? w*) (list 'quote '()))
             ((pair? w*) (list 'cons (A (car w*)) (A (cdr w*))))
             ((vector? w*) (cons 'vector (map A (μkanren-structure->list w*))))
-            ((record-instance? w*) (cons 'make-record-instance (map A (μkanren-structure->list w*))))
+            ((record-instance? w*)
+              (cond
+                ((and (pair? μkanren-extensions) (μkanren-extension/term w* w*)) => (λ (e) ((μkanren-extension-repr e) w* A s)))
+                (else (cons 'make-record-instance (map A (μkanren-structure->list w*))))))
             (else w*))))))
 
   ; `l` is the length of the substitution of `r`, recomputed only when reifying a variable changes `r`.
@@ -383,15 +567,17 @@
         (receive (same others) (partition (λ1-match/first ((_ . ,tag*) (μkanren-tag-equal? tag tag*))) A)
           (cons `(,tag . ,(remove-duplicates (map lhs same))) (μkanren-partition* others))))))
 
-  (define (μkanren-form v D A T s)
+  (define (μkanren-form v D A T X s)
     (let* ((fd (μkanren-drop-dot-D (μkanren-sort-D D s) s))
            (FA (λ1-match/first ((,tag . ,vars) `(assert (every ,(μkanren-tag-def tag) (list ,@(map μkanren-var->symbol vars)))))))
            (fa (map FA (sort/lex<=? (map μkanren-sort-part (μkanren-partition* A)))))
-           ; a datum with variables is built as the term is, since `absent?` evaluates it.
-           (FD (λ (tag) (if (μkanren-tag-term? tag) (μkanren-state-find/repr (μkanren-tag-name tag) s) `(quote ,(μkanren-tag-name tag)))))
+           ; a datum with variables, or with an extension's term, is built as the term is, since `absent?` evaluates it.
+           (FD (λ (tag) (if (or (μkanren-tag-term? tag) (μkanren-extension/holds-term? (μkanren-tag-name tag)))
+                            (μkanren-state-find/repr (μkanren-tag-name tag) s)
+                            `(quote ,(μkanren-tag-name tag)))))
            (FT (λ1-match/first ((,tag ,u) `(assert (absent? ,(FD tag) ,(μkanren-state-find/repr u s))))))
            (ft (map FT (μkanren-drop-dot-T (μkanren-sort-T T s)))))
-        `(,@fd ,@fa ,@ft ,v)))
+        `(,@fd ,@fa ,@ft ,@X ,v)))
 
   ; sorts L as `sort/lex<=?` does, breaking its ties by the printed `(repr x)`, which spells out what `->string`
   ; leaves out: the slots of a record, and the datum of a tag; and those ties by the written `(repr x)`, since
@@ -486,13 +672,15 @@
   ; A part with no variable at all is dropped: it could never be the datum, being part of a term that still could.
   ; A datum holding an unreachable variable, which only a variable key has (I6), is dropped as well: that variable
   ; can always be chosen to keep the datum out of the key, as the prefixes holding it are, which are dropped too.
+  ; An extension's term is broken into the parts its `parts` hook gives for an answer, or kept whole when stuck.
   (define (μkanren-project-T T s)
     (let1 (anyvar? (μkanren-anyvar? s))
       (define (P u tag)
         (cond
           ((μkanren-var? u) (if (or (anyvar? u) (and (μkanren-tag-term? tag) (anyvar? (μkanren-tag-name tag)))) '() `((,u . ,tag))))
           ((not (anyvar? u)) (if (μkanren-hasvar? u) `((,u . ,tag)) '()))
-          ((μkanren-compound? u) (append-map (λ (v) (P v tag)) (μkanren-compound->list u)))
+          ((μkanren-compound? u) (let1 (us (μkanren-project-parts u s))
+                                   (if (eq? us 'stuck) `((,u . ,tag)) (append-map (λ (v) (P v tag)) us))))
           (else '())))
       (append-map (λ1-match/first ((,u . ,tag) (P u tag))) T)))
 
@@ -552,8 +740,10 @@
       ((μkanren-rem-subsumed/by μkanren-subsumed?) D)))
 
   (define ((μkanren-project w) s)
-    (let1 (w* (μkanren-state-find/value w s))
-      (match1/first ((,s* ,c ,vars-reversed ,assocs) (μkanren-state-reify w* s))
+    (let* ((w* (μkanren-state-find/value w s))
+           (extra (μkanren-extension/terms s)))
+      ; the variables of the extensions' residual constraints are named too, after those of the answer.
+      (match1/first ((,s* ,c ,vars-reversed ,assocs) (μkanren-state-reify (if (null? extra) w* (cons w* extra)) s))
         (let* ((R     (λ1-match/first ((,α . _) (μkanren-var-working? (μkanren-state-find α s*)))))
                (vars  (reverse vars-reversed))
                (vars* (map μkanren-var->symbol vars))
@@ -566,7 +756,8 @@
                (D**   (μkanren-state-find/value (μkanren-subsume A* D*) s*))
                (A**   (μkanren-state-find/value A* s*))
                (T**   (μkanren-rem-subsumed-T (μkanren-project-T (μkanren-state-find/value T s*) s*)))
-               (body  (μkanren-form w** D** A** T** s*)))
+               (X**   (μkanren-extension/forms s s*))
+               (body  (μkanren-form w** D** A** T** X** s*)))
           `(λ ,vars* ,@body)))))
 
   ; constraints -------------------------------------------------------------------
@@ -625,6 +816,18 @@
   ; tails could be mistaken for the datum); a record's slots start with its type name, so a tag equal to that name
   ; counts as present, as in absent?.
   (define (μkanren-compound->list v) (if (pair? v) (list (car v) (cdr v)) (μkanren-structure->list v)))
+
+  ; the parts of a compound in which `absent°` looks for its datum: an extension's term may be `'stuck`.
+  (define (μkanren-absent-parts u s)
+    (cond
+      ((μkanren-extension/hook u μkanren-extension-parts) => (λ (parts) (parts u s)))
+      (else (μkanren-compound->list u))))
+
+  ; the same parts, for the projection of T on an answer, `s` being reified.
+  (define (μkanren-project-parts u s)
+    (cond
+      ((μkanren-extension/hook u μkanren-extension-parts) => (λ (parts) (parts u s #t)))
+      (else (μkanren-compound->list u))))
 
   ; whether the compound `u` already is the datum of the absento tag `tag` (`'present`), could become it by binding
   ; some of its variables (`'maybe`), or never can (`#f`, always so for an atomic datum, found only at the leaves).
@@ -731,14 +934,17 @@
         (let1 (same? (λ (i) (match/first (μkanren-prefix-ref s i)
                               (((,β . ,u)) (and (equal? β α) (equal? u name)))
                               (else #f))))
-          (if (any same? ids) s (μkanren-add-prefix `((,α . ,name)) s))))))
+          (cond
+            ((any same? ids) s)
+            ((μkanren-extension/prefix `((,α . ,name)) s #t) => (λ (r) (and (not (eq? r 'fail)) r)))
+            (else (μkanren-add-prefix `((,α . ,name)) s)))))))
 
   ; turns the absento tags of α, which has just taken a type tag, into disequalities (I3): a datum with variables
   ; is unified with α, since =° may have bound some of them while it hands on the constraints of another variable.
   (define (μkanren-convert-T α s)
     (let1 (c (μkanren-c-ref s α))
       (μkanren-fold/and (λ (tag s) (if (μkanren-tag-term? tag)
-                                       (μkanren-repost-prefix `((,α . ,(μkanren-tag-name tag))) s)
+                                       (μkanren-repost-prefix `((,α . ,(μkanren-tag-name tag))) s #t)
                                        (μkanren-ext-D α tag s)))
                         (μkanren-c-set s α (μkanren-c-with c T: '()))
                         (μkanren-c-T c))))
@@ -752,11 +958,13 @@
         (else (let1 (s (μkanren-subsume-prefixes α tag (μkanren-c-set s α (μkanren-c-with c A: tag))))
                 (if (null? (μkanren-c-T c)) s (μkanren-convert-T α s)))))))
 
-  ; the type tag `tag` on the term u: its walk takes it if a working variable, and must satisfy it otherwise.
+  ; the type tag `tag` on the term u: its walk takes it if a working variable, its extension decides on its own
+  ; term, and it must satisfy it otherwise.
   (define (μkanren-post-type u tag s)
     (let1 (u* (μkanren-state-find u s))
       (cond
         ((μkanren-var-working? u*) (μkanren-post-A u* tag s))
+        ((μkanren-extension/hook u* μkanren-extension-tag) => (λ (tag-hook) (tag-hook u* tag s)))
         ((μkanren-tag-pred? tag u*) s)
         (else #f))))
 
@@ -783,14 +991,7 @@
                 ((any (λ (tag*) (μkanren-tag-equal? tag tag*)) (μkanren-c-T c)) s)
                 ((μkanren-c-A c) (μkanren-ext-D α tag (μkanren-subsume-prefixes α tag s)))
                 (else (μkanren-subsume-prefixes α tag (μkanren-c-set s α (μkanren-c-with c T: (cons tag (μkanren-c-T c))))))))
-            (let1 (Tc (μkanren-state-Tc s))
-              (if (any (λ1-match/first ((,u* . ,tag*) (and (equal? u* α) (μkanren-tag-equal? tag tag*)))) Tc)
-                  s
-                  (let* ((s (μkanren-state-with/stores s (μkanren-state-C s) (μkanren-state-P s) (cons `(,α . ,tag) Tc)))
-                         (s (μkanren-mark-t α s))
-                         (datum (μkanren-tag-name tag)))
-                    ; the datum of a compound tag is walked by `μkanren-tag-unify` too.
-                    (if (μkanren-compound? datum) (μkanren-mark-t datum s) s))))))
+            (μkanren-watch/Tc α tag s)))
       (define (absento* us s*)
         (match/first us
           (() s*)
@@ -803,8 +1004,20 @@
             ((,u* ⊣ (μkanren-compound? u*))  (case (μkanren-tag-unify u* tag s)
                                                 ((present) #f)
                                                 ((maybe) (watch u*))
-                                                (else (absento* (μkanren-compound->list u*) s))))
+                                                (else (let1 (us (μkanren-absent-parts u* s)) (if (eq? us 'stuck) (watch u*) (absento* us s))))))
             (,u* (and (μkanren-tag-pred? tag u*) s)))))
+
+  ; `s` where the compound u, kept whole, keys the absento tag `tag` in Tc, unless it does, and the variables
+  ; reachable from it are marked with `t` (I5).
+  (define (μkanren-watch/Tc u tag s)
+    (let1 (Tc (μkanren-state-Tc s))
+      (if (any (λ1-match/first ((,u* . ,tag*) (and (equal? u* u) (μkanren-tag-equal? tag tag*)))) Tc)
+          s
+          (let* ((s (μkanren-state-with/stores s (μkanren-state-C s) (μkanren-state-P s) (cons `(,u . ,tag) Tc)))
+                 (s (μkanren-mark-t u s))
+                 (datum (μkanren-tag-name tag)))
+            ; the datum of a compound tag is walked by `μkanren-tag-unify` too.
+            (if (μkanren-compound? datum) (μkanren-mark-t datum s) s)))))
 
   ; the absento tag `tag`, whose datum held variables when posted, on the term u, as faster-miniKanren's absento
   ; posts it: once the walk of the datum is ground, the tag is posted as `absent°` posts that datum. Until then the
@@ -823,13 +1036,15 @@
                     (cond
                       ((equal? α datum) #f)
                       ((memv (μkanren-var-index α) is) s)
-                      ((μkanren-c-A c) (μkanren-repost-prefix `((,α . ,datum)) s))
+                      ((μkanren-c-A c) (μkanren-repost-prefix `((,α . ,datum)) s #t))
                       ((any (λ (tag*) (μkanren-tag-equal? tag tag*)) (μkanren-c-T c)) s)
                       (else (μkanren-list-key α is (μkanren-c-set s α (μkanren-c-with c T: (cons tag (μkanren-c-T c)))))))))
+                ; an extension's term that is stuck is watched whole, as `μkanren-absento+` watches it.
                 ((,w* ⊣ (μkanren-compound? w*))
-                  (let1 (s (μkanren-repost-prefix `((,datum . ,w*)) s))
-                    (and s (μkanren-fold/and N s (μkanren-compound->list w*)))))
-                (,w* (μkanren-repost-prefix `((,datum . ,w*)) s)))))
+                  (let1 (s (μkanren-repost-prefix `((,datum . ,w*)) s #t))
+                    (and s (let1 (ws (μkanren-absent-parts w* s))
+                             (if (eq? ws 'stuck) (μkanren-watch/Tc w* tag s) (μkanren-fold/and N s ws))))))
+                (,w* (μkanren-repost-prefix `((,datum . ,w*)) s #t)))))
           (μkanren-absento+ u (μkanren-absento-tag datum) s))))
 
   ; `s` where the records of the variables with the indices `is` list α in `W`, unless they do (I6).
@@ -852,10 +1067,14 @@
 
   ; the prefix d posted again in `s`, where some of its variables may have been bound: `s` when one of its
   ; equations can no longer hold, #f when they all hold, else `s` with the bindings they still need.
-  (define (μkanren-repost-prefix d s)
-    (match/first (μkanren-state-unify/assoc d s '())
-      (#f s)
-      ((,s* ,d*) (and (not (μkanren-state-equal? s s*)) (μkanren-add-prefix d* s)))))
+  ; A prefix holding an extension's term is the extension's, see `μkanren-extension/prefix`, and `absento` tells
+  ; one that an absento posts.
+  (define (μkanren-repost-prefix d s #!optional absento)
+    (cond
+      ((μkanren-extension/prefix d s absento) => (λ (r) (and (not (eq? r 'fail)) r)))
+      (else (match/first (μkanren-state-unify/assoc d s '())
+              (#f s)
+              ((,s* ,d*) (and (not (μkanren-state-equal? s s*)) (μkanren-add-prefix d* s)))))))
 
   ; `s`, where β is bound, with the record of β emptied (I1) and the prefixes with the ids `ids` it listed
   ; posted again, as `μkanren-repost-prefix` does: all are tried first, so that a violated one fails before
@@ -905,7 +1124,7 @@
     (match/first (μkanren-state-raw s)
       (#f s)
       ((,D ,A ,T) (let* ((s (make-μkanren-state/C (μkanren-state-vars-count s) (μkanren-state-S s) (μkanren-state-M s)
-                                                   empty/sbral empty/sbral '() (μkanren-state-tags s) #f))
+                                                   empty/sbral empty/sbral '() (μkanren-state-tags s) #f (μkanren-state-X s)))
                          (s (μkanren-fold/and (λ (a s) (μkanren-post-type (lhs a) (rhs a) s)) s A))
                          (s (μkanren-fold/and (λ (t s) (μkanren-absento+ (lhs t) (rhs t) s)) s T)))
                     (μkanren-fold/and μkanren-repost-prefix s D)))))
@@ -935,7 +1154,7 @@
       (λ1-match/first
         ((,s* ,assocs)  (cond
                           ((μkanren-state-equal? s s*) (✓° s*))
-                          ((if (μkanren-state-raw s*) (μkanren-state-index s*) (μkanren-repost s* assocs)) => ✓°)
+                          ((μkanren-post-unify s* assocs) => ✓°)
                           (else (✗° s*))))))
     (cond
       ((μkanren-unify u v s '()) => post°)
@@ -945,6 +1164,8 @@
     (let1 (s (μkanren-state-index s0))
       (cond
         ((not s) (✗° s0))
+        ; an extension may take the disequality over, when its terms are involved.
+        ((and (pair? μkanren-extensions) (μkanren-extension/diseq u v s)) => (λ (r) (if (eq? r 'fail) (✗° s) (✓° r))))
         ((μkanren-unify u v s '()) => (λ1-match/first ((,s* ,d) (if (μkanren-state-equal? s s*) (✗° s) (✓° (μkanren-add-prefix d s))))))
         (else (✓° s)))))
 
@@ -1156,7 +1377,7 @@
     (let1 (sols (§->list (°->§ g)))
       (cond
         (grounded (map (λ (expr)
-                         (let ((E (eval `(lambda ,(cadr expr) ,(last expr)) (μkanren-answer-environment)))
+                         (let ((E (eval `(lambda ,(cadr expr) ,(last expr)) (μkanren-extension/environment)))
                                (args (cadr expr)))
                            (apply E args)))
                        sols))

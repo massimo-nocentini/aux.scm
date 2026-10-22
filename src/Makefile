@@ -49,6 +49,7 @@ test:
 	cd test && ${CSI} -s microkanren-show.scm
 	cd test && ${CSI} -s microkanren-arith.scm
 	cd test && ${CSI} -s microkanren-date.scm
+	cd test && ${CSI} -s microkanren-extension.scm
 	cd test && ${CSI} -s anthropic.scm
 	cd test && ${CSI} -s cml.scm
 	cd test && ${CSI} -s cml-lib.scm
@@ -75,6 +76,7 @@ test:
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm
+	cd test && ${CSI} -s microkanren-extension.scm
 
 test-microkanren-show:
 	cd test && ${CSI} -s microkanren-show.scm
