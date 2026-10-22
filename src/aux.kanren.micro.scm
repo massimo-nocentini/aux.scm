@@ -56,12 +56,16 @@
 
   (define (μkanren-var-index>=0 α) (let1 (i (μkanren-var-index α)) (if (μkanren-var-working? α) i (- (add1 i)))))
 
+  ; the names of the reified variables leave out λ and μ, which an answer uses as its binder and in its type
+  ; assertions, so that a parameter of the answer never hides them.
+  (define μkanren-var-names (list->vector (remove (λ (g) (memq g '(λ μ))) (vector->list greek-alphabet/lowercase))))
+
   (define (μkanren-var->symbol α)
     (let1 (i (μkanren-var-index>=0 α))
-      (cond 
+      (cond
         ((μkanren-var-working? α) (string->symbol (string-append "_" (number->string i))))
-        (else (let* ((n (vector-length greek-alphabet/lowercase))
-                     (g (vector-ref greek-alphabet/lowercase (modulo i n)))
+        (else (let* ((n (vector-length μkanren-var-names))
+                     (g (vector-ref μkanren-var-names (modulo i n)))
                      (k (quotient i n)))
                 (if (zero? k) g (symbol-append g (string->symbol (number->string k)))))))))
 

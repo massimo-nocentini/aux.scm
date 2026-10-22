@@ -255,8 +255,13 @@
     (⊦= '((λ () 'ok)) (°->list #f (fresh° (q) (fold (λ (i g) (and° g (fresh° (v) (=° v i)))) (=° q 'ok) (iota 4000))))))
 
   ((test/var->symbol/overflow _)
-    (⊦= '((α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω α1 β1))
-        (°->list/ground (fresh° r ← (a b c d e f g h i j k l m n o p q s t u v w x y z aa)))))
+    (⊦= '((α β γ δ ε ζ η θ ι κ ν ξ ο π ρ σ τ υ φ χ ψ ω α1 β1 γ1 δ1))
+        (°->list/ground (fresh° r ← (a b c d e f g h i j k l m n o p q s t u v w x y z aa))))
+    ; λ and μ are left out, since the answer binds its variables with λ and asserts their types with μ: an answer
+    ; with twelve variables and a type tag applies.
+    (⊦= '((0 1 2 3 4 5 6 7 8 9 10 a))
+        (map (λ (a) (apply (eval a) (append (iota 11) '(a))))
+             (°->list #f (fresh° (q) (fresh° (a b c d e f g h i j k l) (=° q (list a b c d e f g h i j k l)) (symbol° l)))))))
 
   ((test/ground/constrained _)
     ; grounding drops the constraints instead of re-checking them against the placeholder symbols
