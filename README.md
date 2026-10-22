@@ -1164,6 +1164,142 @@ Example:
 ;; => ((() 1) ((○ ●) 7) ((○ ○ ● ●) 17))
 ```
 
+### `(aux kanren lambda)`
+
+`(aux kanren lambda)` brings λProlog's hereditary Harrop formulas to
+`(aux kanren micro)`, after Miller and Nadathur, "Programming with Higher-Order
+Logic" (CUP 2012). Terms are λ-tree syntax: `(ƛ (x) body)` is an abstraction
+whose Scheme binder `x` gives the object binder, and `(@ f a ...)` an
+application, β-reduced at once when `f` is an abstraction. `(∀° (x) g ...)` runs
+its goals with `x` bound to a fresh eigenvariable, a constant that no variable
+created outside the `∀°` may be bound to. `(⊃° (D ...) g ...)` runs them with
+the clauses `D` added to the relations of `define-dynamic-relation`; a clause
+is a fact `(rel t ...)`, a rule `((rel t ...) ← g ...)`, or `(∀ (v ...) D)` for
+variables of its own. Unification is higher-order pattern unification (L_λ),
+with universe levels in place of raising. An equation outside L_λ waits until
+it becomes a pattern, and is reported as a residual constraint otherwise, so
+the printed answer can then depend on the order of the goals. Micro's own
+`=°`, `≠°`, `absent°`, `symbol°` and the relations built on them work on
+λ-terms and are scope-safe under `∀°`. The parameter `μkanren-λ-reading` says
+how `≠°` reads an eigenvariable: `'generic`, the default and λProlog's reading,
+takes it for a name distinct from every other term, and `'extensional` for any
+term of its universe.
+
+`°->list/datum` gives the answers as data, `(ƛ (x) (f x))` rather than records,
+and drops their constraints as `°->list/ground` does. `°->list` keeps them: a
+suspended equation is `(assert (≐ u v))`, and a disequality reads as micro's,
+the mgu of its trial `(begin (deny (equal? α t)))`, under `∃` over the variables
+the trial creates, or `(begin (deny (≐ u v)))` when the trial only suspends. `≐`
+is equality of closed terms up to αβη, and `μkanren-datum` prints a term without
+a state. The module registers how `(aux kanren micro show)` reads its answers:
+`°->pretty` prints these forms as `(= u v)` and `(≠ u v)`, and the cells view
+draws an abstraction as a node with a node per binder. The datum of an answer
+cannot tell a λ-term from a list that reads the same, so with this module loaded
+any list headed by `ƛ` or `@`, such as `'(@ a b)`, is drawn as a λ-term.
+
+Import `(aux kanren micro)` too: the module does not re-export its goals.
+Importing the module registers its extension (see below) for the whole process
+and for good, so every query run afterwards, a first-order one too, goes through
+its hooks. First-order answers do not change, and micro's six suites pass with
+the module loaded (`make test-microkanren-with-lambda`), but they cost time. On
+first-order benchmarks of 130 ms or more, searches with `≠°` run 4–17% slower,
+around 10% for most, and the others 1–2% slower. Shorter searches with many
+constraints can lose more: up to 17% with `symbol°` or `absent°`, up to 39% with
+`≠°` (86 ms against 62), and up to 2.2 times when they mix `≠°` with `symbol°`
+or `absent°` (22 ms against 10). The module keeps all its data in the state's
+one slot for extensions, so no other extension that keeps data there can be
+loaded with it.
+
+**Extension protocol.** `(aux kanren lambda)` is a client of a protocol of
+`(aux kanren micro)` that teaches the engine new kinds of terms and
+constraints. `make-μkanren-extension` takes a name and hooks given by keyword,
+each a procedure or `#f`: `term?` recognizes the extension's terms, which are
+records; `atom?`, `unify` and `occurs` serve unification and its occurs check;
+`post` runs inside `=°` on the bindings it has just made, before their
+constraints are handed on; `diseq`, `tag`, `watch` and `parts` serve `≠°`, the
+types, the store of disequalities and `absent°`; `value`, `repr`, `terms`,
+`forms` and `environment` build the answers. `μkanren-extension-register!`
+adds an extension to a global registry, which takes nothing back; registering
+again under the same name replaces the extension. A state has a slot,
+`μkanren-state-X`, that the engine never reads and every state built from it
+carries along, for the extension's data of the branch. `μkanren-unify`,
+`μkanren-post-unify`, `μkanren-state-forget`, `μkanren-state-remove-D`,
+`μkanren-state-no-D?`, `μkanren-state-indexed?`, `μkanren-state-prefix`,
+`μkanren-state-prefix-ids` and `μkanren-state-drop-prefix` are exported for
+the hooks. The comment of `μkanren-extension` in `src/aux.kanren.micro.scm`
+gives every hook's arguments and answer, and the invariants E1–E6 that the
+engine and an extension keep. `(aux kanren micro show)` takes extensions of its
+own, made by `make-μkanren-show-extension` with the hooks `datum`,
+`constraint` and `cell` and registered by `μkanren-show-extension-register!`.
+With no extension registered, the answers are the same as before the protocol,
+and a hook site costs a test of the empty registry: searches of more than ten or
+so milliseconds run 1–2% slower.
+
+The tests are `make test-microkanren-lambda` (`test/microkanren-lambda.scm`,
+which runs many of the book's programs, and `test/microkanren-lambda-limits.scm`)
+and `test/microkanren-extension.scm` for the protocol. The design and its
+prototype are in `doc/hol-kanren`.
+
+Exported entry points include:
+
+- terms: `ƛ`, `@`, `≐`, `μkanren-abstract`, `μkanren-apply`, `μkanren-hnorm`,
+  `μkanren-α=?`, `μkanren-λ-term?`, `μkanren-lam?`, `μkanren-app?`,
+  `μkanren-eigen?`, `μkanren-bvar?`, `μkanren-lam-hint`, `μkanren-eigen-name`,
+  `μkanren-eigen-level`
+- goals: `∀°`, `∀ª`, `⊃°`, `⊃ª`, `define-dynamic-relation`, plus `μkanren-hyps°`,
+  `μkanren-clause` and the others that `define-dynamic-relation` and `⊃°`
+  expand to
+- answers: `°->list/datum`, `μkanren-datum`, `μkanren-λ-show-extension`
+- the engine: `μkanren-λ-extension`, `μkanren-λ-reading`, and the data of a
+  state, `μkanren-λ-depth`, `μkanren-λ-level`, `μkanren-λ-delayed` (the
+  suspended constraints) and `μkanren-λ-disequalities`
+
+Example:
+
+```scheme
+(import (aux base) (aux kanren micro) (aux kanren lambda)
+        (only (aux kanren micro show) °->pretty))
+
+; typeof (abs M) (arr A B) :- pi x\ typeof x A => typeof (M x) B.
+(define-dynamic-relation (typeof° m t)
+  (cond°
+    ((fresh° (M N B) (=° m `(app ,M ,N)) (typeof° M `(arr ,B ,t)) (typeof° N B)))
+    ((fresh° (R A B) (=° m `(abs ,R)) (=° t `(arr ,A ,B))
+       (∀° (x) (⊃° ((typeof° x A)) (typeof° (@ R x) B)))))))
+
+(°->list/datum (fresh° (q) (typeof° `(abs ,(ƛ (x) `(abs ,(ƛ (y) x)))) q)))
+;; => ((arr α (arr β α)))
+
+(°->list/datum (fresh° (q) (typeof° `(abs ,(ƛ (x) `(app ,x ,x))) q)))
+;; => ()
+
+(°->list/datum (fresh° (F) (∀° (x) (=° (@ F x) `(f ,x a)))))
+;; => ((ƛ (x) (f x a)))
+
+(°->list/datum (fresh° (q) (∀° (x) (=° q x))))
+;; => ()
+
+(°->list #f (fresh° (q) (∀° (x) (=° (@ q x x) x))))
+;; => ((λ (α) (assert (≐ (ƛ (x) (@ α x x)) (ƛ (x) x))) α))
+
+(°->pretty (fresh° (q F) (=° q F) (≠° (@ F 'a) 'a)))
+;; => ((α : (≠ (@ α a) a)))
+
+(define-dynamic-relation (rev° l k))
+(define-relation (reverse° l k)
+  (⊃° ((rev° '() k) (∀ (X L K) ((rev° `(,X . ,L) K) ← (rev° L `(,X . ,K)))))
+    (rev° l '())))
+
+(°->list/datum (fresh° (q) (reverse° '(1 2 3) q)))
+;; => ((3 2 1))
+
+(μkanren-datum (@ (ƛ (x) (ƛ (y) (@ x y))) (ƛ (z) (@ 'c z))))
+;; => c
+
+(≐ (ƛ (a) a) (ƛ (b) b))
+;; => #t
+```
+
 ### `(aux lua)`
 
 `(aux lua)` binds the whole C API of Lua 5.5 (`lua.h`, `lauxlib.h`, `lualib.h`)
