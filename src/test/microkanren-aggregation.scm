@@ -111,6 +111,22 @@ END
             (9 (sales))))
         (°->list/ground (fresh° (r) (fresh° (d e s) (enumerate° (c (λ (i k) (list i (list k)))) over (d) from (empsalary° d e s) => (=° r c)))))))
 
+  ((test/aggregation/fresh-in-body _)
+    ; the keys and values hold the fresh variable x of the from goal, and the body of set°, groupby° and
+    ; enumerate°, which runs on the outer state, makes y fresh: y is another variable than x, as in window°.
+    (⊦= '((λ (α) (cons (cons α (quote ())) (cons 1 (cons (quote b) (quote ()))))))
+        (°->list #f (fresh° (q) (fresh° (k) (set° (n (λ (k acc) (add1 acc)) 0) over ((k* k)) from (fresh° (x) (=° k (list x)))
+                                              => (fresh° (y) (=° y 'b) (=° q (list k* n y))))))))
+    (⊦= '((λ (α) (cons (cons α (quote ())) (cons (cons α (quote ())) (cons (quote b) (quote ()))))))
+        (°->list #f (fresh° (q) (fresh° (k e) (groupby° (((es (λ (l) l)) e)) over (k) from (fresh° (x) (=° k (list x)) (=° e x))
+                                                => (fresh° (y) (=° y 'b) (=° q (list k es y))))))))
+    (⊦= '((λ (α) (cons (cons α (quote ())) (cons (cons α (quote ())) (cons (quote b) (quote ()))))))
+        (°->list #f (fresh° (q) (fresh° (k e) (window° (((es (λ (l) l)) e)) over (k) from (fresh° (x) (=° k (list x)) (=° e x))
+                                                => (fresh° (y) (=° y 'b) (=° q (list k es y))))))))
+    (⊦= '((λ (α) (cons (cons (cons 0 (cons (cons α (quote ())) (quote ()))) (quote ())) (cons (quote b) (quote ())))))
+        (°->list #f (fresh° (q) (fresh° (k) (enumerate° (v (λ (i k) (list i k))) over (k) from (fresh° (x) (=° k (list x)))
+                                              => (fresh° (y) (=° y 'b) (=° q (list v y)))))))))
+
   ((test/window° _)
    
    (⊦= '((develop 7 4200 5020)

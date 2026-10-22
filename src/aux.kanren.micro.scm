@@ -9,8 +9,8 @@
     define-μkanren-tag make-μkanren-tag μkanren-tag? μkanren-tag-name μkanren-tag-def μkanren-tag-pred? μkanren-tag-equal? μkanren-tag/sym μkanren-tag/num μkanren-make-tag-A
     ; goals — freshª andª orª ✓° ✗° =° must stay exported: the exported macros expand to them at the importer's site
     ✓° ✗° freshª andª orª =° ≠° fresh° fresh°/record and° or° if° take° null° boolean° cons° symbol° number° absent° project° cond°
-    ; aggregation — μkanren-fold/key§ and μkanren-group§ are expanded to by set°, groupby° and window°
-    μkanren-fold/key§ μkanren-group§ groupby° window° set° enumerate°
+    ; aggregation — μkanren-fold/key§, μkanren-group§ and μkanren-key-of/counting are expanded to by set°, groupby°, window° and enumerate°
+    μkanren-fold/key§ μkanren-group§ μkanren-key-of/counting groupby° window° set° enumerate°
     ; api
     define-relation °->§ °->list °->list/ground μkanren-run
     ; internals exercised directly by the unit tests
@@ -1085,14 +1085,25 @@
         (for-each (λ (entry) (set-cdr! entry (map reverse (cdr entry)))) entries)
         (values H entries))))
 
+  ; wraps `key-of`, which an aggregation calls once on each state of its from goal, to count the variables of those
+  ; states, and answers it with a thunk of `s` where they count as introduced. The body of set°, groupby° and
+  ; enumerate° runs on the outer state `s`, while its keys and values may hold variables made fresh in the from
+  ; goal: a fresh° in the body, run on `s` itself, would reuse their indices.
+  (define (μkanren-key-of/counting s key-of)
+    (let* ((vc (μkanren-state-vars-count s))
+           (key-of* (λ (s*) (set! vc (fxmax vc (μkanren-state-vars-count s*))) (key-of s*)))
+           (s-after (λ () (μkanren-state-with/S s vc (μkanren-state-S s) (μkanren-state-M s)))))
+      (values key-of* s-after)))
+
   (define-syntax-rule (literal over from =>) (groupby° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
-        (receive (_ entries) (μkanren-group§ (λ (s*) (μkanren-state-find/values (list k ...) s*)) (list v ...) (g s))
+      (receive (key-of s-after) (μkanren-key-of/counting s (λ (s*) (μkanren-state-find/values (list k ...) s*)))
+        (receive (_ entries) (μkanren-group§ key-of (list v ...) (g s))
           (let* ((G (λ (entry folded) (or° (receive (v* ...) (apply values (map (λ (A vs) (A vs)) (list aggr ...) (cdr entry)))
                                              (receive (k ...) (apply values (car entry)) (and° f ...)))
                                            folded)))
                  (g* (fold-right G ✗° entries))) ; the first key is the leftmost disjunct
-            (δ (g* s))))))
+            (δ (g* (s-after))))))))
 
   (define-syntax-rule (literal over from =>) (window° (((v* aggr) v) ...) over (k ...) from g => f ...)
     (λ (s)
@@ -1110,19 +1121,21 @@
                (A aggr) ; to evaluate `aggr` only once
                (init init₀) ; to evaluate `init` only once: every key starts from it, so `A` must not mutate it
                (F (λ (s* key u) (apply A `(,@key ,u))))) ; from the first state of a key to the last, which only an `A` with side effects can tell
-          (receive (_ entries) (μkanren-fold/key§ (λ (s*) (μkanren-state-find/values (list k ...) s*)) F init §)
-            (let* ((G (λ (entry folded) (or° (let1 (v (cdr entry)) (receive (k* ...) (apply values (car entry)) (and° f ...))) folded)))
-                   (g* (fold-right G ✗° entries))) ; the first key is the leftmost disjunct
-              (δ (g* s)))))))
+          (receive (key-of s-after) (μkanren-key-of/counting s (λ (s*) (μkanren-state-find/values (list k ...) s*)))
+            (receive (_ entries) (μkanren-fold/key§ key-of F init §)
+              (let* ((G (λ (entry folded) (or° (let1 (v (cdr entry)) (receive (k* ...) (apply values (car entry)) (and° f ...))) folded)))
+                     (g* (fold-right G ✗° entries))) ; the first key is the leftmost disjunct
+                (δ (g* (s-after)))))))))
 
   (define-syntax-rule (literal over from =>) 
     (enumerate° (v aggr) over (k ...) from g => f ...)
       (λ (s)
-        (let* ((§ (δ (g s))) ; the stream to fold over
-               (A aggr) ; to evaluate `aggr` only once
-               (keys (foldr§ (λ (s* H) (cons (μkanren-state-find/values (list k ...) s*) H)) '() §))
-               (v (map (λ (i key) (apply A i key)) (ι (length keys)) keys)))
-           (δ ((and° f ...) s)))))
+        (receive (key-of s-after) (μkanren-key-of/counting s (λ (s*) (μkanren-state-find/values (list k ...) s*)))
+          (let* ((§ (δ (g s))) ; the stream to fold over
+                 (A aggr) ; to evaluate `aggr` only once
+                 (keys (foldr§ (λ (s* H) (cons (key-of s*) H)) '() §))
+                 (v (map (λ (i key) (apply A i key)) (ι (length keys)) keys)))
+             (δ ((and° f ...) (s-after)))))))
 
   ; API ------------------------------------------------------------------------
 
