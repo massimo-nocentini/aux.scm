@@ -243,39 +243,6 @@
     (⊦= '((λ (α) (cons 'g (cons α '()))))
         (°->list #f (fresh° (q x y) (=° (cons x y) (cons 'k (list 'g x))) (forget° x) (=° q y)))))
 
-  ((test/extension/state _)
-    ; the slot X of the extensions rides along every goal, and `μkanren-state-remove-D` drops prefixes of D by
-    ; their own content, keeping the others; `μkanren-state-no-D?` is #t of an indexed state whose P never held
-    ; a prefix, and of a raw state whose list D is empty. A raw state, whose stores are lists, comes of a copy
-    ; that replaces S, here by the same S, so that M is kept: X goes along it, and along the indexing by the next
-    ; goal that binds, and D is read and pruned as the list.
-    (define ((mark° m) s) (list (μkanren-state-with s X: m)))
-    (define ((raw° m) s) (list (μkanren-state-with s S: (μkanren-state-S s) X: m)))
-    (define ((X° out) s) (set-car! out (μkanren-state-X s)) (list s))
-    (define ((remove-D° v) s) (list (μkanren-state-remove-D (λ (d) (equal? (cdar d) v)) s)))
-    (define ((no-D?° out) s) (set-car! out (μkanren-state-no-D? s)) (list s))
-    (let ((x (list 'unset)) (none (list 'unset)) (some (list 'unset)))
-      (⊦= '((λ (α) (begin (deny (equal? α 2))) α))
-          (°->list #f (fresh° (q) (no-D?° none) (mark° '(m)) (≠° q 1) (fresh° (r) (=° r q)) (≠° q 2) (remove-D° 1)
-                              (no-D?° some) (X° x))))
-      (⊦= '(m) (car x))
-      (⊦= #t (car none))
-      (⊦= #f (car some))
-      (⊦= '() (μkanren-state-X μkanren-state-empty)))
-    (let ((x (list 'unset)) (raw-X (list 'unset)) (some (list 'unset)) (none (list 'unset)))
-      (⊦= '((λ (α) (begin (deny (equal? α 2))) α))
-          (°->list #f (fresh° (q) (≠° q 1) (≠° q 2) (raw° '(r)) (X° raw-X) (no-D?° some) (remove-D° 1)
-                              (fresh° (r) (=° r q)) (X° x))))
-      (⊦= '(r) (car raw-X))
-      (⊦= #f (car some))
-      (⊦= '(r) (car x))
-      (⊦= '((λ () 1)) (°->list #f (fresh° (q) (≠° q 1) (raw° '(r)) (remove-D° 1) (no-D?° none) (=° q 1))))
-      (⊦= #t (car none)))
-    ; a state made from outside carries the X it is given, raw and then indexed.
-    (let1 (s (make-μkanren-state 0 (μkanren-state-S μkanren-state-empty) '() '() '() '() '(k)))
-      (⊦= '(k) (μkanren-state-X s))
-      (⊦= '((k)) (map μkanren-state-X (§->list ((fresh° (q) (≠° q 1) (=° q 2)) s))))))
-
   ((test/andª/chain _)
     ; a chain of andª nested to the left, as fold builds it, has the stream of the nest of append-map§, promise by
     ; promise, also when its inner stream has many answers, and when the chain or a prefix of it is applied to

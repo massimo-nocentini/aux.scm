@@ -3,7 +3,7 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-microkanren-date test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
+        test-microkanren-date test-microkanren-lambda test-microkanren-with-lambda test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors
 
 echo:
@@ -50,6 +50,9 @@ test:
 	cd test && ${CSI} -s microkanren-arith.scm
 	cd test && ${CSI} -s microkanren-date.scm
 	cd test && ${CSI} -s microkanren-extension.scm
+	cd test && ${CSI} -s microkanren-lambda.scm
+	cd test && ${CSI} -s microkanren-lambda-limits.scm
+	cd test && for t in microkanren microkanren-aggregation microkanren-untagged microkanren-show microkanren-arith microkanren-date; do ${CSI} -R aux.kanren.lambda -s $$t.scm || exit 1; done
 	cd test && ${CSI} -s anthropic.scm
 	cd test && ${CSI} -s cml.scm
 	cd test && ${CSI} -s cml-lib.scm
@@ -77,6 +80,14 @@ test:
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm
 	cd test && ${CSI} -s microkanren-extension.scm
+
+test-microkanren-lambda:
+	cd test && ${CSI} -s microkanren-lambda.scm
+	cd test && ${CSI} -s microkanren-lambda-limits.scm
+
+# micro's own suites again, with (aux kanren lambda) loaded, so that its extension is registered.
+test-microkanren-with-lambda:
+	cd test && for t in microkanren microkanren-aggregation microkanren-untagged microkanren-show microkanren-arith microkanren-date; do ${CSI} -R aux.kanren.lambda -s $$t.scm || exit 1; done
 
 test-microkanren-show:
 	cd test && ${CSI} -s microkanren-show.scm
@@ -197,6 +208,7 @@ format:
 	scheme-indent -T 2 < aux.hakaru10.scm > aux.hakaru10.scm.tmp && mv aux.hakaru10.scm.tmp aux.hakaru10.scm
 	scheme-indent -T 2 < aux.kanren.micro.scm > aux.kanren.micro.scm.tmp && mv aux.kanren.micro.scm.tmp aux.kanren.micro.scm
 	scheme-indent -T 2 < aux.kanren.micro.show.scm > aux.kanren.micro.show.scm.tmp && mv aux.kanren.micro.show.scm.tmp aux.kanren.micro.show.scm
+	scheme-indent -T 2 < aux.kanren.lambda.scm > aux.kanren.lambda.scm.tmp && mv aux.kanren.lambda.scm.tmp aux.kanren.lambda.scm
 	scheme-indent -T 2 < aux.anthropic.scm > aux.anthropic.scm.tmp && mv aux.anthropic.scm.tmp aux.anthropic.scm
 	scheme-indent -T 2 < aux.cml.scm > aux.cml.scm.tmp && mv aux.cml.scm.tmp aux.cml.scm
 	scheme-indent -T 2 < test/commons.scm > test/commons.scm.tmp && mv test/commons.scm.tmp test/commons.scm

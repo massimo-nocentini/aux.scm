@@ -1,7 +1,9 @@
 ; The dispatch of the hooks of (aux kanren micro) to a registered extension. The registry is global and an
 ; extension cannot be taken back, so this suite runs in its own process: the other suites of micro register none.
+; It also holds the case that writes the slot X, which the other suites must not: they run with (aux kanren
+; lambda) loaded too, see `make test-microkanren-with-lambda`, and its extension owns X.
 
-(import scheme (chicken base) srfi-1 (aux unittest) (aux base) (aux kanren micro))
+(import scheme (chicken base) srfi-1 (aux unittest) (aux base) (aux stream) (aux kanren micro))
 
 ; an extension with a `post` hook only: every binding to `(twin u v)` that =° makes unifies u with v too, as an
 ; extension wakes a constraint suspended on the variable bound. The bindings it adds must have their constraints
@@ -37,6 +39,40 @@
 
   ((test/extension/post/T _)
     (⊦= '() (°->list #f (fresh° (q) (fresh° (y) (absent° 'a y) (=° q (list 'twin y '(a))))))))
+
+  ; twin keeps nothing in X.
+  ((test/extension/state _)
+    ; the slot X of the extensions rides along every goal, and `μkanren-state-remove-D` drops prefixes of D by
+    ; their own content, keeping the others; `μkanren-state-no-D?` is #t of an indexed state whose P never held
+    ; a prefix, and of a raw state whose list D is empty. A raw state, whose stores are lists, comes of a copy
+    ; that replaces S, here by the same S, so that M is kept: X goes along it, and along the indexing by the next
+    ; goal that binds, and D is read and pruned as the list.
+    (define ((mark° m) s) (list (μkanren-state-with s X: m)))
+    (define ((raw° m) s) (list (μkanren-state-with s S: (μkanren-state-S s) X: m)))
+    (define ((X° out) s) (set-car! out (μkanren-state-X s)) (list s))
+    (define ((remove-D° v) s) (list (μkanren-state-remove-D (λ (d) (equal? (cdar d) v)) s)))
+    (define ((no-D?° out) s) (set-car! out (μkanren-state-no-D? s)) (list s))
+    (let ((x (list 'unset)) (none (list 'unset)) (some (list 'unset)))
+      (⊦= '((λ (α) (begin (deny (equal? α 2))) α))
+          (°->list #f (fresh° (q) (no-D?° none) (mark° '(m)) (≠° q 1) (fresh° (r) (=° r q)) (≠° q 2) (remove-D° 1)
+                              (no-D?° some) (X° x))))
+      (⊦= '(m) (car x))
+      (⊦= #t (car none))
+      (⊦= #f (car some))
+      (⊦= '() (μkanren-state-X μkanren-state-empty)))
+    (let ((x (list 'unset)) (raw-X (list 'unset)) (some (list 'unset)) (none (list 'unset)))
+      (⊦= '((λ (α) (begin (deny (equal? α 2))) α))
+          (°->list #f (fresh° (q) (≠° q 1) (≠° q 2) (raw° '(r)) (X° raw-X) (no-D?° some) (remove-D° 1)
+                              (fresh° (r) (=° r q)) (X° x))))
+      (⊦= '(r) (car raw-X))
+      (⊦= #f (car some))
+      (⊦= '(r) (car x))
+      (⊦= '((λ () 1)) (°->list #f (fresh° (q) (≠° q 1) (raw° '(r)) (remove-D° 1) (no-D?° none) (=° q 1))))
+      (⊦= #t (car none)))
+    ; a state made from outside carries the X it is given, raw and then indexed.
+    (let1 (s (make-μkanren-state 0 (μkanren-state-S μkanren-state-empty) '() '() '() '() '(k)))
+      (⊦= '(k) (μkanren-state-X s))
+      (⊦= '((k)) (map μkanren-state-X (§->list ((fresh° (q) (≠° q 1) (=° q 2)) s))))))
 
 )
 

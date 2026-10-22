@@ -73,6 +73,7 @@
   (extension aux.kanren.arith)
   (extension aux.kanren.date)
   (extension aux.kanren.micro.show)
+  (extension aux.kanren.lambda (component-dependencies aux.base aux.stream aux.fds.sbral aux.kanren.micro))
   (extension aux.kanren.unionfind (modules (aux kanren unionfind) (aux kanren unionfind reasoned)))
   (extension aux.games.dice-of-doom)
   (extension aux.anthropic)
