@@ -1300,6 +1300,72 @@ Example:
 ;; => #t
 ```
 
+### `(aux pie)`
+
+`(aux pie)` is a port of Pie, the small dependently typed language of "The
+Little Typer" by Daniel P. Friedman and David Thrane Christiansen (MIT Press
+2018), from its Racket implementation
+(https://github.com/the-little-typer/pie, commit 2c89553). It reads a
+`#lang pie` file and elaborates its claims, definitions, sameness checks and
+expressions in order. Each expression prints its normal form as it is reached,
+the TODO reports come after the last form, and the first error ends the run.
+The aim is to print what `racket FILE.pie` prints, the same bytes on stdout and
+on stderr and the same exit status, 0 or 1 after an error. The one part left out
+on purpose is the "context...:" block of Racket's error display, a stack trace
+of Racket's own installation.
+
+A file runs with the script `test/pie-run.scm`, the counterpart of
+`racket FILE.pie`:
+
+```
+$ cat double.pie
+#lang pie
+(claim double (→ Nat Nat))
+(define double
+  (λ (n)
+    (iter-Nat n 0 (λ (k) (add1 (add1 k))))))
+(double 3)
+(claim half (→ Nat Nat))
+(define half (λ (n) TODO))
+$ csi -s src/test/pie-run.scm double.pie
+(the Nat 6)
+/home/me/double.pie:8:20: TODO:
+ n : Nat
+---------
+ Nat
+
+```
+
+From Scheme, `(pie-run-file "double.pie")` does the same and answers the exit
+status instead of exiting, and `pie-main` takes a command line. The pieces of
+upstream's `main.rkt` are exported too. `pie-read-module` reads a file,
+`pie-module-begin` elaborates its forms, `pie-top-interaction` is one step of
+the REPL that Racket opens after a file, `the-pie-ctx` holds the context of the
+last file, and `norm` normalizes an expression in a context.
+
+The port follows upstream file by file. Each Racket module becomes a module
+`(aux pie NAME)` with the same names and the same order, and its comments cite
+the upstream lines as "cf. FILE.rkt:LINE". Three modules have no upstream file
+and stand in for Racket itself. `(aux pie racket)` has transparent structs,
+boxes, Racket's printer and number syntax, its exceptions and error display,
+`(aux pie syntax)` has syntax objects and Racket's reader with its error
+messages, and `(aux pie syntax-parse)` has the part of `syntax/parse` that the
+parser uses, failure reports included.
+
+`make test-pie` runs `test/pie-units.scm` (the `module+ test` blocks of
+upstream and the Racket stand-ins), `test/pie.scm` (all 121 tests of upstream's
+`tests.rkt`) and `test/pie-programs.scm`, which runs the programs of `test/pie/`
+and compares their output with what Racket 8.15 printed for them. The port was
+also tested against Racket Pie on a corpus of about 930 programs, worked
+examples, malformed syntax and generated programs, comparing stdout, stderr and
+exit status. Every program prints the same, except
+one that reaches a bug of upstream's `read-back`. There Racket stops with a
+`match*` error of `normalize.rkt` and the port with a CHICKEN error.
+
+Pie is distributed under the GNU AGPL-3.0, and so are the files of the port,
+`src/aux.pie*.scm` and `src/test/pie*`, which are derived from it; the license
+text is in `COPYING.AGPL`. The rest of aux is under the MIT license.
+
 ### `(aux lua)`
 
 `(aux lua)` binds the whole C API of Lua 5.5 (`lua.h`, `lauxlib.h`, `lualib.h`)
