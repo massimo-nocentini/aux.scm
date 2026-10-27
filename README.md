@@ -1358,9 +1358,17 @@ upstream and the Racket stand-ins), `test/pie.scm` (all 121 tests of upstream's
 and compares their output with what Racket 8.15 printed for them. The port was
 also tested against Racket Pie on a corpus of about 930 programs, worked
 examples, malformed syntax and generated programs, comparing stdout, stderr and
-exit status. Every program prints the same, except
-one that reaches a bug of upstream's `read-back`. There Racket stops with a
-`match*` error of `normalize.rkt` and the port with a CHICKEN error.
+exit status. Every program prints the same, except the five that give `cong`
+a function whose type depends on its argument.
+
+There the port departs from upstream on purpose. The book types the function
+of `cong` as `(→ X Y)`, but upstream accepts any `Π` and types `(cong p f)`
+with the codomain at the left end of `p` only, so `(f to)` is read back at the
+wrong type. Upstream then either stops inside `read-back` with a `match*`
+error of `normalize.rkt`, or prints a wrong type, such as `(= (Vec Atom 1) …)`
+for a vector of length 4. The port rejects such a function with "Expected a
+function whose type does not depend on its argument", and the programs
+`test/pie/fix-*.pie` record it.
 
 Pie is distributed under the GNU AGPL-3.0, and so are the files of the port,
 `src/aux.pie*.scm` and `src/test/pie*`, which are derived from it; the license

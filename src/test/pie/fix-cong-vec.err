@@ -1,0 +1,7 @@
+Expected a function whose type does not depend on its argument, got
+  (Π ((n Nat))
+   (Vec Atom
+     (add1 n)))
+
+  location...:
+   fix-cong-vec.pie:3:0

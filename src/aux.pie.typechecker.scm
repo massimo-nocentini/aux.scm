@@ -492,6 +492,7 @@
               (match/first (val-in-ctx Γ f-t-out)
                 (#(PI ,x ,Bv ,c)
                  (go-on ((_ (same-type Γ (src-loc e) Av Bv))
+                         (_ (non-dependent-codomain Γ (src-loc e) x Av c f-t-out))
                          (,Cv (go (val-of-closure c from-v)))
                          (,f-v (go (val-in-ctx Γ f-out))))
                    (go `(the (= ,(read-back-type Γ Cv)
@@ -827,6 +828,22 @@
           (stop where
                 `("Expected" ,(read-back-type Γ expected)
                              "but given" ,(read-back-type Γ given))))))
+
+  ;; non-dependent-codomain : Ctx Loc Symbol Value Closure Core -> (Perhaps Void), whether the codomain c of
+  ;; the function of a cong, whose type is f-t, does not depend on the argument. This check is not upstream.
+  ;; The book's rule types f as (→ X Y), but typechecker.rkt:459 accepts any Π and types (cong p f) with the
+  ;; codomain at from only, so a dependent f makes read-back see (f to) at the wrong type: with p : (= Nat 0 1)
+  ;; and f : (Π ((n Nat)) (Pick n)) it reads 0 back at Atom and fails inside normalize.rkt:569. The codomain
+  ;; is instantiated at two fresh neutrals, and its two read-backs must be α-equivalent.
+  (define (non-dependent-codomain Γ where x Av c f-t)
+    (let* ((y1 (fresh Γ x))
+           (Γ1 (bind-free Γ y1 Av))
+           (y2 (fresh Γ1 x))
+           (Γ2 (bind-free Γ1 y2 Av)))
+      (if (α-equiv? (read-back-type Γ2 (val-of-closure c (NEU Av (N-var y1))))
+                    (read-back-type Γ2 (val-of-closure c (NEU Av (N-var y2)))))
+          (go (void))
+          (stop where `("Expected a function whose type does not depend on its argument, got" ,f-t)))))
 
   ;;; ==================== Γ ⊢ c ≡ c : c ====================
 

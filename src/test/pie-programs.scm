@@ -12,6 +12,8 @@
 ;;; of the file names (err, parse, read, todo, ...), which compares every program of the group.
 ;;; The files absolute-NAME.out, .err and .status are what `racket <dir>/NAME.pie` printed when run from
 ;;; test/, the parent of the programs' directory, with the absolute path of the file.
+;;; The files fix-NAME.out, .err and .status are not Racket's but the port's: they record where the port
+;;; departs from upstream on purpose, the check that the function of a cong has a non-dependent type.
 ;;; The case test/todo-output ports test-todo-output.rkt. It runs todo-test.pie, a copy of upstream's,
 ;;; and compares what it prints with the literal string of test-todo-output.rkt:12, after the rewriting
 ;;; of locations that upstream does.
@@ -147,6 +149,10 @@
   ((test/printf _)
    ; the printf quirk of names with a tilde.
    (corpus-group "printf"))
+
+  ((test/fix _)
+   ; the deliberate departures from upstream, see non-dependent-codomain in (aux pie typechecker).
+   (corpus-group "fix"))
 
   ((test/prog _)
    ; whole programs about lists, vectors, Either, Absurd, equality and TODOs.

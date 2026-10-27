@@ -1,0 +1,9 @@
+Expected a function whose type does not depend on its argument, got
+  (Π ((n Nat))
+   (which-Nat n
+      (the U Atom)
+      (λ (k)
+        Nat)))
+
+  location...:
+   fix-cong-closed.pie:10:53

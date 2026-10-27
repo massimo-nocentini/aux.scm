@@ -1,0 +1,4 @@
+#lang pie
+;; A function whose type is written as a Π that does not depend on its argument is accepted.
+(cong (the (= Nat 2 3) TODO) (the (→ Nat Nat) (λ (n) (add1 n))))
+(cong (the (= Nat 2 2) (same 2)) (the (Π ((n Nat)) Atom) (λ (n) 'a)))

@@ -1,0 +1,10 @@
+#lang pie
+;; cong takes a function whose type does not depend on its argument, as the book's rule (→ X Y)
+;; says. Upstream Pie accepts dep here and then stops inside read-back on (ATOM ZERO).
+(claim Pick (→ Nat U))
+(define Pick (λ (n) (which-Nat n Atom (λ (k) Nat))))
+(claim dep (Π ((n Nat)) (Pick n)))
+(define dep (λ (n) (ind-Nat n Pick 'z (λ (k ih) k))))
+(claim g (→ (= Nat 0 1) Trivial))
+(define g
+  (λ (p) (car (the (Pair Trivial Trivial) (cons sole (cong p dep))))))

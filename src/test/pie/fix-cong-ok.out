@@ -1,0 +1,8 @@
+(the (= Nat 3 4)
+  (cong TODO
+    (λ (n)
+      (add1 n))))
+(the (= Atom 'a 'a)
+  (same 'a))
+<dir>/fix-cong-ok.pie:3:23: TODO: (= Nat 2 3)
+

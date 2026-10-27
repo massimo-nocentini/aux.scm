@@ -1,0 +1,4 @@
+#lang pie
+;; Upstream Pie types this cong as (= (Vec Atom 1) …), although (f 3) is a (Vec Atom 4).
+(cong (the (= Nat 0 3) TODO)
+      (the (Π ((n Nat)) (Vec Atom (add1 n))) (λ (n) (vec:: 'a TODO))))
