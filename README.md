@@ -1372,7 +1372,63 @@ function whose type does not depend on its argument", and the programs
 
 Pie is distributed under the GNU AGPL-3.0, and so are the files of the port,
 `src/aux.pie*.scm` and `src/test/pie*`, which are derived from it; the license
-text is in `COPYING.AGPL`. The rest of aux is under the MIT license.
+text is in `COPYING.AGPL`. The rest of aux is under the MIT license, except the
+port of J-Bob below.
+
+### `(aux j-bob)`
+
+`(aux j-bob)` is a port of J-Bob, the proof assistant of "The Little Prover" by
+Daniel P. Friedman and Carl Eastlund (MIT Press 2015), from its Scheme version
+(https://github.com/the-little-prover/j-bob, commit 2a4567b). J-Bob checks
+proofs about programs written in a small Lisp of total functions: a proof is a
+claim and a list of rewriting steps, and J-Bob accepts it when the steps rewrite
+the claim to `'t`. It searches for nothing itself. A `defun` comes with a
+measure, and J-Bob first proves that the function terminates; a `dethm` may
+come with an induction scheme taken from a recursive function.
+
+Each upstream file is one module, with upstream's text unchanged as its body:
+
+- `(aux j-bob lang)` is `j-bob-lang.scm`, the language: `car`, `cdr`, `+` and
+  `<` made total, `atom`, `equal` and `natp` answering the symbols `t` and
+  `nil`, an `if` whose question is false only when it is `nil`, and `defun`
+  and `dethm`, which both become `define`;
+- `(aux j-bob)` is `j-bob.scm`, the checker, with its 128 functions exported:
+  the entry points `J-Bob/step`, `J-Bob/prove` and `J-Bob/define`, the 21
+  axioms in `(axioms)` and the `(prelude)` that adds `list-induction` and
+  `star-induction`, and the helpers that proof scripts use;
+- `(aux j-bob little-prover)` is `little-prover.scm`, the transcript of the
+  book: `(dethm.align/align)` checks every proof of the book and answers the 60
+  definitions it ends with.
+
+```scheme
+(import (aux j-bob))
+
+(J-Bob/prove (prelude)
+  '(((dethm car-pair (a b) (equal (car (cons a b)) a)) nil
+     ((1) (car/cons a b))
+     (() (equal-same a)))))
+;; => (quote t)
+```
+
+J-Bob/step answers the claim unchanged, J-Bob/prove `'nil` and J-Bob/define
+the definitions unchanged when their input is ill-formed, and none of them
+signals an error. To write in J-Bob's language, import `(aux j-bob lang)` in
+place of the five names of `scheme` that it redefines,
+`(import (except scheme if car cdr + <) (aux j-bob lang))`, or with a prefix.
+
+The port keeps two holes of upstream, each of which proves `(equal 't 'nil)`.
+`undefined?` does not reserve the names of the primitives, so a `defun` named
+`atom` or `car` is admitted. Quoted floating-point constants reach the host's
+`+`, where the axiom `associate-+` is false. `make test-j-bob` runs
+`test/j-bob.scm`, which compares what every function of the transcript answers
+with what it answered upstream (`test/j-bob/little-prover.scm`), and records
+the two holes. The tutorial "Theorems About Programs, Read Through J-Bob" runs
+its 112 examples on upstream's files; all of them print the same on the port,
+except one error message that names the procedure `+` as `aux.j-bob.lang#+`.
+
+J-Bob is distributed under the 2-clause BSD license, and so are the files of
+the port, `src/aux.j-bob*.scm` and `src/test/j-bob*`; the license text is in
+`COPYING.J-BOB`.
 
 ### `(aux lua)`
 
