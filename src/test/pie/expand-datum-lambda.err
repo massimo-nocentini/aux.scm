@@ -1,0 +1,5 @@
+expand-datum-lambda.pie:3:45: ?: literal data is not allowed;
+ no #%datum syntax transformer is bound
+  at: 2
+  location...:
+   expand-datum-lambda.pie:3:45

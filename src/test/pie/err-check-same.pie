@@ -1,0 +1,2 @@
+#lang pie
+(check-same (-> Nat Nat) (λ (x) x) (λ (x) (add1 x)))

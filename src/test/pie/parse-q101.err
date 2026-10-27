@@ -1,0 +1,12 @@
+<dir>/parse-q101.pie:2:0: claim: expected valid Pie name
+  at: zero
+  in: (claim zero (Pi ((aaaaaaaaaaaaaaaaaaaa Nat) (bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb Nat) (cccccccccccccccccccccccccccccccc Nat) (dddddddddddddddddddddddddddddddddddd Nat) (eeeeeeeeeeeeeeeeeeeeeeeeeeee Nat) (ffffffffffffffffffffffffffffffffff Nat)) Nat))
+  parsing context: 
+   while parsing name
+    term: zero
+    location: <dir>/parse-q101.pie:2:7
+   while parsing claim
+    term: (claim zero (Pi ((aaaaaaaaaaaaaaaaaaaa Nat) (bb...
+    location: <dir>/parse-q101.pie:2:0
+  location...:
+   parse-q101.pie:2:7

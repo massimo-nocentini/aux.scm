@@ -1,0 +1,4 @@
+<dir>/read-x4.pie:2:9: ?: bad syntax
+  in: 1+2i
+  location...:
+   read-x4.pie:2:9

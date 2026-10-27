@@ -1,0 +1,9 @@
+<dir>/parse-q11.pie:2:0: Π: expected valid Pie name
+  at: zero
+  in: (Π ((zero Nat)) Nat)
+  parsing context: 
+   while parsing argument names and types
+    term: ((zero Nat))
+    location: <dir>/parse-q11.pie:2:3
+  location...:
+   parse-q11.pie:2:5

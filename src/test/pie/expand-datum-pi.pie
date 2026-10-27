@@ -1,0 +1,2 @@
+#lang pie
+(claim f (Π ((y (Vec Atom 2)) (#%datum Nat)) (Vec Atom 1)))

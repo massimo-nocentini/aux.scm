@@ -1,0 +1,6 @@
+#lang pie
+(claim x Nat)
+(define x TODO)
+(the Nat TODO)
+(claim f (-> Nat Nat))
+(define f (lambda (n) TODO))

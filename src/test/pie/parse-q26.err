@@ -1,0 +1,6 @@
+<dir>/parse-q26.pie:2:0: ->: expected more terms starting with any term
+  at: ()
+  within: (-> Nat)
+  in: (-> Nat)
+  location...:
+   parse-q26.pie:2:0

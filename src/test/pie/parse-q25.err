@@ -1,0 +1,5 @@
+<dir>/parse-q25.pie:2:0: quote: expected identifier
+  at: (a)
+  in: (quote (a))
+  location...:
+   parse-q25.pie:2:1

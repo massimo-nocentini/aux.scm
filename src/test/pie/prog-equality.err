@@ -1,0 +1,15 @@
+The expressions
+  (λ (n)
+    (iter-Nat n
+       (the Nat 1)
+       (λ (m)
+         (add1 m))))
+and
+  (λ (m)
+    (add1 m))
+are not the same
+  (→ Nat
+    Nat)
+
+  location...:
+   prog-equality.pie:28:0

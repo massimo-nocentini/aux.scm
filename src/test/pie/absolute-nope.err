@@ -1,0 +1,4 @@
+open-input-file: cannot open module file
+  module path: #<path:<dir>/nope.pie>
+  path: <dir>/nope.pie
+  system error: no such file or directory; rkt_err=3

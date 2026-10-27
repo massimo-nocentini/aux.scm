@@ -1,0 +1,15 @@
+<dir>/parse-p5.pie:2:0: define: expected identifier
+  at: 5
+  in: (define 5 3)
+  parsing context: 
+   while parsing valid Pie name
+    term: 5
+    location: <dir>/parse-p5.pie:2:8
+   while parsing name
+    term: 5
+    location: <dir>/parse-p5.pie:2:8
+   while parsing definition
+    term: (define 5 3)
+    location: <dir>/parse-p5.pie:2:0
+  location...:
+   parse-p5.pie:2:8

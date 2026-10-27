@@ -1,0 +1,12 @@
+<dir>/parse-q17.pie:2:0: claim: expected valid Pie name
+  at: zero
+  in: (claim zero Nat)
+  parsing context: 
+   while parsing name
+    term: zero
+    location: <dir>/parse-q17.pie:2:7
+   while parsing claim
+    term: (claim zero Nat)
+    location: <dir>/parse-q17.pie:2:0
+  location...:
+   parse-q17.pie:2:7

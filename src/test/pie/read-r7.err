@@ -1,0 +1,2 @@
+default-load-handler: expected a `module' declaration, but found something else
+  file: <dir>/read-r7.pie

@@ -1,0 +1,10 @@
+<dir>/parse-p14.pie:2:0: foo: expected more terms starting with first argument
+  at: ()
+  within: (foo)
+  in: (foo)
+  parsing context: 
+   while parsing function application
+    term: (foo)
+    location: <dir>/parse-p14.pie:2:0
+  location...:
+   parse-p14.pie:2:0

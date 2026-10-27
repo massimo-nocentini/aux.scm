@@ -1,0 +1,13 @@
+<dir>/quirk-pi4.pie:2:31: TODO:
+ x : Nat
+ y : Nat
+---------
+ U
+
+
+<dir>/quirk-pi4.pie:3:26: TODO:
+ x : Nat
+---------
+ U
+
+

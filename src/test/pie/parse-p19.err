@@ -1,0 +1,10 @@
+<dir>/parse-p19.pie:2:0: check-same: expected more terms
+  at: ()
+  within: (check-same Nat 1)
+  in: (check-same Nat 1)
+  parsing context: 
+   while parsing sameness check
+    term: (check-same Nat 1)
+    location: <dir>/parse-p19.pie:2:0
+  location...:
+   parse-p19.pie:2:0

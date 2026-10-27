@@ -1,0 +1,7 @@
+Expected
+  (Either A C)
+but given
+  (Either A B)
+
+  location...:
+   err-long.pie:3:36

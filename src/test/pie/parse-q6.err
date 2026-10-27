@@ -1,0 +1,5 @@
+<dir>/parse-q6.pie:2:0: λ: expected more terms starting with argument name
+  at: ()
+  in: (λ () x)
+  location...:
+   parse-q6.pie:2:3

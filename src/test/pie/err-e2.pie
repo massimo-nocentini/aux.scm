@@ -1,0 +1,2 @@
+#lang pie
+(check-same Nat 1 2)

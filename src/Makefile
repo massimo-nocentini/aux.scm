@@ -4,7 +4,7 @@ CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
         test-microkanren-date test-microkanren-lambda test-microkanren-with-lambda test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
-        timsort-fetch foreigns-fetch json-bench bitcoin-colors
+        timsort-fetch foreigns-fetch json-bench bitcoin-colors test-pie
 
 echo:
 	echo "Catch all for the Makefile"
@@ -76,6 +76,15 @@ test:
 	cd test && ${CSI} -s microkanren-unionfind.scm
 	cd test && ${CSI} -s games.dice-of-doom.scm
 	cd test && ${CSI} -s sxml.scm
+	cd test && ${CSI} -s pie-units.scm
+	cd test && ${CSI} -s pie.scm
+	cd test && ${CSI} -s pie-programs.scm
+
+# The tests of (aux pie), the module+ tests of upstream, tests.rkt, and whole programs against Racket Pie's output.
+test-pie:
+	cd test && ${CSI} -s pie-units.scm
+	cd test && ${CSI} -s pie.scm
+	cd test && ${CSI} -s pie-programs.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm

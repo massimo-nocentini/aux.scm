@@ -1,0 +1,12 @@
+<dir>/todo-holes3.pie:3:26: TODO:
+ a : Atom
+ n : Nat
+ m : Nat
+--------------------
+ (Vec Atom
+   (iter-Nat n
+      (the Nat m)
+      (λ (k)
+        (add1 k))))
+
+

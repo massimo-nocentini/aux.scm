@@ -1,0 +1,6 @@
+<dir>/parse-q12.pie:2:0: Π: expected more terms starting with result type
+  at: ()
+  within: (Π ((x Nat)))
+  in: (Π ((x Nat)))
+  location...:
+   parse-q12.pie:2:0

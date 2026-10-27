@@ -1,0 +1,3 @@
+#lang pie
+(claim x Nat)
+(define x 'foo)

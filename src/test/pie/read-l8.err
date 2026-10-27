@@ -1,0 +1,2 @@
+default-load-handler: expected a `module' declaration, but found something else
+  file: <dir>/read-l8.pie

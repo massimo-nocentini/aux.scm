@@ -1,0 +1,10 @@
+<dir>/parse-q18.pie:2:0: define: expected more terms starting with definiens
+  at: ()
+  within: (define x)
+  in: (define x)
+  parsing context: 
+   while parsing definition
+    term: (define x)
+    location: <dir>/parse-q18.pie:2:0
+  location...:
+   parse-q18.pie:2:0

@@ -1,0 +1,4 @@
+<dir>/parse-q2.pie:2:0: add1: bad syntax
+  in: (add1 . 1)
+  location...:
+   parse-q2.pie:2:0

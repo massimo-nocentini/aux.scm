@@ -1,0 +1,5 @@
+#lang pie
+(the Nat TODO)
+(claim f Nat)
+(define f TODO)
+(+ 1 1)

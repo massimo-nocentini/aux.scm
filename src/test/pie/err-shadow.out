@@ -1,0 +1,25 @@
+(the (→ Nat Nat
+       Nat)
+  (λ (x y)
+    x))
+(the (→ Nat Nat
+       Nat)
+  (λ (x x₁)
+    x₁))
+(the U
+  (Π ((x Nat))
+   (→ Nat
+     (= Nat x x))))
+(the (→ Nat
+       Nat)
+  (λ (x₁)
+    x₁))
+(the (Π ((y Nat))
+      (= Nat 4 y))
+  (λ (y)
+    (TODO y)))
+<dir>/err-shadow.pie:8:31: TODO: 
+ (Π ((y Nat))
+  (= Nat 4 y))
+
+

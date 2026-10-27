@@ -1,0 +1,2 @@
+#lang pie
+(which-Nat 1 2)

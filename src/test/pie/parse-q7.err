@@ -1,0 +1,12 @@
+<dir>/parse-q7.pie:2:0: λ: expected identifier
+  at: 1
+  in: (λ (x 1) x)
+  parsing context: 
+   while parsing valid Pie name
+    term: 1
+    location: <dir>/parse-q7.pie:2:6
+   while parsing argument name
+    term: 1
+    location: <dir>/parse-q7.pie:2:6
+  location...:
+   parse-q7.pie:2:6

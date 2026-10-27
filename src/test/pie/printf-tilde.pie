@@ -1,0 +1,6 @@
+#lang pie
+(the U (Π ((a~b Nat)) (= Nat a~b a~b)))
+(the U (Π ((a~n Nat)) (= Nat a~n a~n)))
+(the U (Σ ((a~a Nat)) Nat))
+(claim f (-> Nat Nat Nat Nat))
+(the (-> Nat Nat) (λ (x) (f x x x)))

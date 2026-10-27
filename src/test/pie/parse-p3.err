@@ -1,0 +1,10 @@
+<dir>/parse-p3.pie:2:0: claim: expected more terms starting with name
+  at: ()
+  within: (claim)
+  in: (claim)
+  parsing context: 
+   while parsing claim
+    term: (claim)
+    location: <dir>/parse-p3.pie:2:0
+  location...:
+   parse-p3.pie:2:0

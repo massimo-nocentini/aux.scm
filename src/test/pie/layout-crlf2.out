@@ -1,0 +1,9 @@
+(the Nat TODO)
+<dir>/layout-crlf2.pie:7:10: TODO:
+ n : Nat
+---------
+ Nat
+
+
+<dir>/layout-crlf2.pie:8:9: TODO: Nat
+

@@ -1,0 +1,11 @@
+(the Nat TODO)
+<dir>/todo-holes1.pie:3:10: TODO: Nat
+
+<dir>/todo-holes1.pie:4:9: TODO: Nat
+
+<dir>/todo-holes1.pie:6:22: TODO:
+ n : Nat
+---------
+ Nat
+
+

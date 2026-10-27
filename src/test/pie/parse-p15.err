@@ -1,0 +1,9 @@
+<dir>/parse-p15.pie:2:0: Π: expected more terms
+  at: ()
+  in: (Π () Nat)
+  parsing context: 
+   while parsing argument names and types
+    term: ()
+    location: <dir>/parse-p15.pie:2:3
+  location...:
+   parse-p15.pie:2:3

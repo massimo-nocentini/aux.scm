@@ -1,0 +1,3 @@
+default-load-handler: expected a `module' declaration;
+ found end-of-file
+  in: #<path:<dir>/read-l5.pie>

@@ -1,0 +1,4 @@
+#lang pie
+(claim n Nat)
+(define n 3)
+(claim n Atom)

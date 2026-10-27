@@ -1,0 +1,9 @@
+<dir>/parse-q10.pie:2:0: Π: unexpected term
+  at: Nat
+  in: (Π ((x Nat Nat)) Nat)
+  parsing context: 
+   while parsing argument names and types
+    term: ((x Nat Nat))
+    location: <dir>/parse-q10.pie:2:3
+  location...:
+   parse-q10.pie:2:11

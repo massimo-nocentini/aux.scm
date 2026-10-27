@@ -1,0 +1,6 @@
+#lang pie
+(claim internal-claim-binding-y Nat)
+(define internal-claim-binding-y 1)
+(claim y Nat)
+(define y TODO)
+internal-claim-binding-y

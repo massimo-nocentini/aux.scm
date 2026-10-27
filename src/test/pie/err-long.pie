@@ -1,0 +1,3 @@
+#lang pie
+(claim long (Π ((A U) (B U) (C U) (D U)) (-> (Either A B) (Either C D) (Pair (Either A C) (Pair (Either B D) (Vec (Either A D) 3))))))
+(define long (λ (A B C D x y) (cons x y)))

@@ -1,0 +1,45 @@
+(the (→ (→ Nat
+           Nat)
+         (→ Atom
+           Nat)
+       (Π ((x Nat))
+        (→ (= Nat x x)
+          Nat)))
+  (λ (f g x p)
+    (f x)))
+(the (Π ((E U)
+         (n Nat))
+      (→ (Vec E n)
+          (List E)
+        (List E)))
+  (λ (E n v l)
+    (ind-Vec n v
+       (λ (k w)
+         (List E))
+       l
+       (λ (k h t acc)
+         (:: h acc)))))
+(the (Π ((E U))
+      (→ (List E)
+        Nat))
+  (λ (E l)
+    (rec-List l
+       (the Nat 0)
+       (λ (h t a)
+         (add1 a)))))
+(the (Π ((A U))
+      (→ A
+        (Π ((B U))
+         (→ B
+           (Pair A B)))))
+  (λ (A a B b)
+    (cons a b)))
+(the (→ (→ Nat
+           Nat)
+         Nat
+       Nat)
+  (λ (f n)
+    (which-Nat n
+       (the Nat 0)
+       (λ (k)
+         (f k)))))

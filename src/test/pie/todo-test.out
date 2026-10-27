@@ -1,0 +1,23 @@
+<dir>/todo-test.pie:10:15: TODO:
+           n : Nat
+         n-1 : Nat
+ peas-of-n-1 : (Vec Atom n-1)
+------------------------------
+ Atom
+
+
+<dir>/todo-test.pie:10:20: TODO:
+           n : Nat
+         n-1 : Nat
+ peas-of-n-1 : (Vec Atom n-1)
+------------------------------
+ (Vec Atom n-1)
+
+
+<dir>/todo-test.pie:13:17: TODO: Nat
+
+<dir>/todo-test.pie:15:19: TODO: 
+ (Π ((n Nat))
+  (Vec Atom n))
+
+

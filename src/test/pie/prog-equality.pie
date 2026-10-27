@@ -1,0 +1,28 @@
+#lang pie
+(claim + (-> Nat Nat Nat))
+(define + (λ (n m) (iter-Nat n m (λ (k) (add1 k)))))
+(claim incr (-> Nat Nat))
+(define incr (λ (n) (iter-Nat n 1 (+ 1))))
+(claim +1=add1 (Π ((n Nat)) (= Nat (+ 1 n) (add1 n))))
+(define +1=add1 (λ (n) (same (add1 n))))
++1=add1
+(claim incr=add1 (Π ((n Nat)) (= Nat (incr n) (add1 n))))
+(define incr=add1
+  (λ (n)
+    (ind-Nat n
+      (λ (k) (= Nat (incr k) (add1 k)))
+      (same 1)
+      (λ (n-1 ih) (cong ih (+ 1))))))
+incr=add1
+(claim sym-test (Π ((a Nat) (b Nat)) (-> (= Nat a b) (= Nat b a))))
+(define sym-test (λ (a b p) (symm p)))
+sym-test
+(claim tr (Π ((a Nat) (b Nat) (c Nat)) (-> (= Nat a b) (= Nat b c) (= Nat a c))))
+(define tr (λ (a b c p q) (trans p q)))
+tr
+(claim rp (Π ((P (-> Nat U)) (a Nat) (b Nat)) (-> (= Nat a b) (P a) (P b))))
+(define rp (λ (P a b eq pa) (replace eq (λ (x) (P x)) pa)))
+rp
+(the (Π ((x Nat) (p (= Nat x x))) (= (= Nat x x) p p)) (λ (x p) (same p)))
+(check-same (Π ((n Nat)) (= Nat (+ 1 n) (add1 n))) +1=add1 (λ (n) (same (add1 n))))
+(check-same (-> Nat Nat) incr (+ 1))

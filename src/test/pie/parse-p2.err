@@ -1,0 +1,9 @@
+<dir>/parse-p2.pie:2:0: λ: expected valid Pie name
+  at: zero
+  in: (λ (zero) zero)
+  parsing context: 
+   while parsing argument name
+    term: zero
+    location: <dir>/parse-p2.pie:2:4
+  location...:
+   parse-p2.pie:2:4

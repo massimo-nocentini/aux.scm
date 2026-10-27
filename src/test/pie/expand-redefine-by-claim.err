@@ -1,0 +1,5 @@
+expand-redefine-by-claim.pie:4:7: module: identifier already defined
+  at: internal-claim-binding-y
+  in: (define-values (internal-claim-binding-y) (void kw:claim (pie->binders Nat)))
+  location...:
+   expand-redefine-by-claim.pie:4:7

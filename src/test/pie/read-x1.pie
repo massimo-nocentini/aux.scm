@@ -1,0 +1,2 @@
+#lang pie
+(the Nat (1 . add1 . 2))

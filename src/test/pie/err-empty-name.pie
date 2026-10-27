@@ -1,0 +1,2 @@
+#lang pie
+(the (→ Nat Nat Nat) (λ (|| ||) ||))

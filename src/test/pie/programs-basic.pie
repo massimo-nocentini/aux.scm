@@ -1,0 +1,28 @@
+#lang pie
+(claim + (-> Nat Nat Nat))
+(define +
+  (λ (n j)
+    (iter-Nat n j (λ (x) (add1 x)))))
+(+ 2 3)
+(the (-> Nat Nat) (λ (x) (+ x 2)))
+(claim peas (Pi ((n Nat)) (Vec Atom n)))
+(define peas
+  (λ (n)
+    (ind-Nat n
+      (lambda (k) (Vec Atom k))
+      vecnil
+      (λ (n-1 peas-of-n-1)
+        (vec:: 'pea peas-of-n-1)))))
+peas
+(peas 3)
+'foo
+(the Atom 'zz)
+(the (Pair Atom Atom) (cons 'a 'b))
+(check-same Nat 5 (+ 2 3))
+Nat
+U
+(-> Nat Nat Nat)
+(the (Σ ((x Nat)) (= Nat x x)) (cons 2 (same 2)))
+(claim f (-> Nat TODO))
+(the (-> (List Nat) Nat) (λ (xs) (rec-List xs 0 (λ (e es ih) (+ e ih)))))
+(the (-> (List Nat) Nat) (λ (xs) (ind-List xs (λ (xs) Nat) 0 (λ (e es ih) (+ e ih)))))

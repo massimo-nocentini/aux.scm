@@ -1,0 +1,4 @@
+#lang pie
+(claim f (→ Nat Nat))
+(define f (λ (x) (which-Nat x 1 (λ (#%datum) 2))))
+(f 0)

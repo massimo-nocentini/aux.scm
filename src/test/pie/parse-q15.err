@@ -1,0 +1,5 @@
+<dir>/parse-q15.pie:2:0: ind-=: unexpected term
+  at: 4
+  in: (ind-= 1 2 3 4)
+  location...:
+   parse-q15.pie:2:13

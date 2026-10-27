@@ -1,0 +1,10 @@
+<dir>/parse-d2.pie:2:0: check-same: expected more terms
+  at: ()
+  within: (check-same)
+  in: (check-same)
+  parsing context: 
+   while parsing sameness check
+    term: (check-same)
+    location: <dir>/parse-d2.pie:2:0
+  location...:
+   parse-d2.pie:2:0

@@ -1,0 +1,8 @@
+(the U
+  (Π (((Π ((a~b Nat)) (= Nat a~b a~b)))
+(the U
+  (Π ((a
+ Nat))
+   (= Nat a~n a~n)))
+(the U
+  (Pair Nat Nat))

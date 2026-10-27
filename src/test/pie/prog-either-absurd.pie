@@ -1,0 +1,18 @@
+#lang pie
+(claim swap (Π ((A U) (B U)) (-> (Either A B) (Either B A))))
+(define swap (λ (A B e) (ind-Either e (λ (x) (Either B A)) (λ (l) (right l)) (λ (r) (left r)))))
+swap
+(swap Nat Atom (left 3))
+(claim ex-falso (Π ((A U)) (-> Absurd A)))
+(define ex-falso (λ (A f) (ind-Absurd f A)))
+ex-falso
+(the (-> Absurd Absurd) (λ (x) x))
+(the (-> Trivial (Pair Trivial Trivial)) (λ (x) (cons x x)))
+(the (Pair Nat (Σ ((x Nat)) (= Nat x 2))) (cons 1 (cons 2 (same 2))))
+(car (the (Pair Nat Atom) (cons 1 'a)))
+(cdr (the (Pair Nat Atom) (cons 1 'a)))
+(which-Nat 5 'z (λ (n) 'nz))
+(rec-Nat 3 0 (λ (n-1 ih) (add1 (add1 ih))))
+(the (-> Nat Nat) (λ (n) (rec-Nat n 0 (λ (n-1 ih) (add1 (add1 ih))))))
+(the (-> Nat Atom) (λ (n) (which-Nat n 'z (λ (n) 'nz))))
+(the (-> (Pair Nat Nat) Nat) (λ (p) (car p)))

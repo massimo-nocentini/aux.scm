@@ -1,0 +1,6 @@
+<dir>/parse-p1.pie:2:0: add1: expected more terms starting with any term
+  at: ()
+  within: (add1)
+  in: (add1)
+  location...:
+   parse-p1.pie:2:0

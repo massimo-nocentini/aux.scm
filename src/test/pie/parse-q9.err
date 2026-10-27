@@ -1,0 +1,10 @@
+<dir>/parse-q9.pie:2:0: Π: expected more terms starting with any term
+  at: ()
+  within: (x)
+  in: (Π ((x)) Nat)
+  parsing context: 
+   while parsing argument names and types
+    term: ((x))
+    location: <dir>/parse-q9.pie:2:3
+  location...:
+   parse-q9.pie:2:4

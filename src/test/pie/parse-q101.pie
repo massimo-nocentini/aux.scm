@@ -1,0 +1,2 @@
+#lang pie
+(claim zero (Pi ((aaaaaaaaaaaaaaaaaaaa Nat) (bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb Nat) (cccccccccccccccccccccccccccccccc Nat) (dddddddddddddddddddddddddddddddddddd Nat) (eeeeeeeeeeeeeeeeeeeeeeeeeeee Nat) (ffffffffffffffffffffffffffffffffff Nat)) Nat))

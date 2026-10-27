@@ -1,0 +1,11 @@
+(the (→ Nat
+       Nat)
+  (λ (#%datum)
+    TODO))
+(the Nat 5)
+<dir>/expand-datum-scope.pie:2:30: TODO:
+ #%datum : Nat
+---------------
+ Nat
+
+

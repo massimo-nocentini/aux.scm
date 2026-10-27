@@ -1,0 +1,5 @@
+<dir>/parse-q8.pie:2:0: Π: expected argument names and types
+  at: (x Nat)
+  in: (Π (x Nat) Nat)
+  location...:
+   parse-q8.pie:2:3

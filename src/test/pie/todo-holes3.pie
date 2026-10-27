@@ -1,0 +1,3 @@
+#lang pie
+(claim y (Pi ((a Atom) (n Nat)) (Pi ((m Nat)) (Vec Atom (iter-Nat n m (lambda (k) (add1 k)))))))
+(define y (lambda (a n m) TODO))

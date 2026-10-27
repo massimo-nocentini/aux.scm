@@ -1,0 +1,6 @@
+#lang pie
+(claim x Nat)
+(define x 3)
+(claim y Nat)
+(claim internal-claim-binding-y Nat)
+(define internal-claim-binding-y 1)

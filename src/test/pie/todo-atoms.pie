@@ -1,0 +1,5 @@
+#lang pie
+(claim f (Π ((p (= Atom (quote a) (quote a)))) Nat))
+(define f (λ (p) TODO))
+(the Atom (quote b))
+(the (= Atom (quote a) (quote a)) (same (quote a)))

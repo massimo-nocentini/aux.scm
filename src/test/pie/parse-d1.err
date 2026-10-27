@@ -1,0 +1,10 @@
+<dir>/parse-d1.pie:2:0: check-same: expected more terms
+  at: ()
+  within: (check-same Nat)
+  in: (check-same Nat)
+  parsing context: 
+   while parsing sameness check
+    term: (check-same Nat)
+    location: <dir>/parse-d1.pie:2:0
+  location...:
+   parse-d1.pie:2:0

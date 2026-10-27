@@ -1,0 +1,5 @@
+<dir>/parse-p16.pie:2:0: quote: expected identifier
+  at: 5
+  in: (quote 5)
+  location...:
+   parse-p16.pie:2:7

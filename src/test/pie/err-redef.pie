@@ -1,0 +1,4 @@
+#lang pie
+(claim f Nat)
+(define f 3)
+(define f 4)

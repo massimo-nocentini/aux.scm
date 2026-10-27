@@ -1,0 +1,5 @@
+<dir>/parse-d4.pie:2:9: ?: expected function application
+  at: (1 . 2)
+  in: (1 . 2)
+  location...:
+   parse-d4.pie:2:9

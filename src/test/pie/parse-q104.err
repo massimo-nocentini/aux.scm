@@ -1,0 +1,4 @@
+<dir>/parse-q104.pie:2:5: ?: bad syntax
+  in: "x"
+  location...:
+   parse-q104.pie:2:5

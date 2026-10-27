@@ -1,0 +1,5 @@
+expand-datum-define.pie:3:19: ?: literal data is not allowed;
+ no #%datum syntax transformer is bound
+  at: 3
+  location...:
+   expand-datum-define.pie:3:19

@@ -1,0 +1,2 @@
+#lang pie
+(the (-> (Vec Atom 0) Atom) (λ (v) (head v)))

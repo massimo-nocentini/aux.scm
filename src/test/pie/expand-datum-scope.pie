@@ -1,0 +1,3 @@
+#lang pie
+(the (→ Nat Nat) (λ (#%datum) TODO))
+(the Nat 5)

@@ -1,0 +1,6 @@
+string-ref: contract violation
+  expected: exact-nonnegative-integer?
+  given: -1
+  argument position: 2nd
+  first argument...:
+   ""

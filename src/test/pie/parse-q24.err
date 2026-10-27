@@ -1,0 +1,5 @@
+<dir>/parse-q24.pie:2:0: quote: unexpected term
+  at: b
+  in: (quote a b)
+  location...:
+   parse-q24.pie:2:9

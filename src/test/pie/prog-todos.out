@@ -1,0 +1,62 @@
+(the Nat TODO)
+<dir>/prog-todos.pie:3:29: TODO:
+ A : U
+ B : U
+ a : A
+ b : B
+-------
+ A
+
+
+<dir>/prog-todos.pie:5:39: TODO:
+ n : Nat
+---------
+ Nat
+
+
+<dir>/prog-todos.pie:5:52: TODO:
+ n : Nat
+ k : Nat
+---------
+ Nat
+
+
+<dir>/prog-todos.pie:7:10: TODO: 
+ (Π ((n Nat))
+  (= Nat n n))
+
+
+<dir>/prog-todos.pie:8:9: TODO: Nat
+
+<dir>/prog-todos.pie:10:13: TODO: 
+ (Π ((A U)
+     (B U)
+     (C U)
+     (D U))
+  (→ (Either A B)
+      (Either C D)
+    (Pair (Either A C)
+      (Pair (Either B D)
+        (Vec (Either A D)
+          3)))))
+
+
+<dir>/prog-todos.pie:12:62: TODO:
+ xs : (List Atom)
+------------------
+ (= (List Atom)
+   nil
+   nil)
+
+
+<dir>/prog-todos.pie:12:80: TODO:
+ xs : (List Atom)
+  e : Atom
+ es : (List Atom)
+ ih : (= (List Atom) es es)
+----------------------------
+ (= (List Atom)
+   (:: e es)
+   (:: e es))
+
+

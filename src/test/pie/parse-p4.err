@@ -1,0 +1,10 @@
+<dir>/parse-p4.pie:2:0: claim: expected more terms starting with type
+  at: ()
+  within: (claim x)
+  in: (claim x)
+  parsing context: 
+   while parsing claim
+    term: (claim x)
+    location: <dir>/parse-p4.pie:2:0
+  location...:
+   parse-p4.pie:2:0

@@ -1,0 +1,7 @@
+Expected
+  (Vec A n)
+but given
+  (Vec A 0)
+
+  location...:
+   err-e3.pie:3:19

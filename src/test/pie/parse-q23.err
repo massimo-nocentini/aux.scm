@@ -1,0 +1,6 @@
+<dir>/parse-q23.pie:2:0: quote: expected more terms starting with identifier
+  at: ()
+  within: (quote)
+  in: (quote)
+  location...:
+   parse-q23.pie:2:0

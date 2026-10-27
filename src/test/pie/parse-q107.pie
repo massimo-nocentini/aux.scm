@@ -1,0 +1,2 @@
+#lang pie
+(the (Vec Atom 2) (vec:: 'a vecnil))

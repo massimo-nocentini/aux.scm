@@ -1,0 +1,12 @@
+#lang pie
+(claim f (Π ((A U) (B U) (a-very-long-name A)) (-> B (Pair A B))))
+(define f (λ (A B a b) (cons TODO b)))
+(claim g (-> Nat Nat))
+(define g (λ (n) (which-Nat n (the Nat TODO) (λ (k) TODO))))
+(claim h (Π ((n Nat)) (= Nat n n)))
+(define h TODO)
+(the Nat TODO)
+(claim long (Π ((A U) (B U) (C U) (D U)) (-> (Either A B) (Either C D) (Pair (Either A C) (Pair (Either B D) (Vec (Either A D) 3))))))
+(define long TODO)
+(claim k (Π ((xs (List Atom))) (= (List Atom) xs xs)))
+(define k (λ (xs) (ind-List xs (λ (ys) (= (List Atom) ys ys)) TODO (λ (e es ih) TODO))))

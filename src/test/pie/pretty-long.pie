@@ -1,0 +1,18 @@
+#lang pie
+(claim step (-> (-> Nat Nat) (-> Atom Nat) (Pi ((x Nat)) (-> (= Nat x x) Nat))))
+(define step (lambda (f g x p) (f x)))
+step
+(claim F (Pi ((E U) (n Nat)) (-> (Vec E n) (List E) (List E))))
+(define F (lambda (E n v l) (ind-Vec n v (lambda (k w) (List E)) l (lambda (k h t acc) (:: h acc)))))
+F
+(claim G (Pi ((E U)) (-> (List E) Nat)))
+(define G (lambda (E l) (rec-List l 0 (lambda (h t a) (add1 a)))))
+G
+(claim K (Pi ((A U)) (-> A (Pi ((B U)) (-> B (Pair A B))))))
+(define K (lambda (A a B b) (cons a b)))
+K
+(the (-> (-> Nat Nat) (-> Nat Nat)) (lambda (f) (lambda (n) (which-Nat n 0 (lambda (k) (f k))))))
+(claim many (-> Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom))
+many
+(claim m2 (-> Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom Atom))
+(the Atom (m2 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a 'a))

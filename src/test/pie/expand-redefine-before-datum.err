@@ -1,0 +1,5 @@
+expand-redefine-before-datum.pie:5:8: module: identifier already defined
+  at: internal-claim-binding-x
+  in: (define-values (internal-claim-binding-x) (void kw:define internal-claim-binding-internal-claim-binding-x (pie->binders 4)))
+  location...:
+   expand-redefine-before-datum.pie:5:8

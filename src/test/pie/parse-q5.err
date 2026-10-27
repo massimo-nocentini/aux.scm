@@ -1,0 +1,4 @@
+<dir>/parse-q5.pie:2:0: λ: bad syntax
+  in: (λ x x)
+  location...:
+   parse-q5.pie:2:0

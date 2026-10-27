@@ -1,0 +1,5 @@
+#lang pie
+(claim x Nat)
+(define x (the Nat 3))
+(claim #%datum Nat)
+(define #%datum zero)

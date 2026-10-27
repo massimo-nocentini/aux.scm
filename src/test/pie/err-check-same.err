@@ -1,0 +1,12 @@
+The expressions
+  (λ (x)
+    x)
+and
+  (λ (x)
+    (add1 x))
+are not the same
+  (→ Nat
+    Nat)
+
+  location...:
+   err-check-same.pie:2:0

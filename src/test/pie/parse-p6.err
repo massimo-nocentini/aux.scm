@@ -1,0 +1,5 @@
+<dir>/parse-p6.pie:2:0: add1: unexpected term
+  at: 2
+  in: (add1 1 2)
+  location...:
+   parse-p6.pie:2:8

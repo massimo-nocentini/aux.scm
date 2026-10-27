@@ -1,0 +1,9 @@
+<dir>/parse-q19.pie:2:0: check-same: unexpected term
+  at: 3
+  in: (check-same Nat 1 2 3)
+  parsing context: 
+   while parsing sameness check
+    term: (check-same Nat 1 2 3)
+    location: <dir>/parse-q19.pie:2:0
+  location...:
+   parse-q19.pie:2:20

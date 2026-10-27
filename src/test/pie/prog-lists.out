@@ -1,0 +1,41 @@
+(the Nat 3)
+(the (List Atom)
+  (:: 'a
+    (:: 'b
+      (:: 'c nil))))
+(the (Π ((E U))
+      (→ (List E)
+          (List E)
+        (List E)))
+  (λ (E start end)
+    (rec-List start
+       (the (List E)
+         end)
+       (λ (e es ih)
+         (:: e ih)))))
+(the (Π ((E U)
+         (es (List E)))
+      (Vec E
+        (rec-List es
+           (the Nat 0)
+           (λ (e es₁ length-es)
+             (add1 length-es)))))
+  (λ (E es)
+    (ind-List es
+       (λ (es₁)
+         (Vec E
+           (rec-List es₁
+              (the Nat 0)
+              (λ (e es₂ length-es)
+                (add1 length-es)))))
+       vecnil
+       (λ (e es₁ ih)
+         (vec:: e ih)))))
+(the (Vec Atom 2)
+  (vec:: 'x
+    (vec:: 'y vecnil)))
+(the (List (List Nat))
+  (:: (:: 1 nil)
+    (:: (:: 2
+          (:: 3 nil))
+      nil)))

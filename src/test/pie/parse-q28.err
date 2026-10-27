@@ -1,0 +1,6 @@
+<dir>/parse-q28.pie:2:0: the: expected the literal ()
+  at: y
+  within: (the Nat x . y)
+  in: (the Nat x . y)
+  location...:
+   parse-q28.pie:2:0

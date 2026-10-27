@@ -1,0 +1,9 @@
+(the Atom 'b)
+(the (= Atom 'a 'a)
+  (same 'a))
+<dir>/todo-atoms.pie:3:17: TODO:
+ p : (= Atom (quote a) (quote a))
+----------------------------------
+ Nat
+
+

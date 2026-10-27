@@ -1,0 +1,62 @@
+(the Nat 5)
+(the (→ Nat
+       Nat)
+  (λ (x)
+    (iter-Nat x
+       (the Nat 2)
+       (λ (x₁)
+         (add1 x₁)))))
+(the (Π ((n Nat))
+      (Vec Atom n))
+  (λ (n)
+    (ind-Nat n
+       (λ (k)
+         (Vec Atom k))
+       vecnil
+       (λ (n-1 peas-of-n-1)
+         (vec:: 'pea peas-of-n-1)))))
+(the (Vec Atom 3)
+  (vec:: 'pea
+    (vec:: 'pea
+      (vec:: 'pea vecnil))))
+(the Atom 'foo)
+(the Atom 'zz)
+(the (Pair Atom Atom)
+  (cons 'a 'b))
+(the U Nat)
+U
+(the U
+  (→ Nat Nat
+    Nat))
+(the (Σ ((x Nat))
+      (= Nat x x))
+  (cons 2
+    (same 2)))
+(the (→ (List Nat)
+       Nat)
+  (λ (xs)
+    (rec-List xs
+       (the Nat 0)
+       (λ (e es ih)
+         (iter-Nat e
+            (the Nat ih)
+            (λ (x)
+              (add1 x)))))))
+(the (→ (List Nat)
+       Nat)
+  (λ (xs)
+    (ind-List xs
+       (λ (xs₁)
+         Nat)
+       0
+       (λ (e es ih)
+         (iter-Nat e
+            (the Nat ih)
+            (λ (x)
+              (add1 x)))))))
+<dir>/programs-basic.pie:26:17: TODO:
+ x : Nat
+---------
+ U
+
+

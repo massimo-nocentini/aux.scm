@@ -1,0 +1,7 @@
+#lang pie
+(claim x Nat)
+(define x 1)
+(claim internal-claim-binding-x Nat)
+(define internal-claim-binding-x 4)
+(claim #%datum Nat)
+(define #%datum 3)

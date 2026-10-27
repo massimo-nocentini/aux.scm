@@ -1,0 +1,19 @@
+#lang pie
+(claim first (Π ((E U) (n Nat)) (-> (Vec E (add1 n)) E)))
+(define first (λ (E n es) (head es)))
+(claim rest (Π ((E U) (n Nat)) (-> (Vec E (add1 n)) (Vec E n))))
+(define rest (λ (E n es) (tail es)))
+(first Atom 2 (vec:: 'a (vec:: 'b (vec:: 'c vecnil))))
+(rest Atom 2 (vec:: 'a (vec:: 'b (vec:: 'c vecnil))))
+rest
+(claim vec-append (Π ((E U) (l Nat) (j Nat)) (-> (Vec E l) (Vec E j) (Vec E (iter-Nat l j (λ (k) (add1 k)))))))
+(define vec-append
+  (λ (E l j es end)
+    (ind-Vec l es
+      (λ (k xs) (Vec E (iter-Nat k j (λ (k) (add1 k)))))
+      end
+      (λ (k h t ih) (vec:: h ih)))))
+vec-append
+(vec-append Atom 1 1 (vec:: 'a vecnil) (vec:: 'b vecnil))
+(the (Π ((n Nat) (v (Vec Nat n))) Nat) (λ (n v) (ind-Vec n v (λ (k xs) Nat) 0 (λ (k h t ih) (add1 ih)))))
+(head (the (Vec Atom 1) (vec:: 'x vecnil)))

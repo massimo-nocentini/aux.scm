@@ -1,0 +1,4 @@
+<dir>/read-r8.pie:2:0: the: bad syntax
+  in: (the Nat . 3)
+  location...:
+   read-r8.pie:2:0

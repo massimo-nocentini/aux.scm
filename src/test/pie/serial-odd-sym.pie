@@ -1,0 +1,6 @@
+#lang pie
+(claim |+i| Nat)
+(define |+i| 3)
+(claim |+.5| (-> Nat Nat))
+(define |+.5| (λ (|-inf.0|) TODO))
+|+i|

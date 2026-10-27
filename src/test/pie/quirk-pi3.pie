@@ -1,0 +1,2 @@
+#lang pie
+(claim f (Pi ((x Nat)) TODO))

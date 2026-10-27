@@ -1,0 +1,8 @@
+#lang pie
+(the (Π ((x Nat) (x Nat)) Nat) (λ (x y) x))
+(the (-> Nat Nat Nat) (λ (x x) x))
+(the U (Π ((x Nat)) (-> Nat (= Nat x x))))
+(claim x Nat)
+(define x 4)
+(the (-> Nat Nat) (λ (x) x))
+(the (Π ((y Nat)) (= Nat x y)) TODO)

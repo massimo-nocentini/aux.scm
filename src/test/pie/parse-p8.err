@@ -1,0 +1,4 @@
+<dir>/parse-p8.pie:2:9: ?: bad syntax
+  in: 1.5
+  location...:
+   parse-p8.pie:2:9

@@ -1,0 +1,3 @@
+#lang pie
+(claim f (Π ((A U) (n Nat)) (Vec A n)))
+(define f (λ (A n) (the (Vec A zero) vecnil)))

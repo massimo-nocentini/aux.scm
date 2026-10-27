@@ -1,0 +1,3 @@
+Expected a Vec with add1 at the top of the length, got zero 
+  location...:
+   err-headvec.pie:2:35

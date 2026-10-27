@@ -1,0 +1,3 @@
+cons requires a Pair or Σ type, but was used as a Nat 
+  location...:
+   err-cons.pie:2:9

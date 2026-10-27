@@ -1,0 +1,7 @@
+#lang pie
+(claim x Nat)
+(define x (the Nat TODO))
+(check-same Nat x TODO)
+(claim y (Pi ((n Nat)) (= Nat n n)))
+(define y (lambda (n) TODO))
+(the (-> Nat Nat) (lambda (k) TODO))

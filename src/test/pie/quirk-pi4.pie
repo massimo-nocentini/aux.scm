@@ -1,0 +1,3 @@
+#lang pie
+(claim f (Pi ((x Nat) (y Nat)) TODO))
+(claim g (Sigma ((x Nat)) TODO))
