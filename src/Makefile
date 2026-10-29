@@ -4,7 +4,8 @@ CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
         test-microkanren-date test-microkanren-lambda test-microkanren-with-lambda test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
-        timsort-fetch foreigns-fetch json-bench bitcoin-colors test-pie test-j-bob
+        timsort-fetch foreigns-fetch json-bench bitcoin-colors test-pie test-j-bob \
+        test-search
 
 echo:
 	echo "Catch all for the Makefile"
@@ -80,6 +81,9 @@ test:
 	cd test && ${CSI} -s pie.scm
 	cd test && ${CSI} -s pie-programs.scm
 	cd test && ${CSI} -s j-bob.scm
+	cd test && ${CSI} -s fds.heap.scm
+	cd test && ${CSI} -s search.scm
+	cd test && ${CSI} -s search.adversarial.scm
 
 # The tests of (aux pie), the module+ tests of upstream, tests.rkt, and whole programs against Racket Pie's output.
 test-pie:
@@ -90,6 +94,13 @@ test-pie:
 # The tests of (aux j-bob): the transcript of the book against upstream's answers, and the entry points.
 test-j-bob:
 	cd test && ${CSI} -s j-bob.scm
+
+# The search library: the pairing heap, state-space search, game-tree search (minimax, alpha-beta,
+# Star1/Star2), and the game-tree algorithms checked against Dice of Doom's own ratings.
+test-search:
+	cd test && ${CSI} -s fds.heap.scm
+	cd test && ${CSI} -s search.scm
+	cd test && ${CSI} -s search.adversarial.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm
