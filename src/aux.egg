@@ -106,5 +106,6 @@
   (extension aux.games.dice-of-doom.v2 (component-dependencies aux.base aux.stream.sicp aux.games.dice-of-doom.v1))
   (extension aux.games.dice-of-doom.v3 (component-dependencies aux.base aux.stream.sicp aux.land-of-lisp.svg aux.games.dice-of-doom.v2))
   (extension aux.games.dice-of-doom.v4 (component-dependencies aux.base aux.stream.sicp aux.games.dice-of-doom.v3))
+  (extension aux.games.dice-of-doom.app (component-dependencies aux.base aux.stream.sicp aux.search.adversarial aux.land-of-lisp.webserver.spiffy aux.games.dice-of-doom.v4))
   (extension aux.anthropic)
   ))
