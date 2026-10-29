@@ -5,7 +5,7 @@ CSC=csc
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
         test-microkanren-date test-microkanren-lambda test-microkanren-with-lambda test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors test-pie test-j-bob \
-        test-search
+        test-land-of-lisp test-search
 
 echo:
 	echo "Catch all for the Makefile"
@@ -84,6 +84,9 @@ test:
 	cd test && ${CSI} -s fds.heap.scm
 	cd test && ${CSI} -s search.scm
 	cd test && ${CSI} -s search.adversarial.scm
+	cd test && ${CSI} -s land-of-lisp.webserver.scm
+	cd test && ${CSI} -s land-of-lisp.webserver.spiffy.scm
+	cd test && ${CSI} -s land-of-lisp.svg.scm
 
 # The tests of (aux pie), the module+ tests of upstream, tests.rkt, and whole programs against Racket Pie's output.
 test-pie:
@@ -101,6 +104,14 @@ test-search:
 	cd test && ${CSI} -s fds.heap.scm
 	cd test && ${CSI} -s search.scm
 	cd test && ${CSI} -s search.adversarial.scm
+
+# The Land of Lisp ports: the two web servers (on loopback ports), the SVG macros, Dice of Doom v1..v4
+# and the deployable game, each version in its own csi, because a version's parameters are set when
+# its module is loaded.
+test-land-of-lisp:
+	cd test && ${CSI} -s land-of-lisp.webserver.scm
+	cd test && ${CSI} -s land-of-lisp.webserver.spiffy.scm
+	cd test && ${CSI} -s land-of-lisp.svg.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm

@@ -1,10 +1,10 @@
 
 ((author "Massimo Nocentini")
  (synopsis "Auxiliary definitions and macros.")
- (license "MIT AND AGPL-3.0-only AND BSD-2-Clause")
+ (license "MIT AND AGPL-3.0-only AND BSD-2-Clause AND GPL-2.0-only")
  (version "0.2.0")
  (test-dependencies srfi-18)
- (dependencies srfi-13 srfi-69 srfi-1 srfi-19 vector-lib sxml-transforms spiffy)
+ (dependencies srfi-13 srfi-69 srfi-1 srfi-18 srfi-19 vector-lib sxml-transforms spiffy intarweb uri-common)
  (components
   (c-object chicken-timsort (source "chicken-timsort.c") (csc-options "-I/usr/local/include" "-C" "-DNDEBUG"))
   (c-object chicken-simdjson 
@@ -99,5 +99,8 @@
   (extension aux.j-bob (component-dependencies aux.j-bob.lang))
   (extension aux.j-bob.little-prover (component-dependencies aux.j-bob.lang aux.j-bob))
   (extension aux.games.dice-of-doom)
+  (extension aux.land-of-lisp.webserver (component-dependencies aux.base))
+  (extension aux.land-of-lisp.webserver.spiffy (component-dependencies aux.base))
+  (extension aux.land-of-lisp.svg (component-dependencies aux.base))
   (extension aux.anthropic)
   ))
