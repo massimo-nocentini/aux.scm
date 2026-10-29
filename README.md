@@ -622,7 +622,7 @@ Exported entry points include:
 - `letdelay`, `define-delay` — recursive (and mutually recursive) stream
   definitions
 - `list->stream`, `list->`, `stream:->list`, `list○take`, `stream:iterator`
-- `stream:map` (tree recursion with `*: #t`), `stream:filter`,
+- `stream:map` (tree recursion with `*: #t`), `stream:filter`, `stream:find`,
   `stream:append-map`, `stream:foldr` (lazy in its second argument),
   `stream:take`, `stream:take-while`
 - `stream:repeat`, `stream:0s`, `stream:zip`, `stream:zip-with`,
@@ -636,6 +636,13 @@ Exported entry points include:
 - `stream:enumerate-upper`, `stream:enumerate-lower`, `stream:enumerate-all`,
   `stream:enumerate-weighted`
 - `stream:§₂`, `stream:§` (fair interleaving, monadic `mplus`), `stream:>>=`
+
+The lazy lists of Land of Lisp (`lazy.lisp`) map onto this module: `lazy-cons`
+is `stream:cons`, `lazy-car`/`lazy-cdr` are `stream:car`/`stream:cdr`,
+`lazy-nil` is `stream:empty`, `lazy-null` is `stream:null?`, `make-lazy` is
+`list->stream`, `take`/`take-all` are `list○take`/`stream:->list`,
+`lazy-mapcar`/`lazy-mapcan` are `stream:map`/`stream:append-map`,
+`lazy-find-if` is `stream:find` and `lazy-nth` is `stream:ref`.
 
 Example:
 
@@ -817,6 +824,119 @@ Example:
 ;; => (A)
 ```
 
+### `(aux games dice-of-doom v1)` … `(v4)`
+
+Faithful ports of the four versions of Dice of Doom in "Land of Lisp" (Conrad
+Barski, chapters 15, 18, 19 and 20), from `dice_of_doom_v1.lisp` …
+`dice_of_doom_v4.lisp` of landoflisp.com. Each module behaves as the Common
+Lisp image after loading its file: v2 is v1 with lazy game trees, a heuristic
+and α-β pruning; v3 adds the SVG board and the web handler
+`dod-request-handler`; v4 has four players, up to five dice, attacks that
+succeed or fail by a roll of the dice (chance nodes weighted by `*dice-odds*`)
+and reinforcements by the largest cluster.
+
+The special variables of the book (`*board-size*`, `*board-hexnum*`,
+`*num-players*`, `*max-dice*`, `*ai-level*` …) are parameters, and loading a
+later version sets them as its `defparameter`s do, so a program uses one
+version at a time. Where a later file redefines a function that earlier
+functions call, the later module carries their bodies too, which is what late
+binding does in Common Lisp. Unlike `(aux games dice-of-doom)`, these modules
+keep the book's rules, names and quirks; their headers list every departure.
+v3 does not depend on a web server: `dod-request-handler` prints the page, so
+either server below can serve it.
+
+```scheme
+(import (aux games dice-of-doom v1))
+
+(*board-size* 2) (*board-hexnum* 4)
+
+(game-tree #((0 1) (1 1) (0 2) (1 1)) 0 0 #t)
+;; => (0 #((0 1) (1 1) (0 2) (1 1))
+;;       (((2 3) (0 #((0 1) (1 1) (0 1) (0 1))
+;;                  ((#f (1 #((0 1) (1 1) (0 1) (0 1)) ())))))))
+;;    the book's tree, with NIL as #f and ()
+
+(play-vs-computer (game-tree (gen-board) 0 0 #t))
+```
+
+and, for the web versions,
+
+```scheme
+(import (aux games dice-of-doom v4) (aux land-of-lisp webserver spiffy))
+(serve dod-request-handler)   ; then open http://localhost:8080/game.html
+```
+
+### `(aux games dice-of-doom app)`
+
+The Dice of Doom of chapter 20 as a deployable web game:
+
+```bash
+cd src && csi -s dice-of-doom-server.scm [PORT]     # or: make serve-dice-of-doom
+```
+
+then open http://localhost:8080/game.html. The port is also read from `PORT`
+(default 8080), and `HOST=127.0.0.1` listens on this machine alone.
+
+- It is v4 underneath: a 5x5 board, four players with you as player a, attacks
+  won or lost by a roll of the dice, reinforcements by largest cluster, at
+  most five dice per hex. As in the book, the game ends when the player to
+  move has no move. A deal on which you could not attack at all is dealt
+  again.
+- The page draws the board as SVG on the server, in a light and a dark theme.
+  It shows the odds of each target in a pill you can click, the last attack as
+  an arc between its hexes, the dice gained, the players with their hexes,
+  dice and reinforcements, and a log of moves with their rolls. On phones it
+  also lists the moves under the board. It works without JavaScript; a few
+  lines of script only advance the turns of the computer, and Pause or Esc
+  stops them.
+- Each browser gets its own game through an id and a step token in the links,
+  so reload, Back and a second tab are harmless. Games nobody moved in are
+  dropped before games being played.
+- The computer searches with Star1, alpha-beta pruning for chance nodes from
+  `(aux search adversarial)`, three plies deep with a transposition table and
+  a node budget. At that depth it chooses the same move as the book's
+  `handle-computer` would, at about 0.14 s per move on average and 0.6 s at
+  worst. One lock serialises all game requests, so it suits a few players at a
+  time.
+- `dod-request-handler` follows the handler contract of chapter 13, so
+  `(aux land-of-lisp webserver)` can serve it too; `(dod-serve port: 8080)`
+  runs it on spiffy.
+
+### `(aux land-of-lisp svg)`
+
+The SVG macros of chapter 17 (`svg.lisp`, and the `svg` with width and height
+of `dice_of_doom_v3.lisp`): `tag`, `svg`, `split`, `pairs`, `print-tag`,
+`brightness`, `svg-style` and `polygon`. As in the book they print to the
+current output port; attribute values are escaped.
+
+### `(aux land-of-lisp webserver)`
+
+A port of the web server of chapter 13 (`webserver.lisp`) on `(chicken tcp)`:
+`serve`, `parse-params`, `parse-url`, `get-header`, `decode-param`,
+`get-content-params` and `hello-request-handler`. A handler is called as
+`(handler path header params)` with the page's output port as the current
+output port; the keys of `header` and `params` are lower-case symbols (the book
+interns upper-case ones). The port adds the HTTP status line and headers that
+browsers now require, serves one connection at a time, answers 400 for
+malformed requests, 408 when a request is not read within `time-limit:`
+seconds, 413 for a body over 64 KiB and 500 for a handler error, and goes on
+serving; `port:`, `listener:` and `requests:` let tests run it on a loopback
+port.
+
+`(aux land-of-lisp webserver spiffy)` exports a `serve` with the same handler
+contract on spiffy (a thread per connection, `Cache-Control: no-store`,
+`serialize:` to run one handler at a time), and `vhost-handler` and
+`strict-request-parsers` to mount a handler in an application's own
+`vhost-map`. This is the server the deployable game uses.
+
+`webserver.lisp` is distributed under the GNU GPL version 2 only, and so are
+the files of its port, `src/aux.land-of-lisp.webserver.scm`,
+`src/test/land-of-lisp.webserver.scm` and `src/test/games.dice-of-doom.v3.scm`
+(which serves the v3 handler with it); the license text is in
+`COPYING.GPL-2.0`. The other files from landoflisp.com carry no license
+notice. The spiffy server, the SVG macros, Dice of Doom v1–v4 and the app are
+MIT, like the rest of aux.
+
 ### `(aux fds unionfind)`
 
 `(aux fds unionfind)` implements union-find (disjoint sets) with union by rank
@@ -870,6 +990,92 @@ Example:
 
 ((unionfind-★ U) 'd)
 ;; => 2
+```
+
+### `(aux fds heap)`
+
+`(aux fds heap)` is a persistent min-heap, a pairing heap (Fredman, Sedgewick,
+Sleator and Tarjan 1986) written purely functionally as in Okasaki's "Purely
+Functional Data Structures" (§5.5). The order is a strict `less?` fixed by
+`make-fds-heap`. `fds-heap-insert` and `fds-heap-merge` take amortized O(1)
+and `fds-heap-delete-min` amortized O(log n), when old versions are not popped
+again, which is how search frontiers use a heap.
+`(fds-heap->list (list->fds-heap < '(5 3 8 1)))` answers `(1 3 5 8)`.
+
+### `(aux search)`
+
+`(aux search)` is state-space search. A problem (`make-problem`) has a start
+state, `successors` and a goal test (or a `goal:` state). It may also have a
+key, an equality and a hash for states, a heuristic, and `predecessors` for
+bidirectional search. `successors` answers a list or a stream of steps
+`(action state)` or `(action state cost)`. Every search answers a lazy stream
+of goal nodes in the order it finds them; `node-path`, `node-actions`,
+`node-cost` and `node-depth` read a solution back. A `search-stats` record
+(expanded, generated, max-frontier, cutoff?, iterations) is updated as the
+stream is forced, so after `first-solution` it counts exactly the work that
+finding it needed.
+
+The algorithms are breadth-first, depth-first, depth-limited and
+iterative-deepening search (Korf 1985); best-first, uniform-cost (Dijkstra
+1959), greedy and A* (Hart, Nilsson and Raphael 1968); IDA* (Korf 1985); beam
+search; and bidirectional search (Pohl 1971). `duplicates:` selects `'tree`,
+`'path` (cycle check) or `'graph` (one table per search). Under `'graph`, A*
+reopens a state when a cheaper path to it appears, so it stays optimal with an
+admissible but inconsistent heuristic.
+
+```scheme
+(import (aux search))
+
+(define graph '((S (A 1) (B 4)) (A (B 2) (G 6)) (B (G 3)) (G)))
+(define p (make-problem start: 'S goal: 'G test: eq?
+                        successors: (λ (s) (map (λ (e) (list (car e) (car e) (cadr e)))
+                                                (cdr (assq s graph))))))
+(define n (first-solution (uniform-cost-search p)))
+(node-path n) ;; => (S A B G)
+(node-cost n) ;; => 6
+```
+
+### `(aux search adversarial)`
+
+`(aux search adversarial)` searches game trees given lazily by a `make-game`:
+`children` (a stream), `evaluate`, `maximizing?` and, for chance nodes,
+`chance?` and `outcomes`. Values are from one rated player's point of view:
+every other player minimizes (paranoid), and turns need not alternate, as in
+Dice of Doom where a player attacks several times before passing. `depth:`
+limits the plies, and a chance node does not consume one, as in Land of Lisp's
+`limit-tree-depth`.
+
+Eight value procedures share one signature. The brute-force ones are
+`minimax`, `negamax` and `expectiminimax`. The pruned ones are `αβ` (fail-soft,
+Knuth and Moore 1975), `αβ/fail-hard`, `αβ/negamax` (correct with consecutive
+moves) and Ballard's (1983) `star1` and `star2` for chance nodes, which need the
+`bounds:` of the values. Any of them can use a transposition table
+(`make-transposition-table`, except the two negamax procedures) and a move order
+(`order-by`). `best-move` is Land of Lisp's `handle-computer`: it rates the
+children of the root and picks the first best one. Its `decision-ratings` with
+`αβ` are exactly the book's `ab-get-ratings-max`, and with `expectiminimax`
+they are version 4's chance-weighted `get-ratings`.
+`best-move/iterative-deepening` deepens under a node `budget:`, and
+`principal-variation` lists the best line. The tests check every pruned
+procedure against its brute-force one on hundreds of random trees (600 random
+trees: minimax visits 126678 nodes and αβ 62839; with chance nodes,
+expectiminimax 282715, star1 85637 and star2 118082), solve tic-tac-toe (a
+draw: 549946 nodes by minimax, 18297 by αβ), and check the algorithms against
+the ratings of Dice of Doom v2 and v4 on real game trees.
+
+```scheme
+(import (aux search adversarial) (aux stream sicp))
+
+; Nim: take 1 or 2; whoever takes the last one wins. A node is (heap . max to move?).
+(define nim
+  (make-game children: (λ (s) (list->stream (map (λ (k) (cons (- (car s) k) (not (cdr s))))
+                                                 (cond ((>= (car s) 2) '(1 2)) ((= (car s) 1) '(1)) (else '())))))
+             evaluate: (λ (s) (if (cdr s) -1 1))
+             maximizing?: cdr))
+(define d (best-move αβ nim '(7 . #t)))
+(decision-index d)   ;; => 0, take one
+(decision-value d)   ;; => 1
+(decision-ratings d) ;; => (1 1), the second a bound; minimax rates (1 -1)
 ```
 
 ### `(aux machine env)`
@@ -1373,7 +1579,7 @@ function whose type does not depend on its argument", and the programs
 Pie is distributed under the GNU AGPL-3.0, and so are the files of the port,
 `src/aux.pie*.scm` and `src/test/pie*`, which are derived from it; the license
 text is in `COPYING.AGPL`. The rest of aux is under the MIT license, except the
-port of J-Bob below.
+ports of J-Bob below and of the Land of Lisp web server above.
 
 ### `(aux j-bob)`
 
