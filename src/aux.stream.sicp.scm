@@ -13,6 +13,8 @@
 ;   - since `stream:empty` is '(), the tree-recursive `stream:map` (`*: #t`) treats a '() element as
 ;     a nested empty stream (as the original did for its promise `stream:empty`), hence a '() datum
 ;     is no longer passed to `func` as a leaf in that mode.
+;   - `stream:find` is added, for the `lazy-find-if` of Land of Lisp (see
+;     `(aux games dice-of-doom v3)`); it forces the cells only up to the first match.
 ; The `stream:` prefix makes clashes with aux's `§`-suffixed names impossible.
 
 (module (aux stream sicp) *
@@ -138,6 +140,16 @@
                                             ((a d) (cond
                                                      ((pred? a) (stream:cons a (F d)))
                                                      (else (F d))))))))
+         F)))
+
+  (define stream:find ; the first element of the stream that satisfies `pred?`, or #f (srfi-1 `find`)
+    (λ (pred?)
+       (letrec ((F (λ (s)
+                      (stream:dest/car+cdr s
+                                           ((a d) (cond
+                                                    ((pred? a) a)
+                                                    (else (F d))))
+                                           (else #f)))))
          F)))
 
   (define stream:take

@@ -309,6 +309,31 @@
    (⊦≡ '(1 1 2 5 14) (§->list (take§ 5 taylor/catalan)))
    (⊦≡ '(0 1) ((list○take 3) (take§ 2 ℕ))))
 
+  ((test/stream-sicp/find _)
+   (⊦≡ 4 ((stream:find even?) (list->stream '(1 3 4 5))))
+   (⊦≡ 11 ((stream:find (λ (n) (> n 10))) (nats§ 1)))           ; infinite stream
+   (⊦≡ #f ((stream:find (λ (n) (> n 10))) (list->stream '(1 2 3))))
+   (⊦≡ #f ((stream:find even?) stream:empty))
+   ; the cells after the match are not forced
+   (⊦≡ 2 ((stream:find even?) (stream:cons 1 (stream:cons 2 (δ (error "forced")))))))
+
+  ; the examples of lazy.lisp in "Land of Lisp", chapter 18, through the mapping of the README
+  ((test/stream-sicp/land-of-lisp _)
+   (⊦≡ '(1 2 3 4 5 6 7 8 9 10) ((list○take 10) (nats§ 1)))
+   (⊦≡ '(q z e) (stream:->list (list->stream '(q z e))))
+   (let1 (l ((list○take 3) ((stream:map sqrt) (nats§ 1))))     ; the values the book prints
+     (⊦≡ 1 (car l))
+     (⊦≡ 1.4142135623731 (cadr l))
+     (⊦≡ 1.73205080756888 (caddr l)))
+   (⊦≡ '(2 2 4 4 6 6 8 8 10 10)
+       ((list○take 10) ((stream:append-map (λ (x) (if (even? x) (list->stream (list x x)) stream:empty)))
+                        (nats§ 1))))
+   (⊦≡ 7 ((stream:find odd?) (list->stream '(2 4 6 7 8 10))))
+   (⊦≡ 'e ((stream:ref 4) (list->stream '(a b c d e f g))))
+   (let* ((n 0) (p (δ (set! n (add1 n)) n)))                    ; `lazy` evaluates its body once
+     (force p) (force p)
+     (⊦≡ 1 n)))
+
   )
 
 (define-suite stream-series-suite
