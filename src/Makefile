@@ -87,6 +87,10 @@ test:
 	cd test && ${CSI} -s land-of-lisp.webserver.scm
 	cd test && ${CSI} -s land-of-lisp.webserver.spiffy.scm
 	cd test && ${CSI} -s land-of-lisp.svg.scm
+	cd test && ${CSI} -s games.dice-of-doom.v1.scm
+	cd test && ${CSI} -s games.dice-of-doom.v2.scm
+	cd test && ${CSI} -s games.dice-of-doom.v3.scm
+	cd test && ${CSI} -s games.dice-of-doom.v4.scm
 
 # The tests of (aux pie), the module+ tests of upstream, tests.rkt, and whole programs against Racket Pie's output.
 test-pie:
@@ -112,6 +116,10 @@ test-land-of-lisp:
 	cd test && ${CSI} -s land-of-lisp.webserver.scm
 	cd test && ${CSI} -s land-of-lisp.webserver.spiffy.scm
 	cd test && ${CSI} -s land-of-lisp.svg.scm
+	cd test && ${CSI} -s games.dice-of-doom.v1.scm
+	cd test && ${CSI} -s games.dice-of-doom.v2.scm
+	cd test && ${CSI} -s games.dice-of-doom.v3.scm
+	cd test && ${CSI} -s games.dice-of-doom.v4.scm
 
 test-microkanren:
 	cd test && ${CSI} -s microkanren.scm

@@ -1,0 +1,64 @@
+
+current player = a
+      a-3 b-2 c-1 
+    d-2 a-2 b-3 
+  c-2 d-1 a-1 
+choose your move:
+1. 0 -> 3
+2. 0 -> 1
+3. 4 -> 1
+4. 4 -> 7
+5. 4 -> 3
+6. 4 -> 5
+
+On 3 dice rolled 11. 
+On 2 dice rolled 6. 
+current player = a
+      a-1 b-2 c-1 
+    a-2 a-2 b-3 
+  c-2 d-1 a-1 
+choose your move:
+1. end turn
+2. 3 -> 6
+3. 3 -> 7
+4. 4 -> 1
+5. 4 -> 7
+6. 4 -> 5
+
+current player = b
+      a-2 b-2 c-1 
+    a-3 a-3 b-3 
+  c-2 d-1 a-2 
+On 2 dice rolled 2. 
+On 1 dice rolled 1. 
+current player = b
+      a-2 b-1 b-1 
+    a-3 a-3 b-3 
+  c-2 d-1 a-2 
+On 3 dice rolled 8. 
+On 2 dice rolled 6. 
+current player = b
+      a-2 b-1 b-1 
+    a-3 a-3 b-1 
+  c-2 d-1 b-2 
+On 2 dice rolled 2. 
+On 1 dice rolled 5. 
+current player = b
+      a-2 b-1 b-1 
+    a-3 a-3 b-1 
+  c-2 d-1 b-1 
+current player = c
+      a-2 b-2 b-2 
+    a-3 a-3 b-2 
+  c-2 d-1 b-2 
+On 2 dice rolled 10. 
+On 1 dice rolled 3. 
+current player = c
+      a-2 b-2 b-2 
+    a-3 a-3 b-2 
+  c-1 c-1 b-2 
+current player = d
+      a-2 b-2 b-2 
+    a-3 a-3 b-2 
+  c-2 c-2 b-2 
+The winner is b
