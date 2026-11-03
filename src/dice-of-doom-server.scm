@@ -12,12 +12,16 @@
 ; in whole seconds: two servers started in the same second would roll the same dice, and the start
 ; time would tell the rolls. So the generator is seeded from the system's entropy first; the game
 ; ids come from `random-bytes` anyway.
+;
+; In a container the server is process 1, which the kernel spares every signal it has no handler
+; for: without the handlers below, `docker stop` would wait for its timeout and then kill it.
 
 (import scheme
         (chicken base)
         (chicken random)
         (chicken bytevector)
         (chicken process-context)
+        (chicken process signal)
         (aux games dice-of-doom app))
 
 (define (port-number s)
@@ -35,6 +39,9 @@
 (define host (get-environment-variable "HOST"))
 
 (set-pseudo-random-seed! (random-bytes (make-bytevector 8)))     ; 8 bytes, all a seed is read for
+
+(set-signal-handler! signal/term (lambda (signum) (exit 0)))
+(set-signal-handler! signal/int (lambda (signum) (exit 0)))
 
 (print "Dice of Doom on http://" (or host "localhost") ":" port "/game.html")
 (flush-output)

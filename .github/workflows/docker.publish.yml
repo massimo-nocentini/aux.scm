@@ -63,3 +63,31 @@ jobs:
                   subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
                   subject-digest: ${{ steps.push.outputs.digest }}
                   push-to-registry: true
+
+            # The playable Dice of Doom: Dockerfile.dice-of-doom on top of the image just pushed, pinned by its digest, published
+            # as ghcr.io/<owner>/aux.scm/dice-of-doom. Only for amd64: the arm64 variant of the image above holds amd64 binaries,
+            # because the Dockerfile builds every platform on $BUILDPLATFORM.
+            - name: Extract metadata (tags, labels) for the Dice of Doom image
+              id: meta-dice-of-doom
+              uses: docker/metadata-action@v6
+              with:
+                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/dice-of-doom
+
+            - name: Build and push the Dice of Doom image
+              id: push-dice-of-doom
+              uses: docker/build-push-action@v7
+              with:
+                  context: .
+                  file: Dockerfile.dice-of-doom
+                  push: true
+                  platforms: linux/amd64
+                  build-args: BASE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
+                  tags: ${{ steps.meta-dice-of-doom.outputs.tags }}
+                  labels: ${{ steps.meta-dice-of-doom.outputs.labels }}
+
+            - name: Generate artifact attestation for the Dice of Doom image
+              uses: actions/attest-build-provenance@v4
+              with:
+                  subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/dice-of-doom
+                  subject-digest: ${{ steps.push-dice-of-doom.outputs.digest }}
+                  push-to-registry: true
