@@ -6,8 +6,7 @@
 #   docker run --rm -p 8080:8080 ghcr.io/massimo-nocentini/aux.scm/dice-of-doom:master
 #
 # then open http://HOST:8080/game.html from any machine that reaches HOST; `-p 9000:8080`
-# publishes it on port 9000 instead. The aux image is built for amd64 only (its arm64 variant
-# holds amd64 binaries), so an arm64 machine runs this one with `--platform linux/amd64`.
+# publishes it on port 9000 instead. It is built for linux/amd64 and linux/arm64.
 
 ARG BASE=ghcr.io/massimo-nocentini/aux.scm:master
 

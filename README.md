@@ -877,17 +877,16 @@ cd src && csi -s dice-of-doom-server.scm [PORT]     # or: make serve-dice-of-doo
 then open http://localhost:8080/game.html. The port is also read from `PORT`
 (default 8080), and `HOST=127.0.0.1` listens on this machine alone.
 
-Every push to master also publishes it as a Docker image (amd64), built by
-`Dockerfile.dice-of-doom` on the aux image of the same run, so it can be
-played from any machine:
+Every push to master also publishes it as a Docker image, for linux/amd64 and
+linux/arm64, built by `Dockerfile.dice-of-doom` on the aux image of the same
+run, so it can be played from any machine:
 
 ```bash
 docker run --rm -p 8080:8080 ghcr.io/massimo-nocentini/aux.scm/dice-of-doom:master
 ```
 
 and open http://HOST:8080/game.html, where HOST is the machine running the
-container (`-p 9000:8080` publishes it on port 9000 instead; an arm64 machine
-adds `--platform linux/amd64`). `make docker-dice-of-doom`, at the top of the
+container (`-p 9000:8080` publishes it on port 9000 instead). `make docker-dice-of-doom`, at the top of the
 repository, builds the image locally.
 
 - It is v4 underneath: a 5x5 board, four players with you as player a, attacks

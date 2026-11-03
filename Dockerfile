@@ -1,7 +1,7 @@
 
 ARG BASE=ghcr.io/massimo-nocentini/chicken-core:latest
 
-FROM --platform=$BUILDPLATFORM ${BASE}
+FROM ${BASE}
 
 RUN apt-get update && apt-get install -y --no-install-recommends wget curl git sudo \
 	&& rm -rf /var/lib/apt/lists/*
