@@ -621,6 +621,7 @@
        (⊦= '(0 1) (vector-ref board 11))
        (⊨ (contains? page "You attacked 11 → 17: 3 dice vs 2 dice — captured."))))
    ; query parameters configure a new game and travel in the New game link
+   (set-pseudo-random-seed! (string->utf8 "config-3x3-game"))
    (let* ((page (handle '((size . "3") (players . "2") (dice . "4") (ai . "1") (roll . "0") (reinforce . "spare"))))
           (links (game-links page))
           (id (alist-ref 'g (link-params (car links))))
@@ -639,7 +640,6 @@
      (⊨ (contains? page "viewBox=\"-16 -4 544 354\""))
      (⊨ (contains? (new-game-link page) "&size=3&players=2&dice=4&ai=1&roll=0&reinforce=spare"))
      ; play a full 3x3 deterministic 2-player game with spare-dice reinforcements to completion
-     (set-pseudo-random-seed! (string->utf8 "config-3x3-game"))
      (let loop ((page page) (n 0))
        (let1 (links (game-links page))
          (cond

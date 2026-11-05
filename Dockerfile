@@ -9,10 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget curl git s
 RUN chicken-install -sudo srfi-1 srfi-13 srfi-18 srfi-19 srfi-69 srfi-133 datatype spiffy matchable \
 	miscmacros r7rs sxml-transforms vector-lib expand-full
 
-RUN wget --no-verbose https://www.lua.org/ftp/lua-5.5.0.tar.gz && tar xf lua-5.5.0.tar.gz && cd lua-5.5.0 \
+RUN wget --no-verbose https://www.lua.org/ftp/lua-5.5.1.tar.gz && tar xf lua-5.5.1.tar.gz && cd lua-5.5.1 \
 	&& make CC="clang" MYCFLAGS="-fPIC" linux \
 	&& sudo make CC="clang" MYCFLAGS="-fPIC" linux install \
-	&& cd .. && rm -rf lua-5.5.0*
+	&& cd .. && rm -rf lua-5.5.1*
 
 RUN wget --no-verbose https://www.jjj.de/fxt/fxt-2026.05.19.tar.gz \
 	&& tar xf fxt-2026.05.19.tar.gz && cd fxt \

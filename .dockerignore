@@ -15,7 +15,7 @@ src/*.static.o
 src/*.static.a
 src/*.o
 src/testsuite-*.html
-src/test/*.html
+src/test/testsuite-*.html
 src/test/*.md
 src/test/learning
 src/test/users_*.json
