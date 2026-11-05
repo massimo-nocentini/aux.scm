@@ -129,15 +129,21 @@
 (module (aux games dice-of-doom app)
 
   (*tile-gap* *tile-thickness* *board-viewbox* *player-glyphs* *auto-advance-ms* *max-games*
-    *game-idle-seconds* *ai-budget* mix colour->hex row-shade mute tile-colours svg-num hex-centre
+    *game-idle-seconds* *ai-budget* *roll-dice?* *reinforcement-rule* *die-corner-radius*
+    board-viewbox rounded-polygon-path mix colour->hex
+    row-shade mute tile-colours svg-num hex-centre
     hex-points points->string die-position stack-top attack-odds die-defs draw-die-svg draw-tile-svg
     draw-odds-pill draw-gain-pill draw-last-move draw-board-svg dice-of-doom/move->child
     dice-of-doom/tree-hash dice-of-doom/game choose-computer-move roll-dice board-stats legal-tiles
-    board-changes deal-game-tree web-game? web-game-id web-game-tree web-game-from-tile web-game-step
-    web-game-message web-game-log web-game-prev-board web-game-last-move web-games web-game-new!
-    web-game-lookup web-game-advance! make-game-link make-new-game-link parse-choice
+    board-changes dod-game-tree deal-game-tree game-config? make-game-config current-game-config
+    parse-game-config with-game-config game-config-board-size game-config-num-players
+    game-config-max-dice game-config-ai-level game-config-roll-dice? game-config-reinforcement-rule
+    web-game? web-game-id web-game-tree web-game-from-tile web-game-step
+    web-game-message web-game-log web-game-prev-board web-game-last-move web-game-config web-games
+    web-game-new! web-game-lookup web-game-advance! make-game-link make-new-game-link parse-choice
     web-handle-human web-handle-computer
-    web-announce-winner draw-dod-page dod-css dod-js dod-rules dod-request-handler dod-serve)
+    web-announce-winner draw-config-form draw-dod-page dod-css dod-js dod-rules dod-request-handler
+    dod-serve)
 
   (import scheme
           (chicken base)
@@ -175,6 +181,9 @@
   (define *max-games* (make-parameter 256))
   (define *game-idle-seconds* (make-parameter 7200))
   (define *ai-budget* (make-parameter 100000))         ; nodes, about 1 s of search
+  (define *roll-dice?* (make-parameter #t))            ; #t: v4 dice rolls; #f: deterministic (src > dst)
+  (define *reinforcement-rule* (make-parameter 'cluster)) ; 'cluster (v4) or 'spare (v1–v3)
+  (define *die-corner-radius* (make-parameter 0.22))   ; corner rounding fraction on die faces (0 = sharp)
 
   ; colours ----------------------------------------------------------------------------------------
 
@@ -258,10 +267,35 @@
     (values (+ xx (* (*dice-scale*) 0.3 (if (odd? (+ x y z)) -0.3 0.3)))
             (- yy (* (*dice-scale*) z 0.8))))
 
+  ; extended odds table covering up to 6 dice per hex (defender 1..6, attacker 2..6).
+  (define extended-dice-odds
+    #(#(0.84 0.97 1.0  1.0  1.0)
+      #(0.44 0.78 0.94 0.99 1.0)
+      #(0.15 0.45 0.74 0.91 0.97)
+      #(0.04 0.19 0.46 0.72 0.88)
+      #(0.01 0.06 0.22 0.46 0.71)
+      #(0.00 0.02 0.09 0.24 0.46)))
+
   ; v4's odds that an attack from `src` takes `dst` on `board`.
   (define (attack-odds board src dst #!optional (odds (*dice-odds*)))
-    (let1 (dice (λ (pos) (cadr (vector-ref board pos))))
-      (vector-ref (vector-ref odds (sub1 (dice dst))) (- (dice src) 2))))
+    (let* ((dice (λ (pos) (cadr (vector-ref board pos))))
+           (d (max 0 (sub1 (dice dst))))
+           (s (max 0 (- (dice src) 2))))
+      (if (and (< d (vector-length odds)) (< s (vector-length (vector-ref odds d))))
+        (vector-ref (vector-ref odds d) s)
+        (vector-ref (vector-ref extended-dice-odds (min d 5)) (min s 4)))))
+
+  (define (target-odds board src dst)
+    (if (*roll-dice?*) (attack-odds board src dst) 1))
+
+  ; the viewBox for a board of size `n` (with `*board-viewbox*` kept verbatim on a 5x5 board).
+  (define (board-viewbox #!optional (n (*board-size*)))
+    (if (and (= n 5) (<= (*max-dice*) 5))
+      (*board-viewbox*)
+      (let* ((ymin (if (> (*max-dice*) 5) -38 -4))
+             (width (inexact->exact (round (+ (* (*board-scale*) (- (* 3 n) 1)) 32))))
+             (ymax (inexact->exact (round (- (* (*board-scale*) (+ (* 0.7 (- n 1)) (*top-offset*) 1.2)) 8)))))
+        (list -16 ymin width (- ymax ymin)))))
 
   ; drawing ----------------------------------------------------------------------------------------
 
@@ -269,10 +303,39 @@
 
   (define (scaled pts) (map (λ (pt) (cons (* (*dice-scale*) (car pt)) (* (*dice-scale*) (cdr pt)))) pts))
 
-  ; the faces of the book's die, and the frames that map the unit square onto them, in die units.
+  ; the outer silhouette and the three faces of the book's die, in die units.
+  (define die-outline '((0 . -1) (-0.6 . -0.75) (-0.6 . 0) (0 . 0.25) (0.6 . 0) (0.6 . -0.75)))
   (define die-top '((0 . -1) (-0.6 . -0.75) (0 . -0.5) (0.6 . -0.75)))
   (define die-left '((0 . -0.5) (-0.6 . -0.75) (-0.6 . 0) (0 . 0.25)))
   (define die-right '((0 . -0.5) (0.6 . -0.75) (0.6 . 0) (0 . 0.25)))
+
+  ; an SVG path `d` that rounds each corner of `pts` by a fraction `r` of its adjacent edges
+  ; using quadratic Bézier curves (`Q`).
+  (define (rounded-polygon-path pts #!optional (r (*die-corner-radius*)))
+    (let* ((k (length pts))
+           (v (list->vector pts))
+           (t (min 0.48 (max 0.0 r)))
+           (pt-str (λ (p) (string-append (svg-num (car p)) "," (svg-num (cdr p)))))
+           (lerp-pt (λ (a b f) (cons (+ (car a) (* f (- (car b) (car a))))
+                                     (+ (cdr a) (* f (- (cdr b) (cdr a))))))))
+      (if (<= t 0)
+        (string-append "M" (string-intersperse (map pt-str pts) " L") " Z")
+        (let* ((corner (λ (i)
+                         (let ((prev (vector-ref v (modulo (sub1 i) k)))
+                               (cur (vector-ref v i))
+                               (next (vector-ref v (modulo (add1 i) k))))
+                           (list (lerp-pt cur prev t) cur (lerp-pt cur next t)))))
+               (corners (map corner (iota k))))
+          (string-append
+            "M" (pt-str (car (car corners))) " "
+            (string-intersperse
+              (map (λ (c next-c)
+                     (string-append "Q" (pt-str (cadr c)) " " (pt-str (caddr c))
+                                    " L" (pt-str (car next-c))))
+                   corners
+                   (append (cdr corners) (list (car corners))))
+              " ")
+            " Z")))))
 
   ; (face origin s-axis t-axis opacity pips): six on top, two on the left, four on the right.
   (define die-faces
@@ -281,8 +344,12 @@
       (right (0 . -0.5) (0.6 . -0.25) (0 . 0.75) ".80" ((.27 . .27) (.73 . .27) (.27 . .73) (.73 . .73)))))
 
   (define (die-defs)
-    (let ((face (λ (pts . paint) `(polygon (@ (points ,(points->string (scaled pts))) ,@paint))))
-          (d (*dice-scale*)))
+    (let* ((r (*die-corner-radius*))
+           (face (λ (pts . paint)
+                   (if (<= r 0)
+                     `(polygon (@ (points ,(points->string (scaled pts))) ,@paint))
+                     `(path (@ (d ,(rounded-polygon-path (scaled pts) r)) ,@paint)))))
+           (d (*dice-scale*)))
       `(defs
          (filter (@ (id "soft") (x "-10%") (y "-20%") (width "120%") (height "150%"))
                  (feGaussianBlur (@ (stdDeviation "7"))))
@@ -293,7 +360,8 @@
                  (path (@ (d "M1,1 L9,5 L1,9") (fill "none") (stroke "#FFFFFF") (stroke-width "2")
                           (stroke-linecap "round") (stroke-linejoin "round"))))
          ; faces with no paint of their own: each `use` gives the fill and the stroke
-         (g (@ (id "die") (stroke-linejoin "round") (stroke-width "1.1"))
+         (g (@ (id "die") (stroke-linejoin "round") (stroke-linecap "round") (stroke-width "1.1"))
+            ,@(if (<= r 0) '() (list (face die-outline)))
             ,(face die-left)
             ,(face die-right)
             ,(face die-top)
@@ -470,7 +538,7 @@
   (define (draw-board-svg board chosen-tile legal-tiles #!key make-link last-move (changes '()) (new-dice '())
                           standalone)
     (let* ((n (*board-size*))
-           (vb (*board-viewbox*))
+           (vb (board-viewbox n))
            (viewbox (string-intersperse (map number->string vb) " "))
            (dice (λ (pos) (cadr (vector-ref board pos)))))
       `(svg (@ ,@(if standalone
@@ -500,7 +568,7 @@
                                        ((source) (conc "Attack from hex " pos " (" (dice-word (dice pos)) ")"))
                                        ((target) (conc "Attack hex " pos " (player " (letter (car hex)) ", "
                                                        (dice-word (dice pos)) ") from hex " chosen-tile ": "
-                                                       (inexact->exact (round (* 100 (attack-odds board chosen-tile pos))))
+                                                       (inexact->exact (round (* 100 (target-odds board chosen-tile pos))))
                                                        "% to capture"))
                                        (else #f))))
                          (draw-tile-svg (modulo pos n) (quotient pos n) pos hex xx yy state
@@ -517,7 +585,7 @@
             (g (@ (class "overlay") (aria-hidden "true"))
                ,@(if chosen-tile
                    (map (λ (pos)
-                          (let1 (pill (draw-odds-pill pos (dice pos) (attack-odds board chosen-tile pos)))
+                          (let1 (pill (draw-odds-pill pos (dice pos) (target-odds board chosen-tile pos)))
                             (if make-link `(a (@ (href ,(make-link pos)) (tabindex "-1")) ,pill) pill)))
                         legal-tiles)
                    `(,@(map (λ (p) (draw-gain-pill (car p) (dice (car p)) (cdr p))) new-dice)
@@ -557,7 +625,7 @@
 
   ; v4's `handle-computer` up to the choice: the move, before its dice are rolled.
   (define (choose-computer-move tree #!key (level (*ai-level*)) (budget (*ai-budget*)))
-    (let* ((game (dice-of-doom/game (car tree)))
+    (let* ((game (dice-of-doom/game (car tree) hexnum: (vector-length (cadr tree))))
            (d (best-move/iterative-deepening star1 game tree max-depth: level budget: budget
                                              table: (make-transposition-table game))))
       ((stream:ref (decision-index d)) (caddr tree))))
@@ -611,11 +679,151 @@
 
   ; games -------------------------------------------------------------------------------------------
 
+  ; per-game configuration: board size (2..6), players (2..4), max dice per hex (2..6),
+  ; AI search depth (1..4), combat rule (`#t` = roll dice, `#f` = deterministic `src > dst`),
+  ; and reinforcement rule (`'cluster` = largest connected group, `'spare` = captured dice).
+  (define-record game-config board-size num-players max-dice ai-level roll-dice? reinforcement-rule)
+
+  (define (board-size-of board)
+    (inexact->exact (round (sqrt (vector-length board)))))
+
+  (define (current-game-config #!optional board)
+    (make-game-config (if board (board-size-of board) (*board-size*))
+                      (*num-players*)
+                      (*max-dice*)
+                      (*ai-level*)
+                      (*roll-dice?*)
+                      (*reinforcement-rule*)))
+
+  (define (config-tree-rules cfg)
+    (list (game-config-board-size cfg)
+          (game-config-num-players cfg)
+          (game-config-max-dice cfg)
+          (game-config-roll-dice? cfg)
+          (game-config-reinforcement-rule cfg)))
+
+  (define (tree-rules-default? cfg)
+    (equal? (config-tree-rules cfg) '(5 4 5 #t cluster)))
+
+  (define last-board-size 5)
+  (define last-tree-rules '(5 4 5 #t cluster))
+
+  (define (sync-memo-tables! size rules)
+    (unless (eqv? last-board-size size)
+      (hash-table-clear! neighbors/previous)
+      (set! last-board-size size))
+    (unless (equal? last-tree-rules rules)
+      (hash-table-clear! game-tree/previous)
+      (set! last-tree-rules rules)))
+
+  (define (with-game-config cfg thunk)
+    (if (not (game-config? cfg))
+      (thunk)
+      (let* ((outer (current-game-config))
+             (outer-size (game-config-board-size outer))
+             (outer-rules (config-tree-rules outer))
+             (size (game-config-board-size cfg))
+             (hexnum (* size size))
+             (players (game-config-num-players cfg))
+             (max-dice (game-config-max-dice cfg))
+             (ai-level (game-config-ai-level cfg))
+             (roll? (game-config-roll-dice? cfg))
+             (reinforce (game-config-reinforcement-rule cfg))
+             (rules (config-tree-rules cfg)))
+        (dynamic-wind
+          (τ (sync-memo-tables! size rules))
+          (τ (parameterize ((*board-size* size)
+                            (*board-hexnum* hexnum)
+                            (*num-players* players)
+                            (*max-dice* max-dice)
+                            (*ai-level* ai-level)
+                            (*roll-dice?* roll?)
+                            (*reinforcement-rule* reinforce))
+               (thunk)))
+          (τ (sync-memo-tables! outer-size outer-rules))))))
+
+  ; classic v1–v3 spare-dice reinforcements: up to `spare-dice` dice placed from hex 0 onwards.
+  (define (add-spare-dice board player spare-dice)
+    (letrec ((f (λ (lst n)
+                  (cond
+                    ((<= n 0) lst)
+                    ((null? lst) '())
+                    (else (let ((cur-player (caar lst))
+                                (cur-dice (cadar lst)))
+                            (if (and (eqv? cur-player player) (< cur-dice (*max-dice*)))
+                              (cons (list cur-player (add1 cur-dice))
+                                    (f (cdr lst) (sub1 n)))
+                              (cons (car lst) (f (cdr lst) n)))))))))
+      (board-array (f (vector->list board) spare-dice))))
+
+  (define (dod-add-new-dice board player spare-dice)
+    (if (eq? (*reinforcement-rule*) 'spare)
+      (add-spare-dice board player spare-dice)
+      (add-new-dice board player spare-dice)))
+
+  (define (dod-add-passing-move cfg board player spare-dice first-move moves)
+    (if first-move
+      moves
+      (stream:cons (list #f
+                         (with-game-config cfg
+                           (τ (dod-game-tree (dod-add-new-dice board player (sub1 spare-dice))
+                                             (modulo (add1 player) (*num-players*))
+                                             0
+                                             #t))))
+                   moves)))
+
+  (define (dod-attacking-moves cfg board cur-player spare-dice)
+    (let ((player (λ (pos) (car (vector-ref board pos))))
+          (dice (λ (pos) (cadr (vector-ref board pos))))
+          (roll? (game-config-roll-dice? cfg))
+          (hexnum (* (game-config-board-size cfg) (game-config-board-size cfg))))
+      ((stream:append-map
+         (λ (src)
+           (if (eqv? (player src) cur-player)
+             ((stream:append-map
+                (λ (dst)
+                  (if (and (not (eqv? (player dst) cur-player))
+                           (if roll? (> (dice src) 1) (> (dice src) (dice dst))))
+                    (list->stream
+                      (list (with-game-config cfg
+                              (τ (cons (list src dst)
+                                       (cons (dod-game-tree (board-attack board cur-player src dst (dice src))
+                                                            cur-player
+                                                            (+ spare-dice (dice dst))
+                                                            #f)
+                                             (if roll?
+                                               (list (dod-game-tree (board-attack-fail board cur-player src dst (dice src))
+                                                                    cur-player
+                                                                    (+ spare-dice (dice dst))
+                                                                    #f))
+                                               '())))))))
+                    stream:empty)))
+              (list->stream (with-game-config cfg (τ (neighbors src)))))
+             stream:empty)))
+       (list->stream (iota hexnum)))))
+
+  ; configurable game-tree: uses v4's `game-tree` directly on the default v4 rules so trees are `eq?`
+  ; to v4's, and builds memoized trees for custom board sizes, deterministic combat or spare-dice rules.
+  (define (dod-game-tree board player spare-dice first-move)
+    (let1 (cfg (current-game-config board))
+      (sync-memo-tables! (game-config-board-size cfg) (config-tree-rules cfg))
+      (if (tree-rules-default? cfg)
+        (game-tree board player spare-dice first-move)
+        (let1 (key (list board player spare-dice first-move))
+          (hash-table-ref game-tree/previous key
+                          (τ (let1 (v (list player
+                                            board
+                                            (dod-add-passing-move cfg board player spare-dice first-move
+                                                                  (dod-attacking-moves cfg board player spare-dice))))
+                               (hash-table-set! game-tree/previous key v)
+                               v)))))))
+
   ; `message` is the SXML of the last event, `log` the newest entries first, each
   ; (attack player src dst src-dice dst-dice src-roll dst-roll captured?) or (pass player gained);
   ; `prev-board` is the board before the last action, `last-move` (src dst captured?) or #f;
-  ; `touched` the seconds and `order` the rank of the last request, for the eviction.
-  (define-record web-game id tree from-tile step message log prev-board last-move touched order)
+  ; `touched` the seconds and `order` the rank of the last request, for the eviction; `config` is
+  ; the `game-config` of this game.
+  (define-record web-game id tree from-tile step message log prev-board last-move touched order config)
 
   (define web-games (make-hash-table string=? string-hash))
   (define web-games-lock (make-mutex 'dice-of-doom))
@@ -661,16 +869,27 @@
   ; the first tree of a new game, dealt again while the human has no attack at all, which would end
   ; the game before its first move.
   (define (deal-game-tree #!optional (gen gen-board))
-    (let1 (tree (game-tree (gen) 0 0 #t))
-      (if (stream:null? (caddr tree)) (deal-game-tree gen) tree)))
+    (let loop ((tries 0))
+      (let* ((board (if (> tries 200)
+                      (let1 (b (gen))
+                        (vector-set! b 0 (list 0 (max 2 (*max-dice*))))
+                        (vector-set! b 1 '(1 1))
+                        b)
+                      (gen)))
+             (tree (dod-game-tree board 0 0 #t)))
+        (if (stream:null? (caddr tree)) (loop (add1 tries)) tree))))
 
-  ; the book's `web-initialize`, for a game of its own, under `id` if it is given.
-  (define (web-game-new! #!optional tree id)
+  ; the book's `web-initialize`, for a game of its own, under `id` if it is given, with `config`
+  ; (which defaults to the current dynamic parameters, inferred from `tree` if `tree` is given).
+  (define (web-game-new! #!optional tree id config)
     (evict!)
-    (unless tree (hash-table-clear! game-tree/previous))
-    (let1 (g (make-web-game (or id (fresh-id)) (or tree (deal-game-tree)) #f 0 '((b "Your turn.")) '() #f #f 0 0))
-      (hash-table-set! web-games (web-game-id g) (touch! g))
-      g))
+    (let1 (cfg (or config (current-game-config (and tree (cadr tree)))))
+      (with-game-config cfg
+        (τ (unless tree (hash-table-clear! game-tree/previous))
+           (let1 (g (make-web-game (or id (fresh-id)) (or tree (deal-game-tree))
+                                   #f 0 '((b "Your turn.")) '() #f #f 0 0 cfg))
+             (hash-table-set! web-games (web-game-id g) (touch! g))
+             g)))))
 
   ; the game under `id`, unless it is idle, and then it goes.
   (define (web-game-lookup id)
@@ -694,8 +913,9 @@
     (let1 (moves (caddr tree))
       (and (not (stream:null? moves)) (not (car (stream:car moves))))))
 
-  ; the next tree after `move` of the player of `tree`, with its log entry, the dice rolled for an
-  ; attack as v4's `pick-chance-branch` rolls them.
+  ; the next tree after `move` of the player of `tree`, with its log entry: the dice are rolled for
+  ; a chance move (as v4's `pick-chance-branch` rolls them), while a deterministic move (one child)
+  ; always captures without rolling.
   (define (play! g tree move)
     (let ((board (cadr tree))
           (player (car tree)))
@@ -706,9 +926,10 @@
                (dst (cadar move))
                (src-dice (cadr (vector-ref board src)))
                (dst-dice (cadr (vector-ref board dst)))
-               (src-roll (roll-dice src-dice))       ; the attacker first
-               (dst-roll (roll-dice dst-dice))
-               (captured? (> src-roll dst-roll))
+               (rolled? (pair? (cddr move)))
+               (src-roll (and rolled? (roll-dice src-dice)))       ; the attacker first
+               (dst-roll (and rolled? (roll-dice dst-dice)))
+               (captured? (or (not rolled?) (> src-roll dst-roll)))
                (entry (list 'attack player src dst src-dice dst-dice src-roll dst-roll captured?)))
           (web-game-tree-set! g (if captured? (cadr move) (caddr move)))
           (web-game-last-move-set! g (list src dst captured?))
@@ -721,10 +942,12 @@
           (log! g entry)
           entry))))
 
-  ; "4 dice rolled 15 vs 3 dice rolled 9"
+  ; "4 dice rolled 15 vs 3 dice rolled 9", or "4 dice vs 3 dice" when deterministic.
   (define (rolls entry)
     (match1/first ((attack _ _ _ ,src-dice ,dst-dice ,src-roll ,dst-roll _) entry)
-      (conc (dice-word src-dice) " rolled " src-roll " vs " (dice-word dst-dice) " rolled " dst-roll)))
+      (if src-roll
+        (conc (dice-word src-dice) " rolled " src-roll " vs " (dice-word dst-dice) " rolled " dst-roll)
+        (conc (dice-word src-dice) " vs " (dice-word dst-dice)))))
 
   (define (outcome entry) (if (list-ref entry 8) "captured" "repelled"))
 
@@ -735,54 +958,57 @@
 
   ; the human's choice: #f, pass or a hex (the book's `web-handle-human`, checked).
   (define (web-handle-human g pos)
-    (let* ((tree (web-game-tree g))
-           (from (web-game-from-tile g)))
-      (cond
-        ((not pos))
-        ((eq? pos 'pass)
-         (if (passing-allowed? tree)
-           (begin (play! g tree (stream:car (caddr tree)))
-                  (say! g "Your reinforcements have been placed."))
-           (say! g "You must attack at least once before ending your turn.")))
-        ((not from)
-         (keep-board! g)
-         (if (memv pos (legal-tiles tree #f))
-           (begin (web-game-from-tile-set! g pos)
-                  (say! g '(b "Your turn.")))
-           (say! g (conc "Hex " pos " cannot attack."))))
-        ((eqv? pos from)
-         (keep-board! g)
-         (web-game-from-tile-set! g #f)
-         (say! g "Move cancelled."))
-        ((memv pos (legal-tiles tree from))
-         (let1 (entry (play! g tree ((stream:find (λ (move) (equal? (car move) (list from pos)))) (caddr tree))))
-           (say! g (conc "You attacked " from " → " pos ": " (rolls entry) " — " (outcome entry) "."))))
-        (else (say! g (conc "Hex " pos " cannot be attacked from hex " from "."))))))
+    (with-game-config (web-game-config g)
+      (τ (let* ((tree (web-game-tree g))
+                (from (web-game-from-tile g)))
+           (cond
+             ((not pos))
+             ((eq? pos 'pass)
+              (if (passing-allowed? tree)
+                (begin (play! g tree (stream:car (caddr tree)))
+                       (say! g "Your reinforcements have been placed."))
+                (say! g "You must attack at least once before ending your turn.")))
+             ((not from)
+              (keep-board! g)
+              (if (memv pos (legal-tiles tree #f))
+                (begin (web-game-from-tile-set! g pos)
+                       (say! g '(b "Your turn.")))
+                (say! g (conc "Hex " pos " cannot attack."))))
+             ((eqv? pos from)
+              (keep-board! g)
+              (web-game-from-tile-set! g #f)
+              (say! g "Move cancelled."))
+             ((memv pos (legal-tiles tree from))
+              (let1 (entry (play! g tree ((stream:find (λ (move) (equal? (car move) (list from pos)))) (caddr tree))))
+                (say! g (conc "You attacked " from " → " pos ": " (rolls entry) " — " (outcome entry) "."))))
+             (else (say! g (conc "Hex " pos " cannot be attacked from hex " from "."))))))))
 
   ; one move of the computer (the book's `web-handle-computer`); the engine's memo of `game-tree`
   ; is emptied afterwards, see the header.
   (define (web-handle-computer g)
-    (let* ((tree (web-game-tree g))
-           (entry (play! g tree (choose-computer-move tree)))
-           (who `(b ,(letter (cadr entry)))))
-      (hash-table-clear! game-tree/previous)
-      (if (eq? (car entry) 'attack)
-        (match1/first ((attack _ ,src ,dst _ _ _ _ _) entry)
-          (say! g who (conc " attacked " src " → " dst ": " (rolls entry) " — " (outcome entry) ".")))
-        (apply say! g who (conc " ended the turn and gained " (dice-word (caddr entry)) ".")
-               (if (zero? (car (web-game-tree g))) '(" " (b "Your turn.")) '())))))
+    (with-game-config (web-game-config g)
+      (τ (let* ((tree (web-game-tree g))
+                (entry (play! g tree (choose-computer-move tree)))
+                (who `(b ,(letter (cadr entry)))))
+           (hash-table-clear! game-tree/previous)
+           (if (eq? (car entry) 'attack)
+             (match1/first ((attack _ ,src ,dst _ _ _ _ _) entry)
+               (say! g who (conc " attacked " src " → " dst ": " (rolls entry) " — " (outcome entry) ".")))
+             (apply say! g who (conc " ended the turn and gained " (dice-word (caddr entry)) ".")
+                    (if (zero? (car (web-game-tree g))) '(" " (b "Your turn.")) '())))))))
 
   ; the book's dispatch of `dod-request-handler`; the step grows when the tree or the chosen hex
   ; changes.
   (define (web-game-advance! g chosen)
-    (let ((tree (web-game-tree g))
-          (from (web-game-from-tile g)))
-      (cond
-        ((stream:null? (caddr tree)))
-        ((zero? (car tree)) (web-handle-human g chosen))
-        (else (web-handle-computer g)))
-      (unless (and (eq? tree (web-game-tree g)) (eqv? from (web-game-from-tile g)))
-        (web-game-step-set! g (add1 (web-game-step g))))))
+    (with-game-config (web-game-config g)
+      (τ (let ((tree (web-game-tree g))
+               (from (web-game-from-tile g)))
+           (cond
+             ((stream:null? (caddr tree)))
+             ((zero? (car tree)) (web-handle-human g chosen))
+             (else (web-handle-computer g)))
+           (unless (and (eq? tree (web-game-tree g)) (eqv? from (web-game-from-tile g)))
+             (web-game-step-set! g (add1 (web-game-step g))))))))
 
   ; the link of a choice in game `g` at its current step: #f is nil.
   (define (make-game-link g chosen)
@@ -792,9 +1018,30 @@
             ((symbol? chosen) (symbol->string chosen))
             (else chosen))))
 
+  (define (config-query-string cfg)
+    (if (not (game-config? cfg))
+      ""
+      (let1 (parts (filter identity
+                           (list (and (not (= (game-config-board-size cfg) 5))
+                                      (conc "size=" (game-config-board-size cfg)))
+                                 (and (not (= (game-config-num-players cfg) 4))
+                                      (conc "players=" (game-config-num-players cfg)))
+                                 (and (not (= (game-config-max-dice cfg) 5))
+                                      (conc "dice=" (game-config-max-dice cfg)))
+                                 (and (not (= (game-config-ai-level cfg) 3))
+                                      (conc "ai=" (game-config-ai-level cfg)))
+                                 (and (not (game-config-roll-dice? cfg))
+                                      "roll=0")
+                                 (and (not (eq? (game-config-reinforcement-rule cfg) 'cluster))
+                                      (conc "reinforce=" (game-config-reinforcement-rule cfg))))))
+        (if (null? parts)
+          ""
+          (string-append "&" (string-intersperse parts "&"))))))
+
   ; the link of New game and Play again: the id of the game it starts is drawn now, so the link
-  ; answers that same game when it is followed again.
-  (define (make-new-game-link) (conc "/game.html?new=" (fresh-id)))
+  ; answers that same game when it is followed again, preserving any custom configuration.
+  (define (make-new-game-link #!optional config)
+    (conc "/game.html?new=" (fresh-id) (config-query-string config)))
 
   ; v3's `parse-chosen`, then checked: pass, a hex, or #f for anything else.
   (define (parse-choice s)
@@ -837,7 +1084,7 @@
 
   ; the book's `web-announce-winner`, as a banner; given the player to move, who has no move, it
   ; first says why the game ended.
-  (define (web-announce-winner board #!optional to-move)
+  (define (web-announce-winner board #!optional to-move config)
     (let ((w (winners board))
           (mine (hexes-of board 0)))
       `(div (@ (class "banner") (role "alert"))
@@ -854,7 +1101,7 @@
                         ,(if (zero? mine)
                            " — you hold no hex."
                            (conc " — you hold " mine " of " (vector-length board) " hexes.")))))
-            (a (@ (class "btn primary") (href ,(make-new-game-link))) "Play again"))))
+            (a (@ (class "btn primary") (href ,(make-new-game-link config))) "Play again"))))
 
   (define (log-item entry i)
     (let ((player (cadr entry))
@@ -934,88 +1181,140 @@
                                     ,@(if from
                                         `(,(glyph (car (vector-ref board pos))) (b ,(number->string pos))
                                           (span ,(dice-word (dice pos)))
-                                          (span (@ (class "odds")) ,(conc (inexact->exact (round (* 100 (attack-odds board from pos)))) "%")))
+                                          (span (@ (class "odds")) ,(conc (inexact->exact (round (* 100 (target-odds board from pos)))) "%")))
                                         `((b ,(number->string pos)) (span ,(dice-word (dice pos))))))))
                           tiles)))))))
+
+  ; the form that configures and deals a new game: combat mode (roll dice vs deterministic),
+  ; board dimensions, number of players, maximum dice per hex, reinforcement rule, and AI depth.
+  (define (draw-config-form #!optional (cfg (current-game-config)))
+    (let ((opt (λ (val current label)
+                 `(option (@ (value ,(conc val)) ,@(if (equal? val current) '((selected "selected")) '()))
+                          ,label)))
+          (size (game-config-board-size cfg))
+          (players (game-config-num-players cfg))
+          (dice (game-config-max-dice cfg))
+          (ai (game-config-ai-level cfg))
+          (roll (if (game-config-roll-dice? cfg) 1 0))
+          (reinforce (game-config-reinforcement-rule cfg)))
+      `(form (@ (class "config") (method "get") (action "/game.html") (aria-label "Configure game"))
+             (input (@ (type "hidden") (name "new") (value ,(fresh-id))))
+             (label (@ (class "field"))
+                    (span "Combat")
+                    (select (@ (name "roll") (aria-label "Combat rule"))
+                            ,(opt 1 roll "Roll dice")
+                            ,(opt 0 roll "Deterministic")))
+             (label (@ (class "field"))
+                    (span "Board")
+                    (select (@ (name "size") (aria-label "Board size"))
+                            ,@(map (λ (n) (opt n size (conc n "×" n))) '(2 3 4 5 6))))
+             (label (@ (class "field"))
+                    (span "Players")
+                    (select (@ (name "players") (aria-label "Number of players"))
+                            ,@(map (λ (p) (opt p players (number->string p))) '(2 3 4))))
+             (label (@ (class "field"))
+                    (span "Max dice")
+                    (select (@ (name "dice") (aria-label "Maximum dice per hex"))
+                            ,@(map (λ (d) (opt d dice (number->string d))) '(2 3 4 5 6))))
+             (label (@ (class "field"))
+                    (span "Reinforce")
+                    (select (@ (name "reinforce") (aria-label "Reinforcement rule"))
+                            ,(opt 'cluster reinforce "Cluster")
+                            ,(opt 'spare reinforce "Captured")))
+             (label (@ (class "field"))
+                    (span "AI")
+                    (select (@ (name "ai") (aria-label "AI search depth"))
+                            ,@(map (λ (l) (opt l ai (conc "Depth " l))) '(1 2 3 4))))
+             (button (@ (class "btn") (type "submit")) "Apply"))))
 
   ; the book's `draw-dod-page`, the whole page; `fresh` when the request made the game, so that the
   ; address becomes the game's own.
   (define (draw-dod-page g #!key fresh)
-    (let* ((tree (web-game-tree g))
-           (board (cadr tree))
-           (player (car tree))
-           (over? (stream:null? (caddr tree)))
-           (human? (and (not over?) (zero? player)))
-           (from (and human? (web-game-from-tile g)))
-           (stats (board-stats board))
-           (hexnum (vector-length board)))
-      (receive (changes new-dice) (board-changes (web-game-prev-board g) board)
-        `(*TOP*
-           (html (@ (lang "en"))
-                 (head
-                   (meta (@ (charset "utf-8")))
-                   (meta (@ (name "viewport") (content "width=device-width, initial-scale=1")))
-                   (meta (@ (name "color-scheme") (content "light dark")))
-                   (meta (@ (name "robots") (content "noindex, nofollow")))
-                   (title ,(cond
-                             (over? (let1 (w (winners board))
-                                      (if (pair? (cdr w)) (conc (letters w) " tie") (conc (letter (car w)) " wins"))))
-                             (human? "Your turn")
-                             (else (conc (letter player) " is playing")))
-                          " · Dice of Doom")
-                   (link (@ (rel "icon") (href ,favicon)))
-                   (script (raw "document.documentElement.classList.add('js');"
-                                ,@(if fresh
-                                    (list (conc "history.replaceState(null,'','" (make-game-link g #f) "');"))
-                                    '())))
-                   (style (raw ,dod-css)))
-                 (body
-                   (div (@ (class "shell"))
-                        (header (@ (class "top"))
-                                (div (@ (class "brand"))
-                                     ,logo
-                                     (h1 "Dice of Doom " (small "· after " (cite "Land of Lisp"))))
-                                (nav (a (@ (class "btn") (href ,(make-new-game-link))) "New game")))
-                        (main (@ (class "game"))
-                              (section (@ (class "stage") (aria-label "Board"))
-                                       ,(if over?
-                                          (web-announce-winner board player)
-                                          `(p (@ (class "status") (id "status") (role "status")) ,@(status g)))
-                                       ,(draw-board-svg board from (if human? (legal-tiles tree from) '())
-                                                        make-link: (and human? (λ (pos) (make-game-link g pos)))
-                                                        last-move: (web-game-last-move g)
-                                                        changes: changes
-                                                        new-dice: new-dice)
-                                       ,@(if human? (move-list g) '()))
-                              (aside (@ (class "side"))
-                                     (section (@ (class "card") (aria-labelledby "h-players"))
-                                              (h2 (@ (class "eyebrow") (id "h-players")) "Players")
-                                              (div (@ (class "share") (role "img")
-                                                      (aria-label ,(conc "Hexes held: "
-                                                                         (string-intersperse
-                                                                           (map (λ (s) (conc (letter (car s)) " " (cadr s) " of " hexnum))
-                                                                                stats)
-                                                                           ", "))))
-                                                   ,@(map (λ (s) `(span (@ (style ,(conc "flex:" (cadr s) ";background:var(--p" (car s) ")")))))
-                                                          (filter (λ (s) (positive? (cadr s))) stats)))
-                                              (table (@ (class "players"))
-                                                     (thead (tr (th (@ (scope "col")) "Player")
-                                                                (th (@ (scope "col") (title "Hexes held")) "Hexes")
-                                                                (th (@ (scope "col") (title "Dice on the board")) "Dice")
-                                                                (th (@ (scope "col") (title "Dice gained when the turn ends: the size of the largest connected group of hexes")) "Gain")))
-                                                     (tbody ,@(map (λ (s) (player-row s (and (not over?) player) (if over? (winners board) '()))) stats))))
-                                     ,@(if over? '() `((nav (@ (class "actions") (aria-label "Turn")) ,@(actions g))))
-                                     (section (@ (class "card log") (aria-labelledby "h-log"))
-                                              (h2 (@ (class "eyebrow") (id "h-log")) "Last moves")
-                                              ,(let1 (entries (take-at-most (web-game-log g) 8))
-                                                 (if (null? entries)
-                                                   '(p (@ (class "empty")) "No move yet: you attack first.")
-                                                   `(ol ,@(map log-item entries (iota (length entries)))))))))
-                        (footer (@ (class "foot"))
-                                "Computer players search the game tree with alpha–beta pruning, weighting each attack "
-                                "by its chance of winning the roll. Hexes are numbered 0–" ,(sub1 hexnum)
-                                ", row by row from the back."))
-                   ,@(if (or over? human?) '() `((script (raw ,dod-js))))))))))
+    (with-game-config (web-game-config g)
+      (τ (let* ((cfg (or (web-game-config g) (current-game-config (cadr (web-game-tree g)))))
+                (tree (web-game-tree g))
+                (board (cadr tree))
+                (player (car tree))
+                (over? (stream:null? (caddr tree)))
+                (human? (and (not over?) (zero? player)))
+                (from (and human? (web-game-from-tile g)))
+                (stats (board-stats board))
+                (hexnum (vector-length board)))
+           (receive (changes new-dice) (board-changes (web-game-prev-board g) board)
+             `(*TOP*
+                (html (@ (lang "en"))
+                      (head
+                        (meta (@ (charset "utf-8")))
+                        (meta (@ (name "viewport") (content "width=device-width, initial-scale=1")))
+                        (meta (@ (name "color-scheme") (content "light dark")))
+                        (meta (@ (name "robots") (content "noindex, nofollow")))
+                        (title ,(cond
+                                  (over? (let1 (w (winners board))
+                                           (if (pair? (cdr w)) (conc (letters w) " tie") (conc (letter (car w)) " wins"))))
+                                  (human? "Your turn")
+                                  (else (conc (letter player) " is playing")))
+                               " · Dice of Doom")
+                        (link (@ (rel "icon") (href ,favicon)))
+                        (script (raw "document.documentElement.classList.add('js');"
+                                     ,@(if fresh
+                                         (list (conc "history.replaceState(null,'','" (make-game-link g #f) "');"))
+                                         '())))
+                        (style (raw ,dod-css)))
+                      (body
+                        (div (@ (class "shell"))
+                             (header (@ (class "top"))
+                                     (div (@ (class "brand"))
+                                          ,logo
+                                          (h1 "Dice of Doom " (small "· after " (cite "Land of Lisp"))))
+                                     (div (@ (class "controls"))
+                                          ,(draw-config-form cfg)
+                                          (nav (a (@ (class "btn") (href ,(make-new-game-link cfg))) "New game"))))
+                             (main (@ (class "game"))
+                                   (section (@ (class "stage") (aria-label "Board"))
+                                            ,(if over?
+                                               (web-announce-winner board player cfg)
+                                               `(p (@ (class "status") (id "status") (role "status")) ,@(status g)))
+                                            ,(draw-board-svg board from (if human? (legal-tiles tree from) '())
+                                                             make-link: (and human? (λ (pos) (make-game-link g pos)))
+                                                             last-move: (web-game-last-move g)
+                                                             changes: changes
+                                                             new-dice: new-dice)
+                                            ,@(if human? (move-list g) '()))
+                                   (aside (@ (class "side"))
+                                          (section (@ (class "card") (aria-labelledby "h-players"))
+                                                   (h2 (@ (class "eyebrow") (id "h-players")) "Players")
+                                                   (div (@ (class "share") (role "img")
+                                                           (aria-label ,(conc "Hexes held: "
+                                                                              (string-intersperse
+                                                                                (map (λ (s) (conc (letter (car s)) " " (cadr s) " of " hexnum))
+                                                                                     stats)
+                                                                                ", "))))
+                                                        ,@(map (λ (s) `(span (@ (style ,(conc "flex:" (cadr s) ";background:var(--p" (car s) ")")))))
+                                                               (filter (λ (s) (positive? (cadr s))) stats)))
+                                                   (table (@ (class "players"))
+                                                          (thead (tr (th (@ (scope "col")) "Player")
+                                                                     (th (@ (scope "col") (title "Hexes held")) "Hexes")
+                                                                     (th (@ (scope "col") (title "Dice on the board")) "Dice")
+                                                                     (th (@ (scope "col")
+                                                                            (title ,(if (eq? (game-config-reinforcement-rule cfg) 'spare)
+                                                                                      "Largest connected group of hexes (reinforcements come from captured dice)"
+                                                                                      "Dice gained when the turn ends: the size of the largest connected group of hexes")))
+                                                                         "Gain")))
+                                                          (tbody ,@(map (λ (s) (player-row s (and (not over?) player) (if over? (winners board) '()))) stats))))
+                                          ,@(if over? '() `((nav (@ (class "actions") (aria-label "Turn")) ,@(actions g))))
+                                          (section (@ (class "card log") (aria-labelledby "h-log"))
+                                                   (h2 (@ (class "eyebrow") (id "h-log")) "Last moves")
+                                                   ,(let1 (entries (take-at-most (web-game-log g) 8))
+                                                      (if (null? entries)
+                                                        '(p (@ (class "empty")) "No move yet: you attack first.")
+                                                        `(ol ,@(map log-item entries (iota (length entries)))))))))
+                             (footer (@ (class "foot"))
+                                     ,(if (game-config-roll-dice? cfg)
+                                        "Computer players search the game tree with alpha–beta pruning, weighting each attack by its chance of winning the roll. "
+                                        "Deterministic combat: an attack requires strictly more dice than the defender and always captures. ")
+                                     "Hexes are numbered 0–" ,(sub1 hexnum)
+                                     ", row by row from the back."))
+                        ,@(if (or over? human?) '() `((script (raw ,dod-js))))))))))))
 
   (define dod-css #<<CSS
 :root {
@@ -1049,11 +1348,24 @@ a { color: inherit; }
 .shell { max-width: 1240px; margin: 0 auto; padding: 20px var(--gap) 28px; }
 
 /* header ------------------------------------------------------------------------------- */
-.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 16px; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand svg { width: 26px; height: 26px; }
 .brand h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: .02em; }
 .brand small { color: var(--muted); font-size: 13px; font-weight: 400; letter-spacing: 0; }
+.controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.config { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; }
+.config .field {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 10px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--surface);
+  font-size: 12.5px; color: var(--muted);
+}
+.config .field span { font-weight: 500; white-space: nowrap; }
+.config select {
+  border: 0; background: transparent; color: var(--ink); font: 600 13px/1.2 var(--font);
+  padding: 2px 2px 2px 0; cursor: pointer; outline: none;
+}
+.config .field:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* layout ------------------------------------------------------------------------------- */
 .game {
@@ -1224,22 +1536,51 @@ JS
     (let1 (p (assq name params))
       (and p (string? (cdr p)) (cdr p))))
 
+  (define (parse-int-in s lo hi default)
+    (let1 (n (and s (string->number s)))
+      (if (and (exact-integer? n) (<= lo n hi)) n default)))
+
+  (define (parse-bool-param s default)
+    (cond
+      ((not s) default)
+      ((member s '("1" "true" "yes" "roll" "on")) #t)
+      ((member s '("0" "false" "no" "det" "deterministic" "off")) #f)
+      (else default)))
+
+  (define (parse-reinforce-param s default)
+    (cond
+      ((not s) default)
+      ((member s '("cluster" "v4")) 'cluster)
+      ((member s '("spare" "captured" "v2" "v3")) 'spare)
+      (else default)))
+
+  ; reads a `game-config` from query `params`, falling back to `base` (the current parameters).
+  (define (parse-game-config params #!optional (base (current-game-config)))
+    (make-game-config (parse-int-in (param 'size params) 2 6 (game-config-board-size base))
+                      (parse-int-in (param 'players params) 2 4 (game-config-num-players base))
+                      (parse-int-in (param 'dice params) 2 6 (game-config-max-dice base))
+                      (parse-int-in (param 'ai params) 1 4 (game-config-ai-level base))
+                      (parse-bool-param (param 'roll params) (game-config-roll-dice? base))
+                      (parse-reinforce-param (param 'reinforce params) (game-config-reinforcement-rule base))))
+
   ; the game of a request, after its choice: (values game fresh?), fresh when the address does not
   ; name the game by `g`.
   (define (web-game-request params)
     (let ((id (param 'g params))
           (new (param 'new params))
           (step (param 't params))
-          (chosen (param 'chosen params)))
+          (chosen (param 'chosen params))
+          (cfg (parse-game-config params)))
       (cond
-        (new (values (or (web-game-lookup new) (web-game-new! #f (and (game-id? new) new))) #t))
-        ((not chosen) (values (web-game-new!) #t))
+        (new (values (or (web-game-lookup new) (web-game-new! #f (and (game-id? new) new) cfg)) #t))
+        ((not chosen) (values (web-game-new! #f #f cfg) #t))
         ((web-game-lookup id)
          => (λ (g)
               (when (equal? step (number->string (web-game-step g)))
-                (web-game-advance! g (parse-choice chosen)))
+                (with-game-config (web-game-config g)
+                  (τ (web-game-advance! g (parse-choice chosen)))))
               (values g #f)))
-        (else (let1 (g (web-game-new!))
+        (else (let1 (g (web-game-new! #f #f cfg))
                 (when (and id (positive? (string-length id)))
                   (say! g "That game has expired, so a new one has started. " '(b "Your turn.")))
                 (values g #t))))))

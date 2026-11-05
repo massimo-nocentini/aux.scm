@@ -971,12 +971,19 @@ and open http://HOST:8080/game.html, where HOST is the machine running the
 container (`-p 9000:8080` publishes it on port 9000 instead). `make docker-dice-of-doom`, at the top of the
 repository, builds the image locally.
 
-- It is v4 underneath: a 5x5 board, four players with you as player a, attacks
-  won or lost by a roll of the dice, reinforcements by largest cluster, at
-  most five dice per hex. As in the book, the game ends when the player to
-  move has no move. A deal on which you could not attack at all is dealt
-  again.
-- The page draws the board as SVG on the server, in a light and a dark theme.
+- By default it plays v4 rules: a 5x5 board, four players with you as player a,
+  attacks won or lost by a roll of the dice, reinforcements by largest cluster,
+  and at most five dice per hex. Every game carries its own `game-config`, which
+  can be configured directly from the header bar (or via URL query parameters
+  `roll=0|1`, `size=2..6`, `players=2..4`, `dice=2..6`, `reinforce=cluster|spare`,
+  `ai=1..4`): choose between rolling dice (v4 stochastic combat) and
+  deterministic combat (v1–v3 rules, where an attack requires strictly more dice
+  and always captures), board dimensions from `2×2` to `6×6`, 2 to 4 players,
+  2 to 6 maximum dice per hex, cluster vs. captured-dice reinforcements, and AI
+  search depth 1 to 4. As in the book, the game ends when the player to move has
+  no move. A deal on which you could not attack at all is dealt again.
+- The page draws the board as SVG on the server, in a light and a dark theme,
+  with rounded-corner 3D dice (`*die-corner-radius*`).
   It shows the odds of each target in a pill you can click, the last attack as
   an arc between its hexes, the dice gained, the players with their hexes,
   dice and reinforcements, and a log of moves with their rolls. On phones it
