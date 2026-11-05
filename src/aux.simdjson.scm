@@ -5,6 +5,7 @@
     scheme 
     (chicken base) 
     (chicken bytevector)
+    (chicken fixnum)
     (chicken foreign) 
     (chicken pretty-print)
     (only (scheme base) string-for-each)
@@ -131,6 +132,220 @@
   (define (simdjson-parse/ondemand str)
     (simdjson->scheme/free (simdjson-parse-ondemand-string str)))
 
+  ; The callback wants BYTES and `string-length` answers in CHARACTERS.  A CHICKEN 6 string is
+  ; UTF-8 inside, so the byte count is the length of its UTF-8 copy: one primitive copy instead of
+  ; a walk summing per-codepoint widths, which cost ~30 ms on a 1 MB body.
+  (define (json-utf8-length s) (bytevector-length (string->utf8 s)))
+
+  ; the JSON validator ----------------------------------------------------------------------
+  ;
+  ; Sniffing for a leading `{` or `[` is not enough to tell whether a string is a well-formed JSON
+  ; document, and callers that need a total predicate before handing a body to simdjson (or that
+  ; restrict the root to an object or array, the default when `scalar?` is #f) use `json-well-formed?`.
+
+  (define (json-char/digit? c) (and (char>=? c #\0) (char<=? c #\9)))
+
+  (define (json-char/hex? c)
+    (or (json-char/digit? c)
+        (and (char>=? c #\a) (char<=? c #\f))
+        (and (char>=? c #\A) (char<=? c #\F))))
+
+  ; The JSON number grammar is not enough.  simdjson reads a literal with a `.` or an exponent as
+  ; a double and raises NUMBER_ERROR when it rounds to infinity -- `1e309`, `-1e999` -- and also
+  ; when the exponent field has twenty or more digits, leading zeros included, whatever its value.
+  ; A literal without either is read as an integer, never as a double, and never overflows here.
+  ;
+  ; `string->number` cannot decide the rounding: it is not correctly rounded on this CHICKEN --
+  ; it answers +inf.0 for 1.7976931348623158e308, which simdjson reads as the largest finite
+  ; double -- and on a huge exponent it builds the exact power of ten.  So the magnitude is
+  ; decided on the digits instead.  Writing the value as 0.DDD * 10^q with D1 non-zero, it
+  ; overflows exactly when it reaches 2^1024 - 2^970, the midpoint between the largest double
+  ; and 2^1024 (the midpoint rounds up, to even); that bound has 309 digits, so only q = 309 needs
+  ; the digits themselves, and there a string comparison of the two digit runs is the numeric one.
+  (define json-overflow-digits (number->string (- (expt 2 1024) (expt 2 970))))
+
+  ; `s[m, b)` is a literal that already matched the number grammar, less its sign, with a
+  ; fraction or an exponent: its integer digits end at `dot` and its exponent marker is at `e`
+  ; (`e` = `b` without one, `dot` = `e` without a fraction).  It runs on every such literal of
+  ; every body, so it allocates nothing on the way to its answer and uses fixnum arithmetic:
+  ; the generic `min`, `*` and `+` tripled its cost, measured.
+  (define (json-finite? s m dot e b)
+    (if (and (fx= e b) (fx< (fx- dot m) 309))
+        #t                                                  ; no exponent, few integer digits
+        (let* ((sign (and (fx< e b) (let1 (c (string-ref s (fx+ e 1)))
+                                      (and (or (char=? c #\+) (char=? c #\-)) c))))
+               (x (cond (sign (fx+ e 2)) ((fx< e b) (fx+ e 1)) (else b)))   ; exponent digits
+               (f (let F ((k m))                            ; the first significant digit
+                    (if (and (fx< k e)
+                             (let1 (c (string-ref s k)) (or (char=? c #\0) (char=? c #\.))))
+                        (F (fx+ k 1))
+                        k))))
+          (cond
+            ((fx> (fx- b x) 19) #f)                         ; simdjson gives up on the exponent
+            ((fx>= f e) #t)                                 ; every digit is zero
+            (else
+              ; the exponent saturates far above any string length, so it stays a fixnum
+              (let1 (q (fx+ (if (fx< f dot) (fx- dot f) (fx- (fx+ dot 1) f))
+                            (let X ((k x) (v 0))
+                              (cond
+                                ((fx< k b)
+                                 (X (fx+ k 1)
+                                    (if (fx< v 100000000000000)
+                                        (fx+ (fx* 10 v) (fx- (char->integer (string-ref s k)) 48))
+                                        v)))
+                                ((eqv? sign #\-) (fxneg v))
+                                (else v)))))
+                (or (fx< q 309)
+                    (and (fx= q 309)
+                         (string<? (list->string (remove (λ (c) (char=? c #\.))
+                                                         (string->list (substring s f e))))
+                                   json-overflow-digits)))))))))
+
+  ; An integer literal -- no fraction, no exponent -- never overflows a double, but one beyond 64
+  ; bits, below -2^63 or above 2^64 - 1, is simdjson's big_integer, which the binding refuses with
+  ; BIGINT_ERROR.  JSON forbids leading zeros, so digit runs of equal length compare as strings
+  ; exactly as they do as numbers.  `s[m, b)` are the digits.
+  (define (json-integer-fits? s negative? m b)
+    (let* ((bound (if negative? "9223372036854775808" "18446744073709551615"))
+           (k (string-length bound))
+           (n (fx- b m)))
+      (or (fx< n k)
+          (and (fx= n k) (not (string<? bound (substring s m b)))))))
+
+  ; simdjson's binding visits the document by C++ recursion, one frame per level, and refuses
+  ; nesting past simdjson's default of 1024 with DEPTH_ERROR, while this validator, riding
+  ; CHICKEN's stack, would pass a million.  So nesting is bounded here, below simdjson's 1024.
+  (define json-max-depth 512)
+
+  (define (json-well-formed? s #!optional (scalar? #f))
+    (and
+      (string? s)
+      (let* ((n (string-length s))
+             (at (λ (i) (and (< i n) (string-ref s i)))))
+        (letrec
+          ; JSON whitespace is exactly these four.  NOT char-whitespace?, which is Unicode-aware
+          ; here: it passed a form feed, VT, NBSP and U+2028, all of which simdjson answers with
+          ; TAPE_ERROR.
+          ((skip (λ (i) (if (and (< i n)
+                                 (memv (string-ref s i) (list #\space #\tab #\newline #\return)))
+                            (skip (add1 i))
+                            i)))
+           (word (λ (i w) (let1 (m (string-length w))
+                            (and (<= (+ i m) n) (string=? w (substring s i (+ i m))) (+ i m)))))
+           (digits (λ (i) (let D ((k i))
+                            (if (and (< k n) (json-char/digit? (string-ref s k)))
+                                (D (add1 k))
+                                (and (> k i) k)))))
+           (hex4 (λ (j) (and (<= (+ j 4) n)
+                             (let1 (h (substring s j (+ j 4)))
+                               (and (every json-char/hex? (string->list h))
+                                    (string->number h 16))))))
+           (number
+             (λ (i)
+               (let* ((m (if (eqv? #\- (at i)) (add1 i) i))
+                      (dot (cond
+                             ((eqv? #\0 (at m)) (add1 m))
+                             ((and (at m) (json-char/digit? (at m))) (digits m))
+                             (else #f))))
+                 (and dot
+                      (let1 (e (if (eqv? #\. (at dot)) (digits (add1 dot)) dot))
+                        (and e
+                             (let1 (j (let1 (c (at e))
+                                        (if (memv c '(#\e #\E))
+                                            (digits (if (memv (at (add1 e)) '(#\+ #\-))
+                                                        (+ e 2)
+                                                        (add1 e)))
+                                            e)))
+                               (and j
+                                    (if (fx= dot j)
+                                        (json-integer-fits? s (fx> m i) m j)
+                                        (json-finite? s m dot e j))
+                                    j))))))))
+           (text
+             (λ (i)
+               (and (eqv? #\" (at i))
+                    (let S ((k (add1 i)))
+                      (let1 (c (at k))
+                        (cond
+                          ((not c) #f)
+                          ((char=? c #\") (add1 k))
+                          ((char=? c #\\)
+                           (let1 (e (at (add1 k)))
+                             (cond
+                               ((not e) #f)
+                               ((memv e (list #\" #\\ #\/ #\b #\f #\n #\r #\t)) (S (+ k 2)))
+                               ; simdjson raises STRING_ERROR on a surrogate escape that is
+                               ; not a high one followed by a low one, so pairing is checked
+                               ((char=? e #\u)
+                                (let1 (u (hex4 (+ k 2)))
+                                  (cond
+                                    ((not u) #f)
+                                    ((<= #xDC00 u #xDFFF) #f)            ; a lone low surrogate
+                                    ((<= #xD800 u #xDBFF)
+                                     (and (eqv? #\\ (at (+ k 6)))
+                                          (eqv? #\u (at (+ k 7)))
+                                          (let1 (v (hex4 (+ k 8)))
+                                            (and v (<= #xDC00 v #xDFFF) (S (+ k 12))))))
+                                    (else (S (+ k 6))))))
+                               (else #f))))
+                          ((char<? c #\space) #f)          ; a raw control byte is not legal JSON
+                          ; CHICKEN decodes each byte of invalid UTF-8 to #xDC00 + byte, a
+                          ; surrogate no valid UTF-8 can yield, while the FFI hands simdjson the
+                          ; original bytes -- UTF8_ERROR.  This one test covers every such byte.
+                          ; Two 2-argument comparisons, which csc inlines: the 3-argument
+                          ; char<=? is a variadic call per character, ~22 ms per MB of body.
+                          ((and (char>=? c #\xD800) (char<=? c #\xDFFF)) #f)
+                          (else (S (add1 k)))))))))
+           ; `d` counts the containers enclosing position i
+           (value
+             (λ (i d)
+               (let1 (i (skip i))
+                 (let1 (c (at i))
+                   (cond
+                     ((not c) #f)
+                     ((and (memv c (list #\{ #\[)) (>= d json-max-depth)) #f)
+                     ((char=? c #\{) (object (add1 i) (add1 d)))
+                     ((char=? c #\[) (array (add1 i) (add1 d)))
+                     ((char=? c #\") (text i))
+                     ((char=? c #\t) (word i "true"))
+                     ((char=? c #\f) (word i "false"))
+                     ((char=? c #\n) (word i "null"))
+                     (else (number i)))))))
+           (array
+             (λ (i d)
+               (let1 (i (skip i))
+                 (if (eqv? #\] (at i))
+                     (add1 i)
+                     (let A ((i i))
+                       (let1 (j (value i d))
+                         (and j
+                              (let1 (j (skip j))
+                                (cond
+                                  ((eqv? #\, (at j)) (A (add1 j)))
+                                  ((eqv? #\] (at j)) (add1 j))
+                                  (else #f))))))))))
+           (object
+             (λ (i d)
+               (let1 (i (skip i))
+                 (if (eqv? #\} (at i))
+                     (add1 i)
+                     (let O ((i i))
+                       (let1 (k (text (skip i)))
+                         (and k
+                              (let1 (k (skip k))
+                                (and (eqv? #\: (at k))
+                                     (let1 (v (value (add1 k) d))
+                                       (and v
+                                            (let1 (v (skip v))
+                                              (cond
+                                                ((eqv? #\, (at v)) (O (add1 v)))
+                                                ((eqv? #\} (at v)) (add1 v))
+                                                (else #f)))))))))))))))
+          (let1 (i (skip 0))
+            (and (or scalar? (memv (at i) (list #\{ #\[)))
+                 (let1 (j (value i 0))
+                   (and j (= n (skip j))))))))))
+
   ; True when the UTF-8 bytes of a string can go out between quotes as they are: valid UTF-8
   ; holding neither the quote, the backslash nor a control character.  A surrogate code point
   ; (#xD800-#xDFFF, which integer->char accepts, and which CHICKEN makes of every byte of invalid
@@ -209,38 +424,99 @@
         ((flonum? x) (display (flonum->string/json x) port))
         (else (display x port)))))
 
+  (define (write-json w port)
+    (let J ((v w))
+      (cond
+        ((number? v) (write-number/json v port))
+        ((null? v) (display "{}" port))
+        ((string? v) (write-string/json v port))
+        ((symbol? v) (write-string/json (symbol->string v) port))
+        ((char? v) (write-string/json (string v) port))
+        ((boolean? v) (display (if v "true" "false") port))
+        ((void? v) (display "null" port))
+        ((vector? v) (begin (display "[" port)
+                       (let loop ((i 0))
+                         (when (< i (vector-length v))
+                           (when (> i 0) (display "," port))
+                           (J (vector-ref v i))
+                           (loop (add1 i))))
+                       (display "]" port)))
+        ((pair? v) (begin (display "{" port)
+                     (let loop ((lst v) (first? #t))
+                       (when (pair? lst)
+                         (when (not first?) (display "," port))
+                         (let1 (keyvalue (car lst))
+                           (unless (and (pair? keyvalue) (pair? (cdr keyvalue)) (null? (cddr keyvalue)))
+                             (error "a JSON object entry must be a two-element list" keyvalue))
+                           (let ((key (car keyvalue))
+                                 (val (cadr keyvalue)))
+                             (if (or (string? key) (symbol? key))
+                                 (begin
+                                   (write-string/json (if (symbol? key) (symbol->string key) key) port)
+                                   (display ":" port)
+                                   (J val))
+                                 (error "a JSON object key must be a symbol or a string" keyvalue))))
+                         (loop (cdr lst) #f)))
+                     (display "}" port)))
+        (else (error "cannot be represented as JSON" v)))))
+
   (define (->string/json w)
-    (letport/output-string port
-                           (let J ((v w))
-                             (cond
-                               ((number? v) (write-number/json v port))
-                               ((null? v) (display "{}" port))
-                               ((string? v) (write-string/json v port))
-                               ((boolean? v) (display (if v "true" "false") port))
-                               ((void? v) (display "null" port))
-                               ((vector? v) (begin (display "[" port)
-                                              (let loop ((i 0))
-                                                (when (< i (vector-length v))
-                                                  (when (> i 0) (display "," port))
-                                                  (J (vector-ref v i))
-                                                  (loop (add1 i))))
-                                              (display "]" port)))
-                               ((pair? v) (begin (display "{" port)
-                                            (let loop ((lst v) (first? #t))
-                                              (when (pair? lst)
-                                                (when (not first?) (display "," port))
-                                                (let* ((keyvalue (car lst))
-                                                       (key (car keyvalue))
-                                                       (val (cadr keyvalue)))
-                                                  (if (or (string? key) (symbol? key))
-                                                      (begin
-                                                        (write-string/json (if (symbol? key) (symbol->string key) key) port)
-                                                        (display ":" port)
-                                                        (J val))
-                                                      (error "JSON object keys must be strings")))
-                                                (loop (cdr lst) #f)))
-                                            (display "}" port)))
-                               (else (warning "Cannot convert to JSON" v) (display "\"<unknown>\"" port))))))
+    (letport/output-string port (write-json w port)))
+
+  (define json-escape         write-string/json)
+  (define json-flonum->string flonum->string/json)
+  (define json-emit           write-json)
+  (define json-write          ->string/json)
+  (define json-load           simdjson-load/ondemand)
+
+  ; Gated parser: validates `s` with `json-well-formed?` (requiring an object or array root by
+  ; default, or allowing a scalar root when `scalar?` is #t) and passes the UTF-8 byte count to
+  ; `simdjson-parse-ondemand-callback`.
+  (define (json-parse s #!optional (scalar? #f))
+    (unless (json-well-formed? s scalar?)
+      (error 'json-parse "not a well-formed JSON document" s))
+    (simdjson->scheme/free (simdjson-parse-ondemand-callback s (json-utf8-length s))))
+
+  ; object accessors and functional updates -------------------------------------------------
+  ;
+  ; simdjson decodes an object to a list of two-element (symbol value) lists, so the accessor is
+  ; assq-then-cadr.  `alist-ref` from (chicken base) is a trap -- it returns the CDR, i.e. the
+  ; one-element list (value).  `letassoc` from (aux base) would work but uses `assoc` and demands
+  ; an `else` clause, so `ref` and `has?` would disagree on the comparator; keys are interned
+  ; symbols, so `assq` is both correct and faster.
+
+  (define (json-ref obj key #!optional (default (void)))
+    (let1 (kv (and (pair? obj) (assq key obj)))
+      (if (pair? kv) (cadr kv) default)))
+
+  (define (json-has? obj key) (and (pair? obj) (pair? (assq key obj)) #t))
+
+  (define (json-null? v) (void? v))
+
+  (define (json-vector->list v) (if (vector? v) (vector->list v) '()))
+
+  ; A key is compared by NAME, not with eq?: the encoder takes a string key as readily as a
+  ; symbol, and "model" is not eq? to model -- nor to another "model" -- so an update spelled
+  ; with strings would otherwise be appended as a SECOND key.  A hit keeps the key it found, so
+  ; that setting "model" on a decoded object leaves the symbol `model` in place for `json-ref`
+  ; and `json-has?`, which use `assq`.
+  (define (json-key=? a b)
+    (or (eq? a b)
+        (equal? (if (symbol? a) (symbol->string a) a) (if (symbol? b) (symbol->string b) b))))
+
+  (define (json-set obj key val)
+    (let L ((o obj) (acc '()) (hit #f))
+      (cond
+        ((not (pair? o)) (reverse (if hit acc (cons (list key val) acc))))
+        ((json-key=? key (car (car o)))
+         (L (cdr o) (cons (list (car (car o)) val) acc) #t))
+        (else (L (cdr o) (cons (car o) acc) hit)))))
+
+  ; `foldl` in CHICKEN passes the ACCUMULATOR first -- (λ (o kv) ...) is the order.
+  (define (json-merge obj patch)
+    (if (pair? patch)
+        (foldl (λ (o kv) (json-set o (car kv) (cadr kv))) obj patch)
+        obj))
 
   )
 

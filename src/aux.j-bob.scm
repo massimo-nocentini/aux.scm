@@ -39,13 +39,16 @@
 ;;;
 ;;; Like upstream, J-Bob/step answers the claim unchanged, J-Bob/prove answers 'nil and J-Bob/define
 ;;; answers the definitions unchanged when their input is ill-formed, and none of them signals an error.
-;;; Two holes of upstream are kept, as a port should: a defun may take the name of a primitive
-;;; (undefined?, j-bob.scm:138, does not reserve them), and a quoted floating-point constant reaches the
-;;; host's + through eval-op, where associate-+ is false. Either one gives a proof of (equal 't 'nil);
-;;; src/test/j-bob.scm records both.
+;;; Two holes of upstream are kept by default (`(j-bob-strict?)` is `#f`), as a port should: a defun may
+;;; take the name of a primitive (undefined?, j-bob.scm:138, does not reserve them), and a quoted
+;;; floating-point constant reaches the host's + through eval-op, where associate-+ is false. Either one
+;;; gives a proof of (equal 't 'nil); src/test/j-bob.scm records both. Parameterizing `(j-bob-strict? #t)`
+;;; closes both holes: `undefined?` reserves primitive operator names (`rator?`), and `num` and `natp` in
+;;; `(aux j-bob lang)` accept only exact non-negative integers.
 
 (module (aux j-bob)
-  (list0 list0? list1 list1? elem1 list2 list2? elem2 list3 list3? elem3 tag tag? untag quote-c quote?
+  (j-bob-strict?
+    list0 list0? list1 list1? elem1 list2 list2? elem2 list3 list3? elem3 tag tag? untag quote-c quote?
     quote.value if-c if? if.Q if.A if.E app-c app? app.name app.args var? defun-c defun? defun.name
     defun.formals defun.body dethm-c dethm? dethm.name dethm.formals dethm.body if-QAE QAE-if member? rator?
     rator.formals def.name def.formals if-c-when-necessary conjunction implication lookup undefined? arity?
@@ -201,7 +204,9 @@
 
   (defun undefined? (name defs)
     (if (var? name)
-      (equal (lookup name defs) name)
+      (if (if (equal (j-bob-strict?) #t) (rator? name) 'nil)
+        'nil
+        (equal (lookup name defs) name))
       'nil))
 
   (defun arity? (vars es)

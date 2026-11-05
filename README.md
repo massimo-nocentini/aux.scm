@@ -72,9 +72,11 @@ Exported entry points include:
   `anthropic-block/text`, `anthropic-block/tool-result`
 - `anthropic-response/text`, `anthropic-response/tool-uses`,
   `anthropic-response-stop-reason`, `anthropic-usage/prompt-tokens`
-- `anthropic-json/parse`, `anthropic-json/write` — a byte-length-correct parser
-  and a JSON-conformant encoder, both of which should eventually move into
-  `(aux simdjson)`
+- `anthropic-json/parse`, `anthropic-json/write`, `anthropic-json/well-formed?`,
+  `anthropic-json/utf8-length`, `anthropic-json/ref`, `anthropic-json/has?`,
+  `anthropic-json/null?`, `anthropic-json/vector->list`, `anthropic-json/set`,
+  `anthropic-json/merge` — thin condition-raising wrappers and aliases over
+  `(aux simdjson)`'s `json-*` API
 - the parameters `anthropic/api-key`, `anthropic/model`, `anthropic/transport`,
   `anthropic/retries`, `anthropic/backoff`, `anthropic/sleep`
 
@@ -111,6 +113,86 @@ against a stub transport with no network and no key. The live suite is opt-in:
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 cd src && make test-anthropic-live
+```
+
+### `(aux simdjson)`
+
+`(aux simdjson)` binds the C++ `simdjson` on-demand parser alongside a
+pure-Scheme JSON validator and a round-trip-faithful JSON encoder. JSON objects
+decode to lists of two-element `(symbol value)` lists, arrays to vectors, and
+`null` to `(void)`. Strings and keys containing embedded `\u0000` bytes are
+preserved in full; integers outside the 64-bit signed/unsigned range raise
+`BIGINT_ERROR`, and documents nested deeper than 1024 containers raise
+`DEPTH_ERROR` rather than overflowing the C stack.
+
+Exported entry points include:
+
+- `json-load`, `simdjson-load`, `simdjson-load/ondemand` — parse a JSON file
+- `json-parse`, `simdjson-parse/ondemand` — parse a JSON string (`json-parse`
+  validates with `json-well-formed?` first and passes the UTF-8 byte count to
+  simdjson)
+- `json-well-formed?`, `json-max-depth`, `json-utf8-length` — a complete
+  pure-Scheme JSON validator (enforcing the 4-character JSON whitespace set,
+  surrogate-escape pairing, raw invalid-UTF-8 byte rejection, 64-bit integer
+  bounds, IEEE-754 double finiteness, and nesting up to `json-max-depth` = 512;
+  pass `#t` as the optional second argument to allow a scalar root)
+- `json-write`, `json-emit`, `json-escape`, `json-flonum->string`,
+  `->string/json`, `write-json`, `write-string/json`, `write-number/json`,
+  `flonum->string/json` — a total JSON writer that formats flonums with the
+  shortest 15–17 digit representation that reads back to the same `double`,
+  coerces exact rationals to flonums, escapes C0 controls as `\u00XX`, and
+  raises on NaN, infinities, lone surrogates, or unrepresentable values
+- `json-ref`, `json-has?`, `json-null?`, `json-vector->list`, `json-key=?`,
+  `json-set`, `json-merge` — accessors and functional updates on decoded JSON
+  objects (comparing keys by name across symbols and strings)
+
+```scheme
+(import (aux simdjson))
+
+(json-well-formed? "{\"a\":[1,true,null]}")
+;; => #t
+
+(define obj (json-parse "{\"a\":[1,true,null]}"))
+(json-ref obj 'a)
+;; => #(1 #t #<unspecified>)
+
+(json-write (json-set '((role user)) 'scores #(1 0.25 #t)))
+;; => "{\"role\":\"user\",\"scores\":[1,0.25,true]}"
+```
+
+### `(aux timsort)`
+
+`(aux timsort)` wraps a C implementation of Tim Peters' adaptive merge sort for
+lists and vectors, with ascending (`timsort*`) and stable descending
+(`timtros*`) variants, non-destructive and in-place (`!`) entry points, and
+decorate-sort-undecorate (`*/key`) forms.
+
+Three comparison modes are supported:
+
+- `TIMSORT_USE_NUMBER_LESS_THAN` (default for `timsort`, `timsort/key`,
+  `timsort/vector`, `timsort/vector/key`): C compares fixnums, flonums, bignums,
+  and ratnums directly with zero callbacks into Scheme;
+- `TIMSORT_USE_LESS_THAN` (`timsort/primitive*`): widens the callback-free fast
+  path to strings, symbols, characters, and booleans;
+- `TIMSORT_USE_COMPARATOR` (`timsort/gen`, `timsort/key/gen`,
+  `timsort/vector/gen`, `timsort/vector/key/gen`): calls a user Scheme
+  comparator, guarded by `dynamic-wind` so that exceptions, continuation
+  escapes, and nested sorts unwind C GC roots cleanly. Both list and vector
+  entry points consult the `timsort-trace-buffer-size` parameter (or
+  `with-timsort-trace-buffer-size`) to shrink CHICKEN's call-chain trace buffer
+  during callback-heavy sorts and restore it on every exit.
+
+```scheme
+(import (aux timsort))
+
+(timsort '(5 1 4 2 3))
+;; => (1 2 3 4 5)
+
+(timsort/primitive/key '((b . 2) (a . 1) (c . 3)) car)
+;; => ((a . 1) (b . 2) (c . 3))
+
+(timsort/vector #(5 1 4 2 3))
+;; => #(1 2 3 4 5)
 ```
 
 ### `(aux cml)`
@@ -1382,6 +1464,174 @@ Example:
 ;; => ((() 1) ((○ ●) 7) ((○ ○ ● ●) 17))
 ```
 
+### `(aux kanren micro)` and `(aux kanren micro show)`
+
+`(aux kanren micro)` is the primary relational programming engine in `aux`: a
+constraint-capable microKanren with triangular/sbral substitutions, attributed
+variables, disequality (`≠°`), type constraints (`symbol°`, `number°`,
+`string°`, `boolean°`), tree-absence (`absent°`), pruning/aggregation operators,
+and an extension protocol used by `(aux kanren lambda)`.
+
+Exported entry points in `(aux kanren micro)` include:
+
+- core goals and connectives: `✓°`, `✗°`, `=°`, `≠°`, `∧°`, `∨°` (fair
+  interleaving), `∨ª` (unfair depth-first disjunction), `fresh°`, `freshª`,
+  `cond°`, `condª`, `if°` (`conda`), `if¹°` (`condu`), `define-relation`
+- type and structural constraints: `symbol°`, `number°`, `string°`, `boolean°`,
+  `pair°`, `atom°`, `absent°`, `ground°`, `var°`, `nonvar°`
+- pruning, negation, and aggregation: `once°`, `not°`, `copy-term°`,
+  `project°`, `bag-of°`, `set-of°`, `group-by°`, `reduce°`, `count°`, `sum°`,
+  `min°`, `max°`, `min-by°`, `max-by°`
+- list relations: `null°`, `cons°`, `car°`, `cdr°`, `list°`, `append°`,
+  `member°`, `member¹°`, `length°`, `reverse°`, `select°`, `permute°`,
+  `subset°`, `disjoint°`, `assoc°`, `zip°`, `same-length°`, `last°`
+- runners: `°->list`, `°->list/ground`, `run°`, `run*°`
+
+`(aux kanren micro show)` formats and visualizes answers from `(aux kanren
+micro)`:
+
+- `°->pretty`, `run°/pretty`, `run*°/pretty` — reifies answers as readable
+  `(term : constraint ...)` pairs rather than `(λ (α) ...)` wrappers
+- `°->sxml/table`, `°->sxml/cells`, `°->sxml/answers` — renders answer tables
+  and SVG/HTML cons-cell graphs for test reports
+
+```scheme
+(import (aux base) (aux kanren micro) (aux kanren micro show))
+
+(°->list/ground (fresh° (x y) (append° x y '(1 2 3))))
+;; => ((() (1 2 3)) ((1) (2 3)) ((1 2) (3)) ((1 2 3) ()))
+
+(°->pretty (fresh° (x) (≠° x 'a) (symbol° x)))
+;; => ((α : (symbol α) (≠ α a)))
+
+(°->list/ground (fresh° (q) (bag-of° x (member° x '(3 1 4 1 5)) q)))
+;; => ((3 1 4 1 5))
+```
+
+### `(aux kanren arith)` and `(aux kanren date)`
+
+`(aux kanren arith)` implements Oleg Kiselyov's pure relational binary
+arithmetic (`build-num`, `pos°`, `>1°`, `plus°`, `minus°`, `*°`, `÷°`, `logo`,
+`exp°`, `<°`, `≤°`) together with classic "Reasoned Schemer" relations on top of
+`(aux kanren micro)`.
+
+`(aux kanren date)` provides bidirectional relational civil-calendar arithmetic
+on `(aux kanren micro)` using Howard Hinnant's proleptic Gregorian algorithm
+plus relational Easter Sunday (`easter-gregorian°`, `easter-julian°`):
+
+- `leap-year°`, `days-in-month°`, `valid-date°`, `date-order°`, `date<°`,
+  `date<=°`
+- `ymd-rata-die°`, `day-of-week°`, `day-of-year°`, `add-days°`, `days-between°`,
+  `iso-week-date°`, `nth-weekday-of-month°`
+
+```scheme
+(import (aux base) (aux kanren micro) (aux kanren date))
+
+(°->list/ground (fresh° (m d) (easter-gregorian° 2024 m d)))
+;; => ((3 31))
+
+(°->list/ground (fresh° (w) (day-of-week° '(2024 3 31) w)))
+;; => (sunday)
+```
+
+### `(aux hansei)`
+
+`(aux hansei)` is a port of Oleg Kiselyov and Chung-chieh Shan's Hansei
+embedded probabilistic programming library ("Embedded Probabilistic Programming",
+DSL 2009), implemented with delimited continuations from
+`(aux continuation delimited)`. Probabilistic programs are ordinary Scheme
+thunks that call `dist`, `flip`, `uniform`, or `fail`; inference procedures
+reify the computation into a lazy tree of weighted probability visual paths
+(`PV`) and explore or sample it.
+
+The Hansei family comprises five modules:
+
+- `(aux hansei pmap)` — functional finite maps and multisets (`pmap-empty`,
+  `pmap-lookup`, `pmap-insert`, `pmap-Fold`, `make-multiset`, ...)
+- `(aux hansei random)` — deterministic PRNG adapter over
+  `(aux hakaru10 random)` (`random-seed`, `with-random-seed`, `random-integer`,
+  `random-real`)
+- `(aux hansei)` — core language and inference engines:
+  - primitives: `dist`, `flip`, `uniform`, `uniform-select`, `fail`, `observe!`,
+    `let-lazy`, `memo`, `variable-elimination`
+  - exact and bounded inference: `exact-reify`, `explore`, `reify0`
+  - approximate inference: `rejection-sample-dist`, `importance-sample`,
+    `importance-Option-sample`, `sample-dist`, `shallow-explore`
+  - post-processing and expectations: `normalize`, `ans-to-list`, `ans-expect`,
+    `ans-mean`, `ans-variance`, `ans-stddev`, `ans-quantiles`, `ans-cred-mass`
+- `(aux hansei lazy)` — lazy lists (`lcons`, `lnil`, `lhead`, `ltail`,
+  `list->lazy-list`, `lazy-list->list`) lifted into probabilistic programs
+- `(aux hansei parsec)` — monadic parser combinators (`char-p`, `string-p`,
+  `many`, `sepBy`, `chainl1`, ...) for probabilistic grammars
+
+```scheme
+(import (aux base) (aux hansei))
+
+(define (grass-model)
+  (let* ((cloudy (flip 0.5))
+         (rain (flip (if cloudy 0.8 0.2)))
+         (sprinkler (flip (if cloudy 0.1 0.5)))
+         (wet-grass (or (and sprinkler (flip 0.9))
+                        (and rain (flip 0.9)))))
+    (observe! wet-grass)
+    rain))
+
+(ans-to-list (normalize (exact-reify grass-model)))
+;; => ((#t . 0.7079276773296245) (#f . 0.2920723226703755))
+```
+
+### `(aux hakaru10)`
+
+`(aux hakaru10)` is a port of the Hakaru10 probabilistic programming system
+(Kiselyov 2016) to CHICKEN Scheme, combining importance sampling,
+Metropolis-Hastings MCMC (`mh`), delayed sampling / variable elimination,
+conditioning on continuous densities, and exact bridge translators to Hansei.
+
+The Hakaru10 family comprises six modules:
+
+- `(aux hakaru10 random)` — pure, functional SplitMix64 PRNG (`make-rng`,
+  `rng-split`, `rng-next-u64`, `rng-uniform`, `rng-normal`, `rng-gamma`,
+  `rng-beta`, `rng-poisson`, ...)
+- `(aux hakaru10 distribution)` — first-class distribution descriptors with exact
+  log-densities and samplers (`dist-bernoulli`, `dist-uniform`, `dist-normal`,
+  `dist-beta`, `dist-gamma`, `dist-exponential`, `dist-categorical`,
+  `dist-dirichlet`, `dist-poisson`, `dist-student-t`, `dist-cauchy`, ...)
+- `(aux hakaru10 util)` — log-space numerically stable helpers (`log-sum-exp`,
+  `log-normalize`, `lgamma`, `lbeta`, `digamma`) and summary statistics
+  (`weighted-mean`, `weighted-variance`, `ess`, `empirical-quantiles`, `r-hat`)
+- `(aux hakaru10 engine)` — the Measure/Sampler core (`random`, `factor`,
+  `weight`, `observe`, `condition`, `fail`, `marginal`, `dirac`, `bind`, `lift`,
+  `plate`, `markov-chain`, `make-linear-gaussian`, `make-beta-bernoulli`,
+  `make-normal-normal`, `importance-sampler`, `mh`, `mh-step`, `prior-sampler`)
+- `(aux hakaru10 exact)` — exact discrete inference and bidirectional
+  Hakaru10 ↔ Hansei bridges (`exact-posterior`, `exact-expectation`,
+  `exact-map`, `hakaru->hansei`, `hansei->hakaru`, `marginal->dist`)
+- `(aux hakaru10)` — umbrella module re-exporting the entire stack plus
+  high-level drivers (`infer/importance`, `infer/mh`, `infer/mh-chain`,
+  `infer/smc`, `posterior-mean`, `posterior-variance`, `posterior-quantiles`)
+
+```scheme
+(import (aux base) (aux hakaru10))
+
+;; Exact conjugate Beta-Bernoulli update via delayed sampling:
+(define (coin-model)
+  (let ((bias (make-beta-bernoulli 2.0 2.0)))
+    (bias 'observe #t)
+    (bias 'observe #t)
+    (bias 'observe #f)
+    (bias 'sample)))
+
+;; Exact discrete posterior via (aux hakaru10 exact):
+(exact-posterior
+  (lambda ()
+    (let* ((fair (random (dist-bernoulli 0.5)))
+           (p (if fair 0.5 0.9)))
+      (observe (dist-bernoulli p) #t)
+      (observe (dist-bernoulli p) #t)
+      fair)))
+;; => ((#f . 0.7642276422764228) (#t . 0.23577235772357724))
+```
+
 ### `(aux kanren lambda)`
 
 `(aux kanren lambda)` brings λProlog's hereditary Harrop formulas to
@@ -1634,15 +1884,21 @@ signals an error. To write in J-Bob's language, import `(aux j-bob lang)` in
 place of the five names of `scheme` that it redefines,
 `(import (except scheme if car cdr + <) (aux j-bob lang))`, or with a prefix.
 
-The port keeps two holes of upstream, each of which proves `(equal 't 'nil)`.
-`undefined?` does not reserve the names of the primitives, so a `defun` named
-`atom` or `car` is admitted. Quoted floating-point constants reach the host's
-`+`, where the axiom `associate-+` is false. `make test-j-bob` runs
-`test/j-bob.scm`, which compares what every function of the transcript answers
-with what it answered upstream (`test/j-bob/little-prover.scm`), and records
-the two holes. The tutorial "Theorems About Programs, Read Through J-Bob" runs
-its 112 examples on upstream's files; all of them print the same on the port,
-except one error message that names the procedure `+` as `aux.j-bob.lang#+`.
+The port keeps two holes of upstream by default, each of which proves
+`(equal 't 'nil)`. `undefined?` does not reserve the names of the primitives, so
+a `defun` named `atom` or `car` is admitted. Quoted floating-point constants
+reach the host's `+`, where the axiom `associate-+` is false. Parameterizing
+`(j-bob-strict? #t)` (exported by both `(aux j-bob lang)` and `(aux j-bob)`,
+`#f` by default) closes both holes: `undefined?` rejects primitive operator
+names (`rator?`), and `num` and `natp` accept only exact non-negative integers,
+while all 60 definitions and proofs of *The Little Prover* continue to check.
+`make test-j-bob` runs `test/j-bob.scm`, which compares what every function of
+the transcript answers with what it answered upstream
+(`test/j-bob/little-prover.scm`), records the two holes under the default mode,
+and verifies that `(j-bob-strict? #t)` blocks both. The tutorial "Theorems About
+Programs, Read Through J-Bob" runs its 112 examples on upstream's files; all of
+them print the same on the port, except one error message that names the
+procedure `+` as `aux.j-bob.lang#+`.
 
 J-Bob is distributed under the 2-clause BSD license, and so are the files of
 the port, `src/aux.j-bob*.scm` and `src/test/j-bob*`; the license text is in

@@ -53,17 +53,14 @@
 ; write the child's stdin to, `process-output-port` is the INPUT port you read its stdout from.
 ; Both are commented at the call site; please do not "fix" them.
 ;
-; Two JSON procedures live here rather than in (aux simdjson), whose own were broken when this
-; module was written.  `anthropic-json/parse`, because `simdjson-parse/ondemand` used to hand the
-; C side `string-length`, a CHARACTER count, where simdjson wants BYTES -- so the first accented
-; response was truncated and failed to parse; it passes the byte count now.  And
-; `anthropic-json/write`, because `->string/json` escaped strings with Scheme `write`, which emits
-; CHICKEN's `\x01;` for control characters, printed ratnums as `1/3`, and truncated flonums to 15
-; significant digits -- none of which is JSON; it emits valid JSON now.  EVERY parse in this
-; module is gated behind `anthropic-json/well-formed?`, a complete pure-Scheme JSON validator.
-; (aux simdjson) signals a malformed document as a plain Scheme error; the gate is what turns
-; every malformed body, a proxy page or a cut connection alike, into an `anthropic-decode-error` a
-; caller can dispatch on.
+; The JSON entry points here (`anthropic-json/well-formed?`, `anthropic-json/utf8-length`,
+; `anthropic-json/parse`, and `anthropic-json/write`) delegate to `(aux simdjson)`, where the
+; validator (`json-well-formed?`), UTF-8 byte counter (`json-utf8-length`), round-trip flonum
+; formatter (`flonum->string/json`), and total JSON writer (`write-json` / `->string/json`) now
+; live.  EVERY parse in this module is gated behind `anthropic-json/well-formed?` (`json-well-formed?`
+; with its default object/array root requirement), and `anthropic-json/parse` and
+; `anthropic-json/write` wrap `(aux simdjson)`'s plain Scheme errors into `anthropic-decode-error`
+; and `anthropic-encode-error` conditions so callers can dispatch on them.
 ;
 ; The module uses `display` rather than `write-string` throughout.  Not because `write-string` is
 ; unavailable -- it is in (scheme base), which is imported, and would work -- but because it is
@@ -273,374 +270,55 @@
           (string-translate* text (list (cons key "<redacted>")))
           text)))
 
-  ; the JSON validator ----------------------------------------------------------------------
+  ; the JSON validator, parser, encoder and accessors (delegated to (aux simdjson)) ---------
   ;
-  ; (aux simdjson) signals a malformed document as a plain Scheme error, not as an
-  ; `anthropic-decode-error`.  Sniffing for a leading `{` is not enough: a truncated body starts
-  ; with `{` too, and a bare scalar document such as `42`, which (aux simdjson) decodes, is no API
-  ; response.  So this is a complete validator, and nothing is parsed without it.
+  ; (aux simdjson) provides the pure-Scheme validator (`json-well-formed?`), UTF-8 byte counter
+  ; (`json-utf8-length`), gated parser (`json-parse`), total encoder (`write-json` / `json-write`),
+  ; and object accessors (`json-ref`, `json-has?`, `json-null?`, `json-vector->list`, `json-key=?`,
+  ; `json-set`, `json-merge`), and signals malformed documents or unrepresentable values as plain
+  ; Scheme errors.  The bindings below re-export them under their `anthropic-json/*` names and
+  ; translate parse and encode failures into `anthropic-decode-error` and `anthropic-encode-error`
+  ; conditions.
 
-  (define (anthropic-char/digit? c) (and (char>=? c #\0) (char<=? c #\9)))
-
-  (define (anthropic-char/hex? c)
-    (or (anthropic-char/digit? c)
-        (and (char>=? c #\a) (char<=? c #\f))
-        (and (char>=? c #\A) (char<=? c #\F))))
-
-  ; The JSON number grammar is not enough.  simdjson reads a literal with a `.` or an exponent as
-  ; a double and THROWS NUMBER_ERROR when it rounds to infinity -- `1e309`, `-1e999` -- and also
-  ; when the exponent field has twenty or more digits, leading zeros included, whatever its value.
-  ; A literal without either is read as an integer, never as a double, and never throws here.
-  ;
-  ; `string->number` cannot decide the rounding: it is not correctly rounded on this CHICKEN --
-  ; it answers +inf.0 for 1.7976931348623158e308, which simdjson reads as the largest finite
-  ; double -- and on a huge exponent it builds the exact power of ten.  So the magnitude is
-  ; decided on the digits instead.  Writing the value as 0.DDD * 10^q with D1 non-zero, it
-  ; overflows exactly when it reaches 2^1024 - 2^970, the midpoint between the largest double
-  ; and 2^1024 (the midpoint rounds up, to even); that bound has 309 digits, so only q = 309 needs
-  ; the digits themselves, and there a string comparison of the two digit runs is the numeric one.
-  (define anthropic-json/overflow-digits (number->string (- (expt 2 1024) (expt 2 970))))
-
-  ; `s[m, b)` is a literal that already matched the number grammar, less its sign, with a
-  ; fraction or an exponent: its integer digits end at `dot` and its exponent marker is at `e`
-  ; (`e` = `b` without one, `dot` = `e` without a fraction).  It runs on every such literal of
-  ; every body, so it allocates nothing on the way to its answer and uses fixnum arithmetic:
-  ; the generic `min`, `*` and `+` tripled its cost, measured.
-  (define (anthropic-json/finite? s m dot e b)
-    (if (and (fx= e b) (fx< (fx- dot m) 309))
-        #t                                                  ; no exponent, few integer digits
-        (let* ((sign (and (fx< e b) (let1 (c (string-ref s (fx+ e 1)))
-                                      (and (or (char=? c #\+) (char=? c #\-)) c))))
-               (x (cond (sign (fx+ e 2)) ((fx< e b) (fx+ e 1)) (else b)))   ; exponent digits
-               (f (let F ((k m))                            ; the first significant digit
-                    (if (and (fx< k e)
-                             (let1 (c (string-ref s k)) (or (char=? c #\0) (char=? c #\.))))
-                        (F (fx+ k 1))
-                        k))))
-          (cond
-            ((fx> (fx- b x) 19) #f)                         ; simdjson gives up on the exponent
-            ((fx>= f e) #t)                                 ; every digit is zero
-            (else
-              ; the exponent saturates far above any string length, so it stays a fixnum
-              (let1 (q (fx+ (if (fx< f dot) (fx- dot f) (fx- (fx+ dot 1) f))
-                            (let X ((k x) (v 0))
-                              (cond
-                                ((fx< k b)
-                                 (X (fx+ k 1)
-                                    (if (fx< v 100000000000000)
-                                        (fx+ (fx* 10 v) (fx- (char->integer (string-ref s k)) 48))
-                                        v)))
-                                ((eqv? sign #\-) (fxneg v))
-                                (else v)))))
-                (or (fx< q 309)
-                    (and (fx= q 309)
-                         (string<? (list->string (remove (λ (c) (char=? c #\.))
-                                                         (string->list (substring s f e))))
-                                   anthropic-json/overflow-digits)))))))))
-
-  ; An integer literal -- no fraction, no exponent -- never throws, but one beyond 64 bits,
-  ; below -2^63 or above 2^64 - 1, is simdjson's big_integer, which the binding refuses with
-  ; BIGINT_ERROR (it used to leave it untyped, and `simdjson->scheme` raised a bare "Unknown
-  ; simdjson type"): a (simdjson) error outside this module's taxonomy.  Rejecting it HERE,
-  ; and not only in `anthropic-json/parse`, keeps the gate's promise that what it passes
-  ; parses, which the callers that fall back on a body the gate refuses rely on: an API error
-  ; body keeps its status and retry, an SSE frame keeps the stream alive, a streamed tool input
-  ; is recorded as an input error rather than losing the turn.  JSON forbids leading zeros, so
-  ; digit runs of equal length compare as strings exactly as they do as numbers.  `s[m, b)` are
-  ; the digits.
-  (define (anthropic-json/integer-fits? s negative? m b)
-    (let* ((bound (if negative? "9223372036854775808" "18446744073709551615"))
-           (k (string-length bound))
-           (n (fx- b m)))
-      (or (fx< n k)
-          (and (fx= n k) (not (string<? bound (substring s m b)))))))
-
-  ; simdjson's binding visits the document by C++ recursion, one frame per level: it used to
-  ; SEGFAULT on deep enough input (20,000 nested arrays parsed, 40,000 killed the process) and now
-  ; refuses nesting past simdjson's default of 1024 with DEPTH_ERROR, while this validator, riding
-  ; CHICKEN's stack, would pass a million.  So nesting is bounded here, below simdjson's 1024, and
-  ; too deep a body is an anthropic-decode-error like any other; no API body comes anywhere near it.
-  (define anthropic-json/max-depth 512)
-
-  (define (anthropic-json/well-formed? s)
-    (and
-      (string? s)
-      (let* ((n (string-length s))
-             (at (λ (i) (and (< i n) (string-ref s i)))))
-        (letrec
-          ; JSON whitespace is exactly these four.  NOT char-whitespace?, which is Unicode-aware
-          ; here: it passed a form feed, VT, NBSP and U+2028, all of which simdjson answers with a bare
-          ; TAPE_ERROR (the form feed was an abort until (aux simdjson) caught its exceptions).
-          ((skip (λ (i) (if (and (< i n)
-                                 (memv (string-ref s i) (list #\space #\tab #\newline #\return)))
-                            (skip (add1 i))
-                            i)))
-           (word (λ (i w) (let1 (m (string-length w))
-                            (and (<= (+ i m) n) (string=? w (substring s i (+ i m))) (+ i m)))))
-           (digits (λ (i) (let D ((k i))
-                            (if (and (< k n) (anthropic-char/digit? (string-ref s k)))
-                                (D (add1 k))
-                                (and (> k i) k)))))
-           (hex4 (λ (j) (and (<= (+ j 4) n)
-                             (let1 (h (substring s j (+ j 4)))
-                               (and (every anthropic-char/hex? (string->list h))
-                                    (string->number h 16))))))
-           (number
-             (λ (i)
-               (let* ((m (if (eqv? #\- (at i)) (add1 i) i))
-                      (dot (cond
-                             ((eqv? #\0 (at m)) (add1 m))
-                             ((and (at m) (anthropic-char/digit? (at m))) (digits m))
-                             (else #f))))
-                 (and dot
-                      (let1 (e (if (eqv? #\. (at dot)) (digits (add1 dot)) dot))
-                        (and e
-                             (let1 (j (let1 (c (at e))
-                                        (if (memv c '(#\e #\E))
-                                            (digits (if (memv (at (add1 e)) '(#\+ #\-))
-                                                        (+ e 2)
-                                                        (add1 e)))
-                                            e)))
-                               (and j
-                                    (if (fx= dot j)
-                                        (anthropic-json/integer-fits? s (fx> m i) m j)
-                                        (anthropic-json/finite? s m dot e j))
-                                    j))))))))
-           (text
-             (λ (i)
-               (and (eqv? #\" (at i))
-                    (let S ((k (add1 i)))
-                      (let1 (c (at k))
-                        (cond
-                          ((not c) #f)
-                          ((char=? c #\") (add1 k))
-                          ((char=? c #\\)
-                           (let1 (e (at (add1 k)))
-                             (cond
-                               ((not e) #f)
-                               ((memv e (list #\" #\\ #\/ #\b #\f #\n #\r #\t)) (S (+ k 2)))
-                               ; simdjson throws STRING_ERROR on a surrogate escape that is
-                               ; not a high one followed by a low one, so pairing is checked
-                               ((char=? e #\u)
-                                (let1 (u (hex4 (+ k 2)))
-                                  (cond
-                                    ((not u) #f)
-                                    ((<= #xDC00 u #xDFFF) #f)            ; a lone low surrogate
-                                    ((<= #xD800 u #xDBFF)
-                                     (and (eqv? #\\ (at (+ k 6)))
-                                          (eqv? #\u (at (+ k 7)))
-                                          (let1 (v (hex4 (+ k 8)))
-                                            (and v (<= #xDC00 v #xDFFF) (S (+ k 12))))))
-                                    (else (S (+ k 6))))))
-                               (else #f))))
-                          ((char<? c #\space) #f)          ; a raw control byte is not legal JSON
-                          ; CHICKEN decodes each byte of invalid UTF-8 to #xDC00 + byte, a
-                          ; surrogate no valid UTF-8 can yield, while the FFI hands simdjson the
-                          ; original bytes -- UTF8_ERROR.  This one test covers every such byte.
-                          ; Two 2-argument comparisons, which csc inlines: the 3-argument
-                          ; char<=? is a variadic call per character, ~22 ms per MB of body.
-                          ((and (char>=? c #\xD800) (char<=? c #\xDFFF)) #f)
-                          (else (S (add1 k)))))))))
-           ; `d` counts the containers enclosing position i
-           (value
-             (λ (i d)
-               (let1 (i (skip i))
-                 (let1 (c (at i))
-                   (cond
-                     ((not c) #f)
-                     ((and (memv c (list #\{ #\[)) (>= d anthropic-json/max-depth)) #f)
-                     ((char=? c #\{) (object (add1 i) (add1 d)))
-                     ((char=? c #\[) (array (add1 i) (add1 d)))
-                     ((char=? c #\") (text i))
-                     ((char=? c #\t) (word i "true"))
-                     ((char=? c #\f) (word i "false"))
-                     ((char=? c #\n) (word i "null"))
-                     (else (number i)))))))
-           (array
-             (λ (i d)
-               (let1 (i (skip i))
-                 (if (eqv? #\] (at i))
-                     (add1 i)
-                     (let A ((i i))
-                       (let1 (j (value i d))
-                         (and j
-                              (let1 (j (skip j))
-                                (cond
-                                  ((eqv? #\, (at j)) (A (add1 j)))
-                                  ((eqv? #\] (at j)) (add1 j))
-                                  (else #f))))))))))
-           (object
-             (λ (i d)
-               (let1 (i (skip i))
-                 (if (eqv? #\} (at i))
-                     (add1 i)
-                     (let O ((i i))
-                       (let1 (k (text (skip i)))
-                         (and k
-                              (let1 (k (skip k))
-                                (and (eqv? #\: (at k))
-                                     (let1 (v (value (add1 k) d))
-                                       (and v
-                                            (let1 (v (skip v))
-                                              (cond
-                                                ((eqv? #\, (at v)) (O (add1 v)))
-                                                ((eqv? #\} (at v)) (add1 v))
-                                                (else #f)))))))))))))))
-          (let1 (i (skip 0))
-            (and (memv (at i) (list #\{ #\[))
-                 (let1 (j (value i 0))
-                   (and j (= n (skip j))))))))))
-
-  ; parsing ---------------------------------------------------------------------------------
-  ;
-  ; The callback wants BYTES and `string-length` answers in CHARACTERS.  A CHICKEN 6 string is
-  ; UTF-8 inside, so the byte count is the length of its UTF-8 copy: one primitive copy instead of
-  ; a walk summing per-codepoint widths, which cost ~30 ms on a 1 MB body -- and this runs on
-  ; every response body and every SSE frame.  This very procedure drives
-  ; `simdjson-parse-ondemand-callback`, a foreign-lambda, from the same interpreted `csi -s`
-  ; suite: a compiled extension loads into csi perfectly well.
-
-  (define (anthropic-json/utf8-length s) (bytevector-length (string->utf8 s)))
+  (define anthropic-char/digit?          json-char/digit?)
+  (define anthropic-char/hex?            json-char/hex?)
+  (define anthropic-json/overflow-digits json-overflow-digits)
+  (define anthropic-json/finite?         json-finite?)
+  (define anthropic-json/integer-fits?   json-integer-fits?)
+  (define anthropic-json/max-depth       json-max-depth)
+  (define anthropic-json/well-formed?    json-well-formed?)
+  (define anthropic-json/utf8-length     json-utf8-length)
 
   (define (anthropic-json/parse s)
-    (unless (anthropic-json/well-formed? s)
+    (unless (json-well-formed? s)
       (anthropic-raise/decode "not a well-formed JSON object or array" s))
-    ; The gate refuses what the binding cannot type -- an integer beyond 64 bits, simdjson's
-    ; big_integer, used to pass it and make simdjson->scheme raise a bare "Unknown simdjson
-    ; type" between the parse and the free.  Should the conversion raise all the same, the dom
-    ; is freed rather than leaked and the caller sees this module's decode error.
-    (let* ((dom (simdjson-parse-ondemand-callback s (anthropic-json/utf8-length s)))
-           (v (handle-exceptions e
-                (begin
-                  (simdjson-free dom)
-                  (anthropic-raise/decode "a value the simdjson binding cannot represent" s))
-                (simdjson->scheme dom))))
-      (simdjson-free dom)
-      v))
-
-  ; encoding ---------------------------------------------------------------------------------
+    (handle-exceptions e
+      (anthropic-raise/decode "a value the simdjson binding cannot represent" s)
+      (json-parse s)))
 
   (define (anthropic-json/unicode-escape u)
     (let1 (hex (number->string u 16))
       (string-append "\\u" (make-string (- 4 (string-length hex)) #\0) hex)))
 
-  (define (anthropic-json/escape s port)
-    (display "\"" port)
-    (let1 (n (string-length s))
-      (let L ((i 0))
-        (when (< i n)
-          (let* ((c (string-ref s i)) (u (char->integer c)))
-            (cond
-              ((char=? c #\") (display "\\\"" port))
-              ((char=? c #\\) (display "\\\\" port))
-              ((= u 8) (display "\\b" port))
-              ((= u 9) (display "\\t" port))
-              ((= u 10) (display "\\n" port))
-              ((= u 12) (display "\\f" port))
-              ((= u 13) (display "\\r" port))
-              ((< u #x20) (display (anthropic-json/unicode-escape u) port))
-              (else (display c port))))
-          (L (add1 i)))))
-    (display "\"" port))
-
-  ; `flonum-print-precision` defaults to 15, which turns 3.141592653589793 into
-  ; 3.14159265358979.  A replayed assistant turn must be byte-faithful, so we search upward for
-  ; the shortest representation that reads back to the same flonum, and restore the parameter.
-  (define (anthropic-json/flonum->string x)
-    (let1 (saved (flonum-print-precision))
-      (dynamic-wind
-        (τ (void))
-        (τ (let L ((p 15))
-             (flonum-print-precision p)
-             (let1 (s (number->string x))
-               (if (or (>= p 17) (eqv? x (string->number s))) s (L (add1 p))))))
-        (τ (flonum-print-precision saved)))))
+  (define anthropic-json/escape          json-escape)
+  (define anthropic-json/flonum->string  json-flonum->string)
 
   (define (anthropic-json/emit v port)
-    (cond
-      ((string? v) (anthropic-json/escape v port))
-      ((boolean? v) (display (if v "true" "false") port))
-      ((void? v) (display "null" port))
-      ((null? v) (display "{}" port))                    ; an empty OBJECT; #() is the empty ARRAY
-      ((symbol? v) (anthropic-json/escape (symbol->string v) port))
-      ((char? v) (anthropic-json/escape (string v) port))
-      ((number? v)
-       (cond
-         ((and (exact? v) (integer? v)) (display v port))
-         ((and (exact? v) (rational? v))
-          (display (anthropic-json/flonum->string (exact->inexact v)) port))
-         ((and (flonum? v) (= v v) (< -∞ v ∞)) (display (anthropic-json/flonum->string v) port))
-         (else (anthropic-raise/encode "not a finite JSON number" v))))
-      ((vector? v)
-       (display "[" port)
-       (let1 (n (vector-length v))
-         (let L ((i 0))
-           (when (< i n)
-             (when (> i 0) (display "," port))
-             (anthropic-json/emit (vector-ref v i) port)
-             (L (add1 i)))))
-       (display "]" port))
-      ((pair? v)
-       (display "{" port)
-       (let L ((lst v) (first? #t))
-         (when (pair? lst)
-           (unless first? (display "," port))
-           (let1 (kv (car lst))
-             (unless (and (pair? kv) (pair? (cdr kv)) (null? (cddr kv)))
-               (anthropic-raise/encode "a JSON object entry must be a two-element list" kv))
-             (let1 (key (car kv))
-               (cond
-                 ((symbol? key) (anthropic-json/escape (symbol->string key) port))
-                 ((string? key) (anthropic-json/escape key port))
-                 (else (anthropic-raise/encode "a JSON object key must be a symbol or a string" kv))))
-             (display ":" port)
-             (anthropic-json/emit (cadr kv) port))
-           (L (cdr lst) #f)))
-       (display "}" port))
-      (else (anthropic-raise/encode "cannot be represented as JSON" v))))
+    (handle-exceptions e
+      (let ((msg (get-condition-property e 'exn 'message "cannot be represented as JSON"))
+            (args (get-condition-property e 'exn 'arguments '())))
+        (anthropic-raise/encode msg (if (pair? args) (car args) v)))
+      (json-emit v port)))
 
   (define (anthropic-json/write v) (letport/output-string port (anthropic-json/emit v port)))
 
-  ; access ------------------------------------------------------------------------------------
-  ;
-  ; simdjson decodes an object to a list of two-element (symbol value) lists, so the accessor is
-  ; assq-then-cadr.  `alist-ref` from (chicken base) is a trap -- it returns the CDR, i.e. the
-  ; one-element list (value).  `letassoc` from (aux base) would work but uses `assoc` and demands
-  ; an `else` clause, so `ref` and `has?` would disagree on the comparator; keys are interned
-  ; symbols, so `assq` is both correct and faster.
-
-  (define (anthropic-json/ref obj key #!optional (default (void)))
-    (let1 (kv (and (pair? obj) (assq key obj)))
-      (if (pair? kv) (cadr kv) default)))
-
-  (define (anthropic-json/has? obj key) (and (pair? obj) (pair? (assq key obj)) #t))
-
-  (define (anthropic-json/null? v) (void? v))
-
-  (define (anthropic-json/vector->list v) (if (vector? v) (vector->list v) '()))
-
-  ; A key is compared by NAME, not with eq?: the encoder takes a string key as readily as a
-  ; symbol, and "model" is not eq? to model -- nor to another "model" -- so an `extra` spelled
-  ; with strings would be appended as a SECOND key, which the server resolves by silently
-  ; keeping only one of the two.  A hit keeps the key it found, so that setting "model" on a
-  ; decoded object leaves the symbol `model` in place for `ref` and `has?`, which use assq.
-  (define (anthropic-json/key=? a b)
-    (or (eq? a b)
-        (equal? (if (symbol? a) (symbol->string a) a) (if (symbol? b) (symbol->string b) b))))
-
-  (define (anthropic-json/set obj key val)
-    (let L ((o obj) (acc '()) (hit #f))
-      (cond
-        ((not (pair? o)) (reverse (if hit acc (cons (list key val) acc))))
-        ((anthropic-json/key=? key (car (car o)))
-         (L (cdr o) (cons (list (car (car o)) val) acc) #t))
-        (else (L (cdr o) (cons (car o) acc) hit)))))
-
-  ; `foldl` in CHICKEN passes the ACCUMULATOR first -- verified -- so (λ (o kv) ...) is the order.
-  (define (anthropic-json/merge obj patch)
-    (if (pair? patch)
-        (foldl (λ (o kv) (anthropic-json/set o (car kv) (cadr kv))) obj patch)
-        obj))
+  (define anthropic-json/ref          json-ref)
+  (define anthropic-json/has?         json-has?)
+  (define anthropic-json/null?        json-null?)
+  (define anthropic-json/vector->list json-vector->list)
+  (define anthropic-json/key=?        json-key=?)
+  (define anthropic-json/set          json-set)
+  (define anthropic-json/merge        json-merge)
 
   ; strings and headers -----------------------------------------------------------------------
 

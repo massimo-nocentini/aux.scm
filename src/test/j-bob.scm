@@ -14,6 +14,7 @@
 
 (import scheme
         (chicken base)
+        (only (scheme base) parameterize)
         (only (chicken io) read-list)
         (aux base)
         (aux unittest)
@@ -174,6 +175,22 @@
    ; upstream's hole, kept: eval-op (j-bob.scm:652) gives quoted floats to the host's +, which is not
    ; associative on them, while the axiom associate-+ says it is
    (⊦= ''t (J-Bob/prove (prelude) float-boom))
-   (⊦= '(boom) (list-tail (names (J-Bob/define (prelude) float-boom)) 23))))
+   (⊦= '(boom) (list-tail (names (J-Bob/define (prelude) float-boom)) 23)))
+
+  ((test/strict _)
+   ; parameterizing j-bob-strict? to #t closes both holes while keeping every proof of the book valid
+   (parameterize ((j-bob-strict? #t))
+     (⊦= 'nil (jb:natp 1.0))
+     (⊦= 'nil (jb:natp 1e16))
+     (⊦= 0 (jb:num 1.0))
+     (⊦= 0 (jb:num -3))
+     (⊦= 0 (jb:num 1/2))
+     (⊦= 5 (jb:num 5))
+     (⊦= 'nil (undefined? 'atom (prelude)))
+     (⊦= ''nil (J-Bob/prove (prelude) shadow-atom))
+     (⊦= 23 (length (J-Bob/define (prelude) shadow-atom)))
+     (⊦= '(equal 't (equal '1e16 '10000000000000002.0)) (J-Bob/prove (prelude) float-boom))
+     (⊦= 23 (length (J-Bob/define (prelude) float-boom)))
+     (⊦= 60 (length (dethm.align/align))))))
 
 (unittest/✓ j-bob-suite)

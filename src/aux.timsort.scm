@@ -180,13 +180,12 @@
   ;; that when a whole program can live with short call chains; use this when
   ;; only the sorts can.
   ;;
-  ;; SCOPE: the per-sort resize is done by the LIST entry points only.  The
-  ;; vector ones do not consult this parameter, so a vector sort with a user
-  ;; comparator runs at the default buffer length; wrap it in
-  ;; `with-timsort-trace-buffer-size' if it needs the same treatment.  The
-  ;; bracket wants factoring into one helper shared by all four call sites, and
-  ;; that is where this belongs -- but it is also the most delicate code here,
-  ;; so it is left for a change of its own rather than done in passing.
+  ;; SCOPE: both the list and the vector entry points consult this parameter
+  ;; whenever `comparator_type' is `TIMSORT_USE_COMPARATOR' (the only mode that
+  ;; calls back into Scheme once per comparison).  For a batch of many small
+  ;; sorts, wrap the batch in `with-timsort-trace-buffer-size' so the buffer is
+  ;; resized once around the whole batch and each sort inside sees the target
+  ;; size already in place and skips its own resize.
   ;;
   ;; THE BUFFER IS PROCESS-GLOBAL, so this is only correct while sorts nest.
   ;; Each level restores what it observed, which is right for nesting -- an
@@ -431,18 +430,29 @@
   ;; message mentions a fixnum it already had.  This is NOT the GC-safety
   ;; rule; see the note at the top of chicken-timsort.c.
   (define (%timsort/vector-call lt? src dst keys n reverse use-insertion-sort be-unpredictable-on-random-data comparator_type)
-    (let* ((depth (timsort-depth))
+    (let* ((requested (and (eq? comparator_type TIMSORT_USE_COMPARATOR)
+                           (timsort-trace-buffer-size)))
+           (previous #f)
+           (depth (timsort-depth))
            (escape (%timsort-escape depth)))
-      ;; Same escape unwind as the list path: a comparator that raises or
-      ;; escapes never lets C drop the roots holding `src', `dst' and `keys'.
-      ;; And the same catching of an escape when the sort is nested in another.
+      ;; Same escape unwind and trace-buffer bracket as the list path: a
+      ;; comparator that raises or escapes never lets C drop the roots holding
+      ;; `src', `dst' and `keys', and all three exits put back the trace-buffer
+      ;; size this level observed.  And the same catching of an escape when the
+      ;; sort is nested in another.
       (or (dynamic-wind
-            void
+            (lambda ()
+              (when (and requested (not (eq? requested (timsort-trace-buffer-size/current))))
+                (set! previous (%timsort-resize-trace-buffer requested))))
             (lambda ()
               (timsort-vector-foreign src n (if escape (%timsort-catching lt? escape depth) lt?) dst keys
                                       reverse use-insertion-sort
                                       be-unpredictable-on-random-data comparator_type))
-            (lambda () (timsort-unwind depth)))
+            (lambda ()
+              (timsort-unwind depth)
+              (when previous
+                (%timsort-resize-trace-buffer previous)
+                (set! previous #f))))
           (%timsort-failed escape 'timsort/vector n))))
 
   ;; A `!' variant sorts `v' in place and RETURNS it, the way `sort!' does; the

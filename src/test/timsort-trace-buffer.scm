@@ -156,6 +156,41 @@
        (⊦= "bad argument type - not a number"
            (message-of (lambda () (timsort (list 1 "two" 3))))))))
 
+  ;; The native vector entry points share the same trace-buffer bracket when
+  ;; given TIMSORT_USE_COMPARATOR: they shrink to the requested size during the
+  ;; sort and restore the observed size on return, raise, escape, and nesting.
+  ((test/vector-entry-points-share-bracket _)
+   (let ((seen '())
+         (v (vector 5 4 3 2 1 9 7 8)))
+     (parameterize ((timsort-trace-buffer-size 3))
+       (⊦= #(1 2 3 4 5 7 8 9)
+           ((timsort/vector/gen (lambda (a b)
+                                  (set! seen (cons (timsort-trace-buffer-size/current) seen))
+                                  (< a b))
+                                #f #f #f #t TIMSORT_USE_COMPARATOR)
+            v))
+       (⊦= default-size (timsort-trace-buffer-size/current))
+       (⊦= #(1 2 3 4 5 7 8 9)
+           ((timsort/vector/key/gen (lambda (a b)
+                                      (set! seen (cons (timsort-trace-buffer-size/current) seen))
+                                      (< a b))
+                                    #f #f #f #t TIMSORT_USE_COMPARATOR)
+            v (lambda (x) x)))
+       (⊦= default-size (timsort-trace-buffer-size/current))
+       (handle-exceptions e #t
+         ((timsort/vector/gen (lambda (a b) (error 'boom "from vector comparator"))
+                              #f #f #f #t TIMSORT_USE_COMPARATOR)
+          v))
+       (⊦= default-size (timsort-trace-buffer-size/current))
+       (call-with-current-continuation
+         (lambda (k)
+           ((timsort/vector/gen (lambda (a b) (k 'escaped))
+                                #f #f #f #t TIMSORT_USE_COMPARATOR)
+            v)))
+       (⊦= default-size (timsort-trace-buffer-size/current)))
+     (⊦= '(3) (delete-duplicates seen))
+     (⊦= default-size (timsort-trace-buffer-size/current))))
+
   ;; A comparator that escapes leaves the sort's C frames standing for good,
   ;; so anything the foreign call's continuation names is pinned for the life
   ;; of the process.  The restore adds two names to that continuation; both

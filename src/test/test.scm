@@ -341,6 +341,32 @@
              "The walk recurses once per nesting level, so a document nesting more than 1024 arrays "
              "or objects raises " (code/inline "DEPTH_ERROR") " instead of overflowing the C stack.")))
 
+  ((test/simdjson/well-formed _)
+    (⊨ (json-well-formed? "{\"a\":[1,true,null,\"ok\"]}"))
+    (⊭ (json-well-formed? "42"))
+    (⊨ (json-well-formed? "42" #t))
+    (⊭ (json-well-formed? "{\"a\":1e309}"))
+    (⊭ (json-well-formed? "[18446744073709551616]"))
+    (⊦= 6 (json-utf8-length "caffè"))
+    (⊦= '((a #(1 #t))) (json-parse "{\"a\":[1,true]}"))
+    (⊦= 42 (json-parse "42" #t))
+    (⊦= 'raised (condition-case (json-parse "42") ((exn) 'raised)))
+    (⊦= "{\"role\":\"user\",\"c\":\"u\"}" (json-write '((role user) (c #\u))))
+    (let1 (obj (json-parse "{\"a\":1,\"b\":null,\"c\":[1,2]}"))
+      (⊦= 1 (json-ref obj 'a))
+      (⊨ (json-has? obj 'b))
+      (⊨ (json-null? (json-ref obj 'b)))
+      (⊦= '(1 2) (json-vector->list (json-ref obj 'c)))
+      (⊦= `((a 9) (b ,(void)) (c #(1 2)) (d 4))
+          (json-merge (json-set obj "a" 9) '((d 4)))))
+    (⊦= '(raised raised raised)
+        (map (λ (x) (condition-case (json-write x) ((exn) 'raised)))
+             (list '((a . 1)) '((7 "v")) (vector car))))
+    `(doc (p (code/inline "json-well-formed?") ", " (code/inline "json-parse") ", "
+             (code/inline "json-write") " and the " (code/inline "json-*")
+             " object accessors provide a complete, self-contained JSON layer in "
+             (code/inline "(aux simdjson)") ".")))
+
 ((test/libc/fma _)
  (⊦ fp= 0.0 (+ (* 0.1 10.0) -1.0))
  (⊦ fp= (fp*+ 0.1 10.0 -1.0) (libc-fma 0.1 10.0 -1.0))

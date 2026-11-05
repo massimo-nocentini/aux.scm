@@ -43,6 +43,8 @@
 (module (aux j-bob lang)
   ( ; the host's primitives, kept
     s.car s.cdr s.+ s.<
+    ; strict mode parameter (#f by default, preserving upstream's two soundness holes unless enabled)
+    j-bob-strict?
     ; the total primitives
     num if/nil atom car cdr equal natp + <
     ; the syntax
@@ -51,13 +53,21 @@
     size)
 
   (import (except scheme if car cdr + <)
-          (prefix (only scheme if car cdr + <) scheme:))
+          (prefix (only scheme if car cdr + <) scheme:)
+          (only (scheme base) make-parameter))
 
   (define s.car scheme:car)
   (define s.cdr scheme:cdr)
   (define s.+ scheme:+)
   (define s.< scheme:<)
-  (define (num x) (scheme:if (number? x) x 0))
+  (define j-bob-strict?
+    (make-parameter #f (lambda (v) (and v (not (equal? v 'nil))))))
+  (define (num x)
+    (scheme:if (number? x)
+      (scheme:if (j-bob-strict?)
+        (scheme:if (exact? x) (scheme:if (integer? x) (scheme:if (s.< x 0) 0 x) 0) 0)
+        x)
+      0))
   (define (if/nil Q A E)
     (scheme:if (equal? Q 'nil) (E) (A)))
 
@@ -66,7 +76,11 @@
   (define (cdr x) (scheme:if (pair? x) (s.cdr x) '()))
   (define (equal x y) (scheme:if (equal? x y) 't 'nil))
   (define (natp x)
-    (scheme:if (integer? x) (scheme:if (s.< x 0) 'nil 't) 'nil))
+    (scheme:if (integer? x)
+      (scheme:if (j-bob-strict?)
+        (scheme:if (exact? x) (scheme:if (s.< x 0) 'nil 't) 'nil)
+        (scheme:if (s.< x 0) 'nil 't))
+      'nil))
   (define (+ x y) (s.+ (num x) (num y)))
   (define (< x y)
     (scheme:if (s.< (num x) (num y)) 't 'nil))

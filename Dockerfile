@@ -23,4 +23,4 @@ RUN git clone --depth=1 https://github.com/massimo-nocentini/spiffy-request-vars
 
 COPY src src
 
-RUN mkdir test-results && cd src && make install && make test -B && cp test/*.html test/*.md ../test-results && cd .. && rm -rf src
+RUN mkdir test-results && cd src && make install && make test -B && make test-lua && cp test/*.html test/*.md ../test-results && cd .. && rm -rf src
