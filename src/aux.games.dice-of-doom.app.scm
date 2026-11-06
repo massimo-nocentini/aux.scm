@@ -162,8 +162,8 @@
           sxml-transforms
           (aux base)
           (aux stream sicp)
-          (only (aux search adversarial) make-game make-chance-node star1 best-move/iterative-deepening
-                decision-index make-transposition-table)
+          (only (aux search adversarial) make-game make-chance-node star1 best-move
+                best-move/iterative-deepening decision-index make-transposition-table)
           (only (aux land-of-lisp webserver spiffy) serve)
           (except (aux games dice-of-doom v4)
                   draw-die-svg draw-tile-svg draw-board-svg draw-dod-page make-game-link
@@ -621,10 +621,15 @@
                key: identity test: eq? hash: dice-of-doom/tree-hash))
 
   ; v4's `handle-computer` up to the choice: the move, before its dice are rolled.
-  (define (choose-computer-move tree #!key (level (*ai-level*)) (budget (*ai-budget*)))
+  ; When `level` is `#f` (unlimited difficulty), the search explores the full search space
+  ; without a depth cap (and without a node budget unless `budget:` is explicitly passed).
+  (define (choose-computer-move tree #!key (level (*ai-level*)) (budget (and level (*ai-budget*))))
     (let* ((game (dice-of-doom/game (car tree) hexnum: (vector-length (cadr tree))))
-           (d (best-move/iterative-deepening star1 game tree max-depth: level budget: budget
-                                             table: (make-transposition-table game))))
+           (table (make-transposition-table game))
+           (d (if (and (not level) (not budget))
+                (best-move star1 game tree depth: #f table: table)
+                (best-move/iterative-deepening star1 game tree max-depth: level budget: budget
+                                               table: table))))
       ((stream:ref (decision-index d)) (caddr tree))))
 
   ; the rules on the page ---------------------------------------------------------------------------
@@ -677,7 +682,8 @@
   ; games -------------------------------------------------------------------------------------------
 
   ; per-game configuration: board size (2..6), players (2..4), max dice per hex (2..6),
-  ; AI search depth (1..4), combat rule (`#t` = roll dice, `#f` = deterministic `src > dst`),
+  ; AI search difficulty (`1`..`5` plies, or `#f` for unlimited exploration of the search space),
+  ; combat rule (`#t` = roll dice, `#f` = deterministic `src > dst`),
   ; reinforcement rule (`'cluster` = largest connected group, `'spare` = captured dice),
   ; and turn rule (`#f` = multi-attack turn with pass, `#t` = alternate turns after one attack).
   (define-record-type game-config
@@ -751,6 +757,7 @@
                             (*num-players* players)
                             (*max-dice* max-dice)
                             (*ai-level* ai-level)
+                            (*ai-budget* (and ai-level (*ai-budget*)))
                             (*roll-dice?* roll?)
                             (*reinforcement-rule* reinforce)
                             (*one-move-per-turn?* one-move?))
@@ -1049,8 +1056,8 @@
                                       (conc "players=" (game-config-num-players cfg)))
                                  (and (not (= (game-config-max-dice cfg) 5))
                                       (conc "dice=" (game-config-max-dice cfg)))
-                                 (and (not (= (game-config-ai-level cfg) 3))
-                                      (conc "ai=" (game-config-ai-level cfg)))
+                                 (and (not (eqv? (game-config-ai-level cfg) 3))
+                                      (conc "ai=" (or (game-config-ai-level cfg) "inf")))
                                  (and (not (game-config-roll-dice? cfg))
                                       "roll=0")
                                  (and (not (eq? (game-config-reinforcement-rule cfg) 'cluster))
@@ -1210,18 +1217,25 @@
 
   ; the form that configures and deals a new game: combat mode (roll dice vs deterministic),
   ; turn mode (multi-attack vs alternating 1 move per player), board dimensions, number of players,
-  ; maximum dice per hex, reinforcement rule, and AI depth.
+  ; maximum dice per hex, reinforcement rule, and AI difficulty gauge (depth 1–5 up to unlimited).
   (define (draw-config-form #!optional (cfg (current-game-config)))
-    (let ((opt (λ (val current label)
-                 `(option (@ (value ,(conc val)) ,@(if (equal? val current) '((selected "selected")) '()))
-                          ,label)))
-          (size (game-config-board-size cfg))
-          (players (game-config-num-players cfg))
-          (dice (game-config-max-dice cfg))
-          (ai (game-config-ai-level cfg))
-          (roll (if (game-config-roll-dice? cfg) 1 0))
-          (reinforce (game-config-reinforcement-rule cfg))
-          (turns (if (game-config-one-move-per-turn? cfg) 1 0)))
+    (let* ((opt (λ (val current label)
+                  `(option (@ (value ,(conc val)) ,@(if (equal? val current) '((selected "selected")) '()))
+                           ,label)))
+           (size (game-config-board-size cfg))
+           (players (game-config-num-players cfg))
+           (dice (game-config-max-dice cfg))
+           (ai (game-config-ai-level cfg))
+           (ai-pos (or ai 6))
+           (ai-pct (inexact->exact (round (* 100 (/ (- ai-pos 1) 5)))))
+           (ai-label (if ai (conc "Depth " ai) "Unlimited"))
+           (ai-badge (if ai (conc "d" ai) "∞"))
+           (ai-title (if ai
+                       (conc "Search depth " ai " (slide right for unlimited exploration)")
+                       "Unlimited exploration of the search space"))
+           (roll (if (game-config-roll-dice? cfg) 1 0))
+           (reinforce (game-config-reinforcement-rule cfg))
+           (turns (if (game-config-one-move-per-turn? cfg) 1 0)))
       `(form (@ (class "config") (method "get") (action "/game.html") (aria-label "Configure game"))
              (input (@ (type "hidden") (name "new") (value ,(fresh-id))))
              (label (@ (class "field"))
@@ -1251,10 +1265,17 @@
                     (select (@ (name "reinforce") (aria-label "Reinforcement rule"))
                             ,(opt 'cluster reinforce "Cluster")
                             ,(opt 'spare reinforce "Captured")))
-             (label (@ (class "field"))
-                    (span "AI")
-                    (select (@ (name "ai") (aria-label "AI search depth"))
-                            ,@(map (λ (l) (opt l ai (conc "Depth " l))) '(1 2 3 4))))
+             (label (@ (class "field gauge-field") (title ,ai-title))
+                    (span "Difficulty")
+                    (span (@ (class "gauge") (style ,(conc "--fill:" ai-pct "%")))
+                          (input (@ (type "range") (name "ai") (min "1") (max "6") (step "1")
+                                    (value ,(number->string ai-pos))
+                                    (aria-label "AI difficulty")
+                                    (aria-valuetext ,ai-label)
+                                    (oninput "var v=+this.value,u=v>5,p=this.parentNode,b=p.nextElementSibling;p.style.setProperty('--fill',((v-1)*20)+'%');this.setAttribute('aria-valuetext',u?'Unlimited':'Depth '+v);if(b){b.textContent=u?'∞':'d'+v;b.dataset.unlimited=u?'1':'0';}")))
+                          (span (@ (class "gauge-ticks") (aria-hidden "true"))
+                                (i) (i) (i) (i) (i) (i)))
+                    (output (@ (class "gauge-val") (data-unlimited ,(if ai "0" "1"))) ,ai-badge))
              (button (@ (class "btn") (type "submit")) "Apply"))))
 
   ; the book's `draw-dod-page`, the whole page; `fresh` when the request made the game, so that the
@@ -1395,6 +1416,44 @@ a { color: inherit; }
   border: 0; background: transparent; color: var(--ink); font: 600 13px/1.2 var(--font);
   padding: 2px 2px 2px 0; cursor: pointer; outline: none;
 }
+.config .gauge-field { gap: 7px; }
+.config .gauge {
+  position: relative; display: inline-flex; align-items: center;
+  width: 84px; height: 18px;
+}
+.config .gauge::before {
+  content: ""; position: absolute; left: 0; right: 0; height: 6px; border-radius: 999px;
+  background: linear-gradient(90deg, var(--p2) 0%, var(--p1) 50%, var(--p0) 100%) 0 / var(--fill, 40%) 100% no-repeat, var(--line);
+  pointer-events: none;
+}
+.config .gauge-ticks {
+  position: absolute; left: 5px; right: 5px; display: flex; justify-content: space-between;
+  pointer-events: none;
+}
+.config .gauge-ticks i {
+  width: 2px; height: 4px; border-radius: 1px; background: var(--surface); opacity: .75;
+}
+.config .gauge input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0;
+  background: transparent; cursor: pointer; position: relative; z-index: 1; outline: none;
+}
+.config .gauge input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 13px; height: 13px; border-radius: 50%;
+  background: var(--ink); border: 2px solid var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  transition: transform .12s ease;
+}
+.config .gauge input[type="range"]::-moz-range-thumb {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: var(--ink); border: 2px solid var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  transition: transform .12s ease;
+}
+.config .gauge input[type="range"]::-moz-range-track { background: transparent; border: 0; }
+.config .gauge input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.15); }
+.config .gauge input[type="range"]:hover::-moz-range-thumb { transform: scale(1.15); }
+.config .gauge-val {
+  min-width: 2ch; text-align: center; font: 700 12.5px/1 var(--mono); color: var(--ink);
+}
+.config .gauge-val[data-unlimited="1"] { color: var(--p0); font-size: 14px; }
 .config .field:focus-within { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* layout ------------------------------------------------------------------------------- */
@@ -1591,12 +1650,18 @@ JS
       ((member s '("0" "multi" "full" "chain" "false" "no")) #f)
       (else default)))
 
+  (define (parse-ai-param s default)
+    (cond
+      ((not s) default)
+      ((member s '("6" "0" "inf" "∞" "unlimited" "max" "full" "all")) #f)
+      (else (parse-int-in s 1 5 default))))
+
   ; reads a `game-config` from query `params`, falling back to `base` (the current parameters).
   (define (parse-game-config params #!optional (base (current-game-config)))
     (make-game-config (parse-int-in (param 'size params) 2 6 (game-config-board-size base))
                       (parse-int-in (param 'players params) 2 4 (game-config-num-players base))
                       (parse-int-in (param 'dice params) 2 6 (game-config-max-dice base))
-                      (parse-int-in (param 'ai params) 1 4 (game-config-ai-level base))
+                      (parse-ai-param (param 'ai params) (game-config-ai-level base))
                       (parse-bool-param (param 'roll params) (game-config-roll-dice? base))
                       (parse-reinforce-param (param 'reinforce params) (game-config-reinforcement-rule base))
                       (parse-turns-param (param 'turns params) (game-config-one-move-per-turn? base))))

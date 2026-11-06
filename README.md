@@ -976,12 +976,13 @@ repository, builds the image locally.
   and at most five dice per hex. Every game carries its own `game-config`, which
   can be configured directly from the header bar (or via URL query parameters
   `roll=0|1`, `turns=0|1`, `size=2..6`, `players=2..4`, `dice=2..6`,
-  `reinforce=cluster|spare`, `ai=1..4`): choose between rolling dice (v4
+  `reinforce=cluster|spare`, `ai=1..5|inf`): choose between rolling dice (v4
   stochastic combat) and deterministic combat (v1–v3 rules, where an attack
   requires strictly more dice and always captures), multi-attack turns vs.
   alternating turns by one move each player (`*one-move-per-turn?*`), board
   dimensions from `2×2` to `6×6`, 2 to 4 players, 2 to 6 maximum dice per hex,
-  cluster vs. captured-dice reinforcements, and AI search depth 1 to 4. As in
+  cluster vs. captured-dice reinforcements, and an AI difficulty gauge bar from
+  search depth 1–5 up to `∞` (unlimited exploration of the search space). As in
   the book, the game ends when the player to move has no move. A deal on which
   you could not attack at all is dealt again.
 - The page draws the board as SVG on the server, in a light and a dark theme,

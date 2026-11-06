@@ -173,7 +173,7 @@
   ; the value of the entry for key k, if it answers a search to depth d in the window (α, β)
   (define (tt-probe table st k d α β)
     (let ((e (hash-table-ref/default table k #f)))
-      (and e
+      (and (vector? e)
            (let ((depth (vector-ref e 0)) (v (vector-ref e 1)))
              (and (or (not depth) (and d (fx>= depth d)))
                   (case (vector-ref e 2)
@@ -218,14 +218,20 @@
                                        (else (leaf n))))))
         (define (decide/table n d α β)
           (let ((k (key n)))
-            (or (tt-probe table st k d α β)
+            (cond
+              ((and (not d) (eq? (hash-table-ref/default table k #f) 'in-progress))
+               (horizon! st)
+               (leaf n))
+              ((tt-probe table st k d α β) => identity)
+              (else
                 (let ((outer (game-stats-horizon? st)))
+                  (when (not d) (hash-table-set! table k 'in-progress))
                   (game-stats-horizon?-set! st #f)
                   (let* ((v (decide n d α β))
                          (cut? (game-stats-horizon? st)))
                     (tt-store! table k (and cut? d) v α β)
                     (game-stats-horizon?-set! st (or outer cut?))
-                    v)))))
+                    v))))))
         (define (R n d α β)
           (enter! st)
           (cond

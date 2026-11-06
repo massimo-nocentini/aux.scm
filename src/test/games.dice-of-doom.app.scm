@@ -690,9 +690,35 @@
           (board (cadr (web-game-tree g))))
      (⊦= 36 (vector-length board))
      (⊨ (contains? page "Board, 6 by 6 hexes"))
+     (⊨ (contains? page "<span class=\"gauge\" style=\"--fill:0%\">"))
+     (⊨ (contains? page "aria-valuetext=\"Depth 1\""))
      (with-game-config (web-game-config g)
        (τ (⊦= 35 (parse-choice "35"))
-          (⊭ (parse-choice "36"))))))
+          (⊭ (parse-choice "36")))))
+   ; difficulty gauge bar at its right end (`ai=6` / `ai=inf` / `ai-level = #f`): unlimited
+   ; exploration of the search space, tested on a 2x2 game played to completion
+   (set-pseudo-random-seed! (string->utf8 "unlimited-2x2"))
+   (let* ((page (handle '((size . "2") (players . "2") (dice . "3") (ai . "6") (roll . "1") (turns . "1"))))
+          (id (alist-ref 'g (link-params (car (game-links page)))))
+          (g (web-game-lookup id))
+          (cfg (web-game-config g)))
+     (⊭ (game-config-ai-level cfg))
+     (⊨ (contains? page "<span class=\"gauge\" style=\"--fill:100%\">"))
+     (⊨ (contains? page "value=\"6\" aria-label=\"AI difficulty\" aria-valuetext=\"Unlimited\""))
+     (⊨ (contains? page "<output class=\"gauge-val\" data-unlimited=\"1\">∞</output>"))
+     (⊨ (contains? (new-game-link page) "&size=2&players=2&dice=3&ai=inf&turns=1"))
+     (let loop ((page page) (n 0))
+       (let1 (links (game-links page))
+         (cond
+           ((contains? page "Play again")
+            (⊨ (contains? (new-game-link page) "&size=2&players=2&dice=3&ai=inf&turns=1")))
+           ((> n 200) (⊨ #f))
+           (else
+             (let* ((chosen (filter (λ (l) (not (string-contains l "chosen=nil"))) links))
+                    (href (if (null? chosen)
+                            (car links)
+                            (list-ref chosen (pseudo-random-integer (length chosen))))))
+               (loop (handle (link-params href)) (add1 n)))))))))
 
   )
 
