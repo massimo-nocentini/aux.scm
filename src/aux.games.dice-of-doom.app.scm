@@ -129,7 +129,8 @@
 (module (aux games dice-of-doom app)
 
   (*tile-gap* *tile-thickness* *board-viewbox* *player-glyphs* *auto-advance-ms* *max-games*
-    *game-idle-seconds* *ai-budget* *roll-dice?* *reinforcement-rule* *die-corner-radius*
+    *game-idle-seconds* *ai-budget* *roll-dice?* *reinforcement-rule* *one-move-per-turn?*
+    *die-corner-radius* *hex-corner-radius*
     board-viewbox rounded-polygon-path mix colour->hex
     row-shade mute tile-colours svg-num hex-centre
     hex-points points->string die-position stack-top attack-odds die-defs draw-die-svg draw-tile-svg
@@ -138,6 +139,7 @@
     board-changes dod-game-tree deal-game-tree game-config? make-game-config current-game-config
     parse-game-config with-game-config game-config-board-size game-config-num-players
     game-config-max-dice game-config-ai-level game-config-roll-dice? game-config-reinforcement-rule
+    game-config-one-move-per-turn?
     web-game? web-game-id web-game-tree web-game-from-tile web-game-step
     web-game-message web-game-log web-game-prev-board web-game-last-move web-game-config web-games
     web-game-new! web-game-lookup web-game-advance! make-game-link make-new-game-link parse-choice
@@ -183,7 +185,9 @@
   (define *ai-budget* (make-parameter 100000))         ; nodes, about 1 s of search
   (define *roll-dice?* (make-parameter #t))            ; #t: v4 dice rolls; #f: deterministic (src > dst)
   (define *reinforcement-rule* (make-parameter 'cluster)) ; 'cluster (v4) or 'spare (v1–v3)
+  (define *one-move-per-turn?* (make-parameter #f))    ; #t: alternate turns after 1 move per player
   (define *die-corner-radius* (make-parameter 0.22))   ; corner rounding fraction on die faces (0 = sharp)
+  (define *hex-corner-radius* (make-parameter 0.22))   ; corner rounding fraction on hex tiles (0 = sharp)
 
   ; colours ----------------------------------------------------------------------------------------
 
@@ -337,19 +341,12 @@
               " ")
             " Z")))))
 
-  ; (face origin s-axis t-axis opacity pips): six on top, two on the left, four on the right.
-  (define die-faces
-    '((top (-0.6 . -0.75) (0.6 . -0.25) (0.6 . 0.25) ".95" ((.25 . .22) (.25 . .5) (.25 . .78) (.75 . .22) (.75 . .5) (.75 . .78)))
-      (left (-0.6 . -0.75) (0.6 . 0.25) (0 . 0.75) ".90" ((.27 . .27) (.73 . .73)))
-      (right (0 . -0.5) (0.6 . -0.25) (0 . 0.75) ".80" ((.27 . .27) (.73 . .27) (.27 . .73) (.73 . .73)))))
-
   (define (die-defs)
     (let* ((r (*die-corner-radius*))
            (face (λ (pts . paint)
                    (if (<= r 0)
                      `(polygon (@ (points ,(points->string (scaled pts))) ,@paint))
-                     `(path (@ (d ,(rounded-polygon-path (scaled pts) r)) ,@paint)))))
-           (d (*dice-scale*)))
+                     `(path (@ (d ,(rounded-polygon-path (scaled pts) r)) ,@paint))))))
       `(defs
          (filter (@ (id "soft") (x "-10%") (y "-20%") (width "120%") (height "150%"))
                  (feGaussianBlur (@ (stdDeviation "7"))))
@@ -367,18 +364,7 @@
             ,(face die-top)
             ,(face die-top '(fill "#FFFFFF") '(fill-opacity ".30") '(stroke "none"))   ; light from the upper left
             ,(face die-right '(fill "#000000") '(fill-opacity ".22") '(stroke "none"))
-            ,(face die-left '(fill "#FFFFFF") '(fill-opacity ".06") '(stroke "none"))
-            ,@(map (λ (f)
-                     (match1/first ((_ ,o ,s ,t ,opacity ,pips) f)
-                       `(g (@ (transform ,(string-append "matrix(" (string-intersperse
-                                                                    (map (λ (v) (svg-num (* d v)))
-                                                                         (list (car s) (cdr s) (car t) (cdr t) (car o) (cdr o)))
-                                                                    " ")
-                                                         ")"))
-                              (fill "#FFFFFF") (fill-opacity ,opacity) (stroke "none"))
-                           ,@(map (λ (pip) `(circle (@ (cx ,(svg-num (car pip))) (cy ,(svg-num (cdr pip))) (r "0.1"))))
-                                  pips))))
-                   die-faces)))))
+            ,(face die-left '(fill "#FFFFFF") '(fill-opacity ".06") '(stroke "none"))))))
 
   (define (colour-of key colours) (colour->hex (cdr (assq key colours))))
 
@@ -396,7 +382,7 @@
         ((triangle) (polygon (list (cons x (- y (* r 1.15))) (cons (+ x (* r 1.2)) (+ y (* r 0.85)))
                                    (cons (- x (* r 1.2)) (+ y (* r 0.85))))))
         ((square) `(rect (@ (x ,(svg-num (- x (* r 0.9)))) (y ,(svg-num (- y (* r 0.9))))
-                            (width ,(svg-num (* r 1.8))) (height ,(svg-num (* r 1.8))) (fill ,fill))))
+                            (width ,(svg-num (* r 1.8))) (height ,(svg-num (* r 1.8))) (rx "1.5") (fill ,fill))))
         (else (polygon (list (cons x (- y (* r 1.3))) (cons (+ x (* r 1.3)) y)
                              (cons x (+ y (* r 1.3))) (cons (- x (* r 1.3)) y)))))))
 
@@ -405,6 +391,12 @@
   (define (letter player) (string (player-letter player)))
 
   (define (hex-title pos hex) (conc "Hex " pos ": player " (letter (car hex)) ", " (dice-word (cadr hex))))
+
+  (define (hex-shape pts . attrs)
+    (let1 (r (*hex-corner-radius*))
+      (if (<= r 0)
+        `(polygon (@ ,@attrs (points ,(points->string pts))))
+        `(path (@ ,@attrs (d ,(rounded-polygon-path pts r)))))))
 
   ; one tile, a link when `href` is given; `state` is idle, source, target or chosen, `changed` #f,
   ; captured, spent or reinforced, and the last `new-dice` dice of the stack have just arrived;
@@ -420,25 +412,25 @@
            (outline (λ (fill) `((fill ,fill) (stroke ,(colour 'stroke)) (stroke-width "1") (stroke-linejoin "round"))))
            ; a white ring on a dark underlay, which keeps it at 3:1 or more on every top
            (ring (λ (k width . more)
-                   (let1 (pts (points->string (hex-points xx yy 0 k)))
+                   (let1 (pts (hex-points xx yy 0 k))
                      `(g (@ (class "ring") (fill "none") (stroke-linejoin "round"))
-                         (polygon (@ (class "ring-under") (points ,pts) (stroke "#1F2228") (stroke-opacity ".75")
-                                     (stroke-width ,(svg-num (+ (string->number width) 1.6)))))
-                         (polygon (@ (class "ring-line") (points ,pts) (stroke "#FFFFFF") ,@more
-                                     (stroke-width ,width))))))))
+                         ,(hex-shape pts '(class "ring-under") '(stroke "#1F2228") '(stroke-opacity ".75")
+                                     `(stroke-width ,(svg-num (+ (string->number width) 1.6))))
+                         ,(apply hex-shape pts '(class "ring-line") '(stroke "#FFFFFF")
+                                 `(stroke-width ,width) more))))))
       `(,(if href 'a 'g)
         (@ (class ,(conc "hex p" player " " state (if changed (conc " " changed) "") (if muted " muted" "")))
            ,@(if href `((href ,href) (aria-label ,title)) '()))
         (title ,title)
         ,@(if chosen?
-            `((polygon (@ (class "glow") (points ,(points->string (hex-points xx (+ yy lift) 0.06 1.16)))
-                          (fill "#FFF1B8") (fill-opacity "1") (filter "url(#glow)"))))
+            (list (hex-shape (hex-points xx (+ yy lift) 0.06 1.16)
+                             '(class "glow") '(fill "#FFF1B8") '(fill-opacity "1") '(filter "url(#glow)")))
             '())
         (g (@ (class "lift") (transform ,(conc "translate(0 " lift ")")))
-           (polygon (@ (class "side") (points ,(points->string (hex-points xx yy (*tile-thickness*) (*tile-gap*))))
-                       ,@(outline (colour 'side))))
-           (polygon (@ (class "top") (points ,(points->string (hex-points xx yy 0 (*tile-gap*))))
-                       ,@(outline (if chosen? (colour->hex (mix (cdr (assq 'top colours)) white 0.35)) (colour 'top)))))
+           ,(apply hex-shape (hex-points xx yy (*tile-thickness*) (*tile-gap*))
+                   '(class "side") (outline (colour 'side)))
+           ,(apply hex-shape (hex-points xx yy 0 (*tile-gap*))
+                   '(class "top") (outline (if chosen? (colour->hex (mix (cdr (assq 'top colours)) white 0.35)) (colour 'top))))
            ,@(case state
                ((chosen) (list (ring 0.80 "2.2")))
                ((source) (list (ring 0.76 "1.6" '(stroke-opacity ".9"))))
@@ -551,7 +543,7 @@
             (g (@ (class "ground") (fill "#000000") (fill-opacity ".16") (filter "url(#soft)"))
                ,@(map (λ (pos)
                         (receive (xx yy) (hex-centre pos)
-                          `(polygon (@ (points ,(points->string (hex-points xx (+ yy 12) (*tile-thickness*) 1.0)))))))
+                          (hex-shape (hex-points xx (+ yy 12) (*tile-thickness*) 1.0))))
                       (iota (vector-length board))))
             ; painter's order: the back row first, left to right
             ,@(map (λ (pos)
@@ -588,7 +580,12 @@
                           (let1 (pill (draw-odds-pill pos (dice pos) (target-odds board chosen-tile pos)))
                             (if make-link `(a (@ (href ,(make-link pos)) (tabindex "-1")) ,pill) pill)))
                         legal-tiles)
-                   `(,@(map (λ (p) (draw-gain-pill (car p) (dice (car p)) (cdr p))) new-dice)
+                   `(,@(map (λ (p) (draw-gain-pill (car p) (dice (car p)) (cdr p)))
+                            (if last-move
+                              (filter (λ (p) (and (not (eqv? (car p) (car last-move)))
+                                                  (not (eqv? (car p) (cadr last-move)))))
+                                      new-dice)
+                              new-dice))
                      ,@(if last-move (list (apply draw-last-move board last-move)) '())))))))
 
   ; the AI ------------------------------------------------------------------------------------------
@@ -681,8 +678,22 @@
 
   ; per-game configuration: board size (2..6), players (2..4), max dice per hex (2..6),
   ; AI search depth (1..4), combat rule (`#t` = roll dice, `#f` = deterministic `src > dst`),
-  ; and reinforcement rule (`'cluster` = largest connected group, `'spare` = captured dice).
-  (define-record game-config board-size num-players max-dice ai-level roll-dice? reinforcement-rule)
+  ; reinforcement rule (`'cluster` = largest connected group, `'spare` = captured dice),
+  ; and turn rule (`#f` = multi-attack turn with pass, `#t` = alternate turns after one attack).
+  (define-record-type game-config
+    (%make-game-config board-size num-players max-dice ai-level roll-dice? reinforcement-rule one-move-per-turn?)
+    game-config?
+    (board-size game-config-board-size game-config-board-size-set!)
+    (num-players game-config-num-players game-config-num-players-set!)
+    (max-dice game-config-max-dice game-config-max-dice-set!)
+    (ai-level game-config-ai-level game-config-ai-level-set!)
+    (roll-dice? game-config-roll-dice? game-config-roll-dice?-set!)
+    (reinforcement-rule game-config-reinforcement-rule game-config-reinforcement-rule-set!)
+    (one-move-per-turn? game-config-one-move-per-turn? game-config-one-move-per-turn?-set!))
+
+  (define (make-game-config board-size num-players max-dice ai-level roll-dice? reinforcement-rule
+                            #!optional (one-move-per-turn? (*one-move-per-turn?*)))
+    (%make-game-config board-size num-players max-dice ai-level roll-dice? reinforcement-rule one-move-per-turn?))
 
   (define (board-size-of board)
     (inexact->exact (round (sqrt (vector-length board)))))
@@ -693,20 +704,22 @@
                       (*max-dice*)
                       (*ai-level*)
                       (*roll-dice?*)
-                      (*reinforcement-rule*)))
+                      (*reinforcement-rule*)
+                      (*one-move-per-turn?*)))
 
   (define (config-tree-rules cfg)
     (list (game-config-board-size cfg)
           (game-config-num-players cfg)
           (game-config-max-dice cfg)
           (game-config-roll-dice? cfg)
-          (game-config-reinforcement-rule cfg)))
+          (game-config-reinforcement-rule cfg)
+          (game-config-one-move-per-turn? cfg)))
 
   (define (tree-rules-default? cfg)
-    (equal? (config-tree-rules cfg) '(5 4 5 #t cluster)))
+    (equal? (config-tree-rules cfg) '(5 4 5 #t cluster #f)))
 
   (define last-board-size 5)
-  (define last-tree-rules '(5 4 5 #t cluster))
+  (define last-tree-rules '(5 4 5 #t cluster #f))
 
   (define (sync-memo-tables! size rules)
     (unless (eqv? last-board-size size)
@@ -729,6 +742,7 @@
              (ai-level (game-config-ai-level cfg))
              (roll? (game-config-roll-dice? cfg))
              (reinforce (game-config-reinforcement-rule cfg))
+             (one-move? (game-config-one-move-per-turn? cfg))
              (rules (config-tree-rules cfg)))
         (dynamic-wind
           (τ (sync-memo-tables! size rules))
@@ -738,7 +752,8 @@
                             (*max-dice* max-dice)
                             (*ai-level* ai-level)
                             (*roll-dice?* roll?)
-                            (*reinforcement-rule* reinforce))
+                            (*reinforcement-rule* reinforce)
+                            (*one-move-per-turn?* one-move?))
                (thunk)))
           (τ (sync-memo-tables! outer-size outer-rules))))))
 
@@ -776,6 +791,8 @@
     (let ((player (λ (pos) (car (vector-ref board pos))))
           (dice (λ (pos) (cadr (vector-ref board pos))))
           (roll? (game-config-roll-dice? cfg))
+          (one-move? (game-config-one-move-per-turn? cfg))
+          (next-player (modulo (add1 cur-player) (game-config-num-players cfg)))
           (hexnum (* (game-config-board-size cfg) (game-config-board-size cfg))))
       ((stream:append-map
          (λ (src)
@@ -786,17 +803,19 @@
                            (if roll? (> (dice src) 1) (> (dice src) (dice dst))))
                     (list->stream
                       (list (with-game-config cfg
-                              (τ (cons (list src dst)
-                                       (cons (dod-game-tree (board-attack board cur-player src dst (dice src))
-                                                            cur-player
-                                                            (+ spare-dice (dice dst))
-                                                            #f)
-                                             (if roll?
-                                               (list (dod-game-tree (board-attack-fail board cur-player src dst (dice src))
-                                                                    cur-player
-                                                                    (+ spare-dice (dice dst))
-                                                                    #f))
-                                               '())))))))
+                              (τ (let ((won-board (board-attack board cur-player src dst (dice src)))
+                                       (lost-board (and roll? (board-attack-fail board cur-player src dst (dice src)))))
+                                   (cons (list src dst)
+                                         (cons (if one-move?
+                                                 (dod-game-tree (dod-add-new-dice won-board cur-player (dice dst))
+                                                                next-player 0 #t)
+                                                 (dod-game-tree won-board cur-player (+ spare-dice (dice dst)) #f))
+                                               (if roll?
+                                                 (list (if one-move?
+                                                         (dod-game-tree (dod-add-new-dice lost-board cur-player 0)
+                                                                        next-player 0 #t)
+                                                         (dod-game-tree lost-board cur-player (+ spare-dice (dice dst)) #f)))
+                                                 '()))))))))
                     stream:empty)))
               (list->stream (with-game-config cfg (τ (neighbors src)))))
              stream:empty)))
@@ -989,13 +1008,15 @@
     (with-game-config (web-game-config g)
       (τ (let* ((tree (web-game-tree g))
                 (entry (play! g tree (choose-computer-move tree)))
-                (who `(b ,(letter (cadr entry)))))
+                (who `(b ,(letter (cadr entry))))
+                (your-turn (if (zero? (car (web-game-tree g))) '(" " (b "Your turn.")) '())))
            (hash-table-clear! game-tree/previous)
            (if (eq? (car entry) 'attack)
              (match1/first ((attack _ ,src ,dst _ _ _ _ _) entry)
-               (say! g who (conc " attacked " src " → " dst ": " (rolls entry) " — " (outcome entry) ".")))
+               (apply say! g who (conc " attacked " src " → " dst ": " (rolls entry) " — " (outcome entry) ".")
+                      your-turn))
              (apply say! g who (conc " ended the turn and gained " (dice-word (caddr entry)) ".")
-                    (if (zero? (car (web-game-tree g))) '(" " (b "Your turn.")) '())))))))
+                    your-turn))))))
 
   ; the book's dispatch of `dod-request-handler`; the step grows when the tree or the chosen hex
   ; changes.
@@ -1033,7 +1054,9 @@
                                  (and (not (game-config-roll-dice? cfg))
                                       "roll=0")
                                  (and (not (eq? (game-config-reinforcement-rule cfg) 'cluster))
-                                      (conc "reinforce=" (game-config-reinforcement-rule cfg))))))
+                                      (conc "reinforce=" (game-config-reinforcement-rule cfg)))
+                                 (and (game-config-one-move-per-turn? cfg)
+                                      "turns=1"))))
         (if (null? parts)
           ""
           (string-append "&" (string-intersperse parts "&"))))))
@@ -1058,7 +1081,7 @@
           ,(case (list-ref (*player-glyphs*) player)
              ((circle) '(circle (@ (cx "7") (cy "7") (r "5.2"))))
              ((triangle) '(polygon (@ (points "7,1.4 12.8,11.6 1.2,11.6"))))
-             ((square) '(rect (@ (x "2") (y "2") (width "10") (height "10"))))
+             ((square) '(rect (@ (x "2") (y "2") (width "10") (height "10") (rx "1.8"))))
              (else '(polygon (@ (points "7,0.8 13.2,7 7,13.2 0.8,7")))))))
 
   (define logo
@@ -1186,7 +1209,8 @@
                           tiles)))))))
 
   ; the form that configures and deals a new game: combat mode (roll dice vs deterministic),
-  ; board dimensions, number of players, maximum dice per hex, reinforcement rule, and AI depth.
+  ; turn mode (multi-attack vs alternating 1 move per player), board dimensions, number of players,
+  ; maximum dice per hex, reinforcement rule, and AI depth.
   (define (draw-config-form #!optional (cfg (current-game-config)))
     (let ((opt (λ (val current label)
                  `(option (@ (value ,(conc val)) ,@(if (equal? val current) '((selected "selected")) '()))
@@ -1196,7 +1220,8 @@
           (dice (game-config-max-dice cfg))
           (ai (game-config-ai-level cfg))
           (roll (if (game-config-roll-dice? cfg) 1 0))
-          (reinforce (game-config-reinforcement-rule cfg)))
+          (reinforce (game-config-reinforcement-rule cfg))
+          (turns (if (game-config-one-move-per-turn? cfg) 1 0)))
       `(form (@ (class "config") (method "get") (action "/game.html") (aria-label "Configure game"))
              (input (@ (type "hidden") (name "new") (value ,(fresh-id))))
              (label (@ (class "field"))
@@ -1204,6 +1229,11 @@
                     (select (@ (name "roll") (aria-label "Combat rule"))
                             ,(opt 1 roll "Roll dice")
                             ,(opt 0 roll "Deterministic")))
+             (label (@ (class "field"))
+                    (span "Turns")
+                    (select (@ (name "turns") (aria-label "Turn mode"))
+                            ,(opt 0 turns "Multi-attack")
+                            ,(opt 1 turns "1 move each")))
              (label (@ (class "field"))
                     (span "Board")
                     (select (@ (name "size") (aria-label "Board size"))
@@ -1554,6 +1584,13 @@ JS
       ((member s '("spare" "captured" "v2" "v3")) 'spare)
       (else default)))
 
+  (define (parse-turns-param s default)
+    (cond
+      ((not s) default)
+      ((member s '("1" "single" "one" "alternate" "alt" "true" "yes")) #t)
+      ((member s '("0" "multi" "full" "chain" "false" "no")) #f)
+      (else default)))
+
   ; reads a `game-config` from query `params`, falling back to `base` (the current parameters).
   (define (parse-game-config params #!optional (base (current-game-config)))
     (make-game-config (parse-int-in (param 'size params) 2 6 (game-config-board-size base))
@@ -1561,7 +1598,8 @@ JS
                       (parse-int-in (param 'dice params) 2 6 (game-config-max-dice base))
                       (parse-int-in (param 'ai params) 1 4 (game-config-ai-level base))
                       (parse-bool-param (param 'roll params) (game-config-roll-dice? base))
-                      (parse-reinforce-param (param 'reinforce params) (game-config-reinforcement-rule base))))
+                      (parse-reinforce-param (param 'reinforce params) (game-config-reinforcement-rule base))
+                      (parse-turns-param (param 'turns params) (game-config-one-move-per-turn? base))))
 
   ; the game of a request, after its choice: (values game fresh?), fresh when the address does not
   ; name the game by `g`.

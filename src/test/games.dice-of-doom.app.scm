@@ -588,18 +588,30 @@
                 (close-output-port out)))))
        (τ (thread-terminate! th) (tcp-close L)))))
 
-  ; rounded corners on the 3D dice in `die-defs`
+  ; rounded corners on the 3D dice (without pips) and on the hexagonal board tiles
   ((test/dice-of-doom-app/rounded-dice _)
    (let1 (defs (serialise (die-defs)))
      (⊨ (contains? defs "<g id=\"die\" stroke-linejoin=\"round\" stroke-linecap=\"round\" stroke-width=\"1.1\">"))
      (⊨ (contains? defs "<path d=\"M"))
-     (⊨ (contains? defs " Q0,-40 ")))
+     (⊨ (contains? defs " Q0,-40 "))
+     (⊭ (contains? defs "<circle")))
    (parameterize ((*die-corner-radius* 0))
      (let1 (defs (serialise (die-defs)))
-       (⊨ (contains? defs "<polygon points=\"0,-40 -24,-30 0,-20 24,-30\"")))))
+       (⊨ (contains? defs "<polygon points=\"0,-40 -24,-30 0,-20 24,-30\""))))
+   (receive (xx yy) (hex-centre 0)
+     (let1 (tile (serialise (draw-tile-svg 0 0 0 '(0 1) xx yy 'source href: "/game.html" label: "Hex 0")))
+       (⊨ (contains? tile "<path class=\"side\""))
+       (⊨ (contains? tile "<path class=\"top\""))
+       (⊨ (contains? tile "<path class=\"ring-line\""))
+       (⊭ (contains? tile "<polygon class=\"top\"")))
+     (parameterize ((*hex-corner-radius* 0))
+       (let1 (tile (serialise (draw-tile-svg 0 0 0 '(0 1) xx yy 'source href: "/game.html" label: "Hex 0")))
+         (⊨ (contains? tile "<polygon class=\"side\""))
+         (⊨ (contains? tile "<polygon class=\"top\""))))))
 
-  ; configurable game parameters: combat mode (roll dice vs deterministic), board sizes (2x2..6x6),
-  ; player counts (2..4), max dice (2..6), reinforcement rule (cluster vs spare), and AI depth (1..4)
+  ; configurable game parameters: combat mode (roll dice vs deterministic), turn mode (multi-attack vs
+  ; alternating 1 move per player), board sizes (2x2..6x6), player counts (2..4), max dice (2..6),
+  ; reinforcement rule (cluster vs spare), and AI depth (1..4)
   ((test/dice-of-doom-app/config _)
    ; deterministic combat (`roll=0` / `*roll-dice?*` #f): only `src-dice > dst-dice` can attack,
    ; and attacks always capture without rolling dice
@@ -620,9 +632,25 @@
        (⊦= '(0 2) (vector-ref board 17))
        (⊦= '(0 1) (vector-ref board 11))
        (⊨ (contains? page "You attacked 11 → 17: 3 dice vs 2 dice — captured."))))
+   ; alternating turns by 1 move each (`turns=1` / `*one-move-per-turn?*` #t): each player makes a
+   ; single attack, immediately receives reinforcements, and the turn passes to the next player
+   (let* ((cfg (make-game-config 5 4 5 1 #f 'cluster #t))
+          (t (with-game-config cfg (τ (dod-game-tree fixture 0 0 #t))))
+          (g (web-game-new! t #f cfg)))
+     (⊨ (game-config-one-move-per-turn? cfg))
+     (request g "11")
+     (let* ((page (request g "17"))
+            (tree1 (web-game-tree g)))
+       ; after one human attack (11 -> 17), it is immediately player 1's (b's) turn
+       (⊦= 1 (car tree1))
+       (⊨ (contains? page "<option value=\"1\" selected=\"selected\">1 move each</option>"))
+       (⊨ (contains? (new-game-link page) "&ai=1&roll=0&turns=1"))
+       ; one computer step for player 1 immediately advances to player 2 (c)
+       (request g "nil")
+       (⊦= 2 (car (web-game-tree g)))))
    ; query parameters configure a new game and travel in the New game link
    (set-pseudo-random-seed! (string->utf8 "config-3x3-game"))
-   (let* ((page (handle '((size . "3") (players . "2") (dice . "4") (ai . "1") (roll . "0") (reinforce . "spare"))))
+   (let* ((page (handle '((size . "3") (players . "2") (dice . "4") (ai . "1") (roll . "0") (reinforce . "spare") (turns . "1"))))
           (links (game-links page))
           (id (alist-ref 'g (link-params (car links))))
           (g (web-game-lookup id))
@@ -634,17 +662,18 @@
      (⊦= 1 (game-config-ai-level cfg))
      (⊭ (game-config-roll-dice? cfg))
      (⊦= 'spare (game-config-reinforcement-rule cfg))
+     (⊨ (game-config-one-move-per-turn? cfg))
      (⊦= 9 (vector-length board))
      (⊨ (every (λ (hex) (and (< (car hex) 2) (<= 1 (cadr hex) 4))) (vector->list board)))
      (⊨ (contains? page "Board, 3 by 3 hexes"))
      (⊨ (contains? page "viewBox=\"-16 -4 544 354\""))
-     (⊨ (contains? (new-game-link page) "&size=3&players=2&dice=4&ai=1&roll=0&reinforce=spare"))
-     ; play a full 3x3 deterministic 2-player game with spare-dice reinforcements to completion
+     (⊨ (contains? (new-game-link page) "&size=3&players=2&dice=4&ai=1&roll=0&reinforce=spare&turns=1"))
+     ; play a full 3x3 deterministic 2-player 1-move-per-turn game with spare-dice reinforcements to completion
      (let loop ((page page) (n 0))
        (let1 (links (game-links page))
          (cond
            ((contains? page "Play again")
-            (⊨ (contains? (new-game-link page) "&size=3&players=2&dice=4&ai=1&roll=0&reinforce=spare")))
+            (⊨ (contains? (new-game-link page) "&size=3&players=2&dice=4&ai=1&roll=0&reinforce=spare&turns=1")))
            ((> n 500) (⊨ #f))
            (else
              (let* ((chosen (filter (λ (l) (not (string-contains l "chosen=nil"))) links))
