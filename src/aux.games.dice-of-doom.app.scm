@@ -135,13 +135,19 @@
     row-shade mute tile-colours svg-num hex-centre
     hex-points points->string die-position stack-top attack-odds die-defs draw-die-svg draw-tile-svg
     draw-odds-pill draw-gain-pill draw-last-move draw-board-svg dice-of-doom/move->child
-    dice-of-doom/tree-hash dice-of-doom/game choose-computer-move roll-dice board-stats legal-tiles
+    dice-of-doom/tree-hash dice-of-doom/game choose-computer-move
+    thinking-tree? thinking-tree-player thinking-tree-mode thinking-tree-depth
+    thinking-tree-complete? thinking-tree-value thinking-tree-chosen
+    thinking-tree-total-moves thinking-tree-stats thinking-tree-candidates
+    compute-thinking-tree draw-thinking-tree-svg draw-thinking-card
+    roll-dice board-stats legal-tiles
     board-changes dod-game-tree deal-game-tree game-config? make-game-config current-game-config
     parse-game-config with-game-config game-config-board-size game-config-num-players
     game-config-max-dice game-config-ai-level game-config-roll-dice? game-config-reinforcement-rule
     game-config-one-move-per-turn?
     web-game? web-game-id web-game-tree web-game-from-tile web-game-step
-    web-game-message web-game-log web-game-prev-board web-game-last-move web-game-config web-games
+    web-game-message web-game-log web-game-prev-board web-game-last-move web-game-config
+    web-game-thinking web-games
     web-game-new! web-game-lookup web-game-advance! make-game-link make-new-game-link parse-choice
     web-handle-human web-handle-computer
     web-announce-winner draw-config-form draw-dod-page dod-css dod-js dod-rules dod-request-handler
@@ -152,6 +158,7 @@
           (chicken string)
           (chicken fixnum)
           (chicken random)
+          (chicken sort)
           (chicken bytevector)
           (chicken time)
           (only (scheme base) make-parameter exact-integer?)
@@ -163,7 +170,10 @@
           (aux base)
           (aux stream sicp)
           (only (aux search adversarial) make-game make-chance-node star1 best-move
-                best-move/iterative-deepening decision-index make-transposition-table)
+                best-move/iterative-deepening decision-value decision-index decision-ratings
+                decision-depth decision-stats game-stats-nodes game-stats-chance-nodes
+                game-stats-leaves game-stats-cutoffs game-stats-tt-hits game-stats-horizon?
+                make-transposition-table)
           (only (aux land-of-lisp webserver spiffy) serve)
           (except (aux games dice-of-doom v4)
                   draw-die-svg draw-tile-svg draw-board-svg draw-dod-page make-game-link
@@ -620,6 +630,122 @@
                bounds: (cons (- hexnum) (* 2 hexnum))
                key: identity test: eq? hash: dice-of-doom/tree-hash))
 
+  ; summary of an AI search on `tree` for the "Thinking tree" visualization:
+  ; - `player`: player who searched (0..3)
+  ; - `mode`: `'move` (a computer player's chosen move) or `'preview` (opening position analysis)
+  ; - `depth`: search depth completed (`1..5`, or `#f` for unlimited)
+  ; - `complete?`: `#t` when the search exhausted the whole tree without hitting the depth horizon
+  ; - `value`: root minimax / expectiminimax value
+  ; - `chosen`: `(action . rating)` of the chosen move
+  ; - `total-moves`: total number of legal moves at the root
+  ; - `stats`: `(nodes chance-nodes leaves cutoffs tt-hits)`
+  ; - `candidates`: up to 6 root move summaries `(action rating chosen? exact? odds won lost)`,
+  ;   where `won` and `lost` are `#f` or `(player value reply)` and `reply` is `#f` or `(action . value)`
+  (define-record-type thinking-tree
+    (make-thinking-tree player mode depth complete? value chosen total-moves stats candidates)
+    thinking-tree?
+    (player thinking-tree-player)
+    (mode thinking-tree-mode)
+    (depth thinking-tree-depth)
+    (complete? thinking-tree-complete?)
+    (value thinking-tree-value)
+    (chosen thinking-tree-chosen)
+    (total-moves thinking-tree-total-moves)
+    (stats thinking-tree-stats)
+    (candidates thinking-tree-candidates))
+
+  (define (best-reply-in-table table node root-player)
+    (let ((e (hash-table-ref/default table node #f)))
+      (and (vector? e)
+           (or (not (vector-ref e 0)) (fx> (vector-ref e 0) 0))
+           (let ((board (cadr node))
+                 (max? (eqv? (car node) root-player))
+                 (odds (*dice-odds*)))
+             (let loop ((s (caddr node)) (n 0) (best-act #f) (best-v #f) (found? #f))
+               (if (or (fx>= n 16) (stream:null? s))
+                 (and found? (cons best-act best-v))
+                 (let* ((m (stream:car s))
+                        (won (cadr m))
+                        (we (hash-table-ref/default table won #f)))
+                   (if (not (vector? we))
+                     (loop (stream:cdr s) (fx+ n 1) best-act best-v found?)
+                     (let* ((wv (vector-ref we 1))
+                            (v (if (and (car m) (pair? (cddr m)))
+                                 (let* ((p (attack-odds board (caar m) (cadar m) odds))
+                                        (lost (caddr m))
+                                        (le (hash-table-ref/default table lost #f))
+                                        (lv (if (vector? le)
+                                              (vector-ref le 1)
+                                              (score-board (cadr lost) root-player))))
+                                   (+ (* p wv) (* (- 1 p) lv)))
+                                 wv))
+                            (better? (or (not found?) (if max? (> v best-v) (< v best-v)))))
+                       (loop (stream:cdr s) (fx+ n 1)
+                             (if better? (car m) best-act)
+                             (if better? v best-v)
+                             #t))))))))))
+
+  (define (branch-summary table node root-player)
+    (let* ((e (hash-table-ref/default table node #f))
+           (val (if (vector? e) (vector-ref e 1) (score-board (cadr node) root-player)))
+           (reply (best-reply-in-table table node root-player)))
+      (list (car node) val reply)))
+
+  (define (compute-thinking-tree tree #!key (level (*ai-level*)) (budget (and level (*ai-budget*))) (mode 'move))
+    (let* ((root-player (car tree))
+           (board (cadr tree))
+           (game (dice-of-doom/game root-player hexnum: (vector-length board)))
+           (table (make-transposition-table game))
+           (d (if (and (not level) (not budget))
+                (best-move star1 game tree depth: #f table: table)
+                (best-move/iterative-deepening star1 game tree max-depth: level budget: budget
+                                               table: table)))
+           (st (decision-stats d))
+           (ratings (decision-ratings d))
+           (best-idx (decision-index d))
+           (best-val (decision-value d))
+           (moves (stream:->list (caddr tree)))
+           (total (length moves))
+           (odds (*dice-odds*))
+           (all-cands
+             (let loop ((ms moves) (rs ratings) (i 0) (run-max -inf.0) (acc '()))
+               (if (or (null? ms) (null? rs))
+                 (reverse acc)
+                 (let* ((m (car ms))
+                        (r (car rs))
+                        (act (car m))
+                        (chosen? (fx= i best-idx))
+                        (exact? (or (fx= i 0) chosen? (> r run-max)))
+                        (p (and act (pair? (cddr m)) (attack-odds board (car act) (cadr act) odds)))
+                        (won (and chosen? (branch-summary table (cadr m) root-player)))
+                        (lost (and chosen? (pair? (cddr m)) (branch-summary table (caddr m) root-player))))
+                   (loop (cdr ms) (cdr rs) (fx+ i 1) (max run-max r)
+                         (cons (list i act r chosen? exact? p won lost) acc))))))
+           (kept-cands
+             (if (<= (length all-cands) 6)
+               (map cdr all-cands)
+               (let* ((chosen-entry (assv best-idx all-cands))
+                      (others (filter (λ (c) (not (fx= (car c) best-idx))) all-cands))
+                      (top-others (take (sort others (λ (a b) (> (caddr a) (caddr b)))) 5))
+                      (selected (sort (cons chosen-entry top-others) (λ (a b) (< (car a) (car b))))))
+                 (map cdr selected))))
+           (chosen-move (list-ref moves best-idx)))
+      (values chosen-move
+              (make-thinking-tree
+                root-player
+                mode
+                (decision-depth d)
+                (not (game-stats-horizon? st))
+                best-val
+                (cons (car chosen-move) best-val)
+                total
+                (list (game-stats-nodes st)
+                      (game-stats-chance-nodes st)
+                      (game-stats-leaves st)
+                      (game-stats-cutoffs st)
+                      (game-stats-tt-hits st))
+                kept-cands))))
+
   ; v4's `handle-computer` up to the choice: the move, before its dice are rolled.
   ; When `level` is `#f` (unlimited difficulty), the search explores the full search space
   ; without a depth cap (and without a node budget unless `budget:` is explicitly passed).
@@ -848,8 +974,8 @@
   ; (attack player src dst src-dice dst-dice src-roll dst-roll captured?) or (pass player gained);
   ; `prev-board` is the board before the last action, `last-move` (src dst captured?) or #f;
   ; `touched` the seconds and `order` the rank of the last request, for the eviction; `config` is
-  ; the `game-config` of this game.
-  (define-record web-game id tree from-tile step message log prev-board last-move touched order config)
+  ; the `game-config` of this game; `thinking` is the `thinking-tree` of the last AI search.
+  (define-record web-game id tree from-tile step message log prev-board last-move touched order config thinking)
 
   (define web-games (make-hash-table string=? string-hash))
   (define web-games-lock (make-mutex 'dice-of-doom))
@@ -913,7 +1039,7 @@
       (with-game-config cfg
         (τ (unless tree (hash-table-clear! game-tree/previous))
            (let1 (g (make-web-game (or id (fresh-id)) (or tree (deal-game-tree))
-                                   #f 0 '((b "Your turn.")) '() #f #f 0 0 cfg))
+                                   #f 0 '((b "Your turn.")) '() #f #f 0 0 cfg #f))
              (hash-table-set! web-games (web-game-id g) (touch! g))
              g)))))
 
@@ -1013,17 +1139,19 @@
   ; is emptied afterwards, see the header.
   (define (web-handle-computer g)
     (with-game-config (web-game-config g)
-      (τ (let* ((tree (web-game-tree g))
-                (entry (play! g tree (choose-computer-move tree)))
-                (who `(b ,(letter (cadr entry))))
-                (your-turn (if (zero? (car (web-game-tree g))) '(" " (b "Your turn.")) '())))
-           (hash-table-clear! game-tree/previous)
-           (if (eq? (car entry) 'attack)
-             (match1/first ((attack _ ,src ,dst _ _ _ _ _) entry)
-               (apply say! g who (conc " attacked " src " → " dst ": " (rolls entry) " — " (outcome entry) ".")
-                      your-turn))
-             (apply say! g who (conc " ended the turn and gained " (dice-word (caddr entry)) ".")
-                    your-turn))))))
+      (τ (let ((tree (web-game-tree g)))
+           (receive (move thinking) (compute-thinking-tree tree)
+             (let* ((entry (play! g tree move))
+                    (who `(b ,(letter (cadr entry))))
+                    (your-turn (if (zero? (car (web-game-tree g))) '(" " (b "Your turn.")) '())))
+               (web-game-thinking-set! g thinking)
+               (hash-table-clear! game-tree/previous)
+               (if (eq? (car entry) 'attack)
+                 (match1/first ((attack _ ,src ,dst _ _ _ _ _) entry)
+                   (apply say! g who (conc " attacked " src " → " dst ": " (rolls entry) " — " (outcome entry) ".")
+                          your-turn))
+                 (apply say! g who (conc " ended the turn and gained " (dice-word (caddr entry)) ".")
+                        your-turn))))))))
 
   ; the book's dispatch of `dod-request-handler`; the step grows when the tree or the chosen hex
   ; changes.
@@ -1215,6 +1343,180 @@
                                         `((b ,(number->string pos)) (span ,(dice-word (dice pos))))))))
                           tiles)))))))
 
+  (define (action-label act)
+    (if act (conc (car act) " → " (cadr act)) "pass"))
+
+  (define (fmt-score v)
+    (let* ((r (/ (round (* (exact->inexact v) 10.0)) 10.0))
+           (i (inexact->exact (round r)))
+           (s (if (< (abs (- r i)) 1e-6)
+                (number->string i)
+                (number->string r))))
+      (if (positive? r) (string-append "+" s) s)))
+
+  ; SVG diagram of `tt` (a `thinking-tree`): root node -> candidate moves (with exact values or
+  ; alpha-beta bounds `≤`) -> chance diamond / outcome states -> best continuation reply from the
+  ; transposition table.
+  (define (draw-thinking-tree-svg tt)
+    (let* ((player (thinking-tree-player tt))
+           (val (thinking-tree-value tt))
+           (total (thinking-tree-total-moves tt))
+           (cands (thinking-tree-candidates tt))
+           (k (length cands))
+           (more (- total k))
+           (row-h 30)
+           (H (max 128 (+ 32 (* (max k 2) row-h) (if (positive? more) 20 0))))
+           (root-y (quotient H 2))
+           (cand-y (λ (idx) (+ 34 (* idx row-h))))
+           (chosen-idx (or (let loop ((cs cands) (i 0))
+                             (cond ((null? cs) #f)
+                                   ((list-ref (car cs) 2) i)
+                                   (else (loop (cdr cs) (add1 i)))))
+                           0))
+           (chosen-cand (and (pair? cands) (list-ref cands chosen-idx)))
+           (chosen-y (cand-y chosen-idx))
+           (pcol (conc "var(--p" player ")"))
+           (reply-node
+             (λ (ry branch)
+               (let ((reply (caddr branch)))
+                 (if (pair? reply)
+                   (let ((ract (car reply))
+                         (rval (cdr reply))
+                         (rpl (car branch)))
+                     `((path (@ (d ,(conc "M498," ry " L536," ry)) (class "tt-edge chosen")))
+                       (g (@ (class "tt-node tt-reply") (style ,(conc "--pc:var(--p" rpl ")")))
+                          (rect (@ (x "536") (y ,(number->string (- ry 12))) (width "134") (height "24") (rx "7")))
+                          (circle (@ (cx "549") (cy ,(number->string ry)) (r "5") (fill ,(conc "var(--p" rpl ")"))))
+                          (text (@ (x "559") (y ,(number->string (+ ry 4))) (class "tt-act"))
+                                ,(conc (letter rpl) ": " (action-label ract)))
+                          (text (@ (x "662") (y ,(number->string (+ ry 4))) (text-anchor "end") (class "tt-val"))
+                                ,(fmt-score rval)))))
+                   `((path (@ (d ,(conc "M498," ry " L536," ry)) (class "tt-edge bound")))
+                     (g (@ (class "tt-node tt-leaf"))
+                        (rect (@ (x "536") (y ,(number->string (- ry 11))) (width "86") (height "22") (rx "7")))
+                        (text (@ (x "579") (y ,(number->string (+ ry 4))) (text-anchor "middle") (class "tt-muted"))
+                              "horizon")))))))
+           (outcome-branch
+             (λ (oy kind prob branch)
+               (let ((bpl (car branch))
+                     (bval (cadr branch)))
+                 `((g (@ (class ,(conc "tt-node tt-out " kind)) (style ,(conc "--pc:var(--p" bpl ")")))
+                      (rect (@ (x "368") (y ,(number->string (- oy 14))) (width "130") (height "28") (rx "8")))
+                      (text (@ (x "378") (y ,(number->string (+ oy 4))) (class "tt-act"))
+                            ,(conc (if (eq? kind 'win) "✓ " (if (eq? kind 'lose) "✗ " "→ "))
+                                   (if prob (conc prob "% ") "next ")
+                                   "(" (letter bpl) ")"))
+                      (text (@ (x "490") (y ,(number->string (+ oy 4))) (text-anchor "end") (class "tt-val"))
+                            ,(fmt-score bval)))
+                   ,@(reply-node oy branch))))))
+      `(svg (@ (class "think-tree") (viewBox ,(conc "0 0 680 " H)) (role "img")
+               (aria-label ,(conc "AI search tree for player " (letter player))))
+            (g (@ (class "tt-headers") (aria-hidden "true"))
+               (text (@ (x "56") (y "13") (text-anchor "middle")) "ROOT")
+               (text (@ (x "220") (y "13") (text-anchor "middle")) "CANDIDATES")
+               (text (@ (x "433") (y "13") (text-anchor "middle")) "OUTCOMES")
+               (text (@ (x "603") (y "13") (text-anchor "middle")) "CONTINUATION"))
+            (g (@ (class "tt-edges"))
+               ,@(map (λ (c idx)
+                        (let ((cy (cand-y idx))
+                              (chosen? (list-ref c 2))
+                              (exact? (list-ref c 3)))
+                          `(path (@ (d ,(conc "M104," root-y " C126," root-y " 126," cy " 148," cy))
+                                    (class ,(cond (chosen? "tt-edge chosen")
+                                                  (exact? "tt-edge")
+                                                  (else "tt-edge bound")))
+                                    ,@(if chosen? `((style ,(conc "--pc:" pcol))) '())))))
+                      cands (iota k)))
+            (g (@ (class "tt-node tt-root") (style ,(conc "--pc:" pcol)))
+               (rect (@ (x "8") (y ,(number->string (- root-y 20))) (width "96") (height "40") (rx "10")))
+               (circle (@ (cx "24") (cy ,(number->string (- root-y 5))) (r "6") (fill ,pcol)))
+               (text (@ (x "35") (y ,(number->string (- root-y 1))) (class "tt-title"))
+                     ,(conc "Player " (letter player)))
+               (text (@ (x "20") (y ,(number->string (+ root-y 13))) (class "tt-sub"))
+                     ,(conc "ev " (fmt-score val))))
+            ,@(map (λ (c idx)
+                     (let ((cy (cand-y idx))
+                           (act (list-ref c 0))
+                           (r (list-ref c 1))
+                           (chosen? (list-ref c 2))
+                           (exact? (list-ref c 3)))
+                       `(g (@ (class ,(conc "tt-node tt-cand" (if chosen? " chosen" "") (if exact? "" " bound")))
+                              ,@(if chosen? `((style ,(conc "--pc:" pcol))) '()))
+                           (rect (@ (x "148") (y ,(number->string (- cy 12))) (width "144") (height "24") (rx "7")))
+                           (text (@ (x "158") (y ,(number->string (+ cy 4))) (class "tt-act"))
+                                 ,(conc (if chosen? "★ " "") (action-label act)))
+                           (text (@ (x "284") (y ,(number->string (+ cy 4))) (text-anchor "end") (class "tt-val"))
+                                 ,(conc (if exact? "" "≤") (fmt-score r))))))
+                   cands (iota k))
+            ,@(if (positive? more)
+                `((text (@ (x "220") (y ,(number->string (+ (cand-y (sub1 k)) 24)))
+                           (text-anchor "middle") (class "tt-more"))
+                        ,(conc "+" more " more " (if (= more 1) "move" "moves"))))
+                '())
+            ,@(if (not chosen-cand)
+                '()
+                (let ((p (list-ref chosen-cand 4))
+                      (won (list-ref chosen-cand 5))
+                      (lost (list-ref chosen-cand 6)))
+                  (cond
+                    ((and p won lost)
+                     (let* ((win-pct (inexact->exact (round (* 100 p))))
+                            (lose-pct (- 100 win-pct))
+                            (win-y (max 36 (min (- H 72) (- chosen-y 22))))
+                            (lose-y (max (+ win-y 42) (min (- H 26) (+ chosen-y 22)))))
+                       `((path (@ (d ,(conc "M292," chosen-y " L320," chosen-y))
+                                  (class "tt-edge chosen") (style ,(conc "--pc:" pcol))))
+                         (polygon (@ (points ,(conc "330," (- chosen-y 9) " 340," chosen-y
+                                                    " 330," (+ chosen-y 9) " 320," chosen-y))
+                                     (class "tt-chance") (style ,(conc "--pc:" pcol))))
+                         (path (@ (d ,(conc "M340," chosen-y " C354," chosen-y " 354," win-y " 368," win-y))
+                                  (class "tt-edge win")))
+                         (path (@ (d ,(conc "M340," chosen-y " C354," chosen-y " 354," lose-y " 368," lose-y))
+                                  (class "tt-edge lose")))
+                         ,@(outcome-branch win-y 'win win-pct won)
+                         ,@(outcome-branch lose-y 'lose lose-pct lost))))
+                    (won
+                     `((path (@ (d ,(conc "M292," chosen-y " L368," chosen-y))
+                                (class "tt-edge chosen") (style ,(conc "--pc:" pcol))))
+                       ,@(outcome-branch chosen-y 'det #f won)))
+                    (else '())))))))
+
+  (define (draw-thinking-card tt)
+    (if (not (thinking-tree? tt))
+      '()
+      (let* ((player (thinking-tree-player tt))
+             (mode (thinking-tree-mode tt))
+             (depth (thinking-tree-depth tt))
+             (complete? (thinking-tree-complete? tt))
+             (chosen (thinking-tree-chosen tt))
+             (stats (thinking-tree-stats tt))
+             (nodes (list-ref stats 0))
+             (cutoffs (list-ref stats 3))
+             (tt-hits (list-ref stats 4)))
+        `((section (@ (class "card think") (aria-labelledby "h-think"))
+                   (div (@ (class "think-head"))
+                        (h2 (@ (class "eyebrow") (id "h-think")) "Thinking tree")
+                        (div (@ (class "think-meta"))
+                             (span (@ (class "pill who"))
+                                   ,(glyph player)
+                                   (b ,(letter player))
+                                   ,(if (eq? mode 'preview)
+                                      " opening view → "
+                                      " chose ")
+                                   (code ,(action-label (car chosen))))
+                             (span (@ (class "pill"))
+                                   ,(if depth
+                                      (conc "depth " depth (if complete? " (full)" ""))
+                                      "depth ∞"))
+                             (span (@ (class "pill"))
+                                   ,(conc nodes " " (if (= nodes 1) "node" "nodes")))
+                             (span (@ (class "pill"))
+                                   ,(conc cutoffs " α–β " (if (= cutoffs 1) "cut" "cuts")))
+                             ,@(if (positive? tt-hits)
+                                 `((span (@ (class "pill")) ,(conc tt-hits " TT")))
+                                 '())))
+                   ,(draw-thinking-tree-svg tt))))))
+
   ; the form that configures and deals a new game: combat mode (roll dice vs deterministic),
   ; turn mode (multi-attack vs alternating 1 move per player), board dimensions, number of players,
   ; maximum dice per hex, reinforcement rule, and AI difficulty gauge (depth 1–5 up to unlimited).
@@ -1330,7 +1632,11 @@
                                                              last-move: (web-game-last-move g)
                                                              changes: changes
                                                              new-dice: new-dice)
-                                            ,@(if human? (move-list g) '()))
+                                            ,@(if human? (move-list g) '())
+                                            ,@(draw-thinking-card
+                                                (or (web-game-thinking g)
+                                                    (and (not over?)
+                                                         (receive (_ tt) (compute-thinking-tree tree level: 1 mode: 'preview) tt)))))
                                    (aside (@ (class "side"))
                                           (section (@ (class "card") (aria-labelledby "h-players"))
                                                    (h2 (@ (class "eyebrow") (id "h-players")) "Players")
@@ -1500,6 +1806,40 @@ a { color: inherit; }
 @keyframes dod-fade { from { opacity: 0; } }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .board .ground { fill-opacity: .55; } }
 :root[data-theme="dark"] .board .ground { fill-opacity: .55; }
+
+/* thinking tree ------------------------------------------------------------------------ */
+.think { margin-top: 14px; }
+.think-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.think-head .eyebrow { margin: 0; }
+.think-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.think-meta .pill {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--tint); font-size: 12px; color: var(--muted);
+}
+.think-meta .pill.who { color: var(--ink); font-weight: 500; }
+.think-meta code { font: 600 12px var(--mono); color: var(--ink); }
+.think-tree { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--font); }
+.think-tree .tt-headers text { font-size: 10px; font-weight: 650; letter-spacing: .08em; fill: var(--muted); }
+.think-tree .tt-edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+.think-tree .tt-edge.bound { stroke-dasharray: 4 3; opacity: .75; }
+.think-tree .tt-edge.chosen { stroke: var(--pc, var(--ink)); stroke-width: 2.2; }
+.think-tree .tt-edge.win { stroke: var(--win); stroke-width: 2; }
+.think-tree .tt-edge.lose { stroke: var(--lose); stroke-width: 1.8; stroke-dasharray: 3 2; }
+.think-tree .tt-chance { fill: var(--surface); stroke: var(--pc, var(--ink)); stroke-width: 2; }
+.think-tree .tt-node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+.think-tree .tt-root rect, .think-tree .tt-cand.chosen rect {
+  stroke: var(--pc, var(--ink)); stroke-width: 1.8; fill: var(--tint);
+}
+.think-tree .tt-cand.bound rect { stroke-dasharray: 3 2; opacity: .82; }
+.think-tree .tt-out.win rect { stroke: var(--win); }
+.think-tree .tt-out.lose rect { stroke: var(--lose); }
+.think-tree .tt-leaf rect { stroke-dasharray: 3 2; fill: transparent; }
+.think-tree .tt-title { font-size: 11.5px; font-weight: 650; fill: var(--ink); }
+.think-tree .tt-sub { font: 600 11px var(--mono); fill: var(--muted); }
+.think-tree .tt-act { font-size: 11.5px; font-weight: 600; fill: var(--ink); }
+.think-tree .tt-val { font: 600 11px var(--mono); fill: var(--muted); }
+.think-tree .tt-cand.chosen .tt-val, .think-tree .tt-out.win .tt-val { fill: var(--ink); font-weight: 700; }
+.think-tree .tt-more, .think-tree .tt-muted { font-size: 11px; fill: var(--muted); }
 
 /* side panel --------------------------------------------------------------------------- */
 .side { display: grid; gap: 18px; }

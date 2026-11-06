@@ -989,11 +989,15 @@ repository, builds the image locally.
   with rounded hexagonal tiles (`*hex-corner-radius*`) and pip-free rounded-corner
   3D dice (`*die-corner-radius*`).
   It shows the odds of each target in a pill you can click, the last attack as
-  an arc between its hexes, the dice gained, the players with their hexes,
-  dice and reinforcements, and a log of moves with their rolls. On phones it
-  also lists the moves under the board. It works without JavaScript; a few
-  lines of script only advance the turns of the computer, and Pause or Esc
-  stops them.
+  an arc between its hexes, the dice gained, a live **Thinking tree** SVG
+  visualization of the AI's search (`compute-thinking-tree`,
+  `draw-thinking-tree-svg` — showing the root evaluation, candidate moves with
+  `★` chosen move and `≤` alpha–beta bounds, stochastic win/lose chance
+  branches, transposition-table continuation replies, and node/cutoff
+  telemetry), the players with their hexes, dice and reinforcements, and a log
+  of moves with their rolls. On phones it also lists the moves under the board.
+  It works without JavaScript; a few lines of script only advance the turns of
+  the computer, and Pause or Esc stops them.
 - Each browser gets its own game through an id and a step token in the links,
   so reload, Back and a second tab are harmless. Games nobody moved in are
   dropped before games being played.
