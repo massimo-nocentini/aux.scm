@@ -1,0 +1,249 @@
+#
+name: WebAssembly package of aux, for CHICKEN's web page.
+
+# Builds the aux modules (and the eggs they depend on) as a package of compiled extensions that the
+# CHICKEN WebAssembly page (https://massimo-nocentini.github.io/chicken-core/) loads at run time, with
+# src/Makefile's wasm-package, and deploys it to this repository's GitHub Pages under /wasm/aux/: the
+# page's Packages dialog loads https://massimo-nocentini.github.io/aux.scm/wasm/aux/ (or the page's
+# ?pkg=<that URL>).  Both sites are on the origin massimo-nocentini.github.io, so the page's
+# Content-Security-Policy (connect-src 'self') lets it fetch the package.
+#
+# A package is made for the ABI of a build of the page (its "chicken-wasm-builds" meta tag lists
+# ARCH:EH:ABI for each architecture), so chicken-core is built at the revision of the deployed page:
+# its "chicken-build" meta tag is REV-CHECKSUM.  If the page cannot be read, chicken-core's main is
+# built (with a warning).  A run started by hand may name another revision (chicken_ref), and the
+# deploy of chicken-core's page may start this one with
+#     gh api repos/massimo-nocentini/aux.scm/dispatches -f event_type=chicken-core-deployed \
+#       -F 'client_payload[rev]=<the deployed commit>'
+# (with a token allowed to dispatch to this repository), so that the package follows a new page.
+# The build checks that its page has the ABIs of the deployed one, and fails otherwise (rather than
+# deploy a package the page refuses), but for a revision named by hand or by the dispatch (the page
+# read may still be the previous one, for a few minutes), where it only warns.
+#
+# The site of this repository is only this package: the deploy replaces the whole site, so anything
+# else to publish on Pages must be added to the site directory in this job.  This needs, once,
+# Settings > Pages > Build and deployment > Source: GitHub Actions.
+on:
+    push:
+        branches: ["master"]
+        paths: ["src/**", ".github/workflows/wasm-package.yml"]
+    workflow_dispatch:
+        inputs:
+            chicken_ref:
+                description: "chicken-core revision to build with (default: that of the deployed page, else main)"
+                required: false
+                default: ""
+    repository_dispatch:
+        types: [chicken-core-deployed]
+
+# one run at a time; a newer one waits, so the deployed package is always the newest
+concurrency:
+    group: wasm-package-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+env:
+    CHICKEN_CORE_REPOSITORY: massimo-nocentini/chicken-core
+    CHICKEN_CORE_PAGE: https://massimo-nocentini.github.io/chicken-core/
+
+jobs:
+    package:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 240
+        steps:
+            - name: Checkout aux.scm
+              uses: actions/checkout@v4
+              with:
+                  path: aux.scm
+
+            # The revision: chicken_ref (by hand), the dispatch's rev, else the page's chicken-build,
+            # else main.  pinned=page when it is the page's own, whose chicken-wasm-builds is then the
+            # one the build must have.
+            - name: Find the chicken-core revision of the deployed page
+              id: core
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  INPUT_REF: ${{ github.event.inputs.chicken_ref }}
+                  DISPATCH_REV: ${{ github.event.client_payload.rev }}
+              run: |
+                  set -u
+                  meta() { grep -o "<meta name=\"$1\" content=\"[^\"]*\"" page.html | head -n 1 | sed 's/.*content="//; s/"$//'; }
+                  builds=
+                  if curl -fsSL --retry 3 --max-time 60 "$CHICKEN_CORE_PAGE" -o page.html; then
+                    build=$(meta chicken-build)
+                    builds=$(meta chicken-wasm-builds)
+                    echo "The page: chicken-build \"$build\", chicken-wasm-builds \"$builds\""
+                  else
+                    build=
+                    echo "::warning::cannot read $CHICKEN_CORE_PAGE"
+                  fi
+                  pinned=page
+                  if [ -n "$INPUT_REF" ]; then
+                    ref=$INPUT_REF; pinned=input
+                  elif [ -n "$DISPATCH_REV" ]; then
+                    ref=$DISPATCH_REV; pinned=dispatch
+                  else
+                    ref=${build%%-*}
+                  fi
+                  sha=
+                  case "$ref" in
+                    "") ;;
+                    *[!0-9A-Za-z._/-]*) echo "::error::not a revision: $ref"; exit 1;;
+                    *) sha=$(gh api "repos/$CHICKEN_CORE_REPOSITORY/commits/$ref" --jq .sha) || sha=;;
+                  esac
+                  if [ -z "$sha" ]; then
+                    [ "$pinned" = input ] && { echo "::error::no revision $ref in $CHICKEN_CORE_REPOSITORY"; exit 1; }
+                    echo "::warning::no revision of the deployed page (\"$ref\"): building chicken-core's main"
+                    sha=$(gh api "repos/$CHICKEN_CORE_REPOSITORY/commits/main" --jq .sha)
+                    pinned=main
+                  fi
+                  echo "sha=$sha" >>"$GITHUB_OUTPUT"
+                  echo "pinned=$pinned" >>"$GITHUB_OUTPUT"
+                  echo "builds=$builds" >>"$GITHUB_OUTPUT"
+                  echo "chicken-core $sha ($pinned)" >>"$GITHUB_STEP_SUMMARY"
+
+            - name: Checkout chicken-core
+              uses: actions/checkout@v4
+              with:
+                  repository: ${{ env.CHICKEN_CORE_REPOSITORY }}
+                  ref: ${{ steps.core.outputs.sha }}
+                  path: chicken-core
+
+            - name: Check that chicken-core makes packages
+              working-directory: chicken-core
+              run: |
+                  grep -q '^wasm-package:' rules.make || {
+                    echo "::error::chicken-core ${{ steps.core.outputs.sha }} has no make wasm-package (runtime-loadable packages)"
+                    exit 1
+                  }
+
+            # As chicken-core's wasm-bundle.yml: the bootstrap snapshot, emsdk (of the version that
+            # workflow builds the page with: emcc's version is part of the ABI), the host CHICKEN.
+            - name: Read the bootstrap snapshot and emsdk versions
+              id: boot
+              working-directory: chicken-core
+              run: |
+                  emsdk=$(sed -n 's/^ *EMSDK_VERSION: *//p' .github/workflows/wasm-bundle.yml | head -n 1)
+                  echo "EMSDK_VERSION=${emsdk:-6.0.10}" >>"$GITHUB_ENV"
+                  version=$(sed -n 's/^BOOTVERSION=//p' scripts/bootstrap.sh)
+                  url=$(sed -n 's/^BOOTURL=//p' scripts/bootstrap.sh | sed "s/\${BOOTVERSION}/$version/")
+                  echo "version=$version" >>"$GITHUB_OUTPUT"
+                  echo "url=https://code.call-cc.org/dev-snapshots/$url" >>"$GITHUB_OUTPUT"
+
+            - name: Cache the bootstrap snapshot
+              id: snapshot-cache
+              uses: actions/cache@v4
+              with:
+                  path: ~/chicken-snapshot
+                  key: chicken-snapshot-${{ steps.boot.outputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+            - name: Build the bootstrap snapshot
+              if: steps.snapshot-cache.outputs.cache-hit != 'true'
+              run: |
+                  mkdir -p "$RUNNER_TEMP/snapshot" && cd "$RUNNER_TEMP/snapshot"
+                  wget -qO- "${{ steps.boot.outputs.url }}" | tar -xz
+                  cd "chicken-${{ steps.boot.outputs.version }}"
+                  ./configure --prefix "$HOME/chicken-snapshot"
+                  make -j"$(nproc)"
+                  make install
+
+            - name: Cache emsdk
+              id: emsdk-cache
+              uses: actions/cache@v4
+              with:
+                  path: ~/emsdk
+                  key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+            - name: Install emsdk
+              if: steps.emsdk-cache.outputs.cache-hit != 'true'
+              run: |
+                  git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+                  ~/emsdk/emsdk install "$EMSDK_VERSION"
+                  ~/emsdk/emsdk activate "$EMSDK_VERSION"
+
+            # Installed (in ~/chicken), as aux is installed with it below: its repository is the host
+            # repository of the WebAssembly build (WASM_HOST_REPOSITORY).
+            - name: Build and install the host CHICKEN
+              working-directory: chicken-core
+              run: |
+                  ./configure --chicken "$HOME/chicken-snapshot/bin/chicken"
+                  make -j"$(nproc)" boot-chicken
+                  make spotless
+                  ./configure --chicken ./chicken-boot --prefix "$HOME/chicken"
+                  make -j"$(nproc)"
+                  make install
+                  echo "$HOME/chicken/bin" >>"$GITHUB_PATH"
+
+            # aux's modules run when aux is compiled (import-for-syntax), so the WebAssembly build needs
+            # them installed natively.  They are built as for the package, with the feature emscripten
+            # (-D for the .egg, -feature for its sources): without the web server, Lua and simdjson,
+            # which would need spiffy, Lua 5.5 and a C++ runtime here for nothing.
+            - name: Install aux natively
+              working-directory: aux.scm/src
+              run: CSC_OPTIONS="-feature emscripten" chicken-install -D emscripten
+
+            - name: Build the WebAssembly page, wasm64 and wasm32
+              working-directory: chicken-core
+              run: |
+                  source ~/emsdk/emsdk_env.sh
+                  make -j"$(nproc)" wasm WASM_WEB_ARCHS="wasm64 wasm32"
+
+            - name: Check the ABIs against the deployed page
+              working-directory: chicken-core
+              env:
+                  PAGE_BUILDS: ${{ steps.core.outputs.builds }}
+                  PINNED: ${{ steps.core.outputs.pinned }}
+              run: |
+                  builds=$(grep -o '<meta name="chicken-wasm-builds" content="[^"]*"' build-wasm/web/index.html | sed 's/.*content="//; s/"$//')
+                  echo "This build: $builds" | tee -a "$GITHUB_STEP_SUMMARY"
+                  if [ "$builds" != "$PAGE_BUILDS" ]; then
+                    msg="the deployed page has \"$PAGE_BUILDS\": it will not load this package"
+                    [ -n "$PAGE_BUILDS" ] || msg="the deployed page's builds are unknown: it may not load this package"
+                    if [ "$PINNED" = page ]; then echo "::error::$msg"; exit 1; fi
+                    echo "::warning::$msg"
+                  fi
+
+            - name: Build the package
+              run: |
+                  source ~/emsdk/emsdk_env.sh
+                  make -C aux.scm/src -j"$(nproc)" wasm-package CHICKEN_CORE="$GITHUB_WORKSPACE/chicken-core" \
+                    WASM_PACKAGE_OUT="$RUNNER_TEMP/site/wasm"
+
+            # the package in the node csi of the build (as the page's worker, with its files in
+            # /packages/repo), wasm64 under emsdk's node (the runner's is too old for memory64)
+            - name: Smoke test the package
+              working-directory: chicken-core
+              run: |
+                  source ~/emsdk/emsdk_env.sh
+                  node emscripten/wasm-package.js unpack "$RUNNER_TEMP/site/wasm/aux" --arch wasm64 "$RUNNER_TEMP/unpacked"
+                  out=$(CHICKEN_REPOSITORY_PATH="$RUNNER_TEMP/unpacked/repo" NODE="$EMSDK_NODE" build-wasm/node/csi -n \
+                          -e '(import (aux base)) (display (let1 (x 3) x))')
+                  test "$out" = 3
+                  ls -l "$RUNNER_TEMP/site/wasm/aux" | tee -a "$GITHUB_STEP_SUMMARY"
+
+            - uses: actions/upload-pages-artifact@v5
+              with:
+                  path: ${{ runner.temp }}/site
+
+    deploy:
+        needs: package
+        if: github.ref == 'refs/heads/master'
+        runs-on: ubuntu-24.04
+        permissions:
+            pages: write
+            id-token: write
+        environment:
+            name: github-pages
+            url: ${{ steps.deployment.outputs.page_url }}wasm/aux/
+        # one deploy at a time, and one that started is never cancelled
+        concurrency:
+            group: github-pages
+            cancel-in-progress: false
+        steps:
+            - uses: actions/configure-pages@v6
+
+            - name: Deploy to GitHub Pages
+              id: deployment
+              uses: actions/deploy-pages@v5
