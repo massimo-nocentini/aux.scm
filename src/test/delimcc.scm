@@ -2692,9 +2692,12 @@
    (⊦= 50 (length results))
    (⊦= results (map (λ (r) 'shifted) results))
    (define freed 0)
+   ; Out of the scope of v: a finalizer procedure keeps alive what it refers to (CHICKEN 6.1),
+   ; and an interpreted λ closes over its whole frame, so one made inside the let1 would keep v.
+   (define (count-freed _) (set! freed (add1 freed)))
    (define (dying i)
      (let1 (v (make-vector 10 i))
-       (set-finalizer! v (λ (v) (set! freed (add1 freed))))
+       (set-finalizer! v count-freed)
        (list (resetcc (cml/yield) (if (even? i) (cml/exit) (error "dying inside a resetcc"))) v)))
    (run-cml (τ (do ((i 0 (add1 i))) ((= i 100)) (sync (join-evt (spawn (τ (dying i))))))
                (gc #t)))
