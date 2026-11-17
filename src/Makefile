@@ -5,7 +5,7 @@ CSC=csc
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
         test-microkanren-date test-microkanren-lambda test-microkanren-with-lambda test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors test-pie test-j-bob \
-        test-land-of-lisp test-search serve-dice-of-doom
+        test-land-of-lisp test-search serve-dice-of-doom wasm-package
 
 echo:
 	echo "Catch all for the Makefile"
@@ -203,6 +203,22 @@ test-lua:
 
 install:
 	chicken-install -sudo
+
+# The WebAssembly package of aux for CHICKEN's web page: its extensions, and those of the eggs it depends
+# on, compiled for every architecture of a page built in CHICKEN_CORE (a chicken-core tree) by its
+# "make wasm" into WASM_BUILDDIR (by default its build-wasm), written to WASM_PACKAGE_OUT/aux (by default
+# ../wasm/aux): manifest.json and a bundle (and its gzip) for each architecture, which the page's Packages
+# dialog loads by the URL of the directory.  Emscripten's tools must be on the PATH (emsdk_env.sh), and aux
+# installed natively first ("make install" or chicken-install), as its modules run at compile time.
+CHICKEN_CORE ?=
+WASM_BUILDDIR ?= $(CHICKEN_CORE)/build-wasm
+WASM_PACKAGE_OUT ?= $(abspath $(CURDIR)/../wasm)
+
+wasm-package:
+	@test -n "$(CHICKEN_CORE)" -a -f "$(CHICKEN_CORE)/Makefile.emscripten" || \
+	  { echo 'wasm-package: CHICKEN_CORE must name a chicken-core tree, as in make wasm-package CHICKEN_CORE=/path/to/chicken-core' >&2; exit 1; }
+	+$(MAKE) -C $(CHICKEN_CORE) wasm-package WASM_BUILDDIR=$(abspath $(WASM_BUILDDIR)) \
+	  WASM_PACKAGE_NAME=aux WASM_PACKAGE_EGGS=$(CURDIR) WASM_PACKAGE_OUT=$(abspath $(WASM_PACKAGE_OUT))
 
 format:        
 	scheme-indent -T 2 < test/letcc.scm > test/letcc.scm.tmp && mv test/letcc.scm.tmp test/letcc.scm

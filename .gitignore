@@ -16,3 +16,5 @@ src/test/learning
 src/test/users_*.json
 # test-suite reports written next to the sources
 src/testsuite-*.html
+# the WebAssembly package (make -C src wasm-package)
+/wasm/
