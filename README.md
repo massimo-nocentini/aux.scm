@@ -3,10 +3,14 @@
 In order to install the `aux` modules just type in terminal:
 
 ```bash
-make install -sudo
+cd src && make install
 ```
 
-provided that a Chicken scheme is installed on your box.
+provided that a Chicken scheme is installed on your box.  This installs the eggs `spiffy`,
+`intarweb` and `uri-common` first when they are missing: `aux.egg` names them only for the host (not
+for the WebAssembly package, see below), in a `cond-expand` that `chicken-install` does not read for
+dependencies, so a plain `chicken-install` in `src` needs them installed already.  `(aux sxml)` also
+imports `spiffy-request-vars`, installed by hand (see the `Dockerfile`).
 
 ## In the browser
 

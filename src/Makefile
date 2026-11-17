@@ -201,7 +201,15 @@ bench-hakaru10:
 test-lua:
 	cd test && ${CSI} -s lua.scm
 
+# aux.egg names spiffy, intarweb and uri-common as dependencies in a cond-expand (not for the
+# WebAssembly package), which chicken-install does not read when it fetches dependencies: they are
+# installed first when missing.
+HOST_DEPENDENCIES = spiffy intarweb uri-common
+
 install:
+	@for e in $(HOST_DEPENDENCIES); do \
+	  chicken-status $$e | grep -q "^$$e " || chicken-install -sudo $$e || exit 1; \
+	done
 	chicken-install -sudo
 
 # The WebAssembly package of aux for CHICKEN's web page: its extensions, and those of the eggs it depends
