@@ -17,12 +17,13 @@
     srfi-1 
     srfi-19
     sxml-transforms
-    spiffy
-    spiffy-request-vars
-    intarweb 
-    uri-common
     (only (aux base) match/first)   ; for `define-vhost`'s expansion
     )
+
+  ; spiffy serves over TCP and sendfile, which WebAssembly lacks: there `define-vhost` is left out.
+  (cond-expand
+    (emscripten)
+    (else (import spiffy spiffy-request-vars intarweb uri-common)))
 
   (define highlight-version "11.11.1")
   (define mermaid-version "11")
@@ -206,6 +207,9 @@
               (append `((escape *preorder* . ,(lambda (tag body) (apply string-append (map ->string body)))))
                       universal-conversion-rules*)))))))
 
+  (cond-expand
+    (emscripten)
+    (else
   ; `uri-path` answers an absolute path as `(/ "seg" ...)`: in `match/first` a literal symbol
   ; is written bare, `'/` would be the two-element pattern `(quote /)` instead. A request
   ; matching no route, by method or by path, falls back to the handler's continuation.
@@ -225,5 +229,7 @@
   (define-syntax define-vhost-map 
     (syntax-rules () 
       ((define-vhost-map (host handler) ...) (vhost-map `((,host . ,handler) ...)))))
+
+  ))
 
   )
