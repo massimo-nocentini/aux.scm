@@ -1,7 +1,7 @@
 #ifndef CHICKEN_TIMSORT_H
 #define CHICKEN_TIMSORT_H
 
-#include <chicken/chicken.h>
+#include <chicken.h>
 
 typedef enum timsort_scheme_comparison_type_e
 {

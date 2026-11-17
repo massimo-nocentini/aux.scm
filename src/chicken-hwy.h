@@ -1,5 +1,5 @@
 
-#include <chicken/chicken.h>
+#include <chicken.h>
 
 #ifdef __cplusplus
 extern "C"

@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <chicken/chicken.h>
+#include <chicken.h>
 
 extern int callout(int, int, int);
 extern int callin(C_word x);

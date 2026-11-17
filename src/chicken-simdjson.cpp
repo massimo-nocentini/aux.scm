@@ -1,5 +1,5 @@
 
-#include <chicken/chicken.h>
+#include <chicken.h>
 #include <string.h>
 #include <iostream>
 #include "chicken-simdjson.h"
