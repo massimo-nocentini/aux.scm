@@ -16,9 +16,14 @@ name: WebAssembly package of aux, for CHICKEN's web page.
 #     gh api repos/massimo-nocentini/aux.scm/dispatches -f event_type=chicken-core-deployed \
 #       -F 'client_payload[rev]=<the deployed commit>'
 # (with a token allowed to dispatch to this repository), so that the package follows a new page.
+# Without that dispatch, a scheduled run every 6 hours rebuilds the package only when the deployed
+# page has an ABI that the published manifest.json has no build for (the job "check"): the ABI
+# changes with chicken.h and the runtime, often.
 # The build checks that its page has the ABIs of the deployed one, and fails otherwise (rather than
 # deploy a package the page refuses), but for a revision named by hand or by the dispatch (the page
-# read may still be the previous one, for a few minutes), where it only warns.
+# read may still be the previous one, for a few minutes), where it only warns; chicken-core's main,
+# built when the page's revision is unknown, must have them too, but in a run started by hand.
+# The deploy refuses to replace a deployment of a newer commit of aux (an old run run again).
 #
 # The site of this repository is only this package: the deploy replaces the whole site, so anything
 # else to publish on Pages must be added to the site directory in this job.  This needs, once,
@@ -35,6 +40,8 @@ on:
                 default: ""
     repository_dispatch:
         types: [chicken-core-deployed]
+    schedule:
+        - cron: "17 */6 * * *"
 
 # one run at a time; a newer one waits, so the deployed package is always the newest
 concurrency:
@@ -47,9 +54,45 @@ permissions:
 env:
     CHICKEN_CORE_REPOSITORY: massimo-nocentini/chicken-core
     CHICKEN_CORE_PAGE: https://massimo-nocentini.github.io/chicken-core/
+    PACKAGE_URL: https://massimo-nocentini.github.io/aux.scm/wasm/aux/
 
 jobs:
+    # A scheduled run builds only when the deployed page has an ABI that the published package has
+    # no build for; every other run builds.  (A page that cannot be read builds nothing: there is
+    # nothing to compare.)
+    check:
+        runs-on: ubuntu-24.04
+        outputs:
+            needed: ${{ steps.need.outputs.needed }}
+        steps:
+            - name: Compare the ABIs of the page and of the package
+              id: need
+              env:
+                  EVENT: ${{ github.event_name }}
+              run: |
+                  set -u
+                  if [ "$EVENT" != schedule ]; then echo "needed=true" >>"$GITHUB_OUTPUT"; exit 0; fi
+                  if ! curl -fsSL --retry 3 --max-time 60 "$CHICKEN_CORE_PAGE" -o page.html; then
+                    echo "::warning::cannot read $CHICKEN_CORE_PAGE: nothing to compare"
+                    echo "needed=false" >>"$GITHUB_OUTPUT"; exit 0
+                  fi
+                  builds=$(sed -n 's/.*<meta name="chicken-wasm-builds" content="\([^"]*\)".*/\1/p' page.html | sed -n 1p)
+                  have=
+                  if curl -fsSL --retry 3 --max-time 60 "${PACKAGE_URL}manifest.json" -o manifest.json; then
+                    have=$(python3 -c 'import json; print("\n".join(json.load(open("manifest.json"))["builds"]))') || have=
+                  fi
+                  needed=false
+                  for b in $builds; do
+                    abi=$(echo "$b" | cut -d: -f3)
+                    [ -n "$abi" ] || continue
+                    echo "$have" | grep -qx "$abi" || { echo "The page's build $b is not in the package"; needed=true; }
+                  done
+                  echo "Page: $builds; package: $(echo $have)" >>"$GITHUB_STEP_SUMMARY"
+                  echo "needed=$needed" >>"$GITHUB_OUTPUT"
+
     package:
+        needs: check
+        if: needs.check.outputs.needed == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 240
         steps:
@@ -69,7 +112,8 @@ jobs:
                   DISPATCH_REV: ${{ github.event.client_payload.rev }}
               run: |
                   set -u
-                  meta() { grep -o "<meta name=\"$1\" content=\"[^\"]*\"" page.html | head -n 1 | sed 's/.*content="//; s/"$//'; }
+                  # (empty without the tag: no failing grep, as "run" has -e and pipefail)
+                  meta() { sed -n "s/.*<meta name=\"$1\" content=\"\([^\"]*\)\".*/\1/p" page.html | sed -n 1p; }
                   builds=
                   if curl -fsSL --retry 3 --max-time 60 "$CHICKEN_CORE_PAGE" -o page.html; then
                     build=$(meta chicken-build)
@@ -195,13 +239,17 @@ jobs:
               env:
                   PAGE_BUILDS: ${{ steps.core.outputs.builds }}
                   PINNED: ${{ steps.core.outputs.pinned }}
+                  EVENT: ${{ github.event_name }}
               run: |
-                  builds=$(grep -o '<meta name="chicken-wasm-builds" content="[^"]*"' build-wasm/web/index.html | sed 's/.*content="//; s/"$//')
+                  builds=$(sed -n 's/.*<meta name="chicken-wasm-builds" content="\([^"]*\)".*/\1/p' build-wasm/web/index.html | sed -n 1p)
                   echo "This build: $builds" | tee -a "$GITHUB_STEP_SUMMARY"
                   if [ "$builds" != "$PAGE_BUILDS" ]; then
                     msg="the deployed page has \"$PAGE_BUILDS\": it will not load this package"
                     [ -n "$PAGE_BUILDS" ] || msg="the deployed page's builds are unknown: it may not load this package"
-                    if [ "$PINNED" = page ]; then echo "::error::$msg"; exit 1; fi
+                    # (main, built for want of the page's revision, would replace a package that works)
+                    if [ "$PINNED" = page ] || { [ "$PINNED" = main ] && [ "$EVENT" != workflow_dispatch ]; }; then
+                      echo "::error::$msg"; exit 1
+                    fi
                     echo "::warning::$msg"
                   fi
 
@@ -218,6 +266,8 @@ jobs:
               run: |
                   source ~/emsdk/emsdk_env.sh
                   node emscripten/wasm-package.js unpack "$RUNNER_TEMP/site/wasm/aux" --arch wasm64 "$RUNNER_TEMP/unpacked"
+                  # (the wasm32 build has no node csi: its files' sizes and SHA-256 are checked)
+                  node emscripten/wasm-package.js unpack "$RUNNER_TEMP/site/wasm/aux" --arch wasm32 "$RUNNER_TEMP/unpacked32"
                   out=$(CHICKEN_REPOSITORY_PATH="$RUNNER_TEMP/unpacked/repo" NODE="$EMSDK_NODE" build-wasm/node/csi -n \
                           -e '(import (aux base)) (display (let1 (x 3) x))')
                   test "$out" = 3
@@ -232,6 +282,8 @@ jobs:
         if: github.ref == 'refs/heads/master'
         runs-on: ubuntu-24.04
         permissions:
+            contents: read
+            deployments: read
             pages: write
             id-token: write
         environment:
@@ -242,6 +294,38 @@ jobs:
             group: github-pages
             cancel-in-progress: false
         steps:
+            # As chicken-core's wasm-bundle.yml: an old run run again must not put its older package
+            # back.  It fails rather than succeed without deploying (a successful job would record a
+            # deployment of this commit); a live commit with no history in common is not newer.
+            - name: Refuse to replace a newer deployment
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -eu
+                  api=repos/$GITHUB_REPOSITORY
+                  deployments=$(gh api "$api/deployments?environment=github-pages&ref=$GITHUB_REF_NAME&per_page=100" \
+                                  --jq '.[] | "\(.id) \(.sha)"')
+                  live=
+                  while read -r id sha; do
+                    [ -n "$id" ] || continue
+                    state=$(gh api "$api/deployments/$id/statuses?per_page=1" --jq '.[0].state // ""')
+                    if [ "$state" = success ]; then
+                      live=$sha
+                      break
+                    fi
+                  done <<<"$deployments"
+                  if [ -z "$live" ] || [ "$live" = "$GITHUB_SHA" ]; then
+                    exit 0
+                  fi
+                  if ! status=$(gh api "$api/compare/$GITHUB_SHA...$live?per_page=1" --jq .status 2>"$RUNNER_TEMP/compare.err"); then
+                    grep -qE 'HTTP (404|422)' "$RUNNER_TEMP/compare.err" || { cat "$RUNNER_TEMP/compare.err" >&2; exit 1; }
+                    status=unrelated
+                  fi
+                  if [ "$status" = ahead ]; then
+                    echo "::error::the site has $live, newer than $GITHUB_SHA: not deploying"
+                    exit 1
+                  fi
+
             - uses: actions/configure-pages@v6
 
             - name: Deploy to GitHub Pages
