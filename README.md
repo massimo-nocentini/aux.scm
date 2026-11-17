@@ -23,11 +23,12 @@ too, as a package of compiled extensions that the page loads at run time: open i
 or open the page as `https://massimo-nocentini.github.io/chicken-core/?pkg=https://massimo-nocentini.github.io/aux.scm/wasm/aux/`;
 then `(import (aux base))` and the others work in the console and in notebooks.  The package holds
 every module but those needing what WebAssembly lacks (sockets, a C++ runtime, Lua): `(aux lua)`,
-`(aux simdjson)`, `(aux anthropic)`, the two `(aux land-of-lisp webserver)` and
-`(aux games dice-of-doom app)`, and `define-vhost` of `(aux sxml)`; the `.egg` and `aux.sxml.scm`
-leave them out under the feature `emscripten`.  The workflow `.github/workflows/wasm-package.yml`
-builds it, with chicken-core at the revision of the deployed page, and publishes it on this
-repository's GitHub Pages.
+`(aux simdjson)`, `(aux anthropic)`, `(aux land-of-lisp webserver)`,
+`(aux land-of-lisp webserver spiffy)` and `(aux games dice-of-doom app)`, and `define-vhost` and
+`define-vhost-map` of `(aux sxml)`; the `.egg` and `aux.sxml.scm` leave them out under the feature
+`emscripten`.  The workflow `.github/workflows/wasm-package.yml` builds it, with chicken-core at the
+revision of the deployed page, and publishes it on this repository's GitHub Pages; it runs again
+every 6 hours, and builds when the deployed page has changed its ABI (see below).
 
 To build it yourself, against a chicken-core tree whose page is built (`make wasm`, see its README),
 with Emscripten's tools on the `PATH` (`source emsdk_env.sh`) and aux installed natively first (its
@@ -41,8 +42,12 @@ make wasm-package CHICKEN_CORE=/path/to/chicken-core     # WASM_BUILDDIR=... if 
 It writes `wasm/aux/` at the top of this repository (`WASM_PACKAGE_OUT=...` for another directory):
 `manifest.json` and a bundle for each architecture of the page, which only that page's build (its
 ABI) loads.  A page fetches packages from its own origin, or from the origins its build lists in
-`WASM_WEB_PACKAGE_ORIGINS`: to try one with a local page, copy `wasm/aux` into the page's directory
-(`build-wasm/web`, served by chicken-core's `make wasm-serve`) and load `aux/` in the Packages dialog.
+`WASM_WEB_PACKAGE_ORIGINS`: to try one with a local page, write it beside the page,
+`make wasm-package CHICKEN_CORE=... WASM_PACKAGE_OUT=/path/to/chicken-core/build-wasm/web/packages`,
+serve the page with chicken-core's `make wasm-serve` and load `packages/aux/` in the Packages dialog.
+The make of chicken-core that this runs brings its build up to date first: after a change in
+chicken-core (its revision, which every build records) it relinks the page in `WASM_BUILDDIR` and
+chicken-core's native library, without changing the ABI.
 
 ## Included modules
 
