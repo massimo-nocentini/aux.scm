@@ -8,6 +8,38 @@ make install -sudo
 
 provided that a Chicken scheme is installed on your box.
 
+## In the browser
+
+The aux modules run in [CHICKEN's WebAssembly page](https://massimo-nocentini.github.io/chicken-core/)
+too, as a package of compiled extensions that the page loads at run time: open its Packages dialog
+(in Settings, or the notebook's menu) and load
+
+    https://massimo-nocentini.github.io/aux.scm/wasm/aux/
+
+or open the page as `https://massimo-nocentini.github.io/chicken-core/?pkg=https://massimo-nocentini.github.io/aux.scm/wasm/aux/`;
+then `(import (aux base))` and the others work in the console and in notebooks.  The package holds
+every module but those needing what WebAssembly lacks (sockets, a C++ runtime, Lua): `(aux lua)`,
+`(aux simdjson)`, `(aux anthropic)`, the two `(aux land-of-lisp webserver)` and
+`(aux games dice-of-doom app)`, and `define-vhost` of `(aux sxml)`; the `.egg` and `aux.sxml.scm`
+leave them out under the feature `emscripten`.  The workflow `.github/workflows/wasm-package.yml`
+builds it, with chicken-core at the revision of the deployed page, and publishes it on this
+repository's GitHub Pages.
+
+To build it yourself, against a chicken-core tree whose page is built (`make wasm`, see its README),
+with Emscripten's tools on the `PATH` (`source emsdk_env.sh`) and aux installed natively first (its
+modules run at compile time):
+
+```bash
+cd src
+make wasm-package CHICKEN_CORE=/path/to/chicken-core     # WASM_BUILDDIR=... if not its build-wasm
+```
+
+It writes `wasm/aux/` at the top of this repository (`WASM_PACKAGE_OUT=...` for another directory):
+`manifest.json` and a bundle for each architecture of the page, which only that page's build (its
+ABI) loads.  A page fetches packages from its own origin, or from the origins its build lists in
+`WASM_WEB_PACKAGE_ORIGINS`: to try one with a local page, copy `wasm/aux` into the page's directory
+(`build-wasm/web`, served by chicken-core's `make wasm-serve`) and load `aux/` in the Packages dialog.
+
 ## Included modules
 
 The repository contains a collection of small CHICKEN Scheme modules, including
