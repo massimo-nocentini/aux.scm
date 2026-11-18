@@ -222,8 +222,8 @@ jobs:
 
             # aux's modules run when aux is compiled (import-for-syntax), so the WebAssembly build needs
             # them installed natively.  They are built as for the package, with the feature emscripten
-            # (-D for the .egg, -feature for its sources): without the web server, Lua, simdjson and simdutf,
-            # which would need spiffy, Lua 5.5 and a C++ runtime here for nothing.
+            # (-D for the .egg, -feature for its sources): without the web server, Lua and the Anthropic
+            # client, which would need spiffy and Lua 5.5 here for nothing.
             - name: Install aux natively
               working-directory: aux.scm/src
               run: CSC_OPTIONS="-feature emscripten" chicken-install -D emscripten
@@ -271,6 +271,10 @@ jobs:
                   out=$(CHICKEN_REPOSITORY_PATH="$RUNNER_TEMP/unpacked/repo" NODE="$EMSDK_NODE" build-wasm/node/csi -n \
                           -e '(import (aux base)) (display (let1 (x 3) x))')
                   test "$out" = 3
+                  # the C++ side modules, which must import nothing of a C++ runtime the page lacks
+                  out=$(CHICKEN_REPOSITORY_PATH="$RUNNER_TEMP/unpacked/repo" NODE="$EMSDK_NODE" build-wasm/node/csi -n \
+                          -e '(import (aux simdutf) (aux simdjson)) (display (simdutf-utf8->utf16le "a")) (display (simdutf-binary->base64 "aux")) (display (json-parse "[7,true]"))')
+                  test "$out" = '#u8(97 0)YXV4#(7 #t)'
                   ls -l "$RUNNER_TEMP/site/wasm/aux" | tee -a "$GITHUB_STEP_SUMMARY"
 
             - uses: actions/upload-pages-artifact@v5

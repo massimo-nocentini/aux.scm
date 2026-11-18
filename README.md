@@ -22,12 +22,16 @@ too, as a package of compiled extensions that the page loads at run time: open i
 
 or open the page as `https://massimo-nocentini.github.io/chicken-core/?pkg=https://massimo-nocentini.github.io/aux.scm/wasm/aux/`;
 then `(import (aux base))` and the others work in the console and in notebooks.  The package holds
-every module but those needing what WebAssembly lacks (sockets, a C++ runtime, Lua): `(aux lua)`,
-`(aux simdjson)`, `(aux simdutf)`, `(aux anthropic)`, `(aux land-of-lisp webserver)`,
+every module but those needing what a browser lacks (sockets, processes, Lua): `(aux lua)`,
+`(aux anthropic)` (which runs `curl`), `(aux land-of-lisp webserver)`,
 `(aux land-of-lisp webserver spiffy)` and `(aux games dice-of-doom app)`, and `define-vhost` and
 `define-vhost-map` of `(aux sxml)`; the `.egg` and `aux.sxml.scm` leave them out under the feature
-`emscripten`.  The workflow `.github/workflows/wasm-package.yml` builds it, with chicken-core at the
-revision of the deployed page, and publishes it on this repository's GitHub Pages; it runs again
+`emscripten`.  `(aux simdjson)` and `(aux simdutf)` are in it: their C++ uses nothing of the C++
+runtime the page lacks (no exceptions, no RTTI, simdjson through its error codes, simdutf built
+without libc++), and `chicken-simdjson.cpp` defines `operator new` and `delete` over `malloc` and
+`free` for WebAssembly.  simdutf has no WebAssembly SIMD kernel, so there it runs its scalar one.
+The workflow `.github/workflows/wasm-package.yml` builds it, with chicken-core at the revision of
+the deployed page, and publishes it on this repository's GitHub Pages; it runs again
 every 6 hours, and builds when the deployed page has changed its ABI (see below).
 
 To build it yourself, against a chicken-core tree whose page is built (`make wasm`, see its README),
@@ -207,7 +211,7 @@ Exported entry points include:
 Unicode text, and encodes and decodes base64, with SIMD instructions that it picks for the CPU at
 run time.  The library is vendored as its single-header release (`simdutf.cpp`, `simdutf.h` and its C
 API `simdutf_c.h`; `make simdutf-fetch` brings them to the latest release) and compiled into the
-module, so nothing needs installing.
+module, so nothing needs installing; it is in the WebAssembly package too (see above).
 
 Text is held in bytevectors: UTF-16 in an explicit byte order, UTF-32 in the machine's own
 (UTF-32LE on x86-64 and arm64), as simdutf does.  Where the input is UTF-8, Latin-1, base64 or

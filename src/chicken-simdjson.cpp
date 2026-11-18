@@ -1,12 +1,39 @@
 
 #include <chicken.h>
+#include <limits.h>
+#include <stdio.h>
 #include <string.h>
-#include <iostream>
 #include "chicken-simdjson.h"
 #include "simdjson.cpp"
 
-using namespace std;
 using namespace simdjson;
+
+// The binding uses no C++ exceptions: every simdjson call goes through the error codes of its
+// simdjson_result, `.get(x)`, and the egg compiles simdjson with SIMDJSON_EXCEPTIONS=0 and
+// -fno-exceptions.  So no exception can unwind through CHICKEN's C frames, and the object needs
+// nothing of the C++ runtime but the allocation functions, which WebAssembly lacks: CHICKEN's page
+// (a -sMAIN_MODULE=2 main module) exports libchicken and part of the C library only, and a side
+// module importing anything else cannot be loaded.  There they are defined here, over malloc and
+// free.  They are strong definitions: csc-wasm links a side module -Bsymbolic, binding its own
+// symbols to itself, which does not hold for weak ones, imported instead; for that reason the egg
+// also compiles this file -fvisibility=hidden, for the weak inline functions of simdjson.
+#ifdef __EMSCRIPTEN__
+#include <new>
+
+void *operator new(size_t n) { return malloc(n ? n : 1); }
+void *operator new[](size_t n) { return malloc(n ? n : 1); }
+void *operator new(size_t n, const std::nothrow_t &) noexcept { return malloc(n ? n : 1); }
+void *operator new[](size_t n, const std::nothrow_t &) noexcept { return malloc(n ? n : 1); }
+void operator delete(void *p) noexcept { free(p); }
+void operator delete[](void *p) noexcept { free(p); }
+void operator delete(void *p, size_t) noexcept { free(p); }
+void operator delete[](void *p, size_t) noexcept { free(p); }
+namespace std
+{
+  const nothrow_t nothrow{};
+}
+extern "C" __attribute__((noreturn)) void __cxa_pure_virtual() { abort(); }
+#endif
 
 // A JSON string may hold \u0000, so its length is kept next to its bytes rather than implied by
 // the terminating NUL, which is there for the c-string fast path of the getters below.
@@ -27,189 +54,257 @@ static char *chicken_simdjson_c_string(chicken_simdjson_string_t *str)
   return memchr(str->chars, '\0', str->length) == NULL ? str->chars : NULL;
 }
 
-// On demand parsing finds malformed input only when the walk reaches it, so a simdjson_error can
-// be thrown from anywhere below.  A node therefore gets its type only once its payload is in
-// place, and child arrays are calloc'd, so that chicken_simdjson_free can release a half-built
-// tree before the exception is rethrown.
+static chicken_simdjson_value_t *chicken_simdjson_value()
+{
+  return (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
+}
+
+// On demand parsing finds malformed input only when the walk reaches it, so an error can come
+// from anywhere below.  A node therefore gets its type only once its payload is in place, and
+// child arrays are calloc'd, so that chicken_simdjson_free can release a half-built tree before
+// the error is returned.  The walk answers the error, and the tree in *out on SUCCESS only.
 //
 // The walk recurses once per nesting level, and on demand parsing enforces no depth limit of its
 // own: some 35000 nested arrays, a valid 70 kB document, would overflow the C stack and kill the
 // process with SIGSEGV.  depth counts the arrays and objects enclosing element, and one more level
-// than simdjson's DEFAULT_MAX_DEPTH, the limit of its DOM parser, raises DEPTH_ERROR.
+// than simdjson's DEFAULT_MAX_DEPTH, the limit of its DOM parser, answers DEPTH_ERROR.
 //
 // The walk starts from the ondemand::document itself, not from the ondemand::value it converts
-// to: that conversion throws SCALAR_DOCUMENT_AS_VALUE when the root is a scalar ("5", "true",
+// to: that conversion fails with SCALAR_DOCUMENT_AS_VALUE when the root is a scalar ("5", "true",
 // "null", "\"s\""), which is valid JSON, and a document answers the same getters as a value.
 template <typename V>
-static chicken_simdjson_dom_element_t *chicken_simdjson_visit_ondemand(V &element, size_t depth)
+static error_code chicken_simdjson_visit_ondemand(V &element, size_t depth, chicken_simdjson_dom_element_t **out)
 {
   chicken_simdjson_dom_element_t *res = (chicken_simdjson_dom_element_t *)malloc(sizeof(chicken_simdjson_dom_element_t));
+  error_code err = SUCCESS;
+  ondemand::json_type type;
 
   res->type = CHICKEN_SIMDJSON_TYPE_UNKNOWN;
   res->value = NULL;
 
-  try
+  if ((err = element.type().get(type)))
+    goto fail;
+
+  switch (type)
   {
-    switch (element.type())
-    {
-    case ondemand::json_type::array:
-    {
-      if (depth >= DEFAULT_MAX_DEPTH)
-        throw simdjson_error(DEPTH_ERROR);
-
-      auto array = element.get_array();
-      size_t length = array.count_elements();
-
-      res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-      res->value->as_array = (chicken_simdjson_many_t *)malloc(sizeof(chicken_simdjson_many_t));
-      res->value->as_array->length = length;
-      res->value->as_array->keys = NULL;
-      res->value->as_array->elements = (chicken_simdjson_dom_element_t **)calloc(length, sizeof(chicken_simdjson_dom_element_t *));
-      res->type = CHICKEN_SIMDJSON_TYPE_ARRAY;
-
-      size_t i = 0;
-      for (auto child : array)
-      {
-        ondemand::value child_value = child.value();
-
-        // count_elements() only pre-scans the structure: on a malformed document ("[[}],1,2,3")
-        // it can count fewer children than the loop meets before simdjson notices, and the
-        // array must not be overrun
-        if (i >= length)
-          throw simdjson_error(TAPE_ERROR);
-
-        res->value->as_array->elements[i] = chicken_simdjson_visit_ondemand(child_value, depth + 1);
-
-        i++;
-      }
-
-      // nor may a slot stay NULL for simdjson->scheme to dereference
-      if (i != length)
-        throw simdjson_error(TAPE_ERROR);
-
-      break;
-    }
-    case ondemand::json_type::object:
-    {
-      if (depth >= DEFAULT_MAX_DEPTH)
-        throw simdjson_error(DEPTH_ERROR);
-
-      auto obj = element.get_object();
-      size_t length = obj.count_fields();
-
-      res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-      res->value->as_object = (chicken_simdjson_many_t *)malloc(sizeof(chicken_simdjson_many_t));
-      res->value->as_object->length = length;
-      res->value->as_object->keys = (chicken_simdjson_string_t **)calloc(length, sizeof(chicken_simdjson_string_t *));
-      res->value->as_object->elements = (chicken_simdjson_dom_element_t **)calloc(length, sizeof(chicken_simdjson_dom_element_t *));
-      res->type = CHICKEN_SIMDJSON_TYPE_OBJECT;
-
-      size_t i = 0;
-      for (auto field : obj)
-      {
-        // count_fields() pre-scans like count_elements() above
-        if (i >= length)
-          throw simdjson_error(TAPE_ERROR);
-
-        std::string_view key = field.unescaped_key();
-        res->value->as_object->keys[i] = chicken_simdjson_string(key.data(), key.size());
-
-        ondemand::value field_value = field.value();
-        res->value->as_object->elements[i] = chicken_simdjson_visit_ondemand(field_value, depth + 1);
-
-        i++;
-      }
-
-      if (i != length)
-        throw simdjson_error(TAPE_ERROR);
-
-      break;
-    }
-    case ondemand::json_type::number:
-    {
-      ondemand::number_type number_type = element.get_number_type();
-
-      if (number_type == ondemand::number_type::signed_integer)
-      {
-        int64_t n = element.get_int64();
-        res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-        res->value->as_int64 = n;
-        res->type = CHICKEN_SIMDJSON_TYPE_SIGNED_INTEGER;
-      }
-      else if (number_type == ondemand::number_type::unsigned_integer)
-      {
-        uint64_t n = element.get_uint64();
-        res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-        res->value->as_uint64 = n;
-        res->type = CHICKEN_SIMDJSON_TYPE_UNSIGNED_INTEGER;
-      }
-      else if (number_type == ondemand::number_type::floating_point_number)
-      {
-        double n = element.get_double();
-        res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-        res->value->as_double = n;
-        res->type = CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER;
-      }
-      else
-        // a number_type::big_integer, beyond 64 bits: valid JSON, but no getter decodes it, and
-        // a node of unknown type would only raise a vaguer error from the Scheme side
-        throw simdjson_error(BIGINT_ERROR);
-
-      break;
-    }
-    case ondemand::json_type::string:
-    {
-
-      std::string_view str = element.get_string();
-
-      res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-      res->value->as_string = chicken_simdjson_string(str.data(), str.size());
-      res->type = CHICKEN_SIMDJSON_TYPE_STRING;
-
-      break;
-    }
-    case ondemand::json_type::boolean:
-    {
-
-      bool b = element.get_bool();
-      res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
-      res->value->as_boolean = b ? 1 : 0;
-      res->type = CHICKEN_SIMDJSON_TYPE_BOOLEAN;
-      break;
-    }
-    case ondemand::json_type::null:
-    {
-      // type() looks at the first character only, is_null() checks the whole literal
-      if (!element.is_null())
-        throw simdjson_error(N_ATOM_ERROR);
-
-      res->type = CHICKEN_SIMDJSON_TYPE_NULL;
-      break;
-    }
-    default:
-      // json_type::unknown: the value starts with a character no JSON value starts with ("x",
-      // "]", ",", "@"), which simdjson reports only by this type, not by an error of its own.
-      throw simdjson_error(TAPE_ERROR);
-    }
-  }
-  catch (...)
+  case ondemand::json_type::array:
   {
-    chicken_simdjson_free(res);
-    throw;
+    ondemand::array array;
+    size_t length;
+
+    if (depth >= DEFAULT_MAX_DEPTH)
+    {
+      err = DEPTH_ERROR;
+      goto fail;
+    }
+
+    if ((err = element.get_array().get(array)) || (err = array.count_elements().get(length)))
+      goto fail;
+
+    res->value = chicken_simdjson_value();
+    res->value->as_array = (chicken_simdjson_many_t *)malloc(sizeof(chicken_simdjson_many_t));
+    res->value->as_array->length = length;
+    res->value->as_array->keys = NULL;
+    res->value->as_array->elements = (chicken_simdjson_dom_element_t **)calloc(length, sizeof(chicken_simdjson_dom_element_t *));
+    res->type = CHICKEN_SIMDJSON_TYPE_ARRAY;
+
+    size_t i = 0;
+    for (auto child : array)
+    {
+      ondemand::value child_value;
+
+      if ((err = std::move(child).get(child_value)))
+        goto fail;
+
+      // count_elements() only pre-scans the structure: on a malformed document ("[[}],1,2,3")
+      // it can count fewer children than the loop meets before simdjson notices, and the
+      // array must not be overrun
+      if (i >= length)
+      {
+        err = TAPE_ERROR;
+        goto fail;
+      }
+
+      if ((err = chicken_simdjson_visit_ondemand(child_value, depth + 1, &res->value->as_array->elements[i])))
+        goto fail;
+
+      i++;
+    }
+
+    // nor may a slot stay NULL for simdjson->scheme to dereference
+    if (i != length)
+    {
+      err = TAPE_ERROR;
+      goto fail;
+    }
+
+    break;
+  }
+  case ondemand::json_type::object:
+  {
+    ondemand::object obj;
+    size_t length;
+
+    if (depth >= DEFAULT_MAX_DEPTH)
+    {
+      err = DEPTH_ERROR;
+      goto fail;
+    }
+
+    if ((err = element.get_object().get(obj)) || (err = obj.count_fields().get(length)))
+      goto fail;
+
+    res->value = chicken_simdjson_value();
+    res->value->as_object = (chicken_simdjson_many_t *)malloc(sizeof(chicken_simdjson_many_t));
+    res->value->as_object->length = length;
+    res->value->as_object->keys = (chicken_simdjson_string_t **)calloc(length, sizeof(chicken_simdjson_string_t *));
+    res->value->as_object->elements = (chicken_simdjson_dom_element_t **)calloc(length, sizeof(chicken_simdjson_dom_element_t *));
+    res->type = CHICKEN_SIMDJSON_TYPE_OBJECT;
+
+    size_t i = 0;
+    for (auto field_result : obj)
+    {
+      ondemand::field field;
+      std::string_view key;
+
+      if ((err = std::move(field_result).get(field)))
+        goto fail;
+
+      // count_fields() pre-scans like count_elements() above
+      if (i >= length)
+      {
+        err = TAPE_ERROR;
+        goto fail;
+      }
+
+      if ((err = field.unescaped_key().get(key)))
+        goto fail;
+
+      res->value->as_object->keys[i] = chicken_simdjson_string(key.data(), key.size());
+
+      if ((err = chicken_simdjson_visit_ondemand(field.value(), depth + 1, &res->value->as_object->elements[i])))
+        goto fail;
+
+      i++;
+    }
+
+    if (i != length)
+    {
+      err = TAPE_ERROR;
+      goto fail;
+    }
+
+    break;
+  }
+  case ondemand::json_type::number:
+  {
+    ondemand::number_type number_type;
+
+    if ((err = element.get_number_type().get(number_type)))
+      goto fail;
+
+    if (number_type == ondemand::number_type::signed_integer)
+    {
+      int64_t n;
+      if ((err = element.get_int64().get(n)))
+        goto fail;
+      res->value = chicken_simdjson_value();
+      res->value->as_int64 = n;
+      res->type = CHICKEN_SIMDJSON_TYPE_SIGNED_INTEGER;
+    }
+    else if (number_type == ondemand::number_type::unsigned_integer)
+    {
+      uint64_t n;
+      if ((err = element.get_uint64().get(n)))
+        goto fail;
+      res->value = chicken_simdjson_value();
+      res->value->as_uint64 = n;
+      res->type = CHICKEN_SIMDJSON_TYPE_UNSIGNED_INTEGER;
+    }
+    else if (number_type == ondemand::number_type::floating_point_number)
+    {
+      double n;
+      if ((err = element.get_double().get(n)))
+        goto fail;
+      res->value = chicken_simdjson_value();
+      res->value->as_double = n;
+      res->type = CHICKEN_SIMDJSON_TYPE_FLOATING_POINT_NUMBER;
+    }
+    else
+    {
+      // a number_type::big_integer, beyond 64 bits: valid JSON, but no getter decodes it, and
+      // a node of unknown type would only raise a vaguer error from the Scheme side
+      err = BIGINT_ERROR;
+      goto fail;
+    }
+
+    break;
+  }
+  case ondemand::json_type::string:
+  {
+    std::string_view str;
+
+    if ((err = element.get_string().get(str)))
+      goto fail;
+
+    res->value = chicken_simdjson_value();
+    res->value->as_string = chicken_simdjson_string(str.data(), str.size());
+    res->type = CHICKEN_SIMDJSON_TYPE_STRING;
+
+    break;
+  }
+  case ondemand::json_type::boolean:
+  {
+    bool b;
+
+    if ((err = element.get_bool().get(b)))
+      goto fail;
+
+    res->value = chicken_simdjson_value();
+    res->value->as_boolean = b ? 1 : 0;
+    res->type = CHICKEN_SIMDJSON_TYPE_BOOLEAN;
+    break;
+  }
+  case ondemand::json_type::null:
+  {
+    bool null;
+
+    // type() looks at the first character only, is_null() checks the whole literal
+    if ((err = element.is_null().get(null)))
+      goto fail;
+
+    if (!null)
+    {
+      err = N_ATOM_ERROR;
+      goto fail;
+    }
+
+    res->type = CHICKEN_SIMDJSON_TYPE_NULL;
+    break;
+  }
+  default:
+    // json_type::unknown: the value starts with a character no JSON value starts with ("x",
+    // "]", ",", "@"), which simdjson reports only by this type, not by an error of its own.
+    err = TAPE_ERROR;
+    goto fail;
   }
 
-  return res;
+  *out = res;
+  return SUCCESS;
+
+fail:
+  chicken_simdjson_free(res);
+  return err;
 }
 
-// What a parse returns instead of a tree when simdjson throws.  The exception must not unwind
-// through CHICKEN's C frames -- std::terminate would abort the whole process, and no Scheme
-// handler could catch it -- so its message crosses the FFI as data, and simdjson->scheme turns
-// it into a Scheme error.
-static chicken_simdjson_dom_element_t *chicken_simdjson_error(const char *message)
+// What a parse returns instead of a tree on an error.  Its message, the one simdjson_error::what()
+// gives, crosses the FFI as data, and simdjson->scheme turns it into a Scheme error.
+static chicken_simdjson_dom_element_t *chicken_simdjson_error(error_code err)
 {
+  const char *message = error_message(err);
   chicken_simdjson_dom_element_t *res = (chicken_simdjson_dom_element_t *)malloc(sizeof(chicken_simdjson_dom_element_t));
 
-  res->value = (chicken_simdjson_value_t *)malloc(sizeof(chicken_simdjson_value_t));
+  res->value = chicken_simdjson_value();
   res->value->as_string = chicken_simdjson_string(message, strlen(message));
   res->type = CHICKEN_SIMDJSON_TYPE_ERROR;
 
@@ -294,49 +389,78 @@ extern chicken_simdjson_dom_element_t *chicken_simdjson_get_object_ref_value(chi
 // Walks the whole document.  On demand parsing looks past the root value only when asked: a
 // scalar getter on the document does, but after an array or an object "[1][2]", "[1]]" or
 // "{\"a\":1} {\"b\":2}" would silently decode as their first value.
-static chicken_simdjson_dom_element_t *chicken_simdjson_visit_document(ondemand::document &ddoc)
+static chicken_simdjson_dom_element_t *chicken_simdjson_visit_document(ondemand::parser &parser, padded_string &json)
 {
-  chicken_simdjson_dom_element_t *res = chicken_simdjson_visit_ondemand(ddoc, 0);
+  ondemand::document ddoc;
+  chicken_simdjson_dom_element_t *res = NULL;
+  error_code err;
+
+  if ((err = parser.iterate(json).get(ddoc)) || (err = chicken_simdjson_visit_ondemand(ddoc, 0, &res)))
+    return chicken_simdjson_error(err);
 
   if (!ddoc.at_end())
   {
     chicken_simdjson_free(res);
-    throw simdjson_error(TRAILING_CONTENT);
+    return chicken_simdjson_error(TRAILING_CONTENT);
   }
 
   return res;
 }
 
+// padded_string::load(filename), whose errors it answers, but on a C string: that one copies its
+// string_view into a std::string, for the NUL fopen needs, which is the only code here that would
+// need libc++ (its std::string members are compiled into the library, not inline).
+static error_code chicken_simdjson_load(const char *filename, padded_string &out)
+{
+  FILE *fp = fopen(filename, "rb");
+  long llen;
+
+  if (fp == NULL)
+    return IO_ERROR;
+
+  if (fseek(fp, 0, SEEK_END) < 0 || (llen = ftell(fp)) < 0 || llen == LONG_MAX)
+  {
+    fclose(fp);
+    return IO_ERROR;
+  }
+
+  size_t len = (size_t)llen;
+  padded_string s(len);
+
+  if (s.data() == NULL)
+  {
+    fclose(fp);
+    return MEMALLOC;
+  }
+
+  rewind(fp);
+  size_t bytes_read = fread(s.data(), 1, len, fp);
+
+  if (fclose(fp) != 0 || bytes_read != len)
+    return IO_ERROR;
+
+  out = std::move(s);
+  return SUCCESS;
+}
+
 extern chicken_simdjson_dom_element_t *chicken_simdjson_load_ondemand_callback(const char *filename)
 {
-  try
-  {
-    ondemand::parser parser;
-    auto json = padded_string::load(filename);
-    ondemand::document ddoc = parser.iterate(json);
+  ondemand::parser parser;
+  padded_string json;
+  error_code err;
 
-    return chicken_simdjson_visit_document(ddoc);
-  }
-  catch (const std::exception &e)
-  {
-    return chicken_simdjson_error(e.what());
-  }
+  if ((err = chicken_simdjson_load(filename, json)))
+    return chicken_simdjson_error(err);
+
+  return chicken_simdjson_visit_document(parser, json);
 }
 
 extern chicken_simdjson_dom_element_t *chicken_simdjson_parse_ondemand_callback(const char *data, size_t length)
 {
-  try
-  {
-    ondemand::parser parser;
-    simdjson::padded_string my_padded_data(data, length);
-    ondemand::document ddoc = parser.iterate(my_padded_data);
+  ondemand::parser parser;
+  padded_string json(data, length);
 
-    return chicken_simdjson_visit_document(ddoc);
-  }
-  catch (const std::exception &e)
-  {
-    return chicken_simdjson_error(e.what());
-  }
+  return chicken_simdjson_visit_document(parser, json);
 }
 
 extern void chicken_simdjson_free(chicken_simdjson_dom_element_t *element)

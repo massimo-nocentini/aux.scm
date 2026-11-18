@@ -9,14 +9,29 @@
  (cond-expand (emscripten) (else (dependencies spiffy intarweb uri-common)))
  (components
   (c-object chicken-timsort (source "chicken-timsort.c") (csc-options "-I/usr/local/include" "-C" "-DNDEBUG"))
-  (cond-expand (emscripten) (else (c-object chicken-simdjson 
-      (source "chicken-simdjson.cpp") 
-      (csc-options "-I/usr/local/include" "-C" "-std=c++11" "-DNDEBUG") 
-      (link-options "-L" "-lstdc++"))))
-  (cond-expand (emscripten) (else (c-object chicken-simdutf
-      (source "chicken-simdutf.cpp")
-      (csc-options "-I/usr/local/include" "-C" "-std=c++17" "-DNDEBUG")
-      (link-options "-L" "-lstdc++"))))
+  ; The C++ objects need nothing of the C++ runtime but operator new and delete: no exceptions, no
+  ; RTTI, simdjson used through its error codes and simdutf built without libc++.  So they also
+  ; load into CHICKEN's WebAssembly page, which has no C++ runtime (see chicken-simdjson.cpp);
+  ; natively libstdc++ provides those operators.  csc-wasm compiles only .c files, hence the
+  ; chicken-*-cxx.c wrappers, for the WebAssembly targets only (wasm32, wasm64: not the feature
+  ; emscripten, which the native install of the WebAssembly build has too, and native csc puts
+  ; the source before -x c++), and links side modules -Bsymbolic, which binds no weak symbol (an
+  ; inline function) to the module's own: -fvisibility=hidden does.  A plain -DNDEBUG would be a
+  ; csc feature: -C.
+  (c-object chicken-simdjson
+      (cond-expand
+        ((or wasm32 wasm64) (source "chicken-simdjson-cxx.c") (csc-options "-C" "-x" "-C" "c++"))
+        (else (source "chicken-simdjson.cpp") (link-options "-L" "-lstdc++")))
+      (csc-options "-I/usr/local/include" "-C" "-std=c++17" "-C" "-O3" "-C" "-DNDEBUG"
+                   "-C" "-fno-exceptions" "-C" "-fno-rtti" "-C" "-fvisibility=hidden"
+                   "-C" "-DSIMDJSON_EXCEPTIONS=0"))
+  (c-object chicken-simdutf
+      (cond-expand
+        ((or wasm32 wasm64) (source "chicken-simdutf-cxx.c") (csc-options "-C" "-x" "-C" "c++"))
+        (else (source "chicken-simdutf.cpp") (link-options "-L" "-lstdc++")))
+      (csc-options "-I/usr/local/include" "-C" "-std=c++17" "-C" "-O3" "-C" "-DNDEBUG"
+                   "-C" "-fno-exceptions" "-C" "-fno-rtti" "-C" "-fvisibility=hidden"
+                   "-C" "-DSIMDUTF_NO_LIBCXX=1"))
     #;(c-object chicken-hwy
     (source "chicken-hwy.cpp")
     (csc-options "-I/usr/local/include")
@@ -47,8 +62,8 @@
 	  (csc-options  "-I/usr/local/include")
 	  (link-options "-L" "-lJudy"))
   (extension aux.timsort (objects chicken-timsort) (csc-options  "-I/usr/local/include"))
-  (cond-expand (emscripten) (else (extension aux.simdjson (objects chicken-simdjson) (component-dependencies aux.base) (csc-options  "-I/usr/local/include"))))
-  (cond-expand (emscripten) (else (extension aux.simdutf (objects chicken-simdutf) (component-dependencies aux.base) (csc-options  "-I/usr/local/include"))))
+  (extension aux.simdjson (objects chicken-simdjson) (component-dependencies aux.base) (csc-options  "-I/usr/local/include"))
+  (extension aux.simdutf (objects chicken-simdutf) (component-dependencies aux.base) (csc-options  "-I/usr/local/include"))
   #;(extension aux.hwy (objects chicken-hwy) (csc-options  "-I/usr/local/include"))
   (extension aux.continuation (modules (aux continuation) (aux category continuation) (aux category monad continuation)))
   (extension aux.continuation.delimited (csc-options "-O2" "-d1" "-no-trace"))
@@ -114,5 +129,6 @@
   (extension aux.games.dice-of-doom.v3 (component-dependencies aux.base aux.stream.sicp aux.land-of-lisp.svg aux.games.dice-of-doom.v2))
   (extension aux.games.dice-of-doom.v4 (component-dependencies aux.base aux.stream.sicp aux.games.dice-of-doom.v3))
   (cond-expand (emscripten) (else (extension aux.games.dice-of-doom.app (component-dependencies aux.base aux.stream.sicp aux.search.adversarial aux.land-of-lisp.webserver.spiffy aux.games.dice-of-doom.v4))))
+  ; it runs the curl binary, and a browser has no processes
   (cond-expand (emscripten) (else (extension aux.anthropic (component-dependencies aux.base aux.simdjson))))
   ))
