@@ -13,6 +13,10 @@
       (source "chicken-simdjson.cpp") 
       (csc-options "-I/usr/local/include" "-C" "-std=c++11" "-DNDEBUG") 
       (link-options "-L" "-lstdc++"))))
+  (cond-expand (emscripten) (else (c-object chicken-simdutf
+      (source "chicken-simdutf.cpp")
+      (csc-options "-I/usr/local/include" "-C" "-std=c++17" "-DNDEBUG")
+      (link-options "-L" "-lstdc++"))))
     #;(c-object chicken-hwy
     (source "chicken-hwy.cpp")
     (csc-options "-I/usr/local/include")
@@ -44,6 +48,7 @@
 	  (link-options "-L" "-lJudy"))
   (extension aux.timsort (objects chicken-timsort) (csc-options  "-I/usr/local/include"))
   (cond-expand (emscripten) (else (extension aux.simdjson (objects chicken-simdjson) (component-dependencies aux.base) (csc-options  "-I/usr/local/include"))))
+  (cond-expand (emscripten) (else (extension aux.simdutf (objects chicken-simdutf) (component-dependencies aux.base) (csc-options  "-I/usr/local/include"))))
   #;(extension aux.hwy (objects chicken-hwy) (csc-options  "-I/usr/local/include"))
   (extension aux.continuation (modules (aux continuation) (aux category continuation) (aux category monad continuation)))
   (extension aux.continuation.delimited (csc-options "-O2" "-d1" "-no-trace"))

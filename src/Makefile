@@ -3,7 +3,7 @@ CSI=csi
 CSC=csc
 
 .PHONY: echo clean test test-microkanren test-microkanren-show test-microkanren-arith \
-        test-microkanren-date test-microkanren-lambda test-microkanren-with-lambda test-anthropic test-anthropic-live test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch \
+        test-microkanren-date test-microkanren-lambda test-microkanren-with-lambda test-anthropic test-anthropic-live test-simdutf test-cml test-on-scheme test-lua test-learning-matchable test-hakaru10-long test-hansei-long bench-hakaru10 install format simdjson-fetch simdutf-fetch \
         timsort-fetch foreigns-fetch json-bench bitcoin-colors test-pie test-j-bob \
         test-land-of-lisp test-search serve-dice-of-doom wasm-package
 
@@ -55,6 +55,7 @@ test:
 	cd test && ${CSI} -s microkanren-lambda-limits.scm
 	cd test && for t in microkanren microkanren-aggregation microkanren-untagged microkanren-show microkanren-arith microkanren-date; do ${CSI} -R aux.kanren.lambda -s $$t.scm || exit 1; done
 	cd test && ${CSI} -s anthropic.scm
+	cd test && ${CSI} -s simdutf.scm
 	cd test && ${CSI} -s cml.scm
 	cd test && ${CSI} -s cml-lib.scm
 	cd test && ${CSI} -s cml-io.scm
@@ -155,6 +156,10 @@ test-anthropic:
 
 test-anthropic-live:
 	cd test && ${CSI} -s anthropic-live.scm
+
+# (aux simdutf): validation, transcoding and base64 against reference encoders written in Scheme.
+test-simdutf:
+	cd test && ${CSI} -s simdutf.scm
 
 test-cml:
 	cd test && ${CSI} -s cml.scm
@@ -263,6 +268,7 @@ format:
 	scheme-indent -T 2 < aux.base.scm > aux.base.scm.tmp && mv aux.base.scm.tmp aux.base.scm 
 	scheme-indent -T 2 < aux.libc.scm > aux.libc.scm.tmp && mv aux.libc.scm.tmp aux.libc.scm
 	scheme-indent -T 2 < aux.simdjson.scm > aux.simdjson.scm.tmp && mv aux.simdjson.scm.tmp aux.simdjson.scm
+	scheme-indent -T 2 < aux.simdutf.scm > aux.simdutf.scm.tmp && mv aux.simdutf.scm.tmp aux.simdutf.scm
 	scheme-indent -T 2 < aux.stream.scm > aux.stream.scm.tmp && mv aux.stream.scm.tmp aux.stream.scm
 	scheme-indent -T 2 < aux.timsort.scm > aux.timsort.scm.tmp && mv aux.timsort.scm.tmp aux.timsort.scm
 	scheme-indent -T 2 < aux.continuation.scm > aux.continuation.scm.tmp && mv aux.continuation.scm.tmp aux.continuation.scm
@@ -330,7 +336,14 @@ timsort-fetch:
 	wget --no-verbose https://raw.githubusercontent.com/massimo-nocentini/timsort.c/refs/heads/master/src/timsort.c
 	wget --no-verbose https://raw.githubusercontent.com/massimo-nocentini/timsort.c/refs/heads/master/src/timsort.h
 
-foreigns-fetch: timsort-fetch simdjson-fetch
+# simdutf's single-header release: its C API, simdutf_c.h, ships only in the zip.
+simdutf-fetch:
+	rm -rf simdutf.cpp simdutf.h simdutf_c.h singleheader.zip
+	wget --no-verbose https://github.com/simdutf/simdutf/releases/latest/download/singleheader.zip
+	unzip -o -q singleheader.zip simdutf.cpp simdutf.h simdutf_c.h
+	rm -f singleheader.zip
+
+foreigns-fetch: timsort-fetch simdjson-fetch simdutf-fetch
 
 json-bench:
 	# first take json files from https://jsoneditoronline.org/indepth/datasets/json-file-example/#a-large-json-document

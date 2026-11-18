@@ -222,7 +222,7 @@ jobs:
 
             # aux's modules run when aux is compiled (import-for-syntax), so the WebAssembly build needs
             # them installed natively.  They are built as for the package, with the feature emscripten
-            # (-D for the .egg, -feature for its sources): without the web server, Lua and simdjson,
+            # (-D for the .egg, -feature for its sources): without the web server, Lua, simdjson and simdutf,
             # which would need spiffy, Lua 5.5 and a C++ runtime here for nothing.
             - name: Install aux natively
               working-directory: aux.scm/src

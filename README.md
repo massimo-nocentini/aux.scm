@@ -23,7 +23,7 @@ too, as a package of compiled extensions that the page loads at run time: open i
 or open the page as `https://massimo-nocentini.github.io/chicken-core/?pkg=https://massimo-nocentini.github.io/aux.scm/wasm/aux/`;
 then `(import (aux base))` and the others work in the console and in notebooks.  The package holds
 every module but those needing what WebAssembly lacks (sockets, a C++ runtime, Lua): `(aux lua)`,
-`(aux simdjson)`, `(aux anthropic)`, `(aux land-of-lisp webserver)`,
+`(aux simdjson)`, `(aux simdutf)`, `(aux anthropic)`, `(aux land-of-lisp webserver)`,
 `(aux land-of-lisp webserver spiffy)` and `(aux games dice-of-doom app)`, and `define-vhost` and
 `define-vhost-map` of `(aux sxml)`; the `.egg` and `aux.sxml.scm` leave them out under the feature
 `emscripten`.  The workflow `.github/workflows/wasm-package.yml` builds it, with chicken-core at the
@@ -200,6 +200,65 @@ Exported entry points include:
 (json-write (json-set '((role user)) 'scores #(1 0.25 #t)))
 ;; => "{\"role\":\"user\",\"scores\":[1,0.25,true]}"
 ```
+
+### `(aux simdutf)`
+
+`(aux simdutf)` binds [simdutf](https://github.com/simdutf/simdutf), which validates and transcodes
+Unicode text, and encodes and decodes base64, with SIMD instructions that it picks for the CPU at
+run time.  The library is vendored as its single-header release (`simdutf.cpp`, `simdutf.h` and its C
+API `simdutf_c.h`; `make simdutf-fetch` brings them to the latest release) and compiled into the
+module, so nothing needs installing.
+
+Text is held in bytevectors: UTF-16 in an explicit byte order, UTF-32 in the machine's own
+(UTF-32LE on x86-64 and arm64), as simdutf does.  Where the input is UTF-8, Latin-1, base64 or
+binary, a string works too, standing for its UTF-8 bytes.  Every transcoder answers a fresh
+bytevector, or raises a condition of kinds `exn` and `simdutf`, whose `simdutf-error-code` is a
+symbol (`header-bits`, `too-short`, `too-long`, `overlong`, `too-large`, `surrogate`,
+`invalid-base64-character`, `base64-input-remainder`, `base64-extra-bits`, …) and whose
+`simdutf-error-position` counts code units of the input, as simdutf counts them.
+
+Exported entry points include:
+
+- `simdutf-valid-utf8?`, `simdutf-valid-ascii?`, `simdutf-valid-utf16le?`,
+  `simdutf-valid-utf16be?`, `simdutf-valid-utf32?`, and `simdutf-validate-*`, which answer the
+  error code and the position of the error (or the length, on success) as two values
+- `simdutf-utf8->utf16le`, `simdutf-utf8->utf16be`, `simdutf-utf8->utf32`, `simdutf-utf8->latin1`,
+  and the same from UTF-16LE, UTF-16BE, UTF-32 and Latin-1 to each of the others
+- `simdutf-utf8->utf16le/replacement`, `simdutf-utf16le->utf8/replacement` (and their `be`
+  twins), `simdutf-to-well-formed-utf16le`/`be`, which never fail: ill-formed input becomes
+  U+FFFD, as in the WHATWG Encoding Standard
+- `simdutf-count-utf8`, `simdutf-count-utf16le`, `simdutf-count-utf16be` — the code points of valid
+  input
+- `simdutf-autodetect-encoding`, `simdutf-detect-encodings`
+- `simdutf-binary->base64` (alphabets `default`, `url`, `default-no-padding`, `url-with-padding`,
+  optional line breaks) and `simdutf-base64->binary` (also the `*-accept-garbage` and
+  `default-or-url` options, and the handling of a final partial chunk: `loose`, `strict`,
+  `stop-before-partial`, `only-full-chunks`)
+- `simdutf-get-version`, `simdutf-get-implementation` — the release and the SIMD kernel in use
+
+Example:
+
+```scheme
+(import (aux simdutf) (chicken bytevector))
+
+(simdutf-utf8->utf16le "a🙂")
+;; => #u8(97 0 61 216 66 222)
+
+(utf8->string (simdutf-utf16le->utf8 (simdutf-utf8->utf16le "a🙂")))
+;; => "a🙂"
+
+(simdutf-validate-utf8 (bytevector 65 #xC0 #x80))
+;; => overlong 1
+
+(simdutf-binary->base64 "foobar")
+;; => "Zm9vYmFy"
+
+(simdutf-base64->binary "-_8" 'url)
+;; => #u8(251 255)
+```
+
+The tests (`make test-simdutf`) check every conversion against reference encoders written in
+Scheme, on random text from every UTF-8 length class.
 
 ### `(aux timsort)`
 
